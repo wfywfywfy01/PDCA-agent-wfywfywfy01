@@ -46,7 +46,10 @@
     .score-box { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: center; }
     .score { width: 110px; height: 110px; border-radius: 50%; border: 10px solid #111827; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 900; }
     .todo-list, .scroll-list { max-height: 210px; overflow: auto; display: grid; gap: 10px; }
+    .todo-source-hint { margin: 0 0 10px; font-size: 12px; color: #6b7280; line-height: 1.45; }
     .todo-item, .list-row { border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; background: #fafafa; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .todo-item .todo-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .todo-item .todo-sub { font-size: 11px; color: #9ca3af; }
     .tag { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; white-space: nowrap; }
     .btn { border: 0; border-radius: 8px; padding: 7px 12px; background: #111827; color: #fff; cursor: pointer; font-size: 13px; text-decoration: none; display: inline-block; }
     .btn.ghost { background: #f3f4f6; color: #111827; }
@@ -59,6 +62,7 @@
     .progress { margin-top: 8px; height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; width: 100%; }
     .progress span { display: block; height: 100%; background: #111827; }
     .exception-grid, .footer-modules { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .footer-modules .task-center-section .task-grid { grid-template-columns: repeat(3, 1fr); }
     .exception-item { padding: 10px 12px; border-left: 4px solid #111827; background: #fafafa; border-radius: 8px; margin-bottom: 10px; }
     .important-row { display: grid; grid-template-columns: 1.1fr 1.2fr 180px; gap: 12px; align-items: start; border: 1px solid #eef2f7; border-radius: 12px; padding: 12px; margin-bottom: 10px; background: #fafafa; }
     textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; font-family: inherit; }
@@ -99,11 +103,11 @@
           <div class="metric-foot stat-foot action"></div>
         </div>
       </div>
-      <div class="card stat metric-card">
+      <div class="card stat metric-card metric-link stat-link sell-out-card" role="link" tabindex="0" title="打开客流分析台（海外客流与线上经营）" onclick="location.href=withDate('/walkin-cockpit/')" onkeydown="if(event.key==='Enter')location.href=withDate('/walkin-cockpit/')">
         <div class="metric-body stat-body">
           <div class="metric-label label">经销商终销金额 Sell Out</div>
           <div class="metric-value value" id="sellOutAmount"><span class="amount-num">—</span></div>
-          <div class="metric-foot stat-foot"></div>
+          <div class="metric-foot stat-foot action" id="sellOutFoot"></div>
         </div>
       </div>
     </div>
@@ -114,7 +118,11 @@
           <div class="section-title">昨日表现打分 <span class="tag">Agent 综合评判</span></div>
           <div class="score-box"><div class="score" id="agentScore">—</div><div><b>综合评价</b><p id="scoreComment"></p></div></div>
         </section>
-        <section class="card section"><div class="section-title">今日 ToDo <button type="button" class="btn ghost" onclick="goDetail('todo')">详情</button></div><div class="todo-list" id="todayTodoList"></div></section>
+        <section class="card section">
+          <div class="section-title">今日 ToDo</div>
+          <p class="todo-source-hint" id="todayTodoHint"></p>
+          <div class="todo-list" id="todayTodoList"></div>
+        </section>
         <section class="card section"><div class="section-title">Hermes Agent 分配任务</div><div class="todo-list" id="agentTaskList"></div></section>
       </div>
 
@@ -135,7 +143,10 @@
     </section>
 
     <div class="footer-modules">
-      <section class="card section"><div class="section-title">任务中心 <button type="button" class="btn ghost" onclick="goDetail('tasks')">详情</button></div><div class="task-grid" id="taskCenter"></div></section>
+      <section class="card section task-center-section">
+        <div class="section-title">任务中心 <button type="button" class="btn ghost" onclick="goDetail('pdca')">详情</button></div>
+        <div class="task-grid" id="taskCenter"></div>
+      </section>
       <section class="card section"><div class="section-title">会议中心 <button type="button" class="btn ghost" onclick="goDetail('vemory')">跳转 Vemory</button></div><div class="meeting-grid" id="meetingCenter"></div></section>
     </div>
   </div>
@@ -173,10 +184,7 @@
 
     function buildQuickLinks() {
       const links = [
-        ['数据看板', '/dashboard'],
-        ['海外客流', '/walkin-cockpit/'],
-        ['线上经营', '/walkin-cockpit/#oi-merged'],
-        ['PDCA 日结', '/pdca-vps']
+        ['数据看板', '/dashboard']
       ];
       document.getElementById('quickLinks').innerHTML = links
         .map(([label, href]) => '<a href="' + withDate(href) + '">' + label + '</a>')
@@ -236,9 +244,17 @@
       return await res.json();
     }
 
-    async function refreshDashboard() {
+    async function loadSection(label, loader) {
       try {
-        const params = { managerId: 'default' };
+        await loader();
+      } catch (err) {
+        console.error(label, err);
+      }
+    }
+
+    async function refreshDashboard() {
+      const params = { managerId: 'default' };
+      await loadSection('overview', async function () {
         const overview = await request(API.dashboard, params);
         managerName.innerHTML = formatTextHtml(overview.managerName);
         managerRole.textContent = shortRoleText(overview.managerRole);
@@ -252,30 +268,76 @@
         } else {
           sellOutAmount.innerHTML = '<span class="amount-num">' + escapeHtml(overview.sellOutAmount || '¥ 0') + '</span>';
         }
+        var sellOutCard = document.querySelector('.sell-out-card');
+        if (sellOutCard) {
+          sellOutCard.title = (overview.sellOutSub || '客流分析台：海外客流与线上经营') + ' · 点击进入';
+        }
         agentScore.textContent = overview.agentScore != null ? overview.agentScore : '—';
         scoreComment.textContent = overview.scoreComment || '';
-
+      });
+      await loadSection('todo', async function () {
         renderTodos(await request(API.todo, params));
-        renderAgentTasks(await request(API.agentTasks, params));
-        renderCustomers(await request(API.customerCenter, params));
-        renderHuman(await request(API.humanCenter, params));
-        renderExceptions(await request(API.exceptions, params));
-        renderImportant(await request(API.importantMatters, params));
+      });
+      await loadSection('taskCenter', async function () {
         renderTaskCenter(await request(API.taskCenter, params));
+      });
+      await loadSection('agentTasks', async function () {
+        renderAgentTasks(await request(API.agentTasks, params));
+      });
+      await loadSection('customers', async function () {
+        renderCustomers(await request(API.customerCenter, params));
+      });
+      await loadSection('human', async function () {
+        renderHuman(await request(API.humanCenter, params));
+      });
+      await loadSection('exceptions', async function () {
+        renderExceptions(await request(API.exceptions, params));
+      });
+      await loadSection('important', async function () {
+        renderImportant(await request(API.importantMatters, params));
+      });
+      await loadSection('meeting', async function () {
         renderMeetingCenter(await request(API.meetingCenter, params));
-      } catch (err) {
-        console.error(err);
-        scoreComment.textContent = '数据加载失败：' + err.message;
-      }
+      });
     }
 
     function renderTodos(data) {
+      var hint = document.getElementById('todayTodoHint');
+      var yesterday = (data && data[0] && data[0].yesterday) ? data[0].yesterday : '';
+      if (hint) {
+        hint.textContent = yesterday
+          ? '来源：vertu odoo daily-report · 昨日（' + yesterday + '）群日报「明日计划」'
+          : '';
+      }
       if (!data || !data.length) {
-        todayTodoList.innerHTML = '<div class="empty-hint">暂无今日待办</div>';
+        todayTodoList.innerHTML = '<div class="empty-hint">暂无今日计划，请补交昨日群日报</div>';
         return;
       }
       todayTodoList.innerHTML = data.map(function (item) {
-        return '<div class="todo-item"><span>' + escapeHtml(item.title) + '</span><span class="tag">' + escapeHtml(item.status) + '</span></div>';
+        var sub = item.deadline ? '截止 ' + item.deadline : '';
+        if (item.progress > 0 && item.progress < 100) {
+          sub = (sub ? sub + ' · ' : '') + '进度 ' + item.progress + '%';
+        }
+        return (
+          '<div class="todo-item">' +
+          '<div class="todo-meta"><span>' + escapeHtml(item.title) + '</span>' +
+          (sub ? '<span class="todo-sub">' + escapeHtml(sub) + '</span>' : '') +
+          '</div><span class="tag">' + escapeHtml(item.status || '待办') + '</span></div>'
+        );
+      }).join('');
+    }
+
+    function renderTaskCenter(data) {
+      var statsEl = document.getElementById('taskCenter');
+      if (!statsEl) return;
+      var rows = Array.isArray(data) ? data : (data && data.summary) || [];
+      statsEl.innerHTML = rows.map(function (item) {
+        return metricTileHtml({
+          label: item.label,
+          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
+          link: true,
+          onClick: "goDetail('pdca')"
+        });
       }).join('');
     }
 
@@ -340,17 +402,6 @@
       }).join('');
     }
 
-    function renderTaskCenter(data) {
-      taskCenter.innerHTML = (data || []).map(function (item) {
-        return metricTileHtml({
-          label: item.label,
-          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
-          link: true,
-          onClick: "goDetail('tasks-" + item.key + "')"
-        });
-      }).join('');
-    }
-
     function renderMeetingCenter(data) {
       meetingCenter.innerHTML = (data || []).map(function (item) {
         return metricTileHtml({
@@ -379,14 +430,22 @@
 
     function goDetail(type) {
       const routes = {
-        todo: '/todos',
+        todo: '/pdca-vps',
+        pdca: '/pdca-vps',
         customer: '/customer-mgmt',
         hr: '/customer-mgmt',
         tasks: '/todos',
-        vemory: '/pdca-vps'
+        pdca: '/pdca-vps',
+        vemory: '/meeting-center'
       };
       if (type.indexOf('customer-') === 0) {
         location.href = withDate('/customer-mgmt');
+        return;
+      }
+      if (type.indexOf('vemory-') === 0) {
+        const filter = type.replace('vemory-', '');
+        const hash = filter && filter !== 'total' ? '#filter=' + filter : '';
+        location.href = withDate('/meeting-center') + hash;
         return;
       }
       if (routes[type]) {

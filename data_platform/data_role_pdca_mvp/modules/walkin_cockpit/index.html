@@ -465,6 +465,8 @@
     var wechatAdd = sumSS('wechatAddCount', 'wechatAddCount');
     var effC = sumSS('effectiveCustomers', 'effectiveCustomers');
     var effA = sumSS('effectiveAdded', 'effectiveAdded');
+    var activationCnt = sumSS('activationQty', 'activationQty');
+    var offsiteActivationCnt = sumSS('offsiteActivationQty', 'offsiteActivationQty');
     var touchCnt = sumSS('touchCount', 'touchCount');
     var useCnt = sumSS('useCount', 'useCount');
     var dealWan =
@@ -526,6 +528,15 @@
       effA = Math.round(effC * 0.79);
       estParts.push('已添加有效按有效客户约79%估算');
     }
+    if (activationCnt <= 0) {
+      var activationBase = wechatAdd > 0 ? wechatAdd : effA;
+      activationCnt = Math.round(activationBase * 0.085);
+      if (activationBase > 0) estParts.push('激活数按已添加客户约8.5%估算');
+    }
+    if (offsiteActivationCnt <= 0 && activationCnt > 0) {
+      offsiteActivationCnt = Math.max(0, Math.round(activationCnt * 0.062));
+      estParts.push('异地激活按激活数约6.2%估算');
+    }
     var denomPeople = walkinPeople > 0 ? walkinPeople : walkinGroups;
     var touchRatePct = pct(touchCnt, denomPeople);
     var useRatePct = pct(useCnt, denomPeople);
@@ -552,12 +563,16 @@
       wechatAdd: wechatAdd,
       effectiveCustomers: effC,
       effectiveAdded: effA,
+      activationCnt: activationCnt,
+      offsiteActivationCnt: offsiteActivationCnt,
       touchRatePct: touchRatePct,
       useRatePct: useRatePct,
       groupAddRatePct: pct(addedGrp, walkinGroups),
       dealRatePct: pct(dealGroups, walkinGroups),
       wechatRatePct: pct(wechatAdd, walkinPeople),
       validToAddedPct: pct(effA, effC),
+      activationRatePct: pct(activationCnt, wechatAdd > 0 ? wechatAdd : effA),
+      offsiteActivationRatePct: pct(offsiteActivationCnt, activationCnt),
       dealTotalWan: dealWan,
       storeCount: stores.length,
       estimatedNote:
@@ -580,16 +595,26 @@
           '</span>'
         : '') +
       '</p>';
-    function kpi(title, val, sub) {
+    function kpi(title, val, sub, warn) {
       return (
-        '<div class="p-4 rounded-xl border bg-white" style="border-color:var(--slate-200)">' +
+        '<div class="p-4 rounded-xl border bg-white" style="border-color:' +
+        (warn ? '#f87171' : 'var(--slate-200)') +
+        ';background:' +
+        (warn ? '#fff7f7' : '#fff') +
+        '">' +
         '<p class="text-xs font-bold text-slate-500 mb-1">' +
         escapeHtml(title) +
         '</p>' +
         '<p class="text-2xl font-bold text-slate-900 tracking-tight">' +
         val +
         '</p>' +
-        (sub ? '<p class="text-xs text-slate-500 mt-1">' + sub + '</p>' : '') +
+        (sub
+          ? '<p class="text-xs ' +
+            (warn ? 'text-red-600 font-bold' : 'text-slate-500') +
+            ' mt-1">' +
+            sub +
+            '</p>'
+          : '') +
         '</div>'
       );
     }
@@ -619,9 +644,21 @@
       kpi('本期进店人数', String(b.walkinPeople), '用于微信添加率 · 环比 — · 同比 —') +
       kpi('本期微信添加数', String(b.wechatAdd), '按画像条数 · 环比 — · 同比 —') +
       '</div>' +
-      '<div class="grid grid-cols-2 gap-3 mb-4">' +
+      '<div class="grid grid-cols-2 grid-cols-lg-4 gap-3 mb-4">' +
       kpi('触摸率', b.touchRatePct + '%', '触摸人次 / 进店人数') +
       kpi('使用率', b.useRatePct + '%', '试用人次 / 进店人数') +
+      kpi(
+        '激活数',
+        String(b.activationCnt),
+        (b.activationRatePct < 10 ? '异常提醒：' : '') + '激活率 ' + b.activationRatePct + '%',
+        b.activationRatePct < 10
+      ) +
+      kpi(
+        '异地激活数',
+        String(b.offsiteActivationCnt),
+        (b.offsiteActivationRatePct > 5 ? '异常提醒：' : '') + '异地激活率 ' + b.offsiteActivationRatePct + '%',
+        b.offsiteActivationRatePct > 5
+      ) +
       '</div>' +
       '<div class="border-t border-slate-100 pt-4">' +
       '<div class="flex items-center justify-between mb-3">' +
@@ -2166,10 +2203,7 @@
       loadWalkinMonth(state.selectedMonth, false);
     };
     if (typeof WalkinOnlineMerged !== 'undefined') {
-      WalkinOnlineMerged.init(
-        'data/online_channel_reference.json',
-        'data/vn_data_collect_reference.json'
-      ).finally(startWalkin);
+      WalkinOnlineMerged.init(undefined, 'data/vn_data_collect_reference.json').finally(startWalkin);
       return;
     }
     startWalkin();

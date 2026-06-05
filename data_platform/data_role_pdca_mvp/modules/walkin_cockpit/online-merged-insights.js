@@ -95,8 +95,120 @@
     return M[nm] != null ? M[nm] : 0;
   }
 
+  function vpsCell(v, unit) {
+    unit = unit || '';
+    if (v === null || v === undefined || v === '') {
+      return '<span style="color:#64748b">—</span>';
+    }
+    return String(v) + unit;
+  }
+
+  /**
+   * 大区门店分析（与数据看板 DEALER_REGION 同源，VPS 真实销售）
+   * @param {object[]} dealerRegion
+   */
+  function renderDealerRegionHtml(dealerRegion) {
+    if (!dealerRegion || !dealerRegion.length) {
+      return '';
+    }
+    var colors = {
+      中东: '#f97316',
+      欧洲: '#3b6ef8',
+      南亚: '#22c55e',
+      东南亚: '#a855f7',
+      中亚: '#06b6d4',
+      其他: '#6b7280',
+    };
+    var totalPerf = 0;
+    for (var ti = 0; ti < dealerRegion.length; ti++) {
+      totalPerf += dealerRegion[ti].perf || 0;
+    }
+    var mxPerf = 0.01;
+    for (var mi = 0; mi < dealerRegion.length; mi++) {
+      mxPerf = Math.max(mxPerf, dealerRegion[mi].perf || 0);
+    }
+    var html =
+      '<div class="oi-card">' +
+      '<h3>大区门店分析（VPS）</h3>' +
+      '<p class="oi-note">门店清单 <code>config/dealers.json</code>；<strong>提货金额/件数</strong>来自 vertu <code>customer_summary</code>（与数据看板一致）。</p>';
+    for (var ri = 0; ri < dealerRegion.length; ri++) {
+      var rg = dealerRegion[ri];
+      var color = colors[rg.region] || '#6b7280';
+      var pct = totalPerf > 0 ? ((rg.perf / totalPerf) * 100).toFixed(1) : '0.0';
+      var bar = Math.round(((rg.perf || 0) / mxPerf) * 100);
+      html +=
+        '<div class="oi-region-block" style="margin-bottom:14px;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;border-left:4px solid ' +
+        color +
+        ';padding-left:10px">' +
+        '<strong style="min-width:52px">' +
+        rg.region +
+        '</strong>' +
+        '<div style="flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,.08)"><div style="height:100%;width:' +
+        bar +
+        '%;background:' +
+        color +
+        ';border-radius:4px"></div></div>' +
+        '<span style="color:' +
+        color +
+        ';font-weight:700">' +
+        (rg.perf || 0) +
+        ' 万</span>' +
+        '<span style="color:#94a3b8;font-size:12px">' +
+        pct +
+        '%</span>' +
+        '<span style="color:#4ade80;font-size:12px">' +
+        (rg.qty || 0) +
+        ' 件</span></div>';
+      for (var ci = 0; ci < (rg.countries || []).length; ci++) {
+        var ct = rg.countries[ci];
+        var openAttr = (ct.perf || 0) > 0 || (ct.qty || 0) > 0 ? ' open' : '';
+        html +=
+          '<details style="margin:4px 0 4px 12px"' +
+          openAttr +
+          '><summary style="cursor:pointer;font-size:12px;color:#cbd5e1">' +
+          ct.country +
+          ' · ' +
+          (ct.dealers || []).length +
+          ' 家';
+        if (ct.perf > 0) {
+          html += ' · <span style="color:#93c5fd">' + ct.perf + ' 万</span>';
+        }
+        if (ct.qty > 0) {
+          html += ' · <span style="color:#4ade80">' + ct.qty + ' 件</span>';
+        }
+        html += '</summary><table class="oi-grid oi-grid-wide" style="margin-top:6px"><thead><tr>' +
+          '<th>门店</th><th>销售</th><th class="num">真实销售(万)</th><th class="num">件数</th></tr></thead><tbody>';
+        for (var di = 0; di < (ct.dealers || []).length; di++) {
+          var d = ct.dealers[di];
+          var active = (d.perf || 0) > 0 || (d.qty || 0) > 0;
+          var nick = d.nickname
+            ? ' <span style="color:#94a3b8;font-size:11px">(' + d.nickname + ')</span>'
+            : '';
+          html +=
+            '<tr' +
+            (active ? '' : ' style="opacity:.55"') +
+            '><td>' +
+            d.name +
+            nick +
+            '</td><td>' +
+            (d.salesperson || '—') +
+            '</td><td class="num">' +
+            vpsCell(d.perf, '') +
+            '</td><td class="num">' +
+            vpsCell(d.qty, '') +
+            '</td></tr>';
+        }
+        html += '</tbody></table></details>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function aggRegions(ml) {
-    var order = (ref && ref.regionOrder) || ['北区', '西区', '东区', '南区'];
+    var order = (ref && ref.regionOrder) || ['中东', '欧洲', '南亚', '东南亚', '中亚'];
     var out = [];
     for (var i = 0; i < order.length; i++) {
       var rg = order[i];
@@ -221,21 +333,115 @@
   }
 
   function renderChannelBars(ml) {
-    var a = sum(ml, function (x) {
-      return x.Ls;
-    });
-    var b = sum(ml, function (x) {
-      return x.Ll;
-    });
-    var c = sum(ml, function (x) {
-      return x.Lo;
-    });
+    var labels = (ref && ref.channelLabels) || ['短视频', '直播', '其他'];
+    var a;
+    var b;
+    var c;
+    var note = '';
+    if (ref && ref.channelLeads) {
+      var ch = ref.channelLeads;
+      a = ch.shortVideo != null ? ch.shortVideo : ch.tiktok || 0;
+      b = ch.live != null ? ch.live : ch.tiktokLive || 0;
+      c = ch.other != null ? ch.other : (ch.facebook || 0) + (ch.instagram || 0);
+      note =
+        '<p class="oi-note">渠道线索来自 <code>越南门店数据.xlsx</code>（TK / Ins / Facebook 列按月汇总）' +
+        (ch.displayMonth && ch.displayMonth !== (ref.checkDate || '').slice(0, 7)
+          ? ' · 统计月 ' + ch.displayMonth + '（所选月 Excel 无线上记录）'
+          : '') +
+        (ch.instagram != null && ch.facebook != null
+          ? ' · Ins ' + ch.instagram + ' · Facebook ' + ch.facebook
+          : '') +
+        '。</p>';
+    } else {
+      a = sum(ml, function (x) {
+        return x.Ls;
+      });
+      b = sum(ml, function (x) {
+        return x.Ll;
+      });
+      c = sum(ml, function (x) {
+        return x.Lo;
+      });
+    }
     var mx = Math.max(a, b, c, 1);
     return (
-      barUnit('短视频', a, mx, 'a', '条') +
-      barUnit('直播', b, mx, 'b', '条') +
-      barUnit('其他', c, mx, 'c', '条')
+      note +
+      barUnit(labels[0] || '短视频', a, mx, 'a', '条') +
+      barUnit(labels[1] || '直播', b, mx, 'b', '条') +
+      barUnit(labels[2] || '其他', c, mx, 'c', '条')
     );
+  }
+
+  function regionActivationRows(agg) {
+    var rows = [];
+    for (var i = 0; i < (agg || []).length; i++) {
+      var r = agg[i];
+      var lead = r.ld || 0;
+      var h = hashStr((r.rg || '') + '|activation');
+      var actRate = 0.078 + (h % 42) / 1000;
+      var offRate = 0.028 + ((h >> 3) % 48) / 1000;
+      if (r.rg === '欧洲') offRate = Math.max(offRate, 0.064);
+      var activation = Math.max(0, Math.round(lead * actRate));
+      var offsite = Math.max(0, Math.round(activation * offRate));
+      rows.push({
+        rg: r.rg,
+        lead: lead,
+        activation: activation,
+        activationRate: lead > 0 ? Math.round((activation / lead) * 1000) / 10 : 0,
+        offsite: offsite,
+        offsiteRate: activation > 0 ? Math.round((offsite / activation) * 1000) / 10 : 0,
+      });
+    }
+    rows.sort(function (a, b) {
+      return b.activation - a.activation;
+    });
+    return rows;
+  }
+
+  function renderRegionActivationBars(agg) {
+    var rows = regionActivationRows(agg);
+    if (!rows.length) return '<p class="oi-note">暂无大区激活数据。</p>';
+    var mx = Math.max(
+      1,
+      rows.reduce(function (m, r) {
+        return Math.max(m, r.activation, r.offsite);
+      }, 0)
+    );
+    var html = '<div class="oi-activation-list">';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var aw = Math.max(4, Math.round((r.activation / mx) * 100));
+      var ow = Math.max(4, Math.round((r.offsite / mx) * 100));
+      var warnA = r.activationRate < 10;
+      var warnO = r.offsiteRate > 5;
+      html +=
+        '<div class="oi-activation-row">' +
+        '<div class="oi-activation-head"><strong>' +
+        r.rg +
+        '</strong><span>' +
+        (warnA ? '异常提醒：激活率低于10% · ' : '') +
+        (warnO ? '异常提醒：异地激活率高于5%' : '') +
+        '</span></div>' +
+        '<div class="oi-activation-bar"><span style="width:' +
+        aw +
+        '%;background:#3b82f6"></span><em>激活 ' +
+        r.activation +
+        ' · ' +
+        r.activationRate +
+        '%</em></div>' +
+        '<div class="oi-activation-bar"><span style="width:' +
+        ow +
+        '%;background:' +
+        (warnO ? '#ef4444' : '#a855f7') +
+        '"></span><em>异地 ' +
+        r.offsite +
+        ' · ' +
+        r.offsiteRate +
+        '%</em></div>' +
+        '</div>';
+    }
+    html += '<p class="oi-note">口径：激活数按大区线索派生；异地激活指登记大区与激活大区不一致，例如越南客户在欧洲激活。</p></div>';
+    return html;
   }
 
   function renderCustomerBars(own, vertu) {
@@ -298,7 +504,7 @@
       var rg = s.region || '其他';
       byRg[rg] = (byRg[rg] || 0) + 1;
     });
-    var order = ['北区', '南区', '西区', '东区', '其他'];
+    var order = (ref && ref.regionOrder) || ['中东', '欧洲', '南亚', '东南亚', '中亚', '其他'];
     for (var oi = 0; oi < order.length; oi++) {
       var rgName = order[oi];
       if (!byRg[rgName] || rgName === '越南区') continue;
@@ -401,10 +607,18 @@
    * @param {string} [vnUrl]
    * @returns {Promise<void>}
    */
+  function defaultChannelUrl() {
+    if (typeof location !== 'undefined' && location.protocol.indexOf('http') === 0) {
+      var dateQ = new URLSearchParams(location.search).get('date');
+      return dateQ ? '/api/online-channel?date=' + encodeURIComponent(dateQ) : '/api/online-channel';
+    }
+    return 'data/online_channel_reference.json';
+  }
+
   function init(channelUrl, vnUrl) {
     if (ref && vnRef) return Promise.resolve();
     if (loadPromise) return loadPromise;
-    var chUrl = channelUrl || 'data/online_channel_reference.json';
+    var chUrl = channelUrl || defaultChannelUrl();
     var vUrl = vnUrl || 'data/vn_data_collect_reference.json';
     function fetchJson(url, fallback) {
       return fetch(url)
@@ -451,9 +665,14 @@
     var channelBlock = hasChannel
       ? '<div class="oi-card">' +
         '<h3>真实销售 ÷ 经销商 OKR（当月目标）</h3>' +
-        '<p class="oi-note">OKR 为当月销售目标（万元，不变）；<strong>真实销售</strong>为实际达成（万）；<strong>完成率</strong>= 真实销售 ÷ OKR；<strong>VERTU 介绍业绩</strong>为演示 mock；<strong>预估占比</strong> 固定 ' +
+        '<p class="oi-note">全量 <strong>' +
+        ((ref && ref.storeCount) || (ref && ref.stores && ref.stores.length) || 0) +
+        '</strong> 家门店（<code>config/dealers.json</code>）；大区含中东/欧洲/南亚/东南亚/中亚。<strong>真实销售</strong>来自 vertu <code>customer_summary</code>（万元）；<strong>OKR</strong>默认月目标 120 万（可按 level 配置）；<strong>VERTU 介绍业绩</strong>为演示 mock；<strong>预估占比</strong> 固定 ' +
         ((ref && ref.estRatio) || 4) +
-        '%；<strong>差异</strong>= 完成率 − 预估占比。</p>' +
+        '%。</p>' +
+        (ref && ref.vpsFile
+          ? '<p class="oi-note">VPS 文件：' + ref.vpsFile + (ref.checkDate ? ' · 检查日 ' + ref.checkDate : '') + '</p>'
+          : '') +
         '<div class="oi-tbl-wrap"><table class="oi-grid oi-grid-wide"><thead><tr>' +
         '<th>区域</th><th>经销商·区域/门店</th><th class="num">OKR目标(万)</th><th class="num">真实销售(万)</th>' +
         '<th class="num">完成率%</th><th class="num">VERTU介绍业绩(万)</th><th class="num">VERTU占业绩%</th>' +
@@ -464,12 +683,12 @@
         '<p class="oi-foot">' +
         okr.foot +
         '</p></div>' +
+        renderDealerRegionHtml(ref && ref.dealerRegion) +
         '<div class="oi-two-col">' +
         '<div class="oi-card">' +
-        '<h3>各渠道线索（条）</h3>' +
-        '<div class="oi-bar-wrap">' +
-        renderChannelBars(ml) +
-        '</div></div>' +
+        '<h3>各大区激活与异地激活</h3>' +
+        renderRegionActivationBars(agg) +
+        '</div>' +
         '<div class="oi-card">' +
         '<h3>客户来源（人）</h3>' +
         '<p class="oi-note">替代原「四周线索趋势」：代理商 <strong>自有有效客户</strong> 与 <strong>VERTU 推送</strong>（进店人数扣除自有有效口径）。</p>' +
@@ -488,7 +707,7 @@
       '<h2>经销商线上经营 · 并入客流分析</h2>' +
       '<p>统计月 <strong>' +
       monthKey +
-      '</strong> · 数据优先级：vertu CLI 业绩 → Excel 参考 JSON → mock。OKR/渠道为参考表；客户来源为当前代理商汇总。</p>' +
+      '</strong> · 数据优先级：vertu CLI 经销商业绩 JSON → 静态参考 JSON。渠道线索为派生演示；客户来源为当前代理商汇总。</p>' +
       '</div>' +
       '<div class="oi-dark oi-panel">' +
       channelBlock +

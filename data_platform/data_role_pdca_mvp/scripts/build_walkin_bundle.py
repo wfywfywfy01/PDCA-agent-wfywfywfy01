@@ -19,6 +19,29 @@ DEALER_REF = OUT_DIR / "dealer_distribution_reference.json"
 
 StoreClass = {"CLASS_1": "Class 1", "CLASS_2": "Class 2", "A": "Class 1", "B": "Class 2", "S": "Class 2"}
 
+SEA_COUNTRIES = frozenset(
+    {
+        "越南",
+        "柬埔寨",
+        "泰国",
+        "新加坡",
+        "马来西亚",
+        "印尼",
+        "印度尼西亚",
+        "菲律宾",
+        "缅甸",
+        "老挝",
+        "文莱",
+        "印度",
+    }
+)
+
+
+def macro_region(country):
+    if (country or "").strip() in SEA_COUNTRIES:
+        return "东南亚"
+    return "欧洲"
+
 
 def load_vietnam_reference():
     if not VIETNAM_METRICS.exists():
@@ -92,7 +115,7 @@ def dealer_to_store(dealer, month):
         "id": dealer["id"],
         "name": label,
         "city": dealer.get("country") or "海外",
-        "region": dealer.get("region") or "东区",
+        "region": macro_region(dealer.get("country") or ""),
         "class": StoreClass.get(ctype, StoreClass["CLASS_2"]),
         "totalVisitGroups": visits,
         "avgAddRate": round(add_rate, 3),

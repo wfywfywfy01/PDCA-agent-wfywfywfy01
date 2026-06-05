@@ -72,12 +72,15 @@ def main() -> None:
         run_py(SCRIPTS / "_import_vietnam_from_xlsx_once.py", "--xlsx", str(args.vn_xlsx))
     else:
         print("no vietnam xlsx:", args.vn_xlsx)
+        vn_default = Path(r"c:\Users\frank\Desktop\越南门店数据.xlsx")
+        if vn_default.is_file():
+            run_py(SCRIPTS / "_import_vietnam_from_xlsx_once.py", "--xlsx", str(vn_default))
 
     if not args.skip_vps:
         run_pull_vps(args.date)
 
     run_py(SCRIPTS / "build_walkin_bundle.py", "--month", month)
-    run_py(SCRIPTS / "build_online_channel_reference_once.py")
+    run_py(SCRIPTS / "build_online_channel_from_vps.py", "--date", args.date)
     print("done. refresh http://127.0.0.1:8767/walkin-cockpit/?date=" + args.date)
 
 

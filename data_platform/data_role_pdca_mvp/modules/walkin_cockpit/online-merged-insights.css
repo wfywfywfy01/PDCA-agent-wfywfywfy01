@@ -154,6 +154,58 @@
   color: #8b949e;
   text-align: center;
 }
+.oi-activation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.oi-activation-row {
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.oi-activation-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+}
+.oi-activation-head strong {
+  color: #e6edf3;
+}
+.oi-activation-head span {
+  color: #f87171;
+  font-size: 0.68rem;
+  text-align: right;
+}
+.oi-activation-bar {
+  position: relative;
+  height: 22px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.oi-activation-bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  min-width: 4px;
+}
+.oi-activation-bar em {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 3px 8px;
+  font-style: normal;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #f8fafc;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
 .oi-stack-row {
   display: flex;
   flex-wrap: wrap;

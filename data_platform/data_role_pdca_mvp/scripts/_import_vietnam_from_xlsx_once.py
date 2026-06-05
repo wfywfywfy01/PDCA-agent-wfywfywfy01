@@ -25,6 +25,48 @@ def _num(v):
 def _month_key(dt):
     return dt.strftime("%Y-%m") if isinstance(dt, datetime) else str(dt)[:7]
 
+
+def _lead_num(v):
+    """TK / Ins 等线上列：数值累加，'numbers' 记 1 条线索。"""
+    if v is None or v == "":
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    if str(v).strip().lower() == "numbers":
+        return 1.0
+    return 0.0
+
+
+def aggregate_channel_leads(rows, ym):
+    """
+    线上 Social：col26 TK live，27-31 TikTok，32-37 Facebook，38-43 Instagram。
+    @param rows 数据行（从第 4 行起）
+    @param ym YYYY-MM
+    """
+    month_rows = [r for r in rows if _month_key(r[0]) == ym]
+    tk_live = sum(_lead_num(r[26] if len(r) > 26 else None) for r in month_rows)
+    tk_short = sum(
+        _lead_num(r[i] if len(r) > i else None) for r in month_rows for i in range(27, 32)
+    )
+    facebook = sum(
+        _lead_num(r[i] if len(r) > i else None) for r in month_rows for i in range(32, 38)
+    )
+    instagram = sum(
+        _lead_num(r[i] if len(r) > i else None) for r in month_rows for i in range(38, 44)
+    )
+    return {
+        "shortVideo": int(round(tk_short)),
+        "live": int(round(tk_live)),
+        "other": int(round(facebook + instagram)),
+        "tiktok": int(round(tk_short)),
+        "tiktokLive": int(round(tk_live)),
+        "facebook": int(round(facebook)),
+        "instagram": int(round(instagram)),
+        "labels": ["TikTok/短视频", "TikTok直播", "Ins+Facebook"],
+        "sourceFile": str(XLSX),
+    }
+
+
 def aggregate(rows, ym):
     month_rows = [r for r in rows if _month_key(r[0]) == ym]
     if not month_rows:
@@ -74,7 +116,9 @@ def main():
     payload = {
         "note": "参考用户提供的越南门店 Excel 汇总结果，已固化为 JSON。驾驶舱与构建脚本只读此文件，不读取、不操作 xlsx。",
         "storeId": "vn1",
+        "sourceXlsx": str(XLSX),
         "months": {ym: aggregate(rows, ym) for ym in months},
+        "channelByMonth": {ym: aggregate_channel_leads(rows, ym) for ym in months},
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

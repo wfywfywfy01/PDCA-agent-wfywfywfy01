@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>会议中心 · Vemory 复盘</title>
+  <link rel="stylesheet" href="/workbench-cockpit-shell.css?v=2" />
+  <style>
+    .mc-page { max-width: 1200px; margin: 0 auto; padding: 20px 20px 48px; }
+    .mc-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .mc-toolbar h1 { font-size: 22px; margin: 0; color: var(--ink, #111827); }
+    .mc-toolbar p { margin: 4px 0 0; color: var(--ink-soft, #6b7280); font-size: 13px; }
+    .mc-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .mc-controls input, .mc-controls select { border: 1px solid var(--line, #e5e7eb); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+    .mc-btn { border: none; border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; background: #111827; color: #fff; }
+    .mc-btn.ghost { background: #fff; color: #374151; border: 1px solid #e5e7eb; }
+    .mc-btn.cyan { background: #0891b2; }
+    .mc-status { font-size: 12px; color: #6b7280; }
+    .mc-status.warn { color: #b45309; }
+    .mc-vemory-panel { background: #ecfeff; border: 1px solid #67e8f9; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 14px rgba(8,145,178,.06); }
+    .mc-vemory-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #a5f3fc; color: #155e75; font-size: 13px; }
+    .mc-vemory-body { padding: 14px; }
+    .mc-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+    .mc-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px 18px; box-shadow: 0 4px 14px rgba(15,23,42,.04); cursor: pointer; transition: border-color .15s; }
+    .mc-card:hover, .mc-card.active { border-color: #0891b2; }
+    .mc-card .k { font-size: 13px; color: #6b7280; margin-bottom: 8px; }
+    .mc-card .v { font-size: 28px; font-weight: 800; color: #111827; }
+    .mc-list { display: flex; flex-direction: column; gap: 10px; }
+    .mc-meeting { width: 100%; text-align: left; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; cursor: pointer; }
+    .mc-meeting:hover { border-color: #67e8f9; box-shadow: 0 2px 8px rgba(8,145,178,.08); }
+    .mc-meeting h3 { margin: 0 0 6px; font-size: 15px; color: #111827; }
+    .mc-meeting .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #6b7280; }
+    .mc-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .mc-tag.ext { background: #ecfdf5; color: #047857; }
+    .mc-tag.int { background: #eef2ff; color: #4338ca; }
+    .mc-tag.bucket { background: #f3f4f6; color: #374151; }
+    .mc-empty { padding: 32px; text-align: center; color: #9ca3af; font-size: 14px; background: #fff; border: 1px dashed #e5e7eb; border-radius: 12px; }
+    .mc-modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+    .mc-modal.open { display: flex; }
+    .mc-dialog { background: #fff; border-radius: 16px; width: min(760px, 100%); max-height: 88vh; overflow: hidden; display: flex; flex-direction: column; }
+    .mc-dialog-head { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; gap: 12px; }
+    .mc-dialog-body { padding: 16px 20px; overflow-y: auto; }
+    .mc-section { margin-bottom: 16px; }
+    .mc-section h4 { margin: 0 0 8px; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+    .mc-brief { background: #f9fafb; border: 1px solid #f3f4f6; border-radius: 12px; padding: 12px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+    .mc-chapter, .mc-todo { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; }
+    .mc-todo .reason { color: #0891b2; margin-top: 4px; font-size: 12px; }
+    .mc-todo.unassigned { border-color: #fcd34d; background: #fffbeb; }
+    @media (max-width: 900px) { .mc-grid { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <div class="mc-page">
+    <div class="mc-toolbar">
+      <div>
+        <h1>会议中心</h1>
+        <p>Vemory 会议记录分析 · 待办提取 · 任务分配（VPS 待办）</p>
+      </div>
+      <div class="mc-controls">
+        <input type="date" id="mcDate" />
+        <select id="mcPerson"></select>
+        <button type="button" class="mc-btn" id="mcRefresh">刷新 Vemory</button>
+        <button type="button" class="mc-btn ghost" id="mcPdca">PDCA 日结</button>
+      </div>
+    </div>
+    <div class="mc-vemory-panel">
+      <div class="mc-vemory-head">
+        <strong>🎙 Vemory · 每日会议复盘</strong>
+        <span class="mc-status" id="mcStatus"></span>
+      </div>
+      <div class="mc-vemory-body">
+        <div class="mc-grid" id="mcSummary"></div>
+        <div class="mc-list" id="mcList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mc-modal" id="mcModal" aria-hidden="true">
+    <div class="mc-dialog">
+      <div class="mc-dialog-head">
+        <div>
+          <strong id="modalTitle">会议详情</strong>
+          <div class="meta" id="modalMeta"></div>
+        </div>
+        <button type="button" class="mc-btn ghost" id="mcClose">关闭</button>
+      </div>
+      <div class="mc-dialog-body">
+        <div class="mc-section">
+          <h4>会议简介 / AI 摘要</h4>
+          <div class="mc-brief" id="modalBrief"></div>
+        </div>
+        <div class="mc-section" id="modalTodosWrap" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h4 style="margin:0;">会议 Todo · 任务分配</h4>
+            <button type="button" class="mc-btn cyan" id="mcDispatch">写入 VPS 待办</button>
+          </div>
+          <div id="modalTodos"></div>
+        </div>
+        <div class="mc-section" id="modalChaptersWrap" style="display:none;">
+          <h4>章节纪要</h4>
+          <div id="modalChapters"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /** @type {{meetings: object[], summary: object, filter: string}} */
+    const state = {
+      meetings: [],
+      summary: {},
+      filter: 'total',
+      activeMeeting: null
+    };
+
+    function workDate() {
+      const q = new URLSearchParams(location.search).get('date');
+      return q || new Date().toISOString().slice(0, 10);
+    }
+
+    function withDate(path) {
+      const sep = path.indexOf('?') >= 0 ? '&' : '?';
+      return path + sep + 'date=' + encodeURIComponent(workDate());
+    }
+
+    function escapeHtml(text) {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function formatMinutes(minutes) {
+      const n = Number(minutes || 0);
+      if (n < 60) return n + ' 分钟';
+      const h = Math.floor(n / 60);
+      const m = n % 60;
+      return m ? h + '小时' + m + '分钟' : h + '小时';
+    }
+
+    function bucketLabel(key) {
+      return { total: '总会议数', interview: '面试会议', report: '汇报会议', customer: '客户会议' }[key] || key;
+    }
+
+    function readHashFilter() {
+      const hash = (location.hash || '').replace(/^#/, '');
+      const m = hash.match(/filter=([a-z]+)/);
+      if (m) state.filter = m[1];
+    }
+
+    async function loadPeople() {
+      const res = await fetch('/api/meeting-center/people');
+      const data = await res.json();
+      const sel = document.getElementById('mcPerson');
+      sel.innerHTML = '<option value="">本人（当前 VPS 账号）</option>';
+      (data.people || []).forEach(function (p) {
+        const opt = document.createElement('option');
+        opt.value = p.phone_key || '';
+        opt.textContent = p.name;
+        opt.dataset.name = p.name;
+        opt.dataset.phone = p.phone || '';
+        sel.appendChild(opt);
+      });
+    }
+
+    async function loadMeetings() {
+      const status = document.getElementById('mcStatus');
+      status.textContent = '正在读取 Vemory…';
+      status.className = 'mc-status';
+      const date = document.getElementById('mcDate').value || workDate();
+      const person = document.getElementById('mcPerson');
+      const opt = person.selectedOptions[0];
+      const qs = new URLSearchParams({ date: date });
+      if (opt && opt.value) {
+        qs.set('phone', opt.dataset.phone || '');
+        qs.set('name', opt.dataset.name || '');
+      }
+      try {
+        const res = await fetch('/api/meeting-center/meetings?' + qs.toString());
+        const payload = await res.json();
+        state.meetings = payload.meetings || [];
+        state.summary = payload.summary || {};
+        const counts = payload.counts || {};
+        renderSummary(counts, payload);
+        renderList();
+        status.textContent = (payload.ok ? (payload.from_cache ? 'Vemory 缓存' : 'Vemory 已同步') : 'Vemory 未连接')
+          + (payload.warning ? ' · ' + payload.warning : '')
+          + (payload.error ? ' · ' + payload.error : '');
+        status.className = 'mc-status' + (payload.ok ? '' : ' warn');
+      } catch (err) {
+        status.textContent = '无法加载会议数据';
+        status.className = 'mc-status warn';
+      }
+    }
+
+    function renderSummary(counts, payload) {
+      const grid = document.getElementById('mcSummary');
+      const summary = payload.summary || {};
+      const metrics = [
+        ['total', '会议总数', summary.total || counts.total || 0],
+        ['internal', '内部会议', summary.internal || 0],
+        ['external', '外部会议', summary.external || 0],
+        ['duration', '会议时长', formatMinutes(summary.duration_minutes || 0)],
+        ['todo', '提取 Todo', summary.todo_count || 0],
+      ];
+      grid.innerHTML = metrics.map(function (item) {
+        return '<div class="mc-card" data-filter="' + item[0] + '">' +
+          '<div class="k">' + escapeHtml(item[1]) + '</div>' +
+          '<div class="v">' + escapeHtml(String(item[2])) + '</div></div>';
+      }).join('');
+    }
+
+    function filteredMeetings() {
+      if (state.filter === 'total') return state.meetings;
+      return state.meetings.filter(function (m) { return (m.bucket || 'report') === state.filter; });
+    }
+
+    function renderList() {
+      const list = document.getElementById('mcList');
+      const rows = filteredMeetings();
+      if (!rows.length) {
+        list.innerHTML = '<div class="mc-empty">暂无会议。请确认 vertu 已登录，或稍后重试；也可启动客户管理 8787 服务复用其 Vemory 缓存。</div>';
+        return;
+      }
+      list.innerHTML = rows.map(function (m) {
+        const typeCls = m.meeting_type === 'external' ? 'ext' : 'int';
+        const typeLabel = m.meeting_type === 'external' ? '外部' : '内部';
+        const brief = (m.brief || '').replace(/\s+/g, ' ').trim();
+        const short = brief.length > 100 ? brief.slice(0, 100) + '…' : (brief || '暂无简介');
+        return '<button type="button" class="mc-meeting" data-id="' + escapeHtml(m.id) + '">' +
+          '<h3>' + escapeHtml(m.title) + '</h3>' +
+          '<div class="meta">' +
+          '<span class="mc-tag ' + typeCls + '">' + typeLabel + '</span>' +
+          '<span class="mc-tag bucket">' + escapeHtml(bucketLabel(m.bucket)) + '</span>' +
+          '<span>' + escapeHtml(formatMinutes(m.duration_minutes)) + '</span>' +
+          '<span>' + escapeHtml((m.todos || []).length + ' 条待办') + '</span>' +
+          '</div><p style="margin:8px 0 0;font-size:12px;color:#6b7280;">' + escapeHtml(short) + '</p></button>';
+      }).join('');
+      list.querySelectorAll('.mc-meeting').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const meeting = state.meetings.find(function (m) { return String(m.id) === btn.dataset.id; });
+          if (meeting) openModal(meeting);
+        });
+      });
+    }
+
+    function openModal(meeting) {
+      state.activeMeeting = meeting;
+      document.getElementById('modalTitle').textContent = meeting.title || '会议详情';
+      document.getElementById('modalMeta').innerHTML =
+        '<span class="mc-tag ' + (meeting.meeting_type === 'external' ? 'ext' : 'int') + '">' +
+        (meeting.meeting_type === 'external' ? '外部会议' : '内部会议') + '</span> ' +
+        escapeHtml(formatMinutes(meeting.duration_minutes)) +
+        (meeting.started_at ? ' · ' + escapeHtml(meeting.started_at) : '');
+      document.getElementById('modalBrief').textContent = meeting.brief || '暂无会议简介';
+      const assignments = meeting.assignments || [];
+      const todosWrap = document.getElementById('modalTodosWrap');
+      const todosEl = document.getElementById('modalTodos');
+      if (assignments.length) {
+        todosWrap.style.display = '';
+        todosEl.innerHTML = assignments.map(function (item) {
+          const cls = item.assignee ? '' : ' unassigned';
+          return '<div class="mc-todo' + cls + '"><strong>' + escapeHtml(item.todo.text) + '</strong>' +
+            '<div>' + (item.assignee ? '建议负责人：' + escapeHtml(item.assignee) : '待人工分配') +
+            (item.customer ? ' · ' + escapeHtml(item.customer) : '') +
+            (item.todo.due ? ' · 截止 ' + escapeHtml(item.todo.due) : '') + '</div>' +
+            '<div class="reason">' + escapeHtml(item.reason) + '</div></div>';
+        }).join('');
+      } else {
+        todosWrap.style.display = 'none';
+      }
+      const chapters = meeting.chapters || [];
+      const chWrap = document.getElementById('modalChaptersWrap');
+      const chEl = document.getElementById('modalChapters');
+      if (chapters.length) {
+        chWrap.style.display = '';
+        chEl.innerHTML = chapters.map(function (ch) {
+          return '<div class="mc-chapter"><strong>' + escapeHtml(ch.title) + '</strong>' +
+            (ch.start_time ? ' <span style="color:#9ca3af">' + escapeHtml(ch.start_time) + '</span>' : '') +
+            '<p style="margin:6px 0 0;color:#4b5563">' + escapeHtml(ch.content) + '</p></div>';
+        }).join('');
+      } else {
+        chWrap.style.display = 'none';
+      }
+      document.getElementById('mcModal').classList.add('open');
+    }
+
+    async function dispatchTodos() {
+      const meeting = state.activeMeeting;
+      if (!meeting || !(meeting.assignments || []).length) {
+        alert('这场会议没有可分配的 Todo');
+        return;
+      }
+      const res = await fetch('/api/meeting-center/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: document.getElementById('mcDate').value || workDate(),
+          meeting_id: meeting.id,
+          meeting_title: meeting.title,
+          assignments: meeting.assignments
+        })
+      });
+      const payload = await res.json();
+      alert(payload.message || (payload.ok ? '已写入 VPS 待办' : (payload.error || '写入失败')));
+    }
+
+    document.getElementById('mcRefresh').addEventListener('click', loadMeetings);
+    document.getElementById('mcPdca').addEventListener('click', function () { location.href = withDate('/pdca-vps'); });
+    document.getElementById('mcClose').addEventListener('click', function () { document.getElementById('mcModal').classList.remove('open'); });
+    document.getElementById('mcModal').addEventListener('click', function (e) { if (e.target.id === 'mcModal') document.getElementById('mcModal').classList.remove('open'); });
+    document.getElementById('mcDispatch').addEventListener('click', dispatchTodos);
+
+    document.getElementById('mcDate').value = workDate();
+    readHashFilter();
+    loadPeople().then(loadMeetings);
+  </script>
+</body>
+</html>

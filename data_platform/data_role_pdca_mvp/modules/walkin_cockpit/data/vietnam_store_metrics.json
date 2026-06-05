@@ -1,6 +1,7 @@
 {
   "note": "参考用户提供的越南门店 Excel 汇总结果，已固化为 JSON。驾驶舱与构建脚本只读此文件，不读取、不操作 xlsx。",
   "storeId": "vn1",
+  "sourceXlsx": "c:\\Users\\frank\\Desktop\\越南门店数据.xlsx",
   "months": {
     "2026-05": {
       "name": "胡志明 Walk-in 旗舰店",
@@ -39,6 +40,38 @@
       "useCount": 210,
       "effectiveCustomers": 143,
       "effectiveAdded": 113
+    }
+  },
+  "channelByMonth": {
+    "2026-05": {
+      "shortVideo": 86,
+      "live": 0,
+      "other": 744,
+      "tiktok": 86,
+      "tiktokLive": 0,
+      "facebook": 707,
+      "instagram": 37,
+      "labels": [
+        "TikTok/短视频",
+        "TikTok直播",
+        "Ins+Facebook"
+      ],
+      "sourceFile": "c:\\Users\\frank\\Desktop\\越南门店数据.xlsx"
+    },
+    "2026-06": {
+      "shortVideo": 0,
+      "live": 0,
+      "other": 0,
+      "tiktok": 0,
+      "tiktokLive": 0,
+      "facebook": 0,
+      "instagram": 0,
+      "labels": [
+        "TikTok/短视频",
+        "TikTok直播",
+        "Ins+Facebook"
+      ],
+      "sourceFile": "c:\\Users\\frank\\Desktop\\越南门店数据.xlsx"
     }
   }
 }

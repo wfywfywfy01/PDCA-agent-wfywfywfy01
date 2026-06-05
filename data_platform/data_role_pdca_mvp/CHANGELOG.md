@@ -1,5 +1,36 @@
 # 更新日志
 
+## 2026-06-05 — 今日 ToDo 与任务中心分工
+
+- **今日 ToDo**（左侧）：保留昨日日报明日计划列表，无 PDCA 按钮。
+- **任务中心**（底部原位置）：仅作 PDCA 日结入口（统计 +「PDCA 日结」→ `/pdca-vps`）。
+- 首页分块独立请求，单接口失败不再拖垮整页。
+
+---
+
+## 2026-06-05 — Sell Out 卡片接入客流分析台
+
+- 经营首页移除快捷按钮「海外客流」「线上经营」；**Sell Out 卡片**点击进入 `/walkin-cockpit/`（海外客流 + 线上经营同一模块）。
+
+---
+
+## 2026-06-05 — 今日 ToDo 接入 PDCA 日结
+
+- 经营首页「今日 ToDo」改为 **昨日群日报「明日计划」**（`vertu odoo daily-report user-summary`），与 `/pdca-vps` 同源。
+- `/api/todos/today?date=` 返回计划项含进度、截止日；点击待办或「PDCA 日结」进入日结页做交付检查。
+
+---
+
+## 2026-06-05 — 会议中心（Vemory 复盘与任务分配）
+
+### 新增
+
+- **会议中心页面**（`/meeting-center`）：从 Vemory 拉取会议列表、AI 摘要、章节纪要；会议 Todo 自动推断负责人并 **写入 VPS 待办**。
+- **API**：`/api/meeting-center/summary|meetings|people|dispatch`；数据优先 **8787 客户管理缓存 → vertu odoo vemory meetings → 本地 JSON 缓存**（`scripts/vemory_bridge.py`）。
+- 经营首页「会议中心」卡片与「跳转 Vemory」均进入 `/meeting-center`（支持 `#filter=interview` 等筛选）。
+
+---
+
 ## 2026-06-05 — 经销商工作台驾驶舱合并与数据链路
 
 ### 新增

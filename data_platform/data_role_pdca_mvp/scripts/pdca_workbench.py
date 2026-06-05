@@ -16,7 +16,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 
-WORKSPACE = Path(__file__).resolve().parents[1]
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+WORKSPACE = _SCRIPTS_DIR.parent
 REPO_ROOT = WORKSPACE.parents[1]
 RUN_SCRIPT = WORKSPACE / "scripts" / "run_data_role_pdca_daily.ps1"
 QUESTION_TEMPLATE = WORKSPACE / "templates" / "daily_questionnaire.md"
@@ -37,6 +40,9 @@ ONLINE_COCKPIT_ROOT = ONLINE_COCKPIT_DIR.resolve()
 HOME_DASHBOARD_DIR = WORKSPACE / "modules" / "home_dashboard"
 HOME_DASHBOARD_ROOT = HOME_DASHBOARD_DIR.resolve()
 HOME_DASHBOARD_INDEX = HOME_DASHBOARD_DIR / "index.html"
+MEETING_CENTER_DIR = WORKSPACE / "modules" / "meeting_center"
+MEETING_CENTER_ROOT = MEETING_CENTER_DIR.resolve()
+MEETING_CENTER_INDEX = MEETING_CENTER_DIR / "index.html"
 DEALER_REF_JSON = WALKIN_COCKPIT_DIR / "data" / "dealer_distribution_reference.json"
 CUSTOMER_TIER_TARGETS = {"S": 8, "A": 20, "B": 45, "C": 30}
 TIER_ESTIMATE_SELL_OUT = {"A": 1200000, "B": 650000, "S": 380000, "C": 280000}
@@ -70,6 +76,10 @@ def resolve_home_dashboard_asset(rel_path):
     return resolve_cockpit_asset(HOME_DASHBOARD_DIR, HOME_DASHBOARD_ROOT, rel_path)
 
 
+def resolve_meeting_center_asset(rel_path):
+    return resolve_cockpit_asset(MEETING_CENTER_DIR, MEETING_CENTER_ROOT, rel_path)
+
+
 def serve_home_dashboard_index(handler):
     """经营驾驶舱首页（dashboard_template_with_api_hooks）。"""
     if not HOME_DASHBOARD_INDEX.is_file():
@@ -85,9 +95,25 @@ COCKPIT_SHELL_CSS = HOME_DASHBOARD_DIR / "workbench-cockpit-shell.css"
 COCKPIT_SHELL_MARKER = "workbench-cockpit-shell.css"
 
 try:
-    from workbench_data import build_walkin_api_payload
+    from workbench_data import build_online_channel_payload, build_walkin_api_payload
 except ImportError:
     build_walkin_api_payload = None
+    build_online_channel_payload = None
+
+try:
+    from vemory_bridge import (
+        classify_meeting_bucket,
+        fetch_vemory_meetings,
+        meeting_center_counts,
+        todo_assignments,
+        vemory_people,
+    )
+except ImportError:
+    classify_meeting_bucket = None
+    fetch_vemory_meetings = None
+    meeting_center_counts = None
+    todo_assignments = None
+    vemory_people = None
 
 
 def skin_cockpit_html(html, date_text, page_title="经销商驾驶舱"):
@@ -227,7 +253,7 @@ def api_dashboard_overview(date_text, period):
         sell_in_sub = "待更新业绩数据"
         sell_in_wan = round(sell_in / 10000, 2) if sell_in else 0
     im_unread = fetch_vps_im_unread(with_latest=False)
-    todos = fetch_vps_today_todos()
+    pdca_plan = fetch_pdca_today_plan(date_text)
     out = output_dir(date_text)
     pdca_path = out / "pdca_daily_check.md"
     score = 88
@@ -239,12 +265,17 @@ def api_dashboard_overview(date_text, period):
             comment = "PDCA 日结提示存在风险项，请优先处理检查报告中的异常。"
         elif text.strip():
             comment = "已读取今日 PDCA 检查摘要，建议结合数据看板核对 Sell out 与过程指标。"
-    if not todos["ok"]:
+    if not pdca_plan["ok"]:
         score = max(70, score - 6)
-        comment += f" VPS 待办拉取异常：{todos['error'][:60]}"
-    elif todos["count"] > 5:
+        comment += f" 昨日日报拉取异常：{pdca_plan['warning'][:60]}"
+    elif not pdca_plan["rows"]:
+        score = max(74, score - 4)
+        comment += f" 昨日（{pdca_plan['yesterday']}）日报未写入明日计划，请补交或打开 PDCA 日结。"
+    elif len(pdca_plan["rows"]) > 8:
         score = max(72, score - 4)
-        comment += f" 今日待办 {todos['count']} 项，建议按优先级逐条闭环。"
+        comment += f" 今日计划 {len(pdca_plan['rows'])} 项（来自昨日日报明日计划），建议按优先级闭环。"
+    else:
+        comment += f" 今日计划 {len(pdca_plan['rows'])} 项来自昨日日报明日计划。"
     if im_unread["ok"] and im_unread["unread_count"] > 0:
         score = max(68, score - 5)
         comment += f" IM 未读 {im_unread['unread_count']} 条待处理。"
@@ -263,22 +294,72 @@ def api_dashboard_overview(date_text, period):
     }
 
 
-def api_todos_today():
-    payload = fetch_vps_today_todos()
-    if not payload["ok"]:
-        return [{"id": 0, "title": f"VPS 待办拉取失败：{payload['error'][:80]}", "status": "异常"}]
+def fetch_pdca_today_plan(date_text):
+    """今日待办：取昨日 IM 群日报 payload.tomorrow（vertu odoo daily-report user-summary）。"""
+    yesterday_text = previous_date_text(date_text)
+    if should_use_local_pdca_cache(date_text):
+        yesterday = local_daily_report_cache(yesterday_text, "本地汇报缓存")
+    else:
+        yesterday = fetch_vps_daily_report(yesterday_text)
+    rows = report_payload_items(yesterday, "tomorrow") if yesterday.get("ok") else []
+    warning = yesterday.get("warning") or yesterday.get("error") or ""
+    if yesterday.get("from_cache"):
+        warning = warning or "VPS 暂不可用，已使用本地日报/待办缓存。"
+    return {
+        "ok": yesterday.get("ok", False),
+        "rows": rows,
+        "yesterday": yesterday_text,
+        "report_count": len(yesterday.get("reports") or []),
+        "warning": warning.strip(),
+        "from_cache": bool(yesterday.get("from_cache")),
+    }
+
+
+def api_todos_today(date_text=None):
+    date_text = date_text or today_text()
+    plan = fetch_pdca_today_plan(date_text)
+    if not plan["ok"]:
+        detail = plan["warning"] or "昨日日报拉取失败"
+        return [{
+            "id": 0,
+            "title": f"PDCA 日结：{detail[:100]}",
+            "status": "异常",
+            "source": "PDCA 日结",
+            "yesterday": plan["yesterday"],
+        }]
+    rows = plan["rows"]
+    if not rows:
+        hint = "昨日日报未写入明日计划" if plan["report_count"] else "未查询到昨日群日报"
+        return [{
+            "id": 0,
+            "title": f"PDCA 日结：{hint}（{plan['yesterday']}）",
+            "status": "待补充",
+            "source": "PDCA 日结",
+            "yesterday": plan["yesterday"],
+        }]
     items = []
-    for index, row in enumerate(payload["rows"][:12], start=1):
+    for index, row in enumerate(rows[:15], start=1):
+        progress = task_progress(row)
+        status = nested_value(row, "state_display", "status_name", "status.name", "stage_name") or "待处理"
+        if progress >= 100:
+            status = "已完成"
+        elif progress > 0 and status in ("", "待处理", "未开始"):
+            status = f"进行中 {progress}%"
         items.append({
             "id": index,
-            "title": nested_value(row, "title", "name") or "未命名待办",
-            "status": nested_value(row, "status_name", "status.name", "stage_name") or "待处理",
+            "title": task_title(row) or "未命名事项",
+            "status": status,
+            "progress": progress,
+            "deadline": task_deadline(row) or date_text,
+            "source": "昨日日报·明日计划",
+            "yesterday": plan["yesterday"],
+            "from_cache": plan["from_cache"],
         })
     return items
 
 
 def api_hermes_agent_tasks(date_text):
-    todos = api_todos_today()
+    todos = api_todos_today(date_text)
     tasks = []
     for row in todos[:3]:
         if "拉取失败" in row["title"]:
@@ -396,21 +477,66 @@ def api_important_matters(date_text):
     return matters[:4]
 
 
-def api_task_center_summary():
-    payload = fetch_vps_all_todos()
-    if not payload["ok"]:
-        return [
-            {"key": "total", "label": "总任务数", "value": "—"},
-            {"key": "done", "label": "已完成", "value": "—"},
-            {"key": "undone", "label": "未完成", "value": "—"},
-        ]
-    rows = payload["rows"]
-    done = 0
-    for row in rows:
-        status = str(nested_value(row, "status_name", "status.name", "stage_name")).lower()
-        if any(x in status for x in ("done", "完成", "closed", "cancel")):
-            done += 1
-    total = len(rows)
+def fetch_pdca_delivery_summary(date_text):
+    """今日计划交付统计（昨日明日计划 vs 今日完成 vs VPS 待办）。"""
+    yesterday_text = previous_date_text(date_text)
+    if should_use_local_pdca_cache(date_text):
+        daily = local_daily_report_cache(date_text, "本地汇报缓存")
+        yesterday = local_daily_report_cache(yesterday_text, "本地汇报缓存")
+        all_todos = {"ok": True, "rows": local_todo_payload_rows(date_text), "count": 0, "error": ""}
+    else:
+        daily = fetch_vps_daily_report(date_text)
+        yesterday = fetch_vps_daily_report(yesterday_text)
+        all_todos = fetch_vps_all_todos()
+    today_plan_rows = report_payload_items(yesterday, "tomorrow") if yesterday.get("ok") else []
+    today_done_rows = report_payload_items(daily, "today") if daily.get("ok") else []
+    checks = build_delivery_checks(
+        today_plan_rows,
+        today_done_rows,
+        all_todos["rows"] if all_todos["ok"] else [],
+        date_text,
+    )
+    stats = {"done": 0, "progress": 0, "pending": 0, "risk": 0}
+    for item in checks:
+        level = item.get("level") or "pending"
+        stats[level] = stats.get(level, 0) + 1
+    return {
+        "yesterday": yesterday_text,
+        "plan_count": len(today_plan_rows),
+        "stats": stats,
+    }
+
+
+def api_task_center_panel(date_text=None):
+    """任务中心：统计 + 昨日日报明日计划列表。"""
+    date_text = date_text or today_text()
+    plan = fetch_pdca_today_plan(date_text)
+    delivery = fetch_pdca_delivery_summary(date_text)
+    items = api_todos_today(date_text)
+    stats = delivery["stats"]
+    total = delivery["plan_count"]
+    if total == 0 and items and not str(items[0].get("title", "")).startswith("PDCA 日结："):
+        total = len(items)
+    done = stats.get("done", 0)
+    return {
+        "summary": [
+            {"key": "total", "label": "总任务数", "value": total},
+            {"key": "done", "label": "已完成", "value": done},
+            {"key": "undone", "label": "未完成", "value": max(0, total - done)},
+        ],
+        "yesterday": plan.get("yesterday") or delivery["yesterday"],
+        "sourceNote": "vertu odoo daily-report · 昨日群日报「明日计划」",
+        "items": items,
+    }
+
+
+def api_task_center_summary(date_text=None):
+    """任务中心入口统计：今日计划交付概况（点击进入 PDCA 日结页）。"""
+    date_text = date_text or today_text()
+    delivery = fetch_pdca_delivery_summary(date_text)
+    stats = delivery["stats"]
+    total = delivery["plan_count"]
+    done = stats.get("done", 0)
     return [
         {"key": "total", "label": "总任务数", "value": total},
         {"key": "done", "label": "已完成", "value": done},
@@ -418,13 +544,96 @@ def api_task_center_summary():
     ]
 
 
-def api_meeting_center_summary():
-    return [
-        {"key": "total", "label": "总会议数", "value": 0},
-        {"key": "interview", "label": "面试会议", "value": 0},
-        {"key": "report", "label": "汇报会议", "value": 0},
-        {"key": "customer", "label": "客户会议", "value": 0},
-    ]
+def enrich_vemory_meetings(payload: dict) -> dict:
+    """为会议列表附加首页分类与任务分配建议。"""
+    if not payload or not isinstance(payload.get("meetings"), list):
+        return payload or {}
+    meetings = []
+    for meeting in payload["meetings"]:
+        row = dict(meeting)
+        if classify_meeting_bucket:
+            row["bucket"] = classify_meeting_bucket(row)
+        if todo_assignments:
+            row["assignments"] = todo_assignments(row)
+        meetings.append(row)
+    payload = dict(payload)
+    payload["meetings"] = meetings
+    if meeting_center_counts:
+        payload["counts"] = meeting_center_counts(meetings)
+    return payload
+
+
+def api_meeting_center_summary(date_text=None):
+    date_text = date_text or today_text()
+    if not fetch_vemory_meetings:
+        return [
+            {"key": "total", "label": "总会议数", "value": 0},
+            {"key": "interview", "label": "面试会议", "value": 0},
+            {"key": "report", "label": "汇报会议", "value": 0},
+            {"key": "customer", "label": "客户会议", "value": 0},
+        ]
+    payload = enrich_vemory_meetings(fetch_vemory_meetings(date_text, vertu_cmd=vertu_command()))
+    counts = payload.get("counts") or meeting_center_counts(payload.get("meetings") or [])
+    labels = {
+        "total": "总会议数",
+        "interview": "面试会议",
+        "report": "汇报会议",
+        "customer": "客户会议",
+    }
+    return [{"key": key, "label": labels[key], "value": counts.get(key, 0)} for key in labels]
+
+
+def api_meeting_center_meetings(date_text, person_phone="", person_name=""):
+    if not fetch_vemory_meetings:
+        return {"ok": False, "error": "vemory_bridge 未加载", "meetings": [], "counts": {}, "summary": {}}
+    payload = enrich_vemory_meetings(
+        fetch_vemory_meetings(date_text, person_phone, person_name, vertu_cmd=vertu_command())
+    )
+    return payload
+
+
+def api_meeting_center_people():
+    if not vemory_people:
+        return {"ok": True, "people": []}
+    return {"ok": True, "people": vemory_people()}
+
+
+def api_meeting_center_dispatch(body: dict, date_text: str):
+    assignments = body.get("assignments") or []
+    meeting_title = body.get("meeting_title") or "会议"
+    if not assignments:
+        return {"ok": False, "error": "没有待分配事项"}
+    created = 0
+    errors = []
+    for item in assignments:
+        todo = item.get("todo") or {}
+        title = (todo.get("text") or "").strip() or "会议待办"
+        assignee = (item.get("assignee") or "").strip()
+        customer = (item.get("customer") or "").strip()
+        reason = (item.get("reason") or "").strip()
+        remark_parts = [f"来源：Vemory 会议「{meeting_title}」", reason]
+        if assignee:
+            remark_parts.append(f"建议负责人：{assignee}")
+        if customer:
+            remark_parts.append(f"关联客户：{customer}")
+        remark = "；".join(part for part in remark_parts if part)
+        due = normalize_deadline_for_vps(todo.get("due") or date_text)
+        try:
+            args = ["odoo", "project", "todo", "create", "--title", title, "--remark", remark]
+            if due:
+                args.extend(["--deadline", due])
+            run_vertu_write_json(args)
+            created += 1
+        except Exception as exc:
+            errors.append(f"{title}：{exc}")
+    if created and not errors:
+        return {"ok": True, "message": f"已从会议「{meeting_title}」写入 {created} 条 VPS 待办。"}
+    if created:
+        return {
+            "ok": True,
+            "message": f"已写入 {created} 条，{len(errors)} 条失败：{'；'.join(errors[:3])}",
+        }
+    return {"ok": False, "error": errors[0] if errors else "VPS 待办写入失败"}
 
 
 def dispatch_home_dashboard_api(path, query):
@@ -440,14 +649,21 @@ def dispatch_home_dashboard_api(path, query):
         "/api/dashboard/sell-out": lambda: {
             "amount": api_dashboard_overview(date_text, period)["sellOutAmount"],
         },
-        "/api/todos/today": api_todos_today,
+        "/api/todos/today": lambda: api_todos_today(date_text),
         "/api/hermes-agent/tasks": lambda: api_hermes_agent_tasks(date_text),
         "/api/customer-center/summary": api_customer_center_summary,
         "/api/hr/summary": api_hr_summary,
         "/api/exceptions": lambda: api_exceptions(date_text),
         "/api/important-matters": lambda: api_important_matters(date_text),
-        "/api/task-center/summary": api_task_center_summary,
-        "/api/meeting-center/summary": api_meeting_center_summary,
+        "/api/task-center/summary": lambda: api_task_center_summary(date_text),
+        "/api/task-center/panel": lambda: api_task_center_panel(date_text),
+        "/api/meeting-center/summary": lambda: api_meeting_center_summary(date_text),
+        "/api/meeting-center/meetings": lambda: api_meeting_center_meetings(
+            date_text,
+            (query.get("phone") or [""])[0],
+            (query.get("name") or [""])[0],
+        ),
+        "/api/meeting-center/people": api_meeting_center_people,
     }
     factory = routes.get(path)
     if not factory:
@@ -456,6 +672,7 @@ def dispatch_home_dashboard_api(path, query):
 
 
 _customer_proc = None  # 客户管理后台进程句柄
+
 
 AGENT_CARDS = [
     {
@@ -1517,6 +1734,7 @@ def fetch_vps_daily_report(date_text):
                 "--end-time",
                 date_text,
             ],
+            timeout=45,
         )
         return {
             "ok": True,
@@ -1634,10 +1852,35 @@ def local_month_okr_cache(date_text, reason=""):
 
 
 def should_use_local_pdca_cache(date_text):
+    """正式口径优先 vertu CLI；仅演示或显式环境变量时使用本地 CSV/输出缓存。"""
+    force = os.environ.get("PDCA_USE_LOCAL_CACHE", "").strip().lower()
+    if force in ("1", "true", "yes"):
+        return True
     data_sources = read_json(WORKSPACE / "config" / "data_sources.json")
+    if str(data_sources.get("official_source", "")).strip().lower() == "vps":
+        return False
     return bool(data_sources.get("sales_json")) and (
         todo_path(date_text).exists() or (output_dir(date_text) / "pdca_daily_check.md").exists()
     )
+
+
+def pdca_vps_source_note(daily, yesterday, month_okr, all_todos):
+    """页面上标注当前 PDCA 日结数据来源（VPS 真数 vs 本地回退）。"""
+    parts = []
+    if daily.get("from_cache") or yesterday.get("from_cache"):
+        hint = daily.get("warning") or yesterday.get("warning") or "VPS 暂不可用"
+        parts.append(f"群日报：本地缓存（{hint}）")
+    elif daily.get("ok") or yesterday.get("ok"):
+        parts.append("群日报：vertu odoo daily-report user-summary")
+    if month_okr.get("from_cache"):
+        parts.append("月待办：本地 CSV 回退")
+    elif month_okr.get("ok"):
+        parts.append(f"月待办：vertu okr employee-okr-list（{month_okr.get('count', 0)} 项）")
+    if all_todos.get("ok"):
+        parts.append(f"VPS 待办：vertu project todo list（{all_todos.get('count', 0)} 项）")
+    elif all_todos.get("error"):
+        parts.append(f"VPS 待办拉取失败：{all_todos['error'][:80]}")
+    return " · ".join(parts) if parts else "数据来源：vertu CLI（加载中）"
 
 
 def nested_value(row, *paths):
@@ -2883,12 +3126,19 @@ def render_pdca_vps(date_text, message=""):
         okr_table = okr_rows(month_okr["rows"]) or '<tr><td colspan="3">VPS 暂无本月 OKR/月待办数据。</td></tr>'
     else:
         okr_table = f'<tr><td colspan="3">VPS OKR 拉取失败：{esc(month_okr["error"])}</td></tr>'
+    source_note = pdca_vps_source_note(daily, yesterday, month_okr, all_todos)
+    cache_banner = ""
+    if daily.get("from_cache") or yesterday.get("from_cache") or month_okr.get("from_cache"):
+        cache_banner = f'<p class="message" style="border-color:#efc7c3;background:#fff6f4;color:#8a3b2f;">{esc(source_note)}</p>'
+    else:
+        cache_banner = f'<p class="message">{esc(source_note)}</p>'
     body = f"""
     <section>
       <div class="page-toolbar">
         <div>
           <h2>PDCA 日结（VPS）</h2>
           <p>来源：「经销商-日报推送」IM 群日报 + VPS OKR。今日计划优先取昨日群日报里的“明日计划”，月待办取本月 OKR。</p>
+          {cache_banner}
         </div>
         {button("返回首页", route_url("/", date_text), "light")}
       </div>
@@ -3064,8 +3314,7 @@ def render_home(date_text, message="", hermes_result=None):
             <div class="home-module-grid">
               {home_module_card("数据看板", dashboard_state, "日报、业务指标与风险摘要", route_url("/dashboard", date_text), 80 if dashboard.exists() else 30)}
               {home_module_card("客户管理", "CRM", "经销商客户台账、拜访与回款", "/customer-mgmt", 72)}
-              {home_module_card("海外客流", "Walk-in", "代理商终销、大区与团队表现", "/walkin-cockpit/", 68)}
-              {home_module_card("线上经营", "Online", "已并入客流分析：OKR、渠道线索", "/walkin-cockpit/#oi-merged", 58)}
+              {home_module_card("客流分析", "Sell Out", "海外客流与线上经营（代理商终销、OKR、渠道线索）", "/walkin-cockpit/", 72)}
             </div>
             <div class="home-status-grid">
               <div class="home-status-cell"><span>数据报告</span><strong>{'1' if latest_report else '0'}</strong></div>
@@ -3085,7 +3334,7 @@ def render_home(date_text, message="", hermes_result=None):
               </div>
               <div class="home-alert">
                 <div class="home-alert-icon">i</div>
-                <div><b>当前端口 8767</b><p>首页、Walk-in 与线上经营都由 pdca_workbench.py 托管。</p></div>
+                <div><b>当前端口 8767</b><p>首页与客流分析台（含线上经营）由 pdca_workbench.py 托管。</p></div>
               </div>
             </div>
           </section>
@@ -3112,7 +3361,7 @@ def render_home(date_text, message="", hermes_result=None):
             <ul class="home-note-list">
               <li>先确认今日看板与 Excel 是否生成，缺失时运行 PDCA 日跑。</li>
               <li>今日待办需要和 IM 消息闭环，避免只看数据不落行动。</li>
-              <li>海外客流和线上经营作为经营驾驶舱入口，放在首页第一屏。</li>
+              <li>点击 Sell Out 或「客流分析」进入海外客流与线上经营合一的分析台。</li>
             </ul>
             <div class="home-quick-actions">
               {button("运行今日 PDCA", route_url("/run", date_text))}
@@ -3146,7 +3395,7 @@ def render_home(date_text, message="", hermes_result=None):
         <div class="home-panel-head"><h2>会议中心</h2><span class="home-chip">复盘</span></div>
         <div class="home-panel-body home-mini-grid">
           <div class="home-mini"><span>待确认</span><strong>{unread_channel_count}</strong><p>可从 IM 会话转入</p></div>
-          <div class="home-mini"><span>业务复盘</span><strong>2</strong><p>Walk-in / 线上经营</p></div>
+          <div class="home-mini"><span>业务复盘</span><strong>1</strong><p>客流分析台</p></div>
           <div class="home-mini"><span>输出闭环</span><strong>{output_count}</strong><p>报告、Excel、PDCA</p></div>
         </div>
       </section>
@@ -3422,6 +3671,27 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def serve_online_cockpit(self, parsed_path, date_text=""):
         self.serve_cockpit_module("/online-cockpit", parsed_path, resolve_online_asset, date_text)
 
+    def serve_meeting_center(self, parsed_path, date_text=""):
+        if parsed_path == "/meeting-center":
+            self.send_response(302)
+            self.send_header("Location", f"/meeting-center/?date={date_text}")
+            self.end_headers()
+            return
+        rel = parsed_path[len("/meeting-center/") :]
+        if not rel:
+            rel = "index.html"
+        asset = resolve_meeting_center_asset(rel)
+        if not asset:
+            self.send_response(404)
+            self.end_headers()
+            return
+        if asset.suffix.lower() in {".html", ".htm"}:
+            html = skin_cockpit_html(asset.read_text(encoding="utf-8"), date_text, "会议中心")
+            self.send_html(html)
+            return
+        guessed, _ = mimetypes.guess_type(str(asset))
+        self.send_bytes(asset.read_bytes(), guessed or "application/octet-stream")
+
     def send_walkin_api(self, query, date_text):
         """Walk-in 数据：VPS > Excel 参考 JSON > mock。"""
         month = (query.get("month", [""])[0] or "").strip()
@@ -3432,6 +3702,17 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return
         try:
             payload = build_walkin_api_payload(month, date_text or today_text())
+            self.send_json(payload)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, status=500)
+
+    def send_online_channel_api(self, date_text):
+        """线上 OKR 表：大区东南亚/欧洲，真实销售来自 vertu 经销商业绩 JSON。"""
+        if build_online_channel_payload is None:
+            self.send_json({"error": "workbench_data module missing"}, status=500)
+            return
+        try:
+            payload = build_online_channel_payload(date_text or today_text())
             self.send_json(payload)
         except Exception as exc:
             self.send_json({"error": str(exc)}, status=500)
@@ -3493,6 +3774,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             self.send_html(render_im_unread(date_text, message))
         elif parsed.path == "/pdca-vps":
             self.send_html(render_pdca_vps(date_text, message))
+        elif parsed.path == "/meeting-center" or parsed.path.startswith("/meeting-center/"):
+            self.serve_meeting_center(parsed.path, date_text)
         elif parsed.path == "/agent-soul":
             agent_key = query.get("agent", [""])[0]
             self.send_html(render_agent_soul(date_text, agent_key, message))
@@ -3558,6 +3841,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             self.serve_online_cockpit(parsed.path, date_text)
         elif parsed.path == "/api/walkin":
             self.send_walkin_api(query, date_text)
+        elif parsed.path == "/api/online-channel":
+            self.send_online_channel_api(date_text)
         else:
             self.send_response(404)
             self.end_headers()
@@ -3579,6 +3864,17 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 payload = {}
             self.send_json({"ok": True, "message": "建议已记录", "id": payload.get("id")})
+            return
+        if parsed.path == "/api/meeting-center/dispatch":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                self.send_json({"ok": False, "error": "请求体不是 JSON"}, status=400)
+                return
+            result = api_meeting_center_dispatch(payload, (payload.get("date") or date_text))
+            self.send_json(result)
             return
         if parsed.path == "/agent-skill":
             query = parse_qs(parsed.query)
