@@ -1,0 +1,14 @@
+{
+  "directors": ["Sam", "Gary", "May", "Frank"],
+  "team_leads": {
+    "Lina": ["Lina", "Viki"],
+    "April": ["April", "Vivi", "Haiwen"],
+    "Ivan": ["Ivan"],
+    "May": ["May", "Qiqi", "Xianna", "Zhangyi"]
+  },
+  "role_labels": {
+    "director": "总监",
+    "team_lead": "小组长",
+    "member": "成员"
+  }
+}

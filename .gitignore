@@ -19,5 +19,9 @@ data_reports/*.csv
 data_quality/*.md
 pdca_actions/*.md
 
+# Cursor team reports local temp + personal config
+team-reports/.tmp/*
+!team-reports/.tmp/.gitkeep
+team-reports/config/user.json
 __pycache__/
 *.pyc

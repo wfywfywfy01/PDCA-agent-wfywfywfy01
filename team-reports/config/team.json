@@ -1,0 +1,19 @@
+{
+  "team_name": "Cursor 数据岗位组",
+  "members": [
+    { "username": "Sam", "display_name": "Sam", "role": "director" },
+    { "username": "Gary", "display_name": "Gary", "role": "director" },
+    { "username": "May", "display_name": "May", "role": "director", "team": "May组" },
+    { "username": "Frank", "display_name": "Frank", "role": "director" },
+    { "username": "Lina", "display_name": "Lina", "role": "team_lead" },
+    { "username": "April", "display_name": "April", "role": "team_lead" },
+    { "username": "Ivan", "display_name": "Ivan", "role": "team_lead" },
+    { "username": "Viki", "display_name": "Viki", "role": "member" },
+    { "username": "Vivi", "display_name": "Vivi", "role": "member" },
+    { "username": "Haiwen", "display_name": "Haiwen", "role": "member" },
+    { "username": "Chris", "display_name": "Chris", "role": "member" },
+    { "username": "Qiqi", "display_name": "Qiqi", "role": "member", "team": "May组" },
+    { "username": "Xianna", "display_name": "Xianna", "role": "member", "team": "May组" },
+    { "username": "Zhangyi", "display_name": "Zhangyi", "role": "member", "team": "May组" }
+  ]
+}
