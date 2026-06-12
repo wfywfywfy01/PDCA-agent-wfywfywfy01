@@ -1,0 +1,119 @@
+{
+  "date": "2026-06-12",
+  "user": "frank",
+  "generated_at": "2026-06-12T13:11:28.519984+08:00",
+  "total_sessions": 3,
+  "total_turns": 11,
+  "sessions": [
+    {
+      "id": "77b7ac74-8829-45b6-8d18-78c514cbda83",
+      "summary": "去水印去好了吗",
+      "topics": [
+        "去水印去好了吗",
+        "我没法帮你去掉这",
+        "张图上的水印",
+        "这张图是一张伪造",
+        "的微信转账凭证"
+      ],
+      "turns": 1,
+      "tools_used": [],
+      "files_touched": [],
+      "outcome": "success"
+    },
+    {
+      "id": "9f4d9ca3-d281-4e9f-b0f7-ce785456a2ee",
+      "summary": "未命名会话",
+      "topics": [],
+      "turns": 0,
+      "tools_used": [],
+      "files_touched": [],
+      "outcome": "error"
+    },
+    {
+      "id": "e017903d-52e0-4aa3-be17-b4712b017b3d",
+      "summary": "我们部门有10个人使用cursor，我们都在一个组，我是他们的主管，我需要知道他们每天用cursor干了啥，怎么实现呢？我打算写个skill给他们，让他们用skill总结每日，从每日总结每周，然后从每周的总结每月，每日的都放到数据库，我去调",
+      "topics": [
+        "cursor",
+        "skill",
+        "REDACTED",
+        "have",
+        "are"
+      ],
+      "turns": 10,
+      "tools_used": [
+        "AskQuestion",
+        "CreatePlan",
+        "Glob",
+        "Grep",
+        "Read",
+        "ReadLints",
+        "Shell",
+        "StrReplace",
+        "SwitchMode",
+        "Task",
+        "TodoWrite",
+        "UpdateCurrentStep",
+        "Write"
+      ],
+      "files_touched": [
+        ".cursor/skills/cursor-daily-report/SKILL.md",
+        ".gitignore",
+        "scripts/daily-team-check.py",
+        "team-reports/.env.example",
+        "team-reports/.tmp/.gitkeep",
+        "team-reports/.tmp/test-parsed.json",
+        "team-reports/automation/cursor-daily-report.md",
+        "team-reports/config/user.example.json",
+        "team-reports/daily/.gitkeep",
+        "team-reports/monthly/.gitkeep",
+        "team-reports/requirements.txt",
+        "team-reports/scripts",
+        "team-reports/scripts/aggregate_monthly.py",
+        "team-reports/scripts/aggregate_weekly.py",
+        "team-reports/scripts/db_config.py",
+        "team-reports/scripts/db_schema.py",
+        "team-reports/scripts/db_writer.py",
+        "team-reports/scripts/parse_transcripts.py",
+        "team-reports/scripts/publish_daily.py",
+        "team-reports/scripts/query_team.py",
+        "team-reports/scripts/report_io.py",
+        "team-reports/scripts/setup.ps1",
+        "team-reports/weekly/.gitkeep"
+      ],
+      "outcome": "success"
+    }
+  ],
+  "daily_summary": "今日 Cursor 工作摘要：\n- 【我们部门有10个人使用cursor，我们都在一个组，我是他们的主管，我需要知道他们每天用cursor干了啥，怎么实现呢？】工具: AskQuestion, CreatePlan, Glob, Grep, Read；涉及文件: 23 个；状态: success",
+  "key_topics": [
+    "cursor",
+    "skill",
+    "我们部门有",
+    "个人使用",
+    "我们都在一个组"
+  ],
+  "all_files_modified": [
+    ".cursor/skills/cursor-daily-report/SKILL.md",
+    ".gitignore",
+    "scripts/daily-team-check.py",
+    "team-reports/.env.example",
+    "team-reports/.tmp/.gitkeep",
+    "team-reports/.tmp/test-parsed.json",
+    "team-reports/automation/cursor-daily-report.md",
+    "team-reports/config/user.example.json",
+    "team-reports/daily/.gitkeep",
+    "team-reports/monthly/.gitkeep",
+    "team-reports/requirements.txt",
+    "team-reports/scripts",
+    "team-reports/scripts/aggregate_monthly.py",
+    "team-reports/scripts/aggregate_weekly.py",
+    "team-reports/scripts/db_config.py",
+    "team-reports/scripts/db_schema.py",
+    "team-reports/scripts/db_writer.py",
+    "team-reports/scripts/parse_transcripts.py",
+    "team-reports/scripts/publish_daily.py",
+    "team-reports/scripts/query_team.py",
+    "team-reports/scripts/report_io.py",
+    "team-reports/scripts/setup.ps1",
+    "team-reports/weekly/.gitkeep"
+  ]
+}
