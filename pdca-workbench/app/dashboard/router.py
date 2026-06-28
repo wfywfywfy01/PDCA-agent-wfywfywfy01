@@ -8,10 +8,12 @@ import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
+from sqlmodel import Session
 
 from app.auth.deps import require_role
 from app.auth.models import User
 from app.dashboard import service
+from app.database import get_session
 from app.legacy import bridge
 
 router = APIRouter(tags=["dashboard"])
@@ -33,6 +35,7 @@ async def overview(
     date: str | None = None,
     period: str = Query("day"),
     user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
     session_user = {
         "username": user.username,
@@ -49,6 +52,12 @@ async def overview(
             data["dataUpdatedAt"] = int(chart_path.stat().st_mtime * 1000)
     except Exception:
         pass
+    # 用云端 DB 数据覆盖 bridge 返回的 sellin/sellout（公网环境无本地文件时生效）
+    if isinstance(data, dict):
+        try:
+            data = service.merge_db_sales(data, date_text, session)
+        except Exception as exc:
+            logger.warning("merge_db_sales 失败: {}", exc)
     return data
 
 
