@@ -1,0 +1,93 @@
+/* PDCA 工作台公共壳样式 — 暗色主题 */
+.pdca-shell-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px;
+  height: 44px;
+  background: rgba(11,13,19,.95);
+  backdrop-filter: blur(12px);
+  color: #e2e8f0;
+  font-size: 13px;
+  font-family: system-ui, -apple-system, sans-serif;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.pdca-shell-bar a {
+  color: #94a3b8;
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.pdca-shell-bar a:hover { color: #e2e8f0; background: rgba(255,255,255,.06); }
+.pdca-shell-user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #e2e8f0;
+  user-select: none;
+  cursor: pointer;
+  transition: background .15s;
+}
+.pdca-shell-user:hover { background: rgba(255,255,255,.06); }
+.pdca-shell-role {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(78,158,245,.2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  color: #4e9ef5;
+  border: 1px solid rgba(78,158,245,.3);
+}
+.pdca-profile-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  background: #1a2035;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  padding: 16px;
+  color: #e2e8f0;
+  z-index: 200;
+}
+.pdca-profile-header { font-weight: 700; font-size: 14px; color: #e2e8f0; }
+.pdca-profile-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.pdca-profile-input {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid rgba(255,255,255,.12);
+  border-radius: 6px;
+  font-size: 13px;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  outline: none;
+  background: rgba(255,255,255,.05);
+  color: #e2e8f0;
+  transition: border-color .15s;
+}
+.pdca-profile-input:focus { border-color: #4e9ef5; }
+.pdca-profile-btn {
+  width: 100%;
+  padding: 8px;
+  background: rgba(78,158,245,.2);
+  color: #4e9ef5;
+  border: 1px solid rgba(78,158,245,.3);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+.pdca-profile-btn:hover { background: rgba(78,158,245,.3); }

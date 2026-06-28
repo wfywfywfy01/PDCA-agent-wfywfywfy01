@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>管理后台 · PDCA 工作台</title>
+  <style>
+    :root{--blue:#4e9ef5;--green:#10b981;--red:#f43f5e;--amber:#f59e0b;
+      --bg:#0b0d13;--surf:#13182a;--surf2:#1a2035;--border:rgba(255,255,255,.07);
+      --t1:#e2e8f0;--t2:#94a3b8;--t3:#475569}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg);color:var(--t1);min-height:100vh}
+    .page-header{background:rgba(11,13,19,.95);backdrop-filter:blur(12px);
+                 border-bottom:1px solid var(--border);padding:1.1rem 1.5rem;
+                 display:flex;align-items:center;gap:1rem;position:sticky;top:0;z-index:100}
+    .page-header h1{font-size:1.05rem;font-weight:700;color:var(--t1)}
+    .back-btn{display:inline-flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--t3);
+              text-decoration:none;padding:.4rem .85rem;border:1px solid rgba(255,255,255,.1);
+              border-radius:6px;margin-left:auto;transition:all .15s}
+    .back-btn:hover{border-color:rgba(255,255,255,.2);color:var(--t2)}
+    .tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--surf);padding:0 1.5rem;overflow-x:auto}
+    .tab-btn{padding:.7rem 1.1rem;font-size:.83rem;font-weight:600;color:var(--t3);background:none;
+             border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .15s}
+    .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+    .tab-panel{display:none}.tab-panel.active{display:block}
+    .container{max-width:1100px;margin:1.5rem auto;padding:0 1rem 4rem}
+    .card{background:var(--surf);border-radius:12px;border:1px solid var(--border);padding:1.25rem 1.5rem;margin-bottom:1rem}
+    .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+    .card-header h2{font-size:.95rem;font-weight:700;color:var(--t1)}
+    .btn{padding:.45rem 1rem;font-size:.8rem;font-weight:700;border:1px solid transparent;border-radius:7px;cursor:pointer;transition:all .15s}
+    .btn-primary{background:rgba(78,158,245,.2);color:var(--blue);border-color:rgba(78,158,245,.3)}
+    .btn-primary:hover{background:rgba(78,158,245,.3)}
+    .btn-danger{background:rgba(244,63,94,.1);color:var(--red);border-color:rgba(244,63,94,.2)}
+    .btn-danger:hover{background:rgba(244,63,94,.2)}
+    .btn-ghost{background:rgba(255,255,255,.04);color:var(--t3);border-color:rgba(255,255,255,.1)}
+    .btn-ghost:hover{background:rgba(255,255,255,.08);color:var(--t2)}
+    .btn-success{background:rgba(16,185,129,.1);color:var(--green);border-color:rgba(16,185,129,.2)}
+    .btn-success:hover{background:rgba(16,185,129,.2)}
+    table{width:100%;border-collapse:collapse;font-size:.82rem}
+    th{background:rgba(255,255,255,.03);padding:.55rem .75rem;text-align:left;font-size:.72rem;font-weight:700;color:var(--t3);border-bottom:1px solid var(--border)}
+    td{padding:.6rem .75rem;border-bottom:1px solid rgba(255,255,255,.03);vertical-align:middle;color:var(--t1)}
+    tr:hover td{background:rgba(255,255,255,.02)}
+    .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.68rem;font-weight:700}
+    .badge-admin{background:rgba(168,85,247,.15);color:#a855f7}
+    .badge-manager{background:rgba(78,158,245,.15);color:var(--blue)}
+    .badge-sales{background:rgba(245,158,11,.12);color:var(--amber)}
+    .badge-viewer{background:rgba(255,255,255,.06);color:var(--t3)}
+    .badge-ok{background:rgba(16,185,129,.12);color:var(--green)}
+    .badge-off{background:rgba(244,63,94,.1);color:var(--red)}
+    .badge-warn{background:rgba(245,158,11,.12);color:var(--amber)}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:center;justify-content:center}
+    .modal-overlay.open{display:flex}
+    .modal{background:var(--surf);border:1px solid rgba(255,255,255,.1);border-radius:14px;
+           width:100%;max-width:480px;padding:1.75rem;box-shadow:0 20px 60px rgba(0,0,0,.5);margin:1rem}
+    .modal h3{font-size:1rem;font-weight:700;margin-bottom:1.1rem;color:var(--t1)}
+    .modal .field{margin-bottom:.85rem}
+    .modal label{display:block;font-size:.78rem;font-weight:600;color:var(--t2);margin-bottom:.3rem}
+    .modal input,.modal select{width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);
+                               border-radius:8px;font-size:.88rem;font-family:inherit;
+                               background:rgba(255,255,255,.05);color:var(--t1);outline:none}
+    .modal input:focus,.modal select:focus{border-color:var(--blue)}
+    .modal-footer{display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem}
+    .alert-inline{padding:.6rem .85rem;border-radius:8px;font-size:.8rem;font-weight:600;margin-bottom:.75rem;display:none}
+    .alert-inline.err{background:rgba(244,63,94,.1);color:var(--red);border:1px solid rgba(244,63,94,.25);display:block}
+    .alert-inline.ok{background:rgba(16,185,129,.1);color:var(--green);border:1px solid rgba(16,185,129,.2);display:block}
+    .filter-row{display:flex;gap:.6rem;margin-bottom:.85rem;flex-wrap:wrap;align-items:center}
+    .filter-row input,.filter-row select{padding:.4rem .7rem;font-size:.8rem;border:1.5px solid rgba(255,255,255,.1);
+                                         border-radius:7px;font-family:inherit;background:rgba(255,255,255,.05);color:var(--t1);outline:none}
+    .target-month-select{padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);
+                         border-radius:8px;font-size:.85rem;margin-bottom:1rem;
+                         background:rgba(255,255,255,.05);color:var(--t1);outline:none}
+    .target-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.85rem}
+    .target-card{background:var(--surf2);border:1px solid var(--border);border-radius:10px;padding:1rem}
+    .target-card .tc-name{font-size:.8rem;font-weight:700;color:var(--t2);margin-bottom:.65rem}
+    .target-card .tc-row{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+    .target-card .tc-label{font-size:.7rem;color:var(--t3);width:90px;flex-shrink:0}
+    .target-card .tc-input{flex:1;padding:.35rem .6rem;border:1px solid rgba(255,255,255,.1);border-radius:6px;
+                           font-size:.8rem;background:rgba(255,255,255,.05);color:var(--t1);outline:none}
+    .target-card .tc-save{width:100%;margin-top:.5rem;padding:.4rem;font-size:.75rem;font-weight:700;
+                          background:rgba(78,158,245,.2);color:var(--blue);border:1px solid rgba(78,158,245,.3);
+                          border-radius:7px;cursor:pointer}
+    .action-log{font-size:.72rem;color:var(--t3);font-family:monospace;padding:.2rem .5rem;
+                background:rgba(255,255,255,.03);border-radius:4px}
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <h1>⚙ 管理后台</h1>
+  </div>
+  <a href="/" class="back-btn">← 首页</a>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('users',this)">👥 用户管理</button>
+  <button class="tab-btn" onclick="switchTab('stores',this)">🏪 门店管理</button>
+  <button class="tab-btn" onclick="switchTab('targets',this)">🎯 月度目标</button>
+  <button class="tab-btn" onclick="switchTab('audit',this)">📋 操作日志</button>
+  <button class="tab-btn" onclick="switchTab('export',this)">⬇ 数据导出</button>
+</div>
+
+<!-- ══ 用户管理 ══ -->
+<div id="tab-users" class="tab-panel active">
+<div class="container">
+  <div class="card">
+    <div class="card-header"><h2>用户列表</h2><button class="btn btn-primary" onclick="openUserModal()">+ 新建用户</button></div>
+    <div id="alertUsers" class="alert-inline"></div>
+    <div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>用户名</th><th>姓名</th><th>角色</th><th>销售名</th><th>状态</th><th>需改密</th><th>创建时间</th><th>操作</th>
+    </tr></thead><tbody id="usersTbody"><tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══ 门店管理 ══ -->
+<div id="tab-stores" class="tab-panel">
+<div class="container">
+  <div class="card">
+    <div class="card-header"><h2>门店列表</h2><button class="btn btn-primary" onclick="openStoreModal()">+ 新增门店</button></div>
+    <div id="alertStores" class="alert-inline"></div>
+    <div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>门店ID</th><th>名称</th><th>大区</th><th>国家</th><th>状态</th><th>排序</th><th>操作</th>
+    </tr></thead><tbody id="storesTbody"><tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══ 月度目标 ══ -->
+<div id="tab-targets" class="tab-panel">
+<div class="container">
+  <div class="card">
+    <div class="card-header">
+      <h2>月度目标设置</h2>
+      <select id="targetMonth" class="target-month-select" onchange="loadTargets()"></select>
+    </div>
+    <div id="alertTargets" class="alert-inline"></div>
+    <div id="targetGlobal" style="margin-bottom:1rem"></div>
+    <div id="targetGrid" class="target-grid"></div>
+  </div>
+</div>
+</div>
+
+<!-- ══ 操作日志 ══ -->
+<div id="tab-audit" class="tab-panel">
+<div class="container">
+  <div class="card">
+    <div class="card-header"><h2>操作日志</h2></div>
+    <div class="filter-row">
+      <input type="text" id="auditUser" placeholder="按用户名筛选" style="width:160px" />
+      <select id="auditAction">
+        <option value="">全部操作</option>
+        <option value="login">登录</option>
+        <option value="change_password">改密</option>
+        <option value="reset_password">重置密码</option>
+        <option value="submit_five_kit">录入五件套</option>
+        <option value="create_user">创建用户</option>
+        <option value="update_user">修改用户</option>
+        <option value="deactivate_user">停用用户</option>
+        <option value="create_store">创建门店</option>
+        <option value="update_store">修改门店</option>
+        <option value="upsert_target">设置目标</option>
+      </select>
+      <button class="btn btn-primary" onclick="loadAudit()">查询</button>
+    </div>
+    <div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>时间</th><th>用户</th><th>操作</th><th>资源</th><th>详情</th><th>IP</th>
+    </tr></thead><tbody id="auditTbody"><tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">点击「查询」加载</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══ 数据导出 ══ -->
+<div id="tab-export" class="tab-panel">
+<div class="container">
+  <div class="card">
+    <div class="card-header"><h2>数据导出</h2></div>
+    <p style="font-size:.82rem;color:#64748b;margin-bottom:1.25rem">所有导出均为 Excel (.xlsx) 格式，点击按钮直接下载。</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">
+      <div style="padding:1.25rem;border:1px solid var(--s200);border-radius:10px;background:var(--s50)">
+        <div style="font-size:.82rem;font-weight:700;margin-bottom:.5rem">门店五件套日报</div>
+        <div style="font-size:.72rem;color:#94a3b8;margin-bottom:.85rem">按月导出进店来源 + 成交漏斗 + Sell-out 实录</div>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+          <input type="month" id="exportFiveKitMonth" style="padding:.4rem .7rem;border:1.5px solid var(--s200);border-radius:7px;font-size:.8rem" />
+          <a id="dlFiveKit" class="btn btn-primary" style="text-decoration:none">下载</a>
+        </div>
+      </div>
+      <div style="padding:1.25rem;border:1px solid var(--s200);border-radius:10px;background:var(--s50)">
+        <div style="font-size:.82rem;font-weight:700;margin-bottom:.5rem">经销商业绩（Sell-in/out）</div>
+        <div style="font-size:.72rem;color:#94a3b8;margin-bottom:.85rem">按月导出系统同步的经销商进货与出货数据</div>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+          <input type="month" id="exportSalesMonth" style="padding:.4rem .7rem;border:1.5px solid var(--s200);border-radius:7px;font-size:.8rem" />
+          <a id="dlSales" class="btn btn-primary" style="text-decoration:none">下载</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══ 用户 Modal ══ -->
+<div id="userModal" class="modal-overlay" onclick="if(event.target===this)closeModal('userModal')">
+  <div class="modal">
+    <h3 id="userModalTitle">新建用户</h3>
+    <div id="userModalAlert" class="alert-inline"></div>
+    <div class="field"><label>用户名<span style="color:#e11d48">*</span></label><input id="um_username" type="text" /></div>
+    <div class="field"><label>显示姓名</label><input id="um_display" type="text" /></div>
+    <div class="field"><label>销售名（对应物流 CSV）</label><input id="um_sales" type="text" /></div>
+    <div class="field"><label>角色</label>
+      <select id="um_role">
+        <option value="viewer">只读 viewer</option>
+        <option value="sales" selected>销售 sales</option>
+        <option value="manager">主管 manager</option>
+        <option value="admin">管理员 admin</option>
+      </select>
+    </div>
+    <div class="field"><label>初始密码（至少 8 位）<span style="color:#e11d48">*</span></label><input id="um_password" type="password" /></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('userModal')">取消</button>
+      <button class="btn btn-primary" onclick="submitUser()">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 门店 Modal ══ -->
+<div id="storeModal" class="modal-overlay" onclick="if(event.target===this)closeModal('storeModal')">
+  <div class="modal">
+    <h3 id="storeModalTitle">新增门店</h3>
+    <div id="storeModalAlert" class="alert-inline"></div>
+    <div class="field"><label>门店 ID（如 d034）<span style="color:#e11d48">*</span></label><input id="sm_id" type="text" /></div>
+    <div class="field"><label>门店名称<span style="color:#e11d48">*</span></label><input id="sm_name" type="text" /></div>
+    <div class="field"><label>大区</label>
+      <select id="sm_region">
+        <option>北区</option><option>南区</option><option>西区</option><option>越南区</option><option>其他</option>
+      </select>
+    </div>
+    <div class="field"><label>国家/城市</label><input id="sm_country" type="text" /></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('storeModal')">取消</button>
+      <button class="btn btn-primary" onclick="submitStore()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var API = '';
+
+// ── 通用 ──
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  document.getElementById('tab-'+tab).classList.add('active'); btn.classList.add('active');
+  if(tab==='users') loadUsers();
+  else if(tab==='stores') loadStores();
+  else if(tab==='targets') initTargets();
+  else if(tab==='audit') loadAudit();
+  else if(tab==='export') initExport();
+}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function setAlert(id,msg,type){var el=document.getElementById(id);el.textContent=msg;el.className='alert-inline '+(type||'err');setTimeout(function(){el.className='alert-inline';},4000);}
+function roleBadge(r){return '<span class="badge badge-'+r+'">'+r+'</span>';}
+
+// ── 用户管理 ──
+function loadUsers(){
+  fetch(API+'/api/admin/users',{credentials:'include'}).then(function(r){return r.json();}).then(function(us){
+    if(!Array.isArray(us)){document.getElementById('usersTbody').innerHTML='<tr><td colspan="8" style="color:#e11d48;text-align:center">无权限</td></tr>';return;}
+    var html='';
+    us.forEach(function(u){
+      html+='<tr>'
+        +'<td><strong>'+u.username+'</strong></td>'
+        +'<td>'+u.display_name+'</td>'
+        +'<td>'+roleBadge(u.role)+'</td>'
+        +'<td style="color:#64748b">'+u.sales_name+'</td>'
+        +'<td>'+(u.is_active?'<span class="badge badge-ok">启用</span>':'<span class="badge badge-off">停用</span>')+'</td>'
+        +'<td>'+(u.must_change_password?'<span class="badge badge-warn">需改密</span>':'')+'</td>'
+        +'<td style="color:#94a3b8;font-size:.7rem">'+(u.created_at||'').slice(0,10)+'</td>'
+        +'<td style="display:flex;gap:.4rem;flex-wrap:wrap">'
+        +'<button class="btn btn-success" style="font-size:.7rem;padding:3px 8px" onclick="resetPwd(\''+u.username+'\')">重置密码</button>'
+        +(u.is_active?'<button class="btn btn-danger" style="font-size:.7rem;padding:3px 8px" onclick="deactivateUser(\''+u.username+'\')">停用</button>':'')
+        +'</td></tr>';
+    });
+    document.getElementById('usersTbody').innerHTML=html;
+  }).catch(function(){});
+}
+function openUserModal(){
+  ['um_username','um_display','um_sales','um_password'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('um_role').value='sales';
+  document.getElementById('userModalAlert').className='alert-inline';
+  openModal('userModal');
+}
+function submitUser(){
+  var body={username:document.getElementById('um_username').value.trim(),
+    display_name:document.getElementById('um_display').value.trim(),
+    sales_name:document.getElementById('um_sales').value.trim(),
+    role:document.getElementById('um_role').value,
+    password:document.getElementById('um_password').value};
+  if(!body.username||!body.password){setAlert('userModalAlert','用户名和密码不能为空','err');return;}
+  fetch(API+'/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertUsers','用户 '+body.username+' 已创建','ok');closeModal('userModal');loadUsers();}
+      else{setAlert('userModalAlert',res.d.detail||'创建失败','err');}
+    });
+}
+function resetPwd(username){
+  var pw=prompt('为 '+username+' 设置新密码（至少 8 位）：');
+  if(!pw||pw.length<8){if(pw!==null)alert('密码至少 8 位');return;}
+  fetch(API+'/api/admin/users/'+username+'/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({new_password:pw})})
+    .then(function(r){return r.json();}).then(function(d){setAlert('alertUsers',(d.message||'已重置'),'ok');loadUsers();});
+}
+function deactivateUser(username){
+  if(!confirm('确认停用用户「'+username+'」？'))return;
+  fetch(API+'/api/admin/users/'+username,{method:'DELETE',credentials:'include'})
+    .then(function(r){return r.json();}).then(function(d){setAlert('alertUsers','用户已停用','ok');loadUsers();});
+}
+
+// ── 门店管理 ──
+function loadStores(incl){
+  var url=API+'/api/admin/stores'+(incl?'?include_inactive=true':'');
+  fetch(url,{credentials:'include'}).then(function(r){return r.json();}).then(function(ss){
+    if(!Array.isArray(ss)){document.getElementById('storesTbody').innerHTML='<tr><td colspan="7" style="color:#e11d48;text-align:center">无权限</td></tr>';return;}
+    var html='';
+    ss.forEach(function(s){
+      html+='<tr>'
+        +'<td><code>'+s.store_id+'</code></td><td>'+s.name+'</td><td>'+s.region+'</td><td>'+s.country+'</td>'
+        +'<td>'+(s.is_active?'<span class="badge badge-ok">启用</span>':'<span class="badge badge-off">停用</span>')+'</td>'
+        +'<td>'+s.sort_order+'</td>'
+        +'<td><button class="btn btn-danger" style="font-size:.7rem;padding:3px 8px" onclick="toggleStore(\''+s.store_id+'\','+!s.is_active+')">'+(s.is_active?'停用':'启用')+'</button></td></tr>';
+    });
+    document.getElementById('storesTbody').innerHTML=html;
+  });
+}
+function openStoreModal(){
+  ['sm_id','sm_name','sm_country'].forEach(function(id){document.getElementById(id).value='';});
+  document.getElementById('storeModalAlert').className='alert-inline';
+  openModal('storeModal');
+}
+function submitStore(){
+  var body={store_id:document.getElementById('sm_id').value.trim(),name:document.getElementById('sm_name').value.trim(),
+    region:document.getElementById('sm_region').value,country:document.getElementById('sm_country').value.trim()};
+  if(!body.store_id||!body.name){setAlert('storeModalAlert','ID 和名称不能为空','err');return;}
+  fetch(API+'/api/admin/stores',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertStores','门店 '+body.name+' 已添加','ok');closeModal('storeModal');loadStores();}
+      else{setAlert('storeModalAlert',res.d.detail||'添加失败','err');}
+    });
+}
+function toggleStore(id,active){
+  fetch(API+'/api/admin/stores/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({is_active:active})})
+    .then(function(){loadStores(true);});
+}
+
+// ── 月度目标 ──
+function initTargets(){
+  var sel=document.getElementById('targetMonth');
+  sel.innerHTML='';
+  var now=new Date();
+  for(var i=0;i<6;i++){
+    var d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    var val=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    sel.insertAdjacentHTML('beforeend','<option value="'+val+'">'+val+'</option>');
+  }
+  loadTargets();
+}
+function loadTargets(){
+  var month=document.getElementById('targetMonth').value;
+  Promise.all([
+    fetch(API+'/api/admin/targets?month='+month,{credentials:'include'}).then(function(r){return r.json();}),
+    fetch(API+'/api/admin/stores',{credentials:'include'}).then(function(r){return r.json();})
+  ]).then(function(res){
+    var targets=Array.isArray(res[0])?res[0]:[];
+    var stores=Array.isArray(res[1])?res[1]:[];
+    var tmap={};
+    targets.forEach(function(t){tmap[t.dealer_id]=t;});
+
+    // 全局目标
+    var gt=tmap['']||{sell_out_target_yuan:0,visit_target:0,deal_target:0,add_rate_target:0.35};
+    document.getElementById('targetGlobal').innerHTML=renderTargetCard('','全局目标（所有门店合计）',gt,month);
+
+    // 各门店目标
+    var html='';
+    stores.forEach(function(s){
+      var t=tmap[s.store_id]||{sell_out_target_yuan:0,visit_target:0,deal_target:0,add_rate_target:0.35};
+      html+=renderTargetCard(s.store_id,s.name,t,month);
+    });
+    document.getElementById('targetGrid').innerHTML=html;
+  });
+}
+function renderTargetCard(dealerId,name,t,month){
+  var sid=dealerId?dealerId:'_global';
+  return '<div class="target-card">'
+    +'<div class="tc-name">'+name+'</div>'
+    +'<div class="tc-row"><span class="tc-label">Sell-out 目标(万)</span><input class="tc-input" id="t_so_'+sid+'" type="number" value="'+(t.sell_out_target_yuan/10000).toFixed(2)+'" step="0.1" /></div>'
+    +'<div class="tc-row"><span class="tc-label">进店目标(组)</span><input class="tc-input" id="t_vi_'+sid+'" type="number" value="'+t.visit_target+'" /></div>'
+    +'<div class="tc-row"><span class="tc-label">成交目标(组)</span><input class="tc-input" id="t_de_'+sid+'" type="number" value="'+t.deal_target+'" /></div>'
+    +'<div class="tc-row"><span class="tc-label">留资率目标</span><input class="tc-input" id="t_ar_'+sid+'" type="number" value="'+((t.add_rate_target||0.35)*100).toFixed(0)+'" step="1" /> %</div>'
+    +'<button class="tc-save" onclick="saveTarget(\''+dealerId+'\',\''+month+'\',\''+sid+'\')">保存</button>'
+    +'</div>';
+}
+function saveTarget(dealerId,month,sid){
+  var soWan=parseFloat(document.getElementById('t_so_'+sid).value)||0;
+  var body={month:month,dealer_id:dealerId,
+    sell_out_target_yuan:soWan*10000,
+    visit_target:parseInt(document.getElementById('t_vi_'+sid).value)||0,
+    deal_target:parseInt(document.getElementById('t_de_'+sid).value)||0,
+    add_rate_target:(parseFloat(document.getElementById('t_ar_'+sid).value)||35)/100};
+  fetch(API+'/api/admin/targets',{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){setAlert('alertTargets',(dealerId||'全局')+' 目标已保存','ok');}
+      else{setAlert('alertTargets',d.detail||'保存失败','err');}
+    });
+}
+
+// ── 操作日志 ──
+var ACTION_LABELS={'login':'登录','change_password':'改密','reset_password':'重置密码',
+  'submit_five_kit':'录入五件套','create_user':'创建用户','update_user':'修改用户',
+  'deactivate_user':'停用用户','create_store':'创建门店','update_store':'修改门店','upsert_target':'设置目标'};
+function loadAudit(){
+  var user=document.getElementById('auditUser').value.trim();
+  var action=document.getElementById('auditAction').value;
+  var url=API+'/api/admin/audit-logs?limit=300'+(user?'&username='+encodeURIComponent(user):'')+(action?'&action='+action:'');
+  fetch(url,{credentials:'include'}).then(function(r){return r.json();}).then(function(rows){
+    if(!Array.isArray(rows)){document.getElementById('auditTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center">无权限</td></tr>';return;}
+    if(!rows.length){document.getElementById('auditTbody').innerHTML='<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">暂无日志</td></tr>';return;}
+    var html='';
+    rows.forEach(function(r){
+      var label=ACTION_LABELS[r.action]||r.action;
+      html+='<tr><td style="color:#94a3b8;font-size:.72rem;white-space:nowrap">'+(r.created_at||'').slice(0,16)+'</td>'
+        +'<td><strong>'+r.username+'</strong></td>'
+        +'<td><span class="badge '+(r.action==='login'?'badge-ok':r.action==='change_password'||r.action==='reset_password'?'badge-warn':'badge-admin')+'">'+label+'</span></td>'
+        +'<td style="color:#475569">'+r.resource+'</td>'
+        +'<td><span class="action-log">'+r.detail.slice(0,80)+'</span></td>'
+        +'<td style="color:#94a3b8">'+r.ip+'</td></tr>';
+    });
+    document.getElementById('auditTbody').innerHTML=html;
+  });
+}
+
+// ── 数据导出 ──
+function initExport(){
+  var now=new Date();
+  var ym=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  document.getElementById('exportFiveKitMonth').value=ym;
+  document.getElementById('exportSalesMonth').value=ym;
+  updateExportLinks();
+}
+function updateExportLinks(){
+  var fkm=document.getElementById('exportFiveKitMonth').value;
+  var sm=document.getElementById('exportSalesMonth').value;
+  document.getElementById('dlFiveKit').href=API+'/api/export/walkin-metrics?month='+(fkm||'');
+  document.getElementById('dlSales').href=API+'/api/export/dealer-sales?month='+(sm||'');
+}
+document.addEventListener('DOMContentLoaded',function(){
+  document.getElementById('exportFiveKitMonth') && document.getElementById('exportFiveKitMonth').addEventListener('input',updateExportLinks);
+  document.getElementById('exportSalesMonth') && document.getElementById('exportSalesMonth').addEventListener('input',updateExportLinks);
+});
+
+// 初始加载
+loadUsers();
+</script>
+</body>
+</html>

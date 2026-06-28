@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>门店五件套 · PDCA</title>
+  <style>
+    :root{--blue:#4e9ef5;--green:#10b981;--red:#f43f5e;--amber:#f59e0b;--purple:#a855f7;
+          --bg:#0b0d13;--surf:#13182a;--surf2:#1a2035;--border:rgba(255,255,255,.07);
+          --t1:#e2e8f0;--t2:#94a3b8;--t3:#475569;--r6:6px;--r12:12px}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg);color:var(--t1);min-height:100vh;font-size:14px}
+
+    /* ── 顶栏 ── */
+    .header{background:rgba(11,13,19,.95);backdrop-filter:blur(12px);
+            padding:0 1.5rem;display:flex;align-items:center;gap:1rem;
+            height:56px;position:sticky;top:0;z-index:100;
+            border-bottom:1px solid var(--border)}
+    .header-title{font-size:.95rem;font-weight:700;color:var(--t1);white-space:nowrap}
+    .header-sep{width:1px;height:20px;background:rgba(255,255,255,.12);flex-shrink:0}
+    .month-wrap{display:flex;align-items:center;gap:.5rem}
+    .month-label{font-size:.72rem;color:var(--t3);font-weight:600}
+    .month-input{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+                 color:var(--t1);border-radius:var(--r6);padding:.3rem .6rem;
+                 font-size:.82rem;font-family:inherit;cursor:pointer;outline:none}
+    .month-input:focus{border-color:rgba(78,158,245,.5)}
+    .btn-refresh{background:rgba(78,158,245,.2);border:1px solid rgba(78,158,245,.3);color:var(--blue);
+                 padding:.3rem .75rem;border-radius:var(--r6);font-size:.75rem;
+                 font-weight:600;cursor:pointer;white-space:nowrap}
+    .btn-refresh:hover{background:rgba(78,158,245,.35)}
+    .vps-pill{background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.25);
+              color:var(--green);border-radius:20px;padding:.15rem .7rem;
+              font-size:.7rem;font-weight:700;white-space:nowrap}
+    .header-back{margin-left:auto;color:var(--t3);text-decoration:none;
+                 font-size:.75rem;white-space:nowrap;transition:color .15s}
+    .header-back:hover{color:var(--t2)}
+
+    /* ── KPI 栏 ── */
+    .kpi-bar{display:grid;grid-template-columns:repeat(5,1fr);
+             gap:1px;background:var(--border);border-bottom:1px solid var(--border)}
+    .kpi-cell{background:var(--surf);padding:.85rem 1.25rem;display:flex;flex-direction:column;gap:2px}
+    .kpi-label{font-size:.65rem;font-weight:700;color:var(--t3);
+               text-transform:uppercase;letter-spacing:.04em}
+    .kpi-value{font-size:1.55rem;font-weight:900;color:var(--t1);line-height:1}
+    .kpi-sub{font-size:.62rem;color:var(--t3);margin-top:2px}
+    .kpi-cell.kpi-green .kpi-value{color:var(--green)}
+    .kpi-cell.kpi-blue  .kpi-value{color:var(--blue)}
+    .kpi-cell.kpi-amber .kpi-value{color:var(--amber)}
+
+    /* ── 布局 ── */
+    .layout{display:grid;grid-template-columns:260px 1fr;gap:0;min-height:calc(100vh - 56px - 66px)}
+
+    /* ── 侧栏 ── */
+    .sidebar{background:var(--surf);border-right:1px solid var(--border);
+             padding:1rem 0;overflow-y:auto;position:sticky;
+             top:calc(56px + 66px);height:calc(100vh - 56px - 66px)}
+    .sidebar-title{font-size:.65rem;font-weight:700;color:var(--t3);
+                   text-transform:uppercase;letter-spacing:.06em;padding:.5rem 1.25rem .4rem}
+    .rank-row{display:flex;align-items:center;gap:.6rem;
+              padding:.45rem 1.25rem;border-left:3px solid transparent;
+              transition:background .12s,border-color .12s;cursor:default}
+    .rank-row:hover{background:rgba(255,255,255,.02);border-left-color:var(--border)}
+    .rank-row.top1{border-left-color:#f59e0b}
+    .rank-row.top2{border-left-color:var(--t2)}
+    .rank-row.top3{border-left-color:#cd7f32}
+    .rank-num{font-size:.7rem;font-weight:800;color:var(--t3);width:18px;flex-shrink:0;text-align:right}
+    .rank-name{font-size:.75rem;color:var(--t2);font-weight:500;
+               flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rank-amt{font-size:.78rem;font-weight:800;color:var(--green);white-space:nowrap}
+
+    /* ── 主区域 ── */
+    .main{padding:1.25rem 1.5rem 3rem;overflow-y:auto}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:.85rem}
+
+    /* ── 卡片 ── */
+    .card{background:var(--surf);border:1px solid var(--border);
+          border-radius:var(--r12);overflow:hidden;transition:box-shadow .18s,transform .18s}
+    .card:hover{box-shadow:0 6px 24px rgba(0,0,0,.4);transform:translateY(-1px)}
+    .card.dim{background:rgba(19,24,42,.5);border-style:dashed;border-color:rgba(255,255,255,.05)}
+
+    .card-head{padding:.75rem 1rem .6rem;display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem}
+    .card-name{font-size:.85rem;font-weight:700;color:var(--t1);line-height:1.3}
+    .card-meta{font-size:.65rem;color:var(--t3);margin-top:3px}
+    .badge{display:inline-flex;align-items:center;padding:2px 8px;
+           border-radius:20px;font-size:.65rem;font-weight:700;white-space:nowrap;flex-shrink:0}
+    .badge-green{background:rgba(16,185,129,.12);color:var(--green)}
+    .badge-blue{background:rgba(78,158,245,.12);color:var(--blue)}
+    .badge-gray{background:rgba(255,255,255,.06);color:var(--t3)}
+
+    /* ── 核心指标行 ── */
+    .metrics-strip{display:grid;grid-template-columns:1fr 1fr 1fr;
+                   border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+    .metric-cell{padding:.6rem .75rem;text-align:center;position:relative}
+    .metric-cell+.metric-cell::before{content:'';position:absolute;left:0;top:.5rem;bottom:.5rem;
+                                       width:1px;background:var(--border)}
+    .metric-icon{font-size:.65rem;color:var(--t3);font-weight:600;
+                 text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px}
+    .metric-val{font-size:1.15rem;font-weight:900;line-height:1}
+    .metric-sub{font-size:.6rem;color:var(--t3);margin-top:2px}
+    .mv-green{color:var(--green)}
+    .mv-blue{color:var(--blue)}
+    .mv-amber{color:var(--amber)}
+    .mv-ink{color:var(--t1)}
+
+    /* ── 激活条 ── */
+    .act-strip{display:grid;grid-template-columns:1fr 1fr 1fr;
+               background:rgba(255,255,255,.02);border-bottom:1px solid var(--border);
+               padding:.55rem .85rem;gap:.5rem}
+    .act-cell{display:flex;flex-direction:column;align-items:center;gap:1px}
+    .act-label{font-size:.6rem;font-weight:700;color:var(--t3);text-transform:uppercase}
+    .act-val{font-size:1rem;font-weight:800}
+    .av-green{color:var(--green)}
+    .av-amber{color:var(--amber)}
+    .av-blue{color:var(--blue)}
+
+    /* ── 来源条 ── */
+    .src-section{padding:.7rem 1rem .6rem}
+    .src-section-label{font-size:.6rem;font-weight:700;color:var(--t3);
+                       text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem}
+    .src-bars{display:flex;flex-direction:column;gap:.3rem}
+    .src-bar-row{display:grid;grid-template-columns:36px 1fr 28px;align-items:center;gap:.4rem}
+    .src-bar-name{font-size:.67rem;color:var(--t3);font-weight:600;text-align:right;white-space:nowrap}
+    .src-bar-track{height:6px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden}
+    .src-bar-fill{height:100%;border-radius:99px;transition:width .4s}
+    .src-bar-pct{font-size:.65rem;color:var(--t3);font-weight:600;text-align:right}
+
+    /* ── 卡片底栏 ── */
+    .card-foot{display:flex;align-items:center;justify-content:space-between;
+               padding:.55rem 1rem;border-top:1px solid var(--border);
+               background:rgba(255,255,255,.015)}
+    .foot-info{font-size:.65rem;color:var(--t3)}
+    .btn-entry{display:inline-flex;align-items:center;gap:.3rem;
+               padding:.3rem .7rem;background:rgba(78,158,245,.2);color:var(--blue);
+               border:1px solid rgba(78,158,245,.3);border-radius:var(--r6);font-size:.7rem;font-weight:700;
+               text-decoration:none;transition:background .15s}
+    .btn-entry:hover{background:rgba(78,158,245,.35)}
+    .btn-entry.ghost{background:transparent;border:1.5px solid rgba(78,158,245,.3);color:var(--blue)}
+    .btn-entry.ghost:hover{background:rgba(78,158,245,.1)}
+
+    /* ── 状态 ── */
+    .loading{display:flex;align-items:center;justify-content:center;
+             gap:.6rem;padding:4rem;color:var(--t3);font-size:.85rem}
+    .empty{text-align:center;padding:4rem 1rem;color:var(--t3)}
+    .empty-icon{font-size:2rem;margin-bottom:.75rem}
+
+    /* 期间切换器 */
+    .period-group{display:inline-flex;align-items:center;background:rgba(255,255,255,.06);
+                  border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:2px;gap:1px}
+    .period-btn{background:transparent;border:none;color:var(--t3);
+                font-size:12px;font-weight:700;padding:3px 9px;border-radius:5px;
+                cursor:pointer;font-family:inherit;transition:background .15s,color .15s}
+    .period-btn:hover{color:var(--t2)}
+    .period-btn.active{background:rgba(78,158,245,.2);color:var(--blue)}
+
+    @media(max-width:900px){
+      .layout{grid-template-columns:1fr}
+      .sidebar{display:none}
+      .kpi-bar{grid-template-columns:repeat(3,1fr)}
+      .kpi-cell:nth-child(n+4){display:none}
+    }
+    @media(max-width:540px){
+      .kpi-bar{grid-template-columns:1fr 1fr}
+      .kpi-cell:nth-child(n+3){display:none}
+      .grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-title">🏪 门店五件套</div>
+  <div class="header-sep"></div>
+  <!-- 期间切换（与 shell.js 联动，此处独立实现供无 shell 环境） -->
+  <div class="period-group" id="periodGroup">
+    <button class="period-btn" data-p="day"     onclick="setPeriod('day')">日</button>
+    <button class="period-btn" data-p="week"    onclick="setPeriod('week')">周</button>
+    <button class="period-btn active" data-p="month"   onclick="setPeriod('month')">月</button>
+    <button class="period-btn" data-p="quarter" onclick="setPeriod('quarter')">季</button>
+  </div>
+  <div class="header-sep"></div>
+  <div class="month-wrap">
+    <span class="month-label" id="anchorLabel">锚定日期</span>
+    <input type="date" class="month-input" id="anchorPicker" />
+  </div>
+  <button class="btn-refresh" onclick="load()">刷新</button>
+  <span class="vps-pill" id="vpsPill" style="display:none"></span>
+  <a href="/walkin-cockpit/" class="header-back">← 客流看板</a>
+</header>
+
+<div id="kpiBar" class="kpi-bar" style="display:none">
+  <div class="kpi-cell kpi-green">
+    <div class="kpi-label">VPS Sell-out</div>
+    <div class="kpi-value" id="k-sellout">—</div>
+    <div class="kpi-sub">本月真实销售额</div>
+  </div>
+  <div class="kpi-cell kpi-blue">
+    <div class="kpi-label">累计激活</div>
+    <div class="kpi-value" id="k-activated">—</div>
+    <div class="kpi-sub">台 · 全部历史</div>
+  </div>
+  <div class="kpi-cell kpi-amber">
+    <div class="kpi-label">待激活</div>
+    <div class="kpi-value" id="k-notact">—</div>
+    <div class="kpi-sub">已发货未激活</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">海外库存</div>
+    <div class="kpi-value" id="k-stock">—</div>
+    <div class="kpi-sub">台 · 所有经销商合计</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">已上报门店</div>
+    <div class="kpi-value" id="k-reported">—</div>
+    <div class="kpi-sub" id="k-total-sub">共 — 家</div>
+  </div>
+</div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar" style="display:none">
+    <div class="sidebar-title">Sell-out 排行</div>
+    <div id="rankList"></div>
+  </aside>
+  <main class="main">
+    <div id="storeGrid"><div class="loading">⏳ 加载中…</div></div>
+  </main>
+</div>
+
+<script>
+var API = '';
+var storeList = [];
+var summaryData = null;
+var vpsData = null;
+var activationData = null;
+
+// ── 期间工具 ────────────────────────────────────────────────────────────────
+function _fmt(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+dd}
+function _parse(s){var p=String(s||'').split('-');return new Date(+p[0],+p[1]-1,+p[2])}
+function getPeriodRange(anchor,period){
+  var d=_parse(anchor||new Date().toISOString().slice(0,10)),y=d.getFullYear(),m=d.getMonth();
+  if(period==='day')return{start:anchor,end:anchor,label:anchor};
+  if(period==='week'){var dow=d.getDay(),dToMon=dow===0?-6:1-dow,mon=new Date(d),sun=new Date(d);mon.setDate(d.getDate()+dToMon);sun.setDate(mon.getDate()+6);return{start:_fmt(mon),end:_fmt(sun),label:_fmt(mon)+'~'+_fmt(sun).slice(5)};}
+  if(period==='month'){var last=new Date(y,m+1,0).getDate();return{start:_fmt(new Date(y,m,1)),end:_fmt(new Date(y,m,last)),label:y+'年'+(m+1)+'月'};}
+  if(period==='quarter'){var q=Math.floor(m/3),qsm=q*3,qem=qsm+2,qLast=new Date(y,qem+1,0).getDate();return{start:_fmt(new Date(y,qsm,1)),end:_fmt(new Date(y,qem,qLast)),label:y+'Q'+(q+1)};}
+  return getPeriodRange(anchor,'month');
+}
+
+// ── 状态初始化 ──────────────────────────────────────────────────────────────
+var _qs = new URLSearchParams(location.search);
+var currentPeriod = _qs.get('period') || (typeof sessionStorage!=='undefined'&&sessionStorage.getItem('pdca_period')) || 'month';
+var currentAnchor = _qs.get('date') || new Date().toISOString().slice(0,10);
+
+(function(){
+  document.getElementById('anchorPicker').value = currentAnchor;
+  document.querySelectorAll('.period-btn').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.p === currentPeriod);
+  });
+})();
+
+function setPeriod(p){
+  currentPeriod=p;
+  if(typeof sessionStorage!=='undefined')sessionStorage.setItem('pdca_period',p);
+  document.querySelectorAll('.period-btn').forEach(function(btn){btn.classList.toggle('active',btn.dataset.p===p)});
+  load();
+}
+document.getElementById('anchorPicker').addEventListener('change',function(){currentAnchor=this.value;load();});
+
+// ── 认证 + 门店列表 ─────────────────────────────────────────────────────────
+fetch('/api/auth/me',{credentials:'include'})
+  .then(function(r){return r.ok?r.json():null})
+  .then(function(me){
+    if(!me){location.href='/login?next=/store-five-kit/';return}
+    return fetch(API+'/api/my-stores',{credentials:'include'})
+      .then(function(r){return r.ok?r.json():[]})
+      .then(function(s){storeList=s;load()})
+  })
+  .catch(function(){showError('无法连接服务，请刷新重试')});
+
+function load(){
+  var range=getPeriodRange(currentAnchor,currentPeriod);
+  var qs='start='+encodeURIComponent(range.start)+'&end='+encodeURIComponent(range.end);
+  document.getElementById('storeGrid').innerHTML='<div class="loading">⏳ 加载中…</div>';
+  document.getElementById('kpiBar').style.display='none';
+  document.getElementById('sidebar').style.display='none';
+  // 更新 KPI 副标题
+  document.getElementById('k-sellout').closest('.kpi-cell').querySelector('.kpi-sub').textContent=range.label+' 真实销售额';
+  summaryData=null;vpsData=null;activationData=null;
+
+  var p1=fetch(API+'/api/walkin-metrics/summary?'+qs,{credentials:'include',cache:'no-store'})
+    .then(function(r){return r.ok?r.json():null}).catch(function(){return null});
+  var p2=fetch(API+'/api/vps/dealer-sales?'+qs,{credentials:'include',cache:'no-store'})
+    .then(function(r){return r.ok?r.json():null}).catch(function(){return null});
+  var p3=fetch(API+'/api/vps/dealer-activation',{credentials:'include',cache:'no-store'})
+    .then(function(r){return r.ok?r.json():null}).catch(function(){return null});
+
+  Promise.all([p1,p2,p3]).then(function(res){
+    summaryData=res[0];vpsData=res[1];activationData=res[2];
+    render(range);
+  });
+}
+
+function norm(s){return String(s||'').toLowerCase().replace(/[\s\-_\.,\(\)&']/g,'')}
+function buildMap(arr){
+  var m={};
+  if(!arr)return m;
+  arr.forEach(function(d){m[norm(d.dealer_name)]=d});
+  return m;
+}
+function lookup(name,map){
+  if(!map)return null;
+  var k=norm(name);
+  if(map[k])return map[k];
+  var keys=Object.keys(map);
+  for(var i=0;i<keys.length;i++){
+    if(keys[i].indexOf(k)!==-1||k.indexOf(keys[i])!==-1)return map[keys[i]];
+  }
+  return null;
+}
+
+function render(range){
+  var ym=range?range.start.slice(0,7):'';
+  var d=summaryData,vps=vpsData,act=activationData;
+  var vpsMap=buildMap(vps&&vps.dealers);
+  var actMap=buildMap(act&&act.dealers);
+
+  // KPI
+  var vpsTotal=0;
+  if(vps&&vps.dealers)vps.dealers.forEach(function(x){vpsTotal+=x.sell_out_yuan||0});
+  var totAct=0,totNot=0;
+  if(act&&act.dealers)act.dealers.forEach(function(x){totAct+=x.activated||0;totNot+=x.not_activated||0});
+  var stock=(act&&act.total_overseas_stock)||0;
+  var reported=d&&d.by_dealer?d.by_dealer.length:0;
+
+  document.getElementById('kpiBar').style.display='';
+  document.getElementById('k-sellout').textContent=(vpsTotal/10000).toFixed(1)+' 万';
+  document.getElementById('k-activated').textContent=totAct;
+  document.getElementById('k-notact').textContent=totNot;
+  document.getElementById('k-stock').textContent=stock;
+  document.getElementById('k-reported').textContent=reported;
+  document.getElementById('k-total-sub').textContent='共 '+storeList.length+' 家';
+
+  if(vps||act){
+    var pill=document.getElementById('vpsPill');
+    pill.style.display='';
+    pill.textContent=(range?range.label:ym)+' · VPS 数据';
+  }
+
+  // 侧栏排行
+  if(vps&&vps.dealers&&vps.dealers.length){
+    var sidebar=document.getElementById('sidebar');
+    sidebar.style.display='';
+    var html=vps.dealers.map(function(d,i){
+      var cls=i===0?'rank-row top1':i===1?'rank-row top2':i===2?'rank-row top3':'rank-row';
+      var medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+      var wan=(d.sell_out_yuan/10000).toFixed(1);
+      return '<div class="'+cls+'">'
+        +'<span class="rank-num">'+medal+'</span>'
+        +'<span class="rank-name" title="'+esc(d.dealer_name)+'">'+esc(d.dealer_name)+'</span>'
+        +'<span class="rank-amt">'+wan+' 万</span>'
+        +'</div>';
+    }).join('');
+    document.getElementById('rankList').innerHTML=html;
+  }
+
+  // 卡片
+  var dealerMap={};
+  if(d&&d.by_dealer)d.by_dealer.forEach(function(s){dealerMap[s.dealer_id]=s});
+
+  var cards=storeList.map(function(store){
+    return renderCard(store,dealerMap[store.store_id]||null,lookup(store.name,vpsMap),lookup(store.name,actMap));
+  });
+
+  if(vps&&vps.dealers){
+    vps.dealers.forEach(function(vd){
+      var inList=storeList.some(function(st){return lookup(st.name,buildMap([vd]))!==null});
+      if(!inList){
+        var fake={store_id:norm(vd.dealer_name),name:vd.dealer_name,region:'',country:'',dealer_level:''};
+        cards.push(renderCard(fake,null,vd,lookup(vd.dealer_name,actMap)));
+      }
+    });
+  }
+
+  if(!cards.length){
+    document.getElementById('storeGrid').innerHTML='<div class="empty"><div class="empty-icon">🏪</div><p>暂无可见门店数据</p></div>';
+    return;
+  }
+  document.getElementById('storeGrid').innerHTML='<div class="grid">'+cards.join('')+'</div>';
+}
+
+function renderCard(store,sd,vd,ad){
+  var hasKit=sd&&sd.total_visits>0;
+  var hasVps=vd&&(vd.sell_out_yuan>0||vd.qty>0);
+  var hasAct=ad&&(ad.activated>0||ad.not_activated>0);
+  var hasSome=hasKit||hasVps||hasAct;
+  var url='/walkin-submit/?store='+encodeURIComponent(store.store_id);
+  var meta=[store.country,store.region,store.dealer_level].filter(Boolean).join(' · ');
+
+  var badge=hasKit
+    ?'<span class="badge badge-green">已上报</span>'
+    :hasVps?'<span class="badge badge-blue">VPS</span>'
+    :'<span class="badge badge-gray">未上报</span>';
+
+  // 核心指标行：Sell-out | 激活 | 进店
+  var selloutVal=hasVps?(vd.sell_out_yuan/10000).toFixed(2)+' 万':'—';
+  var selloutQty=hasVps?(vd.qty||0)+' 台':'';
+  var actVal=hasAct?(ad.activated||0):'—';
+  var actRate=hasAct&&((ad.activated||0)+(ad.not_activated||0))>0
+    ?Math.round((ad.activated||0)/((ad.activated||0)+(ad.not_activated||0))*100)+'%':'—';
+  var visitsVal=hasKit?sd.total_visits:'—';
+
+  var metricsHtml=
+    '<div class="metrics-strip">'
+    +'<div class="metric-cell"><div class="metric-icon">Sell-out</div>'
+    +'<div class="metric-val mv-green">'+esc(String(selloutVal))+'</div>'
+    +(selloutQty?'<div class="metric-sub">'+esc(selloutQty)+'</div>':'')+'</div>'
+    +'<div class="metric-cell"><div class="metric-icon">激活 / 率</div>'
+    +'<div class="metric-val mv-blue">'+esc(String(actVal))+'</div>'
+    +'<div class="metric-sub">'+esc(String(actRate))+'</div></div>'
+    +'<div class="metric-cell"><div class="metric-icon">本月进店</div>'
+    +'<div class="metric-val mv-ink">'+esc(String(visitsVal))+'</div>'
+    +(hasKit?'<div class="metric-sub">成交 '+(sd.deal_count||0)+' 台</div>':'')+'</div>'
+    +'</div>';
+
+  // 激活条（仅有数据时显示）
+  var actStripHtml='';
+  if(hasAct){
+    var notAct=ad.not_activated||0;
+    var actR=hasAct&&((ad.activated||0)+notAct)>0
+      ?Math.round((ad.activated||0)/((ad.activated||0)+notAct)*100)+'%':'—';
+    actStripHtml=
+      '<div class="act-strip">'
+      +'<div class="act-cell"><div class="act-label">已激活</div><div class="act-val av-green">'+(ad.activated||0)+'</div></div>'
+      +'<div class="act-cell"><div class="act-label">未激活</div><div class="act-val av-amber">'+notAct+'</div></div>'
+      +'<div class="act-cell"><div class="act-label">激活率</div><div class="act-val av-blue">'+esc(actR)+'</div></div>'
+      +'</div>';
+  }
+
+  // 五件套来源条（有数据时显示）
+  var srcHtml='';
+  if(hasKit){
+    var srcs=[
+      {n:'自然进',v:sd.walkin||0,c:'#475569'},
+      {n:'预约',v:sd.appointment||0,c:'#2563eb'},
+      {n:'潜客',v:sd.prospect||0,c:'#7c3aed'},
+      {n:'线上',v:sd.online||0,c:'#0891b2'},
+      {n:'介绍',v:sd.referral||0,c:'#d97706'},
+      {n:'SA',v:sd.sa||0,c:'#e11d48'},
+    ];
+    var tot=sd.total_visits||1;
+    var rows=srcs.map(function(s){
+      var p=tot>0?Math.round(s.v/tot*100):0;
+      return '<div class="src-bar-row">'
+        +'<div class="src-bar-name">'+esc(s.n)+'</div>'
+        +'<div class="src-bar-track"><div class="src-bar-fill" style="width:'+p+'%;background:'+s.c+'"></div></div>'
+        +'<div class="src-bar-pct">'+p+'%</div>'
+        +'</div>';
+    }).join('');
+    srcHtml='<div class="src-section"><div class="src-section-label">进店来源</div>'
+      +'<div class="src-bars">'+rows+'</div></div>';
+  }
+
+  // 无数据态
+  var noDataHtml='';
+  if(!hasSome){
+    noDataHtml='<div style="padding:1.25rem 1rem;text-align:center;color:var(--dim);font-size:.78rem;border-top:1px solid var(--line)">本月暂无数据<br>点击录入开始填报</div>';
+  }
+
+  return '<div class="card'+(hasSome?'':' dim')+'">'
+    +'<div class="card-head">'
+    +'<div><div class="card-name">'+esc(store.name)+'</div>'+(meta?'<div class="card-meta">'+esc(meta)+'</div>':'')+'</div>'
+    +badge+'</div>'
+    +metricsHtml
+    +actStripHtml
+    +srcHtml
+    +noDataHtml
+    +'<div class="card-foot">'
+    +'<span class="foot-info">'+(hasVps?'Sell-out: ¥'+(vd.sell_out_yuan/10000).toFixed(2)+'万':'暂无销售记录')+'</span>'
+    +'<a href="'+url+'" class="btn-entry'+(hasKit?'':' ghost')+'">✏ 录入</a>'
+    +'</div></div>';
+}
+
+function showError(msg){
+  document.getElementById('storeGrid').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><p>'+esc(msg)+'</p></div>';
+}
+function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+document.getElementById('monthPicker').addEventListener('change',load);
+</script>
+</body>
+</html>

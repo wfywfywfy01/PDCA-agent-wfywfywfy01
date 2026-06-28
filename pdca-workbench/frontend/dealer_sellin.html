@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>经销商进货驾驶舱 · PDCA</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0b0d13;--surf:#13182a;--surf2:#1a2035;--surf3:#0e1220;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
+  --gold:#c9a84c;--gold2:#f0c060;--gold-dim:rgba(201,168,76,.15);
+  --blue:#4e9ef5;--blue2:#3b82f6;--blue-dim:rgba(78,158,245,.15);
+  --green:#10b981;--green-dim:rgba(16,185,129,.15);
+  --red:#f43f5e;--red-dim:rgba(244,63,94,.15);
+  --purple:#a855f7;
+  --t1:#e2e8f0;--t2:#94a3b8;--t3:#475569;--t4:#334155;
+  --r:10px;--sidebar:230px;--header:56px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+     background:var(--bg);color:var(--t1);min-height:100vh;font-size:14px;overflow-x:hidden}
+
+/* ── 顶栏 ── */
+.hdr{
+  position:fixed;top:0;left:0;right:0;height:var(--header);z-index:200;
+  background:rgba(11,13,19,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:0;padding:0 20px;
+}
+.hdr-back{
+  display:flex;align-items:center;gap:6px;color:var(--t3);text-decoration:none;
+  font-size:.75rem;font-weight:600;padding:6px 10px;border-radius:6px;
+  transition:color .15s,background .15s;white-space:nowrap;
+}
+.hdr-back:hover{color:var(--t2);background:rgba(255,255,255,.05)}
+.hdr-sep{width:1px;height:20px;background:var(--border2);margin:0 12px;flex-shrink:0}
+.hdr-title{font-size:.95rem;font-weight:700;color:var(--t1);white-space:nowrap}
+.hdr-badge{
+  background:var(--gold-dim);border:1px solid rgba(201,168,76,.3);
+  color:var(--gold);border-radius:4px;padding:2px 8px;font-size:.68rem;font-weight:700;
+  margin-left:8px;
+}
+.hdr-tabs{display:flex;gap:4px;margin-left:24px}
+.tab-btn{
+  padding:5px 14px;border-radius:6px;border:none;cursor:pointer;font-size:.78rem;font-weight:600;
+  background:transparent;color:var(--t3);transition:all .15s;
+}
+.tab-btn:hover{color:var(--t2);background:rgba(255,255,255,.05)}
+.tab-btn.active{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(78,158,245,.3)}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.month-pick{
+  background:var(--surf2);border:1px solid var(--border2);color:var(--t2);
+  border-radius:6px;padding:4px 10px;font-size:.78rem;font-family:inherit;
+  cursor:pointer;
+}
+.month-pick:focus{outline:none;border-color:rgba(78,158,245,.5)}
+.btn-refresh{
+  display:flex;align-items:center;gap:5px;
+  background:rgba(78,158,245,.15);border:1px solid rgba(78,158,245,.3);
+  color:var(--blue);border-radius:6px;padding:5px 12px;
+  font-size:.75rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;
+}
+.btn-refresh:hover{background:rgba(78,158,245,.25)}
+.btn-refresh.loading{opacity:.6;pointer-events:none}
+.upd-time{font-size:.68rem;color:var(--t3);white-space:nowrap}
+
+/* ── 主布局 ── */
+.layout{display:flex;margin-top:var(--header);min-height:calc(100vh - var(--header))}
+
+/* ── 侧栏 ── */
+.sidebar{
+  width:var(--sidebar);flex-shrink:0;
+  background:var(--surf3);border-right:1px solid var(--border);
+  position:sticky;top:var(--header);height:calc(100vh - var(--header));
+  overflow-y:auto;display:flex;flex-direction:column;
+}
+.sb-hdr{
+  padding:16px 14px 10px;
+  font-size:.62rem;font-weight:800;color:var(--t3);
+  text-transform:uppercase;letter-spacing:.08em;
+  border-bottom:1px solid var(--border);
+}
+.sb-total{
+  padding:12px 14px;border-bottom:1px solid var(--border);
+}
+.sb-total-label{font-size:.68rem;color:var(--t3);margin-bottom:4px}
+.sb-total-val{font-size:1.5rem;font-weight:900;color:var(--gold);line-height:1}
+.sb-total-sub{font-size:.65rem;color:var(--t3);margin-top:3px}
+.sb-list{flex:1;overflow-y:auto;padding:8px 0}
+.sb-row{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 14px;cursor:default;
+  border-left:3px solid transparent;transition:all .12s;
+}
+.sb-row:hover{background:rgba(255,255,255,.03);border-left-color:var(--border2)}
+.sb-row.gold-1{border-left-color:#f59e0b}
+.sb-row.gold-2{border-left-color:#94a3b8}
+.sb-row.gold-3{border-left-color:#b45309}
+.sb-rank{font-size:.65rem;font-weight:800;color:var(--t3);width:16px;text-align:right;flex-shrink:0}
+.sb-rank.r1{color:#f59e0b}
+.sb-rank.r2{color:#94a3b8}
+.sb-rank.r3{color:#b45309}
+.sb-name{font-size:.72rem;color:var(--t2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-amt{font-size:.72rem;font-weight:800;color:var(--green);white-space:nowrap}
+.sb-empty{padding:20px 14px;font-size:.75rem;color:var(--t3);text-align:center}
+
+/* ── 主内容 ── */
+.main{flex:1;padding:20px 24px 40px;overflow-x:hidden}
+
+/* ── KPI 卡片 ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.kpi-card{
+  background:var(--surf);border:1px solid var(--border);border-radius:var(--r);
+  padding:18px 20px;position:relative;overflow:hidden;
+}
+.kpi-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent,var(--blue)),transparent);
+}
+.kpi-card.c-gold::before{--accent:var(--gold)}
+.kpi-card.c-green::before{--accent:var(--green)}
+.kpi-card.c-red::before{--accent:var(--red)}
+.kpi-label{font-size:.65rem;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+.kpi-val{font-size:1.75rem;font-weight:900;line-height:1;color:var(--t1)}
+.kpi-val span{font-size:.9rem;font-weight:700;margin-left:2px;color:var(--t2)}
+.kpi-val.gold{color:var(--gold)}
+.kpi-val.green{color:var(--green)}
+.kpi-val.red{color:var(--red)}
+.kpi-foot{font-size:.65rem;color:var(--t3);margin-top:8px;display:flex;align-items:center;gap:6px}
+.tag-up{color:var(--green);font-weight:700}
+.tag-dn{color:var(--red);font-weight:700}
+.kpi-icon{
+  position:absolute;right:16px;top:50%;transform:translateY(-50%);
+  font-size:2rem;opacity:.08;
+}
+
+/* ── 图表区 ── */
+.charts-row{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-bottom:20px}
+.chart-card{
+  background:var(--surf);border:1px solid var(--border);border-radius:var(--r);
+  padding:18px 20px;
+}
+.chart-title{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:16px;
+}
+.chart-title h3{font-size:.82rem;font-weight:700;color:var(--t2)}
+.chart-badge{
+  font-size:.65rem;color:var(--t3);
+  background:rgba(255,255,255,.05);border-radius:4px;padding:2px 8px;
+}
+.chart-wrap{position:relative;height:220px}
+
+/* ── 经销商明细表 ── */
+.table-card{background:var(--surf);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.table-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 20px;border-bottom:1px solid var(--border);
+}
+.table-hdr h3{font-size:.82rem;font-weight:700;color:var(--t2)}
+.table-count{font-size:.68rem;color:var(--t3)}
+.tbl{width:100%;border-collapse:collapse}
+.tbl thead th{
+  padding:10px 16px;text-align:left;
+  font-size:.62rem;font-weight:800;color:var(--t3);
+  text-transform:uppercase;letter-spacing:.06em;
+  background:var(--surf3);border-bottom:1px solid var(--border);
+}
+.tbl thead th.r{text-align:right}
+.tbl tbody tr{border-bottom:1px solid rgba(255,255,255,.03);transition:background .12s}
+.tbl tbody tr:hover{background:rgba(255,255,255,.025)}
+.tbl tbody tr:last-child{border-bottom:none}
+.tbl td{padding:11px 16px;font-size:.78rem;color:var(--t1);vertical-align:middle}
+.tbl td.r{text-align:right}
+.tbl td.muted{color:var(--t3)}
+.rank-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:50%;font-size:.65rem;font-weight:900;
+  background:rgba(255,255,255,.06);color:var(--t3);
+}
+.rank-badge.r1{background:rgba(245,158,11,.15);color:#f59e0b}
+.rank-badge.r2{background:rgba(148,163,184,.1);color:#94a3b8}
+.rank-badge.r3{background:rgba(180,83,9,.15);color:#b45309}
+.bar-wrap{display:flex;align-items:center;gap:8px;min-width:120px}
+.bar-track{flex:1;height:4px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden}
+.bar-fill{height:100%;background:var(--green);border-radius:2px;transition:width .5s}
+.bar-pct{font-size:.65rem;color:var(--t3);min-width:34px;text-align:right}
+.wan-val{font-weight:700;color:var(--green)}
+.qty-val{color:var(--t2)}
+
+/* ── 空状态 ── */
+.empty-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:60px 20px;gap:12px;
+}
+.empty-icon{font-size:3rem;opacity:.15}
+.empty-title{font-size:.9rem;color:var(--t3);font-weight:600}
+.empty-sub{font-size:.75rem;color:var(--t4);text-align:center;max-width:280px;line-height:1.5}
+
+/* ── 骨架屏 ── */
+@keyframes shimmer{0%{opacity:.4}50%{opacity:.7}100%{opacity:.4}}
+.skeleton{border-radius:4px;background:var(--surf2);animation:shimmer 1.5s infinite}
+
+/* ── 响应式 ── */
+@media(max-width:1100px){
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .charts-row{grid-template-columns:1fr}
+}
+@media(max-width:768px){
+  :root{--sidebar:0px}
+  .sidebar{display:none}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<header class="hdr">
+  <a href="/" class="hdr-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+    返回
+  </a>
+  <div class="hdr-sep"></div>
+  <span class="hdr-title">经销商进货驾驶舱</span>
+  <span class="hdr-badge">Sell-in</span>
+  <div class="hdr-tabs">
+    <button class="tab-btn active" data-period="month">月报</button>
+    <button class="tab-btn" data-period="quarter">季报</button>
+    <button class="tab-btn" data-period="year">年报</button>
+  </div>
+  <div class="hdr-right">
+    <input type="month" class="month-pick" id="monthPick" />
+    <button class="btn-refresh" id="btnRefresh">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+      刷新
+    </button>
+    <span class="upd-time" id="updTime">—</span>
+  </div>
+</header>
+
+<!-- 主布局 -->
+<div class="layout">
+
+  <!-- 侧栏：经销商排行 -->
+  <aside class="sidebar">
+    <div class="sb-hdr">经销商排行</div>
+    <div class="sb-total">
+      <div class="sb-total-label">本月总进货</div>
+      <div class="sb-total-val" id="sbTotal">—</div>
+      <div class="sb-total-sub" id="sbSub">加载中…</div>
+    </div>
+    <div class="sb-list" id="sbList">
+      <div class="sb-empty">加载中…</div>
+    </div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+
+    <!-- KPI 卡片 -->
+    <div class="kpi-grid">
+      <div class="kpi-card c-gold">
+        <div class="kpi-label">本月进货总额</div>
+        <div class="kpi-val gold" id="kpiTotal">—<span>万</span></div>
+        <div class="kpi-foot" id="kpiTotalFoot">—</div>
+        <div class="kpi-icon">📦</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">经销商数</div>
+        <div class="kpi-val" id="kpiCount">—<span>家</span></div>
+        <div class="kpi-foot" id="kpiCountFoot">参与进货</div>
+        <div class="kpi-icon">🏪</div>
+      </div>
+      <div class="kpi-card c-green">
+        <div class="kpi-label">环比上月</div>
+        <div class="kpi-val" id="kpiMom">—</div>
+        <div class="kpi-foot" id="kpiMomFoot">与上月对比</div>
+        <div class="kpi-icon">📈</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">进货总量</div>
+        <div class="kpi-val" id="kpiQty">—<span>台</span></div>
+        <div class="kpi-foot" id="kpiQtyFoot">本月合计</div>
+        <div class="kpi-icon">📱</div>
+      </div>
+    </div>
+
+    <!-- 图表区 -->
+    <div class="charts-row">
+      <!-- 趋势折线图 -->
+      <div class="chart-card">
+        <div class="chart-title">
+          <h3>近 6 个月进货趋势</h3>
+          <span class="chart-badge">万元</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+      <!-- 占比甜甜圈 -->
+      <div class="chart-card">
+        <div class="chart-title">
+          <h3>经销商进货占比</h3>
+          <span class="chart-badge">TOP 8</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="donutChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- 经销商明细表 -->
+    <div class="table-card">
+      <div class="table-hdr">
+        <h3>经销商进货明细</h3>
+        <span class="table-count" id="tableCount">—</span>
+      </div>
+      <div id="tableWrap">
+        <div class="empty-state">
+          <div class="empty-icon">📋</div>
+          <div class="empty-title">加载数据中…</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ── 配色 ──
+const COLORS = [
+  '#4e9ef5','#10b981','#c9a84c','#a855f7','#f59e0b',
+  '#f43f5e','#06b6d4','#84cc16','#fb923c','#e879f9'
+];
+
+// ── 状态 ──
+let trendChart = null;
+let donutChart = null;
+let currentMonth = '';
+let currentData = null;
+
+// ── 工具 ──
+function fmtWan(v){ return v==null?'—': v>=10000 ? (v/10000).toFixed(1)+'亿' : v.toFixed(2)+'万' }
+function fmtNum(v){ return v==null?'—': Number(v).toLocaleString() }
+function monthLabel(m){ const p=m.split('-'); return p[1]+'月' }
+
+// ── 初始化月份选择器 ──
+function initMonthPick(){
+  const now = new Date();
+  const y=now.getFullYear(), mo=String(now.getMonth()+1).padStart(2,'0');
+  currentMonth = `${y}-${mo}`;
+  const el = document.getElementById('monthPick');
+  el.value = currentMonth;
+  el.max = currentMonth;
+  // 生成近 24 个月
+  el.addEventListener('change', ()=>{
+    currentMonth = el.value;
+    loadData();
+  });
+}
+
+// ── 加载数据 ──
+async function loadData(){
+  const btn = document.getElementById('btnRefresh');
+  btn.classList.add('loading');
+  try {
+    const r = await fetch(`/api/dealer/sellin-summary?month=${currentMonth}`);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    currentData = await r.json();
+    render(currentData);
+  } catch(e){
+    showError(e.message);
+  } finally {
+    btn.classList.remove('loading');
+    document.getElementById('updTime').textContent = '更新于 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  }
+}
+
+// ── 渲染 ──
+function render(d){
+  if(!d || !d.has_data){
+    renderEmpty();
+    return;
+  }
+  renderKPI(d);
+  renderSidebar(d);
+  renderTrend(d.trend);
+  renderDonut(d.dealers);
+  renderTable(d.dealers);
+}
+
+function renderKPI(d){
+  const dealers = d.dealers || [];
+  const total = d.total_wan || 0;
+  const count = dealers.length;
+  const qty = dealers.reduce((s,x)=>s+(x.quantity||0),0);
+
+  // 本月进货
+  document.getElementById('kpiTotal').innerHTML = `${total.toFixed(1)}<span>万</span>`;
+  document.getElementById('kpiTotalFoot').innerHTML = `<span>¥${(total*10000).toLocaleString('zh-CN',{maximumFractionDigits:0})} 元</span>`;
+
+  // 经销商数
+  document.getElementById('kpiCount').innerHTML = `${count}<span>家</span>`;
+  document.getElementById('kpiCountFoot').textContent = `参与本月进货`;
+
+  // 环比
+  const trend = d.trend || [];
+  if(trend.length >= 2){
+    const cur = trend[trend.length-1].wan;
+    const prev = trend[trend.length-2].wan;
+    if(prev > 0){
+      const pct = ((cur-prev)/prev*100).toFixed(1);
+      const up = cur>=prev;
+      document.getElementById('kpiMom').innerHTML = `<span class="${up?'tag-up':'tag-dn'}">${up?'+':''}${pct}%</span>`;
+      document.getElementById('kpiMomFoot').textContent = `上月 ${prev.toFixed(1)}万`;
+    } else {
+      document.getElementById('kpiMom').textContent = '—';
+    }
+  }
+
+  // 进货量
+  document.getElementById('kpiQty').innerHTML = `${fmtNum(qty)}<span>台</span>`;
+  document.getElementById('kpiQtyFoot').textContent = '本月合计';
+}
+
+function renderSidebar(d){
+  const dealers = d.dealers || [];
+  document.getElementById('sbTotal').textContent = `${(d.total_wan||0).toFixed(1)} 万`;
+  document.getElementById('sbSub').textContent = currentMonth.replace('-','年')+'月进货';
+
+  if(!dealers.length){
+    document.getElementById('sbList').innerHTML = '<div class="sb-empty">暂无数据</div>';
+    return;
+  }
+  document.getElementById('sbList').innerHTML = dealers.slice(0,20).map((x,i)=>`
+    <div class="sb-row ${i===0?'gold-1':i===1?'gold-2':i===2?'gold-3':''}">
+      <span class="sb-rank ${i===0?'r1':i===1?'r2':i===2?'r3':''}">${i+1}</span>
+      <span class="sb-name" title="${x.name}">${x.name}</span>
+      <span class="sb-amt">${x.wan.toFixed(1)}万</span>
+    </div>
+  `).join('');
+}
+
+function renderTrend(trend){
+  if(!trend||!trend.length) return;
+  const labels = trend.map(t=>monthLabel(t.month));
+  const vals = trend.map(t=>t.wan);
+
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  if(trendChart) trendChart.destroy();
+
+  const grad = ctx.createLinearGradient(0,0,0,220);
+  grad.addColorStop(0,'rgba(78,158,245,.35)');
+  grad.addColorStop(1,'rgba(78,158,245,.01)');
+
+  trendChart = new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[{
+        label:'进货（万元）',
+        data:vals,
+        fill:true,
+        backgroundColor:grad,
+        borderColor:'#4e9ef5',
+        borderWidth:2,
+        pointBackgroundColor:'#4e9ef5',
+        pointBorderColor:'#0b0d13',
+        pointBorderWidth:2,
+        pointRadius:5,
+        pointHoverRadius:7,
+        tension:.35,
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'#1a2035',borderColor:'rgba(255,255,255,.1)',borderWidth:1,
+          titleColor:'#94a3b8',bodyColor:'#e2e8f0',padding:10,
+          callbacks:{ label: ctx=>`  ${ctx.parsed.y.toFixed(2)} 万元` }
+        }
+      },
+      scales:{
+        x:{
+          grid:{color:'rgba(255,255,255,.04)'},
+          ticks:{color:'#475569',font:{size:11}}
+        },
+        y:{
+          grid:{color:'rgba(255,255,255,.04)'},
+          ticks:{
+            color:'#475569',font:{size:11},
+            callback:v=>`${v}万`
+          },
+          beginAtZero:true,
+        }
+      }
+    }
+  });
+}
+
+function renderDonut(dealers){
+  if(!dealers||!dealers.length) return;
+  const top = dealers.slice(0,8);
+  const others = dealers.slice(8);
+  const otherSum = others.reduce((s,x)=>s+x.wan,0);
+  const labels = top.map(x=>x.name.length>10?x.name.slice(0,10)+'…':x.name);
+  const vals = top.map(x=>x.wan);
+  if(otherSum>0){ labels.push('其他'); vals.push(otherSum); }
+
+  const ctx = document.getElementById('donutChart').getContext('2d');
+  if(donutChart) donutChart.destroy();
+
+  donutChart = new Chart(ctx,{
+    type:'doughnut',
+    data:{
+      labels,
+      datasets:[{
+        data:vals,
+        backgroundColor:COLORS.slice(0,labels.length),
+        borderColor:'#0b0d13',
+        borderWidth:3,
+        hoverBorderWidth:3,
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      cutout:'65%',
+      plugins:{
+        legend:{
+          position:'right',
+          labels:{color:'#94a3b8',font:{size:11},boxWidth:10,padding:10,
+                  generateLabels:function(chart){
+                    const ds=chart.data.datasets[0];
+                    return chart.data.labels.map((l,i)=>({
+                      text:`${l}  ${vals[i].toFixed(1)}万`,
+                      fillStyle:ds.backgroundColor[i],
+                      strokeStyle:ds.backgroundColor[i],
+                      index:i,hidden:false,
+                    }));
+                  }}
+        },
+        tooltip:{
+          backgroundColor:'#1a2035',borderColor:'rgba(255,255,255,.1)',borderWidth:1,
+          titleColor:'#94a3b8',bodyColor:'#e2e8f0',padding:10,
+          callbacks:{
+            label:ctx=>{
+              const total=ctx.dataset.data.reduce((s,v)=>s+v,0);
+              const pct=(ctx.parsed/total*100).toFixed(1);
+              return `  ${ctx.parsed.toFixed(2)} 万元  (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderTable(dealers){
+  document.getElementById('tableCount').textContent = `共 ${dealers.length} 家`;
+  if(!dealers.length){
+    document.getElementById('tableWrap').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📋</div>
+        <div class="empty-title">本月暂无进货数据</div>
+        <div class="empty-sub">数据来源：VPS/Odoo 进货单；数据更新后自动展示</div>
+      </div>`;
+    return;
+  }
+  const maxWan = dealers[0].wan || 1;
+  const rows = dealers.map(d=>`
+    <tr>
+      <td><span class="rank-badge ${d.rank===1?'r1':d.rank===2?'r2':d.rank===3?'r3':''}">${d.rank}</span></td>
+      <td>${d.name}</td>
+      <td class="r"><span class="wan-val">${d.wan.toFixed(2)}</span> 万</td>
+      <td class="r"><span class="qty-val">${fmtNum(d.quantity)}</span></td>
+      <td>
+        <div class="bar-wrap">
+          <div class="bar-track"><div class="bar-fill" style="width:${(d.wan/maxWan*100).toFixed(1)}%"></div></div>
+          <span class="bar-pct">${(d.wan/(dealers.reduce((s,x)=>s+x.wan,0))*100).toFixed(1)}%</span>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  document.getElementById('tableWrap').innerHTML = `
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="width:44px">#</th>
+          <th>经销商名称</th>
+          <th class="r">进货金额</th>
+          <th class="r">进货数量</th>
+          <th style="min-width:160px">占比</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderEmpty(){
+  document.getElementById('sbTotal').textContent = '—';
+  document.getElementById('sbSub').textContent = '暂无数据';
+  document.getElementById('sbList').innerHTML = '<div class="sb-empty">暂无数据</div>';
+  document.getElementById('kpiTotal').innerHTML = '—<span>万</span>';
+  document.getElementById('kpiCount').innerHTML = '—<span>家</span>';
+  document.getElementById('kpiMom').textContent = '—';
+  document.getElementById('kpiQty').innerHTML = '—<span>台</span>';
+  document.getElementById('tableCount').textContent = '';
+  document.getElementById('tableWrap').innerHTML = `
+    <div class="empty-state">
+      <div class="empty-icon">📦</div>
+      <div class="empty-title">本月暂无进货数据</div>
+      <div class="empty-sub">数据文件尚未生成，或所选月份无记录<br/>请确认 data_raw 目录下存在对应月份的进货数据文件</div>
+    </div>`;
+}
+
+function showError(msg){
+  document.getElementById('tableWrap').innerHTML = `
+    <div class="empty-state">
+      <div class="empty-icon">⚠️</div>
+      <div class="empty-title">加载失败</div>
+      <div class="empty-sub">${msg}</div>
+    </div>`;
+}
+
+// ── Tab 切换（视觉用，实际数据仍以月为基准） ──
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+// ── 刷新按钮 ──
+document.getElementById('btnRefresh').addEventListener('click', loadData);
+
+// ── 启动 ──
+initMonthPick();
+loadData();
+
+})();
+</script>
+</body>
+</html>

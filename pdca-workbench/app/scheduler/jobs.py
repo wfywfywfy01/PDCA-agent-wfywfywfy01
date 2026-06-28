@@ -1,0 +1,148 @@
+# -*- coding: utf-8 -*-
+"""APScheduler 定时任务与 PostgreSQL 备份。"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from loguru import logger
+
+from app.config import get_settings
+from app.legacy import bridge
+from app.models.sync import run_full_sync
+
+_scheduler: BackgroundScheduler | None = None
+
+
+def backup_database() -> str | None:
+    """备份数据库：PostgreSQL 用 pg_dump，SQLite 用文件复制。"""
+    settings = get_settings()
+    backup_dir = settings.data_dir / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if settings.is_postgresql:
+        info = settings.pg_connection_info
+        dest = backup_dir / f"pdca_{stamp}.sql"
+        env = os.environ.copy()
+        if info.get("password"):
+            env["PGPASSWORD"] = info["password"]
+        cmd = [
+            "pg_dump",
+            "-h", info["host"],
+            "-p", info["port"],
+            "-U", info["user"],
+            "-d", info["database"],
+            "-f", str(dest),
+            "--no-owner",
+            "--no-acl",
+        ]
+        try:
+            subprocess.run(cmd, env=env, check=True, capture_output=True, text=True)
+            logger.info("PostgreSQL 已备份: {}", dest)
+            return str(dest)
+        except FileNotFoundError:
+            logger.warning("未找到 pg_dump，跳过 PostgreSQL 备份")
+            return None
+        except subprocess.CalledProcessError as exc:
+            logger.error("pg_dump 失败: {}", exc.stderr or exc)
+            return None
+
+    db_path = settings.data_dir / "pdca.db"
+    if not db_path.is_file():
+        return None
+    dest = backup_dir / f"pdca_{stamp}.db"
+    shutil.copy2(db_path, dest)
+    logger.info("SQLite 已备份: {}", dest)
+    return str(dest)
+
+
+def daily_sync_job() -> None:
+    """每日 VPS/文件同步任务（06:00）。"""
+    date_text = bridge.today_text()
+    logger.info("开始每日同步: {}", date_text)
+    try:
+        result = run_full_sync(date_text)
+        logger.info("每日同步完成: {}", result)
+    except Exception as exc:
+        logger.exception("每日同步失败: {}", exc)
+    backup_database()
+
+
+def kpi_refresh_job() -> None:
+    """KPI 数据刷新（09:00 / 12:00 / 21:00）：重新生成 chart_data.json + dashboard.html。"""
+    date_text = bridge.today_text()
+    logger.info("KPI 刷新开始 {}", date_text)
+    try:
+        code, _stdout, stderr = bridge.run_pdca(date_text, push=False)
+        if code == 0:
+            logger.info("KPI 刷新完成 {}", date_text)
+        else:
+            logger.warning("KPI 刷新失败 code={} stderr={}", code, (stderr or "")[:300])
+    except Exception as exc:
+        logger.exception("KPI 刷新异常: {}", exc)
+
+
+def start_scheduler() -> BackgroundScheduler | None:
+    """启动后台调度器。"""
+    global _scheduler
+    settings = get_settings()
+    if not settings.scheduler_enabled:
+        logger.info("调度器已禁用 (PDCA_SCHEDULER_ENABLED=0)")
+        return None
+    if _scheduler is not None:
+        return _scheduler
+    _scheduler = BackgroundScheduler()
+
+    # 06:00 — 文件同步 + 备份
+    parts = settings.sync_cron.split()
+    if len(parts) == 5:
+        minute, hour, day, month, dow = parts
+        _scheduler.add_job(
+            daily_sync_job,
+            trigger="cron",
+            minute=minute,
+            hour=hour,
+            day=day,
+            month=month,
+            day_of_week=dow,
+            id="daily_sync",
+            max_instances=1,
+            coalesce=True,
+        )
+    else:
+        _scheduler.add_job(
+            daily_sync_job,
+            trigger="interval",
+            hours=24,
+            id="daily_sync",
+            max_instances=1,
+        )
+
+    # 09:00 / 12:00 / 21:00 — KPI 数据刷新
+    for hour in (9, 12, 21):
+        _scheduler.add_job(
+            kpi_refresh_job,
+            trigger="cron",
+            hour=hour,
+            minute=0,
+            id=f"kpi_refresh_{hour:02d}",
+            max_instances=1,
+            coalesce=True,
+        )
+
+    _scheduler.start()
+    logger.info("调度器已启动 cron={} kpi_refresh=09:00/12:00/21:00", settings.sync_cron)
+    return _scheduler
+
+
+def stop_scheduler() -> None:
+    """停止调度器。"""
+    global _scheduler
+    if _scheduler:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None

@@ -1,0 +1,38 @@
+services:
+  pdca-app:
+    build: .
+    container_name: pdca-workbench
+    ports:
+      - "8767:8767"
+    env_file:
+      - .env
+    environment:
+      - PDCA_HOST=0.0.0.0
+      - PDCA_WORKBENCH_PORT=8767
+    volumes:
+      - ./data:/app/data
+      # 可选：将 MVP 模块目录挂载进来以启用完整看板功能
+      # - /path/to/data_role_pdca_mvp:/mvp:ro
+    restart: unless-stopped
+    networks:
+      - pdca-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: pdca-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # SSL 证书目录
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - pdca-app
+    restart: unless-stopped
+    networks:
+      - pdca-net
+
+networks:
+  pdca-net:
+    driver: bridge
