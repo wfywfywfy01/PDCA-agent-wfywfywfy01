@@ -96,9 +96,11 @@
         <button type="button" class="tab" data-period="quarter">季</button>
       </div>
       <div class="quick-links" id="quickLinks"></div>
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span id="dataUpdateHint" style="font-size:12px;color:#9ca3af"></span>
-        <button type="button" class="btn ghost" onclick="refreshDashboard()">刷新数据</button>
+        <button type="button" class="btn ghost" id="btnFetch" onclick="fetchRefresh()">刷新</button>
+        <button type="button" class="btn" id="btnRebuild" onclick="rebuildDashboard()" title="重新运行 bridge 脚本生成最新数据（约1-3分钟）" style="background:rgba(78,158,245,.12);color:#4e9ef5;border-color:rgba(78,158,245,.3)">重建数据</button>
+        <span id="rebuildStatus" style="font-size:12px;color:#f59e0b;display:none"></span>
       </div>
     </div>
 
@@ -114,14 +116,14 @@
         <div class="metric-body stat-body">
           <div class="metric-label label">经销商提货金额 Sell In</div>
           <div class="metric-value value" id="sellInAmount"><span class="amount-num">—</span></div>
-          <div class="metric-foot stat-foot action"></div>
+          <div class="metric-foot stat-foot" id="sellInFoot" style="font-size:11px;color:#475569"></div>
         </div>
       </div>
       <div class="card stat metric-card metric-link stat-link sell-out-card" role="link" tabindex="0" title="打开客流分析台（海外客流与线上经营）" onclick="location.href=withDate('/walkin-cockpit/')" onkeydown="if(event.key==='Enter')location.href=withDate('/walkin-cockpit/')">
         <div class="metric-body stat-body">
           <div class="metric-label label">经销商终销金额 Sell Out</div>
           <div class="metric-value value" id="sellOutAmount"><span class="amount-num">—</span></div>
-          <div class="metric-foot stat-foot action" id="sellOutFoot"></div>
+          <div class="metric-foot stat-foot" id="sellOutFoot" style="font-size:11px;color:#475569"></div>
         </div>
       </div>
     </div>
@@ -267,6 +269,47 @@
       }
     }
 
+    async function fetchRefresh() {
+      var btn = document.getElementById('btnFetch');
+      if (btn) { btn.textContent = '⏳ 刷新中…'; btn.disabled = true; }
+      try { await refreshDashboard(); } finally {
+        if (btn) { btn.textContent = '刷新'; btn.disabled = false; }
+      }
+    }
+
+    async function rebuildDashboard() {
+      var btn = document.getElementById('btnRebuild');
+      var status = document.getElementById('rebuildStatus');
+      if (btn) { btn.disabled = true; btn.textContent = '重建中…'; }
+      if (status) { status.style.display = ''; status.textContent = '⏳ 正在重建数据…（约1-3分钟）'; }
+      var start = Date.now();
+      var timer = setInterval(function () {
+        var s = Math.floor((Date.now() - start) / 1000);
+        if (status) status.textContent = '⏳ 重建中 ' + s + 's…（数据正在从 Odoo 拉取生成）';
+      }, 1000);
+      try {
+        var res = await fetch('/api/dashboard/refresh', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: workDate() })
+        });
+        clearInterval(timer);
+        if (res.ok) {
+          var elapsed = Math.floor((Date.now() - start) / 1000);
+          if (status) { status.textContent = '✅ 重建完成（耗时 ' + elapsed + 's）'; }
+          await refreshDashboard();
+          setTimeout(function () { if (status) status.style.display = 'none'; }, 4000);
+        } else {
+          if (status) { status.textContent = '❌ 重建失败（' + res.status + '）'; }
+        }
+      } catch (e) {
+        clearInterval(timer);
+        if (status) { status.textContent = '❌ 请求超时或网络错误'; }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '重建数据'; }
+      }
+    }
+
     async function refreshDashboard() {
       const params = { managerId: 'default' };
       await loadSection('overview', async function () {
@@ -278,6 +321,9 @@
         } else {
           sellInAmount.innerHTML = '<span class="amount-num">' + escapeHtml(overview.sellInAmount || '¥ 0') + '</span>';
         }
+        // 显示数据来源字幕
+        var sellInFootEl = document.getElementById('sellInFoot');
+        if (sellInFootEl) sellInFootEl.textContent = overview.sellInSub || '';
         if (overview.sellOutWan != null && overview.sellOutWan !== '') {
           sellOutAmount.innerHTML = formatWanHtml(overview.sellOutWan);
         } else {
@@ -286,6 +332,8 @@
         var sellOutCard = document.querySelector('.sell-out-card');
         if (sellOutCard) {
           sellOutCard.title = (overview.sellOutSub || '客流分析台：海外客流与线上经营') + ' · 点击进入';
+          var sellOutFootEl = document.getElementById('sellOutFoot');
+          if (sellOutFootEl) sellOutFootEl.textContent = overview.sellOutSub || '';
         }
         agentScore.textContent = overview.agentScore != null ? overview.agentScore : '—';
         scoreComment.textContent = overview.scoreComment || '';
