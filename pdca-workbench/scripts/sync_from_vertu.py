@@ -117,12 +117,24 @@ def sync_sellin(vertu: str, run_date: str, start_date: str) -> dict:
     if not QUERY_FILE.is_file():
         return {"ok": False, "error": f"查询文件不存在: {QUERY_FILE}", "count": 0}
 
-    params = json.dumps({"run_date": run_date, "start_date": start_date}, ensure_ascii=False)
+    params_dict = {"run_date": run_date, "start_date": start_date}
+    params_json = json.dumps(params_dict, ensure_ascii=False)
+
+    # vertu 在 Windows 上需要 --params-file（内联 JSON 在 cmd.exe 下引号被吃掉）
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json",
+                                     delete=False, encoding="utf-8") as pf:
+        pf.write(params_json)
+        params_path = pf.name
+
     cmd = [vertu, "odoo", "data", "sandbox",
            "--code-file", str(QUERY_FILE),
-           "--params", params]
-    print(f"  > {' '.join(cmd[:5])} --params '{params}'")
-    rc, stdout, stderr = _run(cmd, timeout=180)
+           "--params-file", params_path]
+    print(f"  > vertu odoo data sandbox --code-file <query> --params-file <{params_json}>")
+    try:
+        rc, stdout, stderr = _run(cmd, timeout=180)
+    finally:
+        Path(params_path).unlink(missing_ok=True)
     if rc != 0:
         msg = (stderr or stdout).strip()[:400]
         print(f"  [错误] vertu 退出码 {rc}: {msg}")

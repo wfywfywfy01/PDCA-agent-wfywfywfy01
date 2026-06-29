@@ -28,10 +28,11 @@ def _fmt_cny(yuan: float) -> str:
 
 
 def merge_db_sales(data: dict, date_text: str, session) -> dict:
-    """用 dealer_sales / walkin_daily_reports DB 表覆盖 bridge 返回的 sellin/sellout。
+    """用真实数据覆盖 bridge 估算值。
 
-    优先级：dealer_sales（vertu 每日同步） > walkin_daily_reports 成交额（经销商录入）。
-    bridge 返回非零时不覆盖，避免内网环境重复叠加。
+    数据优先级（高 → 低）：
+      Sell-In:  dealer_sales 表（vertu 同步）> bridge chart_data（Odoo 实时，已够准）
+      Sell-Out: dealer_sales 表（vertu 同步）> walkin_daily_reports 成交额（经销商录入）> bridge 估算
     """
     if not session:
         return data
@@ -42,41 +43,50 @@ def merge_db_sales(data: dict, date_text: str, session) -> dict:
 
     month = date_text[:7]
 
-    # ── 1. Sell-In / Sell-Out 来自 dealer_sales 表（sync_from_vertu.py 写入）────
+    # ── 1. dealer_sales 表（sync_from_vertu 写入的 Odoo 数据，最高优先）─────────────
     db_rows = session.exec(
         select(DealerSales).where(DealerSales.check_date.startswith(month))
     ).all()
 
+    has_db_sellout = False
     if db_rows:
-        total_in_wan = sum(r.sell_in_wan for r in db_rows)
+        total_in_wan  = sum(r.sell_in_wan  for r in db_rows)
         total_out_wan = sum(r.sell_out_wan for r in db_rows)
-        dealer_count = len({r.dealer_name for r in db_rows})
+        dealer_count  = len({r.dealer_name for r in db_rows})
 
-        # 只在 bridge 没有有效数据时覆盖（bridge 返回 0 或空）
-        bridge_sell_in = float(data.get("sellInWan") or 0)
-        if total_in_wan > 0 and bridge_sell_in == 0:
-            data["sellInWan"] = round(total_in_wan, 2)
+        if total_in_wan > 0:
+            data["sellInWan"]    = round(total_in_wan, 2)
             data["sellInAmount"] = _fmt_cny(total_in_wan * 10000)
-            data["sellInSub"] = f"DB同步 · {month} · {dealer_count}家经销商"
+            data["sellInSub"]    = f"Odoo同步 · {month} · {dealer_count}家经销商"
 
-        bridge_sell_out = float(data.get("sellOutWan") or 0)
-        if total_out_wan > 0 and bridge_sell_out == 0:
-            data["sellOutWan"] = round(total_out_wan, 2)
+        if total_out_wan > 0:
+            data["sellOutWan"]    = round(total_out_wan, 2)
             data["sellOutAmount"] = _fmt_cny(total_out_wan * 10000)
-            data["sellOutSub"] = f"DB同步 · {month}"
+            data["sellOutSub"]    = f"Odoo同步 · {month}"
+            has_db_sellout = True
 
-    # ── 2. Sell-Out 兜底：walkin_daily_reports 成交金额（经销商手动录入）─────────
-    if not float(data.get("sellOutWan") or 0):
+    # ── 2. walkin_daily_reports 成交金额（经销商真实录入）────────────────────────────
+    # 只要有门店录入了成交额，就用它覆盖 bridge 的估算值（dealer_sales 优先，已设标志）
+    if not has_db_sellout:
         walkin_rows = session.exec(
             select(WalkinDailyReport).where(
                 WalkinDailyReport.report_date.startswith(month)
             )
         ).all()
         if walkin_rows:
-            total_yuan = sum(r.deal_amount_yuan for r in walkin_rows)
+            total_yuan    = sum(r.deal_amount_yuan for r in walkin_rows)
+            store_count   = len({r.dealer_id for r in walkin_rows if r.deal_amount_yuan > 0})
+            total_walkin  = sum(r.walkin_visits for r in walkin_rows)
+
             if total_yuan > 0:
-                data["sellOutWan"] = round(total_yuan / 10000, 2)
+                # 真实成交额覆盖估算
+                data["sellOutWan"]    = round(total_yuan / 10000, 2)
                 data["sellOutAmount"] = _fmt_cny(total_yuan)
-                data["sellOutSub"] = f"门店录入 · {month}"
+                data["sellOutSub"]    = f"门店实录 · {month} · {store_count}家已报"
+
+            if total_walkin > 0:
+                # 真实进店数注入（前端可选显示）
+                data["realWalkinTotal"] = total_walkin
+                data["realWalkinStores"] = len({r.dealer_id for r in walkin_rows})
 
     return data
