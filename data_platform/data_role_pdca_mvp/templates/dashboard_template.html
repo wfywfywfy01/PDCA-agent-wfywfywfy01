@@ -155,7 +155,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","M
   <div class="ni dealer-btn" id="pt-dealer" onclick="showDealerView(this)">代理商</div>
 </nav>
 <div class="rbar">数据来源：VPS/Odoo · sale_order_line_report · 海外事业部 / 经销商
-<button onclick="forceRender()" style="margin-left:16px;padding:6px 12px;font-size:12px;background:#111827;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">刷新图表</button>&nbsp;&nbsp;上次：<b>2026-05-28 17:23:11</b>（1分钟前）</div>
+<button id="refreshBtn" onclick="forceRender()" style="margin-left:16px;padding:6px 12px;font-size:12px;background:#111827;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600">刷新图表</button>&nbsp;&nbsp;上次：<b id="lastUpdatedTime">2026-05-28 17:23:11</b>&nbsp;<span id="lastUpdatedRel" style="color:#9ca3af;font-size:12px"></span></div>
 <div class="layout">
 <aside class="sidebar" id="sidebar">
   <div class="s-lbl">有员工的部门 3</div>
@@ -984,10 +984,31 @@ function toggleTC(e,arrow){
 document.querySelectorAll('.tc').forEach(el=>{el.style.overflow='hidden';el.style.transition='max-height .22s ease';el.style.maxHeight='none';});
 function toggleSidebar(){const sb=document.getElementById('sidebar'),mn=document.getElementById('main'),cb=document.getElementById('cbtn');const col=sb.classList.toggle('collapsed');mn.classList.toggle('full',col);cb.classList.toggle('out',col);cb.textContent=col?'»':'«';setTimeout(()=>Object.values(CH).forEach(c=>{try{c.resize();}catch(e){}}),240);}
 
+function _relTime(tsStr){
+  var d=new Date(tsStr.replace(/-/g,'/'));
+  if(isNaN(d.getTime())) return '';
+  var diff=Math.floor((Date.now()-d.getTime())/1000);
+  if(diff<60) return '（刚刚）';
+  if(diff<3600) return '（'+Math.floor(diff/60)+'分钟前）';
+  if(diff<86400) return '（'+Math.floor(diff/3600)+'小时前）';
+  return '（'+Math.floor(diff/86400)+'天前）';
+}
+
 function forceRender(){
-  Object.values(CH).forEach(c=>{ try{c.resize();}catch(e){} });
-  // Re-render current node
-  if(curNode) render();
+  var btn=document.getElementById('refreshBtn');
+  if(btn){btn.disabled=true;btn.textContent='刷新中…';}
+  fetch('/api/dashboard/refresh',{method:'POST',credentials:'include'})
+    .then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    })
+    .then(function(){
+      location.reload();
+    })
+    .catch(function(e){
+      if(btn){btn.disabled=false;btn.textContent='刷新图表';}
+      alert('刷新失败（'+e.message+'），请稍后重试');
+    });
 }
 
 // INIT
@@ -995,6 +1016,10 @@ document.addEventListener('DOMContentLoaded',()=>{
   curPeriod='monthly';
   document.getElementById('pt-m').classList.add('cur');
   clickNode(document.querySelector('[data-id="dir-dealer"]'));
+  // 动态显示相对时间
+  var tEl=document.getElementById('lastUpdatedTime');
+  var rEl=document.getElementById('lastUpdatedRel');
+  if(tEl && rEl){ rEl.textContent=_relTime(tEl.textContent.trim()); }
 });
 </script>
 </body>

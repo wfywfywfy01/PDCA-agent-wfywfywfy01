@@ -5,72 +5,83 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>数据岗位 PDCA 工作台</title>
   <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif; background: #f5f7fb; color: #1f2937; }
-    .page { padding: 20px; max-width: 1680px; margin: 0 auto; }
-    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04); }
-    .toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
-    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-    .tab { border: 1px solid #dbe1ea; background: #fff; padding: 8px 18px; border-radius: 999px; cursor: pointer; font-weight: 600; }
-    .tab.active { background: #111827; color: #fff; border-color: #111827; }
-    .quick-links { display: flex; gap: 8px; flex-wrap: wrap; }
-    .quick-links a { text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 8px; background: #f3f4f6; color: #111827; font-weight: 600; }
-    .quick-links a:hover { background: #e5e7eb; }
-    .flash { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 14px; display: none; }
-    .top-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-    .metric-card,
-    .stat { padding: 22px; min-height: 120px; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; }
-    .metric-body,
-    .stat-body { width: 100%; display: flex; flex-direction: column; align-items: flex-start; text-align: left; flex: 1; }
-    .metric-label,
-    .label { color: #6b7280; font-size: 14px; margin: 0 0 10px; width: 100%; line-height: 1.35; font-weight: 400; }
-    .metric-value,
-    .value { font-size: 28px; font-weight: 800; width: 100%; margin: 0; line-height: 1.15; font-variant-numeric: tabular-nums; color: #111827; flex: 1; display: flex; align-items: center; min-height: 36px; }
-    .amount-num { display: block; text-align: left; letter-spacing: -0.02em; }
-    .amount-unit { font-size: 0.72em; font-weight: 800; margin-left: 2px; }
-    .metric-foot,
-    .stat-foot { margin-top: 10px; font-size: 12px; color: #9ca3af; line-height: 1.35; width: 100%; }
-    .metric-foot:empty { display: none; }
-    .metric-link { cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease; }
-    .metric-link:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08); }
-    .metric-link .metric-foot.action::after,
-    .stat-link .stat-foot.action::after { content: '点击进入'; }
-    .metric-link .metric-foot.action,
-    .stat-link .stat-foot.action { font-size: 0; }
-    .metric-link .metric-foot.action::after,
-    .stat-link .stat-foot.action::after { font-size: 12px; }
-    .grid-main { display: grid; grid-template-columns: 0.9fr 1.3fr; gap: 16px; margin-bottom: 16px; }
-    .left-stack, .right-stack { display: grid; gap: 16px; }
-    .section { padding: 18px; }
-    .section-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 800; margin-bottom: 14px; gap: 8px; flex-wrap: wrap; }
-    .score-box { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: center; }
-    .score { width: 110px; height: 110px; border-radius: 50%; border: 10px solid #111827; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 900; }
-    .todo-list, .scroll-list { max-height: 210px; overflow: auto; display: grid; gap: 10px; }
-    .todo-source-hint { margin: 0 0 10px; font-size: 12px; color: #6b7280; line-height: 1.45; }
-    .todo-item, .list-row { border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; background: #fafafa; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
-    .todo-item .todo-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-    .todo-item .todo-sub { font-size: 11px; color: #9ca3af; }
-    .tag { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; white-space: nowrap; }
-    .btn { border: 0; border-radius: 8px; padding: 7px 12px; background: #111827; color: #fff; cursor: pointer; font-size: 13px; text-decoration: none; display: inline-block; }
-    .btn.ghost { background: #f3f4f6; color: #111827; }
-    .customer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-    .customer-grid .metric-card { min-height: 110px; padding: 16px 18px; background: #fff; }
-    .human-grid, .task-grid, .meeting-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
-    .human-grid .metric-card,
-    .task-grid .metric-card,
-    .meeting-grid .metric-card { min-height: 100px; padding: 16px 18px; background: #fff; }
-    .progress { margin-top: 8px; height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; width: 100%; }
-    .progress span { display: block; height: 100%; background: #111827; }
-    .exception-grid, .footer-modules { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-    .footer-modules .task-center-section .task-grid { grid-template-columns: repeat(3, 1fr); }
-    .exception-item { padding: 10px 12px; border-left: 4px solid #111827; background: #fafafa; border-radius: 8px; margin-bottom: 10px; }
-    .important-row { display: grid; grid-template-columns: 1.1fr 1.2fr 180px; gap: 12px; align-items: start; border: 1px solid #eef2f7; border-radius: 12px; padding: 12px; margin-bottom: 10px; background: #fafafa; }
-    textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; font-family: inherit; }
-    .empty-hint { color: #9ca3af; font-size: 13px; padding: 8px 0; }
-    @media (max-width: 1000px) {
-      .top-stats, .grid-main, .exception-grid, .footer-modules { grid-template-columns: 1fr; }
-      .customer-grid, .human-grid, .task-grid, .meeting-grid { grid-template-columns: repeat(2, 1fr); }
-      .important-row { grid-template-columns: 1fr; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif;
+         background:#0b0d13;color:#e2e8f0}
+    .page{padding:20px;max-width:1680px;margin:0 auto}
+    .card{background:#13182a;border:1px solid rgba(255,255,255,.07);border-radius:14px}
+    .toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{border:1px solid rgba(255,255,255,.1);background:transparent;padding:8px 18px;
+         border-radius:999px;cursor:pointer;font-weight:600;color:#94a3b8;transition:all .15s}
+    .tab.active{background:rgba(78,158,245,.15);color:#4e9ef5;border-color:rgba(78,158,245,.3)}
+    .quick-links{display:flex;gap:8px;flex-wrap:wrap}
+    .quick-links a{text-decoration:none;font-size:13px;padding:6px 12px;border-radius:8px;
+                   background:rgba(255,255,255,.05);color:#94a3b8;font-weight:600;transition:all .15s}
+    .quick-links a:hover{background:rgba(255,255,255,.08);color:#e2e8f0}
+    .flash{margin-bottom:12px;padding:10px 14px;border-radius:10px;
+           background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);
+           color:#10b981;font-size:14px;display:none}
+    .top-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}
+    .metric-card,.stat{padding:22px;min-height:120px;display:flex;flex-direction:column;
+                       justify-content:flex-start;align-items:stretch}
+    .metric-body,.stat-body{width:100%;display:flex;flex-direction:column;align-items:flex-start;text-align:left;flex:1}
+    .metric-label,.label{color:#475569;font-size:14px;margin:0 0 10px;width:100%;line-height:1.35;font-weight:400}
+    .metric-value,.value{font-size:28px;font-weight:800;width:100%;margin:0;line-height:1.15;
+                         font-variant-numeric:tabular-nums;color:#e2e8f0;flex:1;display:flex;align-items:center;min-height:36px}
+    .amount-num{display:block;text-align:left;letter-spacing:-0.02em}
+    .amount-unit{font-size:.72em;font-weight:800;margin-left:2px}
+    .metric-foot,.stat-foot{margin-top:10px;font-size:12px;color:#475569;line-height:1.35;width:100%}
+    .metric-foot:empty{display:none}
+    .metric-link{cursor:pointer;transition:transform .15s,border-color .15s}
+    .metric-link:hover{transform:translateY(-2px);border-color:rgba(78,158,245,.3)}
+    .metric-link .metric-foot.action::after,.stat-link .stat-foot.action::after{content:'点击进入'}
+    .metric-link .metric-foot.action,.stat-link .stat-foot.action{font-size:0}
+    .metric-link .metric-foot.action::after,.stat-link .stat-foot.action::after{font-size:12px;color:#4e9ef5}
+    .grid-main{display:grid;grid-template-columns:.9fr 1.3fr;gap:16px;margin-bottom:16px}
+    .left-stack,.right-stack{display:grid;gap:16px}
+    .section{padding:18px}
+    .section-title{display:flex;justify-content:space-between;align-items:center;
+                   font-size:18px;font-weight:800;margin-bottom:14px;gap:8px;flex-wrap:wrap;color:#e2e8f0}
+    .score-box{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:center}
+    .score{width:110px;height:110px;border-radius:50%;border:8px solid rgba(78,158,245,.3);
+           display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;color:#4e9ef5}
+    .todo-list,.scroll-list{max-height:210px;overflow:auto;display:grid;gap:10px}
+    .todo-source-hint{margin:0 0 10px;font-size:12px;color:#475569;line-height:1.45}
+    .todo-item,.list-row{border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px 12px;
+                         background:rgba(255,255,255,.02);display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .todo-item .todo-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .todo-item .todo-sub{font-size:11px;color:#475569}
+    .tag{font-size:12px;padding:3px 8px;border-radius:999px;
+         background:rgba(78,158,245,.15);color:#4e9ef5;white-space:nowrap;
+         border:1px solid rgba(78,158,245,.2)}
+    .btn{border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:7px 12px;
+         background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;font-size:13px;
+         text-decoration:none;display:inline-block;transition:all .15s}
+    .btn:hover{background:rgba(255,255,255,.1);color:#e2e8f0}
+    .btn.ghost{background:rgba(255,255,255,.03);color:#475569}
+    .customer-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .customer-grid .metric-card{min-height:110px;padding:16px 18px}
+    .human-grid,.task-grid,.meeting-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+    .human-grid .metric-card,.task-grid .metric-card,.meeting-grid .metric-card{min-height:100px;padding:16px 18px}
+    .progress{margin-top:8px;height:6px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;width:100%}
+    .progress span{display:block;height:100%;background:#4e9ef5;border-radius:999px}
+    .exception-grid,.footer-modules{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+    .footer-modules .task-center-section .task-grid{grid-template-columns:repeat(3,1fr)}
+    .exception-item{padding:10px 12px;border-left:4px solid rgba(78,158,245,.5);
+                    background:rgba(255,255,255,.02);border-radius:8px;margin-bottom:10px}
+    .important-row{display:grid;grid-template-columns:1.1fr 1.2fr 180px;gap:12px;align-items:start;
+                   border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px;margin-bottom:10px}
+    textarea{width:100%;min-height:64px;resize:vertical;border:1px solid rgba(255,255,255,.1);
+             border-radius:8px;padding:8px;font-family:inherit;background:rgba(255,255,255,.04);
+             color:#e2e8f0;outline:none}
+    textarea:focus{border-color:#4e9ef5}
+    .empty-hint{color:#475569;font-size:13px;padding:8px 0}
+    #dataUpdateHint{font-size:12px;color:#475569}
+    @media(max-width:1000px){
+      .top-stats,.grid-main,.exception-grid,.footer-modules{grid-template-columns:1fr}
+      .customer-grid,.human-grid,.task-grid,.meeting-grid{grid-template-columns:repeat(2,1fr)}
+      .important-row{grid-template-columns:1fr}
     }
   </style>
 </head>
@@ -85,7 +96,10 @@
         <button type="button" class="tab" data-period="quarter">季</button>
       </div>
       <div class="quick-links" id="quickLinks"></div>
-      <button type="button" class="btn ghost" onclick="refreshDashboard()">刷新数据</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="dataUpdateHint" style="font-size:12px;color:#9ca3af"></span>
+        <button type="button" class="btn ghost" onclick="refreshDashboard()">刷新数据</button>
+      </div>
     </div>
 
     <div class="top-stats">
@@ -167,7 +181,8 @@
       processSuggestion: '/api/agent/process-suggestion'
     };
 
-    let currentPeriod = 'day';
+    const _qs0 = new URLSearchParams(location.search);
+    let currentPeriod = _qs0.get('period') || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) || 'day';
 
     function workDate() {
       const q = new URLSearchParams(location.search).get('date');
@@ -179,7 +194,7 @@
 
     function withDate(url) {
       const sep = url.indexOf('?') >= 0 ? '&' : '?';
-      return url + sep + 'date=' + encodeURIComponent(workDate());
+      return url + sep + 'date=' + encodeURIComponent(workDate()) + '&period=' + encodeURIComponent(currentPeriod);
     }
 
     function buildQuickLinks() {
@@ -239,7 +254,7 @@
       params.period = currentPeriod;
       params.date = workDate();
       const query = new URLSearchParams(params).toString();
-      const res = await fetch(url + '?' + query, { cache: 'no-store' });
+      const res = await fetch(url + '?' + query, { cache: 'no-store', credentials: 'include' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       return await res.json();
     }
@@ -257,7 +272,7 @@
       await loadSection('overview', async function () {
         const overview = await request(API.dashboard, params);
         managerName.innerHTML = formatTextHtml(overview.managerName);
-        managerRole.textContent = shortRoleText(overview.managerRole);
+        managerRole.textContent = overview.managerRole || '';
         if (overview.sellInWan != null && overview.sellInWan !== '') {
           sellInAmount.innerHTML = formatWanHtml(overview.sellInWan);
         } else {
@@ -274,6 +289,16 @@
         }
         agentScore.textContent = overview.agentScore != null ? overview.agentScore : '—';
         scoreComment.textContent = overview.scoreComment || '';
+        // 显示数据更新时间
+        if (overview.dataUpdatedAt) {
+          var hint = document.getElementById('dataUpdateHint');
+          if (hint) {
+            var d = new Date(overview.dataUpdatedAt);
+            var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+            var rel = diff < 60 ? '刚刚' : diff < 3600 ? Math.floor(diff / 60) + '分钟前' : Math.floor(diff / 3600) + '小时前';
+            hint.textContent = '数据截至 ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) + '（' + rel + '）';
+          }
+        }
       });
       await loadSection('todo', async function () {
         renderTodos(await request(API.todo, params));
@@ -460,10 +485,15 @@
     }
 
     document.querySelectorAll('.tab').forEach(function (btn) {
+      if (btn.dataset.period === currentPeriod) {
+        document.querySelectorAll('.tab').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+      }
       btn.addEventListener('click', function () {
         document.querySelectorAll('.tab').forEach(function (b) { b.classList.remove('active'); });
         btn.classList.add('active');
         currentPeriod = btn.dataset.period;
+        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('pdca_period', currentPeriod);
         refreshDashboard();
       });
     });

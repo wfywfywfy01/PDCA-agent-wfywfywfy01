@@ -151,10 +151,16 @@ def read_sales_summary_json(path, aliases=None):
     payload = load_json(path)
     result = None
     if isinstance(payload, dict):
+        # Old format: {execution: {result: {summary_mode: true, ...}}, validation: {...}}
         if isinstance(payload.get("execution"), dict):
             result = payload["execution"].get("result")
-        if result is None:
-            result = payload.get("result")
+        # New vertu CLI format: {ok: true, result: {validation: {...}, execution: {result: {...}}}}
+        if result is None and isinstance(payload.get("result"), dict):
+            outer = payload["result"]
+            if isinstance(outer.get("execution"), dict):
+                result = outer["execution"].get("result")
+            elif outer.get("summary_mode"):
+                result = outer
         if result is None and isinstance(payload.get("ai"), dict):
             result = payload["ai"].get("result")
     if not isinstance(result, dict) or not result.get("summary_mode"):

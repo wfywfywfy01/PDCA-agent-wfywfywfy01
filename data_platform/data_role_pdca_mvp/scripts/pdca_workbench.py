@@ -236,11 +236,14 @@ def sell_in_from_chart(date_text, period):
     return chart_performance_total(chart, period, date_text)
 
 
-def api_dashboard_overview(date_text, period):
-    identity = fetch_vps_identity()
-    user = identity.get("user") or {}
-    name = nested_value(user, "name", "display_name") or "数据岗"
-    role = nested_value(user, "job_title", "role") or "PDCA 工作台"
+def api_dashboard_overview(date_text, period, session_user=None):
+    if session_user:
+        name, role, _source = resolve_workbench_profile(session_user)
+    else:
+        identity = fetch_vps_identity()
+        user = identity.get("user") or {} if identity.get("ok") else {}
+        name = nested_value(user, "employee_name", "name", "display_name") or nested_value(user, "name", "display_name") or "数据岗"
+        role = nested_value(user, "job_title", "role") or "PDCA 工作台"
     dealers = load_dealer_reference()
     sell_out, sell_out_sub = dealer_sell_out_total(dealers)
     sell_in_sub = ""
@@ -703,7 +706,12 @@ AGENT_CORE_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "MEMORY.md", "USER.md
 def vertu_command():
     configured = os.environ.get("VERTU_COMMAND")
     if configured:
-        return configured
+        configured_path = Path(configured)
+        if configured_path.exists():
+            return str(configured_path)
+        discovered = shutil.which(configured)
+        if discovered:
+            return discovered
     discovered = shutil.which("vertu")
     if discovered:
         return discovered
@@ -1691,6 +1699,237 @@ def fetch_vps_today_todos():
         return {"ok": True, "rows": rows, "count": int(payload.get("count") or len(rows)), "error": ""}
     except Exception as exc:
         return {"ok": False, "rows": [], "count": 0, "error": str(exc)}
+
+
+def quote_odoo_domain_value(value: str) -> str:
+    """转义 Odoo domain 字符串字面量。"""
+    return str(value or "").replace("\\", "\\\\").replace("'", "\\'")
+
+
+def many2one_name(value):
+  """@param value Odoo many2one [id, name]"""
+  return value[1] if isinstance(value, list) and len(value) > 1 else ""
+
+
+def odoo_data_search(model: str, domain: str, fields: str, limit: int = 5) -> tuple[list[dict], str]:
+    """
+    通过 vertu odoo data search 查询记录。
+
+    @returns (rows, error)
+    """
+    cache_key = f"odoo_search_{model}_{domain}_{fields}_{limit}"
+    try:
+        payload, output = run_vertu_json(
+            cache_key,
+            [
+                "odoo",
+                "data",
+                "search",
+                "--model-name",
+                model,
+                "--domain",
+                domain,
+                "--fields",
+                fields,
+                "--limit",
+                str(limit),
+            ],
+            timeout=20,
+        )
+        if isinstance(payload, list):
+            return payload, ""
+        return [], output or "unexpected odoo search payload"
+    except Exception as exc:
+        return [], str(exc)
+
+
+def workbench_role_label(role: str) -> str:
+    """8767 登录角色 → 展示用岗位/权限文案。"""
+    mapping = {
+        "admin": "系统管理员",
+        "manager": "海外中台主管",
+        "sales": "经销商销售",
+        "dealer": "经销商门店",
+        "viewer": "只读访客",
+    }
+    return mapping.get((role or "").strip().lower(), role or "工作台用户")
+
+
+def employee_job_label(row: dict) -> str:
+    """从 hr.employee 行提取岗位/部门展示。"""
+    job = many2one_name(row.get("job_id")) or row.get("job_title") or ""
+    dept = many2one_name(row.get("department_id")) or ""
+    if job and dept:
+        return f"{dept} · {job}"
+    return job or dept or ""
+
+
+def lookup_vps_user_by_name(name_hint: str) -> dict | None:
+    """按 res.users 显示名模糊匹配。"""
+    text = (name_hint or "").strip()
+    if not text:
+        return None
+    safe = quote_odoo_domain_value(text)
+    rows, err = odoo_data_search("res.users", f"name ilike '{safe}'", "id,name,login", 3)
+    if err or not rows:
+        return None
+    target = text.lower()
+    for row in rows:
+        if str(row.get("name") or "").lower() == target:
+            return row
+    return rows[0]
+
+
+def lookup_vps_employee_by_hint(hint: str) -> dict | None:
+    """
+    按姓名在 VPS hr.employee 中模糊匹配。
+
+    @param hint 姓名或登录名
+    @returns 员工 dict 或 None
+    """
+    text = (hint or "").strip()
+    if not text:
+        return None
+    safe = quote_odoo_domain_value(text)
+    rows, err = odoo_data_search(
+        "hr.employee",
+        f"active = True AND name ilike '%{safe}%'",
+        "id,name,department_id,job_id,job_title,work_email,user_id",
+        8,
+    )
+    if err or not rows:
+        return None
+    target = text.lower()
+    for row in rows:
+        name = str(row.get("name") or "")
+        if name.lower() == target:
+            return row
+    return rows[0]
+
+
+def lookup_vps_user_by_login(login: str) -> dict | None:
+    """按 res.users.login 精确匹配。"""
+    text = (login or "").strip()
+    if not text:
+        return None
+    safe = quote_odoo_domain_value(text)
+    rows, err = odoo_data_search("res.users", f"login = '{safe}'", "id,name,login", 1)
+    if err or not rows:
+        return None
+    return rows[0]
+
+
+def is_generic_profile_label(text: str, role: str) -> bool:
+    """是否为角色占位文案，不能当作真实姓名展示。"""
+    label = (text or "").strip()
+    if not label:
+        return True
+    if label == workbench_role_label(role):
+        return True
+    generic = {
+        "系统管理员",
+        "海外中台主管",
+        "只读访客",
+        "经销商销售",
+        "经销商门店",
+        "工作台用户",
+        "数据岗",
+        "PDCA 工作台",
+    }
+    return label in generic
+
+
+def person_name_hints(session_user: dict) -> list[str]:
+    """从登录会话提取可用于 VPS 姓名匹配的关键词（排除角色占位）。"""
+    username = str(session_user.get("username") or "").strip()
+    display_name = str(session_user.get("display_name") or "").strip()
+    sales_name = str(session_user.get("sales_name") or "").strip()
+    role = str(session_user.get("role") or "").strip()
+    hints: list[str] = []
+    for item in [sales_name, display_name, username]:
+        if item and not is_generic_profile_label(item, role) and item not in hints:
+            hints.append(item)
+    return hints
+
+
+def profile_from_vps_me(vu: dict, role: str) -> tuple[str, str]:
+    """从 vertu odoo me 解析姓名与组织岗位。"""
+    name = nested_value(vu, "employee_name", "name", "display_name")
+    job = nested_value(vu, "job_title", "role") or ""
+    employee_id = vu.get("employee_id") or vu.get("employeeId")
+    if employee_id:
+        rows, _ = odoo_data_search(
+            "hr.employee",
+            f"id = {int(employee_id)}",
+            "id,name,department_id,job_id,job_title",
+            1,
+        )
+        if rows:
+            name = str(rows[0].get("name") or name)
+            job = employee_job_label(rows[0]) or job
+    if not job:
+        job = workbench_role_label(role)
+    return name, job
+
+
+def resolve_workbench_profile(session_user: dict | None) -> tuple[str, str, str]:
+    """
+    根据 8767 登录账号解析姓名与岗位（优先 VPS）。
+
+    @returns (name, job_title, source)
+    """
+    if not session_user:
+        return "", "", "none"
+    username = str(session_user.get("username") or "").strip()
+    display_name = str(session_user.get("display_name") or "").strip()
+    sales_name = str(session_user.get("sales_name") or "").strip()
+    role = str(session_user.get("role") or "").strip()
+    hints = person_name_hints(session_user)
+    desk_role = role in ("admin", "manager", "viewer")
+
+    if desk_role or not hints:
+        identity = fetch_vps_identity()
+        if identity.get("ok"):
+            vu = identity.get("user") or {}
+            me_name, me_job = profile_from_vps_me(vu, role)
+            if me_name and not is_generic_profile_label(me_name, role):
+                return me_name, me_job, "vps-me"
+
+    for hint in hints:
+        employee = lookup_vps_employee_by_hint(hint)
+        if employee:
+            name = str(employee.get("name") or hint)
+            job = employee_job_label(employee) or workbench_role_label(role)
+            return name, job, "vps-hr.employee"
+
+    if username:
+        odoo_user = lookup_vps_user_by_login(username)
+        if odoo_user:
+            name = str(odoo_user.get("name") or "")
+            if name and not is_generic_profile_label(name, role):
+                return name, workbench_role_label(role), "vps-res.users"
+
+    for hint in hints:
+        odoo_user = lookup_vps_user_by_name(hint)
+        if odoo_user:
+            name = str(odoo_user.get("name") or hint)
+            return name, workbench_role_label(role), "vps-res.users-name"
+
+    identity = fetch_vps_identity()
+    if identity.get("ok"):
+        vu = identity.get("user") or {}
+        me_name, me_job = profile_from_vps_me(vu, role)
+        me_login = str(vu.get("login") or "").strip()
+        if me_name and (
+            username and me_login == username
+            or any(h and (h in me_name or me_name in h) for h in hints)
+        ):
+            return me_name, me_job, "vps-me"
+
+    name = hints[0] if hints else (username or "工作台用户")
+    if is_generic_profile_label(name, role):
+        name = username or "工作台用户"
+    return name, workbench_role_label(role), "session"
 
 
 def fetch_vps_identity():

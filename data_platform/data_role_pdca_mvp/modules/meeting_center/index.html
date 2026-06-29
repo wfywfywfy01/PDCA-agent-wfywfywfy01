@@ -4,49 +4,62 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>会议中心 · Vemory 复盘</title>
-  <link rel="stylesheet" href="/workbench-cockpit-shell.css?v=2" />
+  <link rel="stylesheet" href="/workbench-cockpit-shell.css?v=3" />
   <style>
-    .mc-page { max-width: 1200px; margin: 0 auto; padding: 20px 20px 48px; }
-    .mc-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-    .mc-toolbar h1 { font-size: 22px; margin: 0; color: var(--ink, #111827); }
-    .mc-toolbar p { margin: 4px 0 0; color: var(--ink-soft, #6b7280); font-size: 13px; }
-    .mc-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .mc-controls input, .mc-controls select { border: 1px solid var(--line, #e5e7eb); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
-    .mc-btn { border: none; border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; background: #111827; color: #fff; }
-    .mc-btn.ghost { background: #fff; color: #374151; border: 1px solid #e5e7eb; }
-    .mc-btn.cyan { background: #0891b2; }
-    .mc-status { font-size: 12px; color: #6b7280; }
-    .mc-status.warn { color: #b45309; }
-    .mc-vemory-panel { background: #ecfeff; border: 1px solid #67e8f9; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 14px rgba(8,145,178,.06); }
-    .mc-vemory-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #a5f3fc; color: #155e75; font-size: 13px; }
-    .mc-vemory-body { padding: 14px; }
-    .mc-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
-    .mc-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px 18px; box-shadow: 0 4px 14px rgba(15,23,42,.04); cursor: pointer; transition: border-color .15s; }
-    .mc-card:hover, .mc-card.active { border-color: #0891b2; }
-    .mc-card .k { font-size: 13px; color: #6b7280; margin-bottom: 8px; }
-    .mc-card .v { font-size: 28px; font-weight: 800; color: #111827; }
-    .mc-list { display: flex; flex-direction: column; gap: 10px; }
-    .mc-meeting { width: 100%; text-align: left; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; cursor: pointer; }
-    .mc-meeting:hover { border-color: #67e8f9; box-shadow: 0 2px 8px rgba(8,145,178,.08); }
-    .mc-meeting h3 { margin: 0 0 6px; font-size: 15px; color: #111827; }
-    .mc-meeting .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #6b7280; }
-    .mc-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-    .mc-tag.ext { background: #ecfdf5; color: #047857; }
-    .mc-tag.int { background: #eef2ff; color: #4338ca; }
-    .mc-tag.bucket { background: #f3f4f6; color: #374151; }
-    .mc-empty { padding: 32px; text-align: center; color: #9ca3af; font-size: 14px; background: #fff; border: 1px dashed #e5e7eb; border-radius: 12px; }
-    .mc-modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
-    .mc-modal.open { display: flex; }
-    .mc-dialog { background: #fff; border-radius: 16px; width: min(760px, 100%); max-height: 88vh; overflow: hidden; display: flex; flex-direction: column; }
-    .mc-dialog-head { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; gap: 12px; }
-    .mc-dialog-body { padding: 16px 20px; overflow-y: auto; }
-    .mc-section { margin-bottom: 16px; }
-    .mc-section h4 { margin: 0 0 8px; font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
-    .mc-brief { background: #f9fafb; border: 1px solid #f3f4f6; border-radius: 12px; padding: 12px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
-    .mc-chapter, .mc-todo { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; }
-    .mc-todo .reason { color: #0891b2; margin-top: 4px; font-size: 12px; }
-    .mc-todo.unassigned { border-color: #fcd34d; background: #fffbeb; }
-    @media (max-width: 900px) { .mc-grid { grid-template-columns: repeat(2, 1fr); } }
+    .mc-page{max-width:1200px;margin:0 auto;padding:20px 20px 48px}
+    .mc-toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .mc-toolbar h1{font-size:22px;margin:0;color:#e2e8f0}
+    .mc-toolbar p{margin:4px 0 0;color:#475569;font-size:13px}
+    .mc-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .mc-controls input,.mc-controls select{
+      border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px 12px;font-size:13px;
+      background:rgba(255,255,255,.05);color:#e2e8f0;outline:none}
+    .mc-btn{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:8px 14px;font-size:13px;
+            font-weight:600;cursor:pointer;background:rgba(255,255,255,.06);color:#94a3b8;transition:all .15s}
+    .mc-btn:hover{background:rgba(255,255,255,.1);color:#e2e8f0}
+    .mc-btn.ghost{background:rgba(255,255,255,.03);color:#475569}
+    .mc-btn.cyan{background:rgba(8,145,178,.2);color:#22d3ee;border-color:rgba(8,145,178,.3)}
+    .mc-status{font-size:12px;color:#475569}
+    .mc-status.warn{color:#f59e0b}
+    .mc-vemory-panel{background:rgba(8,145,178,.06);border:1px solid rgba(8,145,178,.2);border-radius:14px;overflow:hidden}
+    .mc-vemory-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+                    padding:12px 16px;border-bottom:1px solid rgba(8,145,178,.15);color:#22d3ee;font-size:13px}
+    .mc-vemory-body{padding:14px}
+    .mc-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+    .mc-card{background:#13182a;border:1px solid rgba(255,255,255,.07);border-radius:14px;
+             padding:16px 18px;cursor:pointer;transition:border-color .15s}
+    .mc-card:hover,.mc-card.active{border-color:rgba(8,145,178,.4)}
+    .mc-card .k{font-size:13px;color:#475569;margin-bottom:8px}
+    .mc-card .v{font-size:28px;font-weight:800;color:#e2e8f0}
+    .mc-list{display:flex;flex-direction:column;gap:10px}
+    .mc-meeting{width:100%;text-align:left;background:#13182a;border:1px solid rgba(255,255,255,.07);
+                border-radius:12px;padding:14px 16px;cursor:pointer;transition:border-color .15s}
+    .mc-meeting:hover{border-color:rgba(8,145,178,.3)}
+    .mc-meeting h3{margin:0 0 6px;font-size:15px;color:#e2e8f0}
+    .mc-meeting .meta{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:#475569}
+    .mc-tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+    .mc-tag.ext{background:rgba(16,185,129,.1);color:#10b981;border:1px solid rgba(16,185,129,.2)}
+    .mc-tag.int{background:rgba(78,158,245,.1);color:#4e9ef5;border:1px solid rgba(78,158,245,.2)}
+    .mc-tag.bucket{background:rgba(255,255,255,.06);color:#94a3b8}
+    .mc-empty{padding:32px;text-align:center;color:#475569;font-size:14px;
+              background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.08);border-radius:12px}
+    .mc-modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;
+              justify-content:center;padding:16px;z-index:50}
+    .mc-modal.open{display:flex}
+    .mc-dialog{background:#13182a;border:1px solid rgba(255,255,255,.1);border-radius:16px;
+               width:min(760px,100%);max-height:88vh;overflow:hidden;display:flex;flex-direction:column}
+    .mc-dialog-head{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.07);
+                    display:flex;justify-content:space-between;gap:12px;color:#e2e8f0}
+    .mc-dialog-body{padding:16px 20px;overflow-y:auto;color:#e2e8f0}
+    .mc-section{margin-bottom:16px}
+    .mc-section h4{margin:0 0 8px;font-size:12px;color:#475569;text-transform:uppercase;letter-spacing:.04em}
+    .mc-brief{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+              border-radius:12px;padding:12px;font-size:13px;line-height:1.6;white-space:pre-wrap;color:#94a3b8}
+    .mc-chapter,.mc-todo{border:1px solid rgba(255,255,255,.07);border-radius:10px;
+                          padding:10px 12px;margin-bottom:8px;font-size:13px;color:#e2e8f0}
+    .mc-todo .reason{color:#22d3ee;margin-top:4px;font-size:12px}
+    .mc-todo.unassigned{border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.05)}
+    @media(max-width:900px){.mc-grid{grid-template-columns:repeat(2,1fr)}}
   </style>
 </head>
 <body>
@@ -113,11 +126,26 @@
       activeMeeting: null
     };
 
-    function workDate() {
-      const q = new URLSearchParams(location.search).get('date');
-      return q || new Date().toISOString().slice(0, 10);
-    }
+    // ── 期间工具 ────────────────────────────────────────────────────────────
+    const _qs_init = new URLSearchParams(location.search);
+    const _periodParam = _qs_init.get('period') || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) || 'day';
+    const _anchorParam = _qs_init.get('date') || new Date().toISOString().slice(0, 10);
 
+    function _fmtD(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+    function _parseD(s) { const p = s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
+    function _periodRange(anchor, period) {
+      const d = _parseD(anchor), y = d.getFullYear(), m = d.getMonth();
+      if (period === 'day')   return { start: anchor, end: anchor };
+      if (period === 'week')  { const dow = d.getDay(), dt = dow===0?-6:1-dow, mon = new Date(d), sun = new Date(d); mon.setDate(d.getDate()+dt); sun.setDate(mon.getDate()+6); return { start: _fmtD(mon), end: _fmtD(sun) }; }
+      if (period === 'month') return { start: _fmtD(new Date(y,m,1)), end: _fmtD(new Date(y,m,new Date(y,m+1,0).getDate())) };
+      if (period === 'quarter') { const q=Math.floor(m/3),qsm=q*3,qem=qsm+2; return { start: _fmtD(new Date(y,qsm,1)), end: _fmtD(new Date(y,qem,new Date(y,qem+1,0).getDate())) }; }
+      return { start: anchor, end: anchor };
+    }
+    const _range = _periodRange(_anchorParam, _periodParam);
+
+    function workDate() {
+      return _anchorParam;
+    }
     function withDate(path) {
       const sep = path.indexOf('?') >= 0 ? '&' : '?';
       return path + sep + 'date=' + encodeURIComponent(workDate());
@@ -167,7 +195,10 @@
       const date = document.getElementById('mcDate').value || workDate();
       const person = document.getElementById('mcPerson');
       const opt = person.selectedOptions[0];
-      const qs = new URLSearchParams({ date: date });
+      // 当 period 不是日时，传 start/end 区间
+      const qs = _periodParam !== 'day'
+        ? new URLSearchParams({ date: _range.start, end_date: _range.end })
+        : new URLSearchParams({ date: date });
       if (opt && opt.value) {
         qs.set('phone', opt.dataset.phone || '');
         qs.set('name', opt.dataset.name || '');
@@ -308,7 +339,7 @@
     document.getElementById('mcModal').addEventListener('click', function (e) { if (e.target.id === 'mcModal') document.getElementById('mcModal').classList.remove('open'); });
     document.getElementById('mcDispatch').addEventListener('click', dispatchTodos);
 
-    document.getElementById('mcDate').value = workDate();
+    document.getElementById('mcDate').value = _range.start;
     readHashFilter();
     loadPeople().then(loadMeetings);
   </script>

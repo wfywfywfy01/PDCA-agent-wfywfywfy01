@@ -13,7 +13,7 @@ if ([string]::IsNullOrWhiteSpace($Workspace)) {
     $Workspace = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 }
 
-$QueryFile = Join-Path $Workspace "system_queries\pull_dealer_sales_month_to_date.py"
+$QueryFile = Join-Path $Workspace "system_queries\pull_dealer_sales_odoo_sale.py"
 $OutDir = Join-Path (Split-Path -Parent (Split-Path -Parent $Workspace)) "data_raw"
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $suffix = $Date

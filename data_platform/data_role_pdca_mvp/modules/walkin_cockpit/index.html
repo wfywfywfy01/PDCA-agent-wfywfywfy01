@@ -428,13 +428,14 @@
     staffFilterId: 'All',
     storeTypeFilter: 'All',
     anomalyOnly: false,
-    selectedMonth: '2026-05',
-    dateRange: { start: '2026-05-01', end: '2026-05-31' },
+    selectedMonth: '2026-06',
+    dateRange: { start: '2026-06-01', end: '2026-06-30' },
     isCustomDate: false,
     modal: { open: false, title: '', loading: false, content: '' },
     dataSource: 'loading',
     dataSourceDetail: '正在尝试读取 data/walkin-dashboard.json …',
     walkinBasics: null,
+    fiveKit: null,
   };
 
   function computeWalkinBasicsHtml(stores, staff) {
@@ -1208,12 +1209,140 @@
     return WalkinOnlineMerged.renderHtml({ monthKey: mk, dealerStores: mockStores });
   }
 
+  function renderFiveKitBlock() {
+    var d = state.fiveKit;
+    var entryBtn =
+      '<a href="/walkin-submit/" target="_blank" style="display:inline-flex;align-items:center;gap:0.4rem;' +
+      'padding:0.45rem 1rem;background:#2563eb;color:#fff;border-radius:8px;font-size:0.78rem;font-weight:700;' +
+      'text-decoration:none;transition:opacity 0.2s;white-space:nowrap">+ 录入五件套</a>';
+
+    if (!d || !d.record_count) {
+      return (
+        '<div class="glass-card p-5 mb-2" style="border:1.5px dashed #cbd5e1;background:rgba(248,250,252,0.6)">' +
+        '<div class="flex flex-wrap items-center justify-between gap-3">' +
+        '<div><h2 class="font-display font-semibold text-slate-700 tracking-tight">门店五件套来源 · Sell-out</h2>' +
+        '<p class="text-xs text-slate-400 mt-1">本月暂无五件套实录数据（进店来源分类 + 成交额）。点击右侧按钮开始录入 →</p></div>' +
+        entryBtn + '</div></div>'
+      );
+    }
+
+    var fk = d.five_kit || {};
+    var fn = d.funnel || {};
+    var pct = fk.pct || {};
+    var total = fk.total || 1;
+    var dealWan = fn.deal_amount_wan || (fn.deal_amount_yuan ? (fn.deal_amount_yuan / 10000) : 0);
+
+    function srcBar(label, icon, count, color) {
+      var p = total > 0 ? ((count / total) * 100) : 0;
+      return (
+        '<div style="display:flex;flex-direction:column;gap:0.25rem;flex:1;min-width:80px">' +
+        '<div style="font-size:0.7rem;font-weight:700;color:#64748b;white-space:nowrap">' + icon + ' ' + escapeHtml(label) + '</div>' +
+        '<div style="font-size:1.25rem;font-weight:800;color:#0f172a;line-height:1">' + count + '</div>' +
+        '<div style="height:5px;background:#f1f5f9;border-radius:9999px;overflow:hidden;margin-top:2px">' +
+        '<div style="height:100%;width:' + p.toFixed(1) + '%;background:' + color + ';border-radius:9999px"></div></div>' +
+        '<div style="font-size:0.65rem;color:#94a3b8;font-weight:600">' + p.toFixed(1) + '%</div></div>'
+      );
+    }
+
+    var totalVisits = fn.total_visits || 0;
+    function funnelStep(label, count, color) {
+      var rate = totalVisits > 0 ? ((count / totalVisits) * 100).toFixed(0) : '—';
+      return (
+        '<div style="text-align:center;flex:1">' +
+        '<div style="font-size:0.68rem;font-weight:700;color:#64748b;margin-bottom:4px">' + escapeHtml(label) + '</div>' +
+        '<div style="font-size:1.35rem;font-weight:800;color:' + color + '">' + count + '</div>' +
+        '<div style="font-size:0.62rem;color:#94a3b8">' + rate + '%</div></div>'
+      );
+    }
+    function arrow() { return '<div style="flex-shrink:0;color:#cbd5e1;font-size:1.1rem;align-self:center">›</div>'; }
+
+    return (
+      '<div class="glass-card p-5 mb-2">' +
+      '<div class="flex flex-wrap items-start justify-between gap-3 mb-4">' +
+      '<div><h2 class="font-display font-semibold text-slate-900 tracking-tight">门店五件套来源 · Sell-out 实录</h2>' +
+      '<p class="text-xs text-slate-500 mt-0.5">本月 ' + d.record_count + ' 条实录 · 进店来源分类 + 真实成交金额</p></div>' +
+      entryBtn + '</div>' +
+
+      // Source bars
+      '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid #f1f5f9">' +
+      srcBar('自然进店', '🏪', fk.walkin || 0, '#475569') +
+      srcBar('预约', '📅', fk.appointment || 0, '#3b82f6') +
+      srcBar('潜在客户', '👥', fk.prospect || 0, '#8b5cf6') +
+      srcBar('线上引流', '🌐', fk.online || 0, '#06b6d4') +
+      srcBar('介绍/转介', '🤝', fk.referral || 0, '#f59e0b') +
+      srcBar('SA主动', '🎯', fk.sa || 0, '#ec4899') +
+      '<div style="flex-shrink:0;width:1px;background:#f1f5f9;align-self:stretch"></div>' +
+      '<div style="display:flex;flex-direction:column;justify-content:center;text-align:center;min-width:72px">' +
+      '<div style="font-size:0.7rem;font-weight:700;color:#64748b">合计进店</div>' +
+      '<div style="font-size:1.75rem;font-weight:900;color:#2563eb;line-height:1.1">' + fk.total + '</div>' +
+      '<div style="font-size:0.62rem;color:#94a3b8">人次</div></div>' +
+      '</div>' +
+
+      // Funnel
+      '<div style="margin-bottom:1.25rem">' +
+      '<div style="font-size:0.75rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.75rem">成交漏斗</div>' +
+      '<div style="display:flex;align-items:stretch;gap:0.5rem;flex-wrap:wrap">' +
+      funnelStep('进店', totalVisits, '#0f172a') + arrow() +
+      funnelStep('触摸', fn.touch_count || 0, '#3b82f6') + arrow() +
+      funnelStep('试用', fn.use_count || 0, '#8b5cf6') + arrow() +
+      funnelStep('微信添加', fn.wechat_add_count || 0, '#06b6d4') + arrow() +
+      funnelStep('成交组', fn.deal_count || 0, '#059669') +
+      '</div></div>' +
+
+      // Sell-out highlight
+      '<div style="background:linear-gradient(135deg,#ecfdf5,#f0fdf4);border:1.5px solid #6ee7b7;border-radius:10px;' +
+      'padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:' +
+      (d.by_dealer && d.by_dealer.length > 1 ? '1.25rem' : '0') + '">' +
+      '<div><div style="font-size:0.72rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.06em">实录 Sell-out（成交金额）</div>' +
+      '<div style="font-size:2rem;font-weight:900;color:#047857;line-height:1.1;margin-top:4px">' + dealWan.toFixed(2) + ' 万</div>' +
+      '<div style="font-size:0.72rem;color:#6ee7b7;margin-top:2px">数据来自门店五件套实录（非估算）</div></div>' +
+      '<div style="text-align:right"><div style="font-size:0.72rem;color:#059669">成交率</div>' +
+      '<div style="font-size:1.5rem;font-weight:800;color:#059669">' +
+      (totalVisits > 0 ? (((fn.deal_count || 0) / totalVisits) * 100).toFixed(1) + '%' : '—') +
+      '</div></div></div>' +
+
+      // Per-dealer breakdown (only when multiple dealers)
+      (d.by_dealer && d.by_dealer.length > 1 ? (function () {
+        var rows = d.by_dealer.map(function (s) {
+          var tv = s.total_visits || 0;
+          var cr = tv > 0 ? ((s.deal_count || 0) / tv * 100).toFixed(0) + '%' : '—';
+          var amtWan = s.deal_amount_yuan ? (s.deal_amount_yuan / 10000).toFixed(2) : '—';
+          return (
+            '<tr style="border-bottom:1px solid #f1f5f9">' +
+            '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;font-weight:600;color:#334155;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(s.dealer_name || s.dealer_id) + '</td>' +
+            '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:center;color:#64748b">' + tv + '</td>' +
+            '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:center;color:#64748b">' + (s.deal_count || 0) + '</td>' +
+            '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:center;color:#059669;font-weight:700">' + cr + '</td>' +
+            '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:right;font-weight:700;color:#047857">' + (amtWan !== '—' ? '¥' + amtWan + '万' : '—') + '</td>' +
+            '</tr>'
+          );
+        }).join('');
+        return (
+          '<div style="overflow-x:auto">' +
+          '<table style="width:100%;border-collapse:collapse">' +
+          '<thead><tr style="border-bottom:2px solid #f1f5f9">' +
+          '<th style="padding:0.35rem 0.5rem;font-size:0.68rem;font-weight:700;color:#94a3b8;text-align:left;white-space:nowrap">门店</th>' +
+          '<th style="padding:0.35rem 0.5rem;font-size:0.68rem;font-weight:700;color:#94a3b8;text-align:center">进店</th>' +
+          '<th style="padding:0.35rem 0.5rem;font-size:0.68rem;font-weight:700;color:#94a3b8;text-align:center">成交</th>' +
+          '<th style="padding:0.35rem 0.5rem;font-size:0.68rem;font-weight:700;color:#94a3b8;text-align:center">成交率</th>' +
+          '<th style="padding:0.35rem 0.5rem;font-size:0.68rem;font-weight:700;color:#94a3b8;text-align:right">Sell-out</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+          '</table></div>'
+        );
+      }()) : '') +
+
+      '</div>'
+    );
+  }
+
   function renderDashboard(st) {
     var rank = storeRankingData();
     var topStaff = mockStaff.slice().sort(function (a, b) { return b.monthlySales - a.monthlySales; }).slice(0, 5);
     return (
       '<div class="space-y-6">' +
       renderWalkinBasicsBlock() +
+      renderFiveKitBlock() +
       renderOnlineMergedBlock() +
       '<div class="grid grid-cols-1 grid-cols-lg-4 gap-4">' +
       statCard('留资达标代理商', st.okStores + '/' + st.totalStores, '—', 'up') +
@@ -2117,6 +2246,7 @@
     if (!silent) {
       state.dataSource = 'loading';
       state.dataSourceDetail = '正在拉取 ' + ym + '（实时接口优先）…';
+      state.fiveKit = null;
       render();
     }
     fetch(walkinApiUrl(ym), { cache: 'no-store' })
@@ -2155,6 +2285,43 @@
       .finally(function () {
         render();
       });
+    // 同步拉取五件套汇总（不阻塞主流程）
+    fetchFiveKitSummary(ym);
+  }
+
+  function fetchFiveKitSummary(ym) {
+    if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return;
+    // 若 URL 携带 period + date，则用精确区间拉取；否则按月
+    var _qs = new URLSearchParams(location.search);
+    var _period = _qs.get('period') || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) || 'month';
+    var _anchor = _qs.get('date') || '';
+    var apiUrl;
+    if (_anchor && _period && _period !== 'month') {
+      var _range = _calcPeriodRange(_anchor, _period);
+      apiUrl = '/api/walkin-metrics/summary?start=' + encodeURIComponent(_range.start) + '&end=' + encodeURIComponent(_range.end);
+    } else {
+      apiUrl = '/api/walkin-metrics/summary?month=' + encodeURIComponent(ym);
+    }
+    fetch(apiUrl, { credentials: 'include', cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.record_count != null) {
+          state.fiveKit = d;
+          render();
+        }
+      })
+      .catch(function () {});
+  }
+
+  // 内联期间计算（避免外部依赖）
+  function _calcPeriodRange(anchor, period) {
+    function _f(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+dd;}
+    var p=String(anchor).split('-'), d=new Date(+p[0],+p[1]-1,+p[2]), y=d.getFullYear(), m=d.getMonth();
+    if(period==='day')return{start:anchor,end:anchor};
+    if(period==='week'){var dow=d.getDay(),dt=dow===0?-6:1-dow,mon=new Date(d),sun=new Date(d);mon.setDate(d.getDate()+dt);sun.setDate(mon.getDate()+6);return{start:_f(mon),end:_f(sun)};}
+    if(period==='month'){return{start:_f(new Date(y,m,1)),end:_f(new Date(y,m,new Date(y,m+1,0).getDate()))};}
+    if(period==='quarter'){var q=Math.floor(m/3),qsm=q*3,qem=qsm+2;return{start:_f(new Date(y,qsm,1)),end:_f(new Date(y,qem,new Date(y,qem+1,0).getDate()))};}
+    return{start:anchor,end:anchor};
   }
 
   function loadWalkinBundleUrl(url, label) {
@@ -2188,12 +2355,16 @@
   }
 
   function applyDateFromQuery() {
-    var dateQ = new URLSearchParams(location.search).get('date');
+    var _qs = new URLSearchParams(location.search);
+    var dateQ   = _qs.get('date');
+    var periodQ = _qs.get('period') || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) || 'month';
+
     if (dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)) {
-      state.selectedMonth = dateQ.slice(0, 7);
-      state.isCustomDate = false;
-      state.dateRange.start = dateQ;
-      state.dateRange.end = dateQ;
+      var range = _calcPeriodRange(dateQ, periodQ);
+      state.selectedMonth = range.start.slice(0, 7);
+      state.isCustomDate  = (periodQ === 'day' || periodQ === 'week');
+      state.dateRange.start = range.start;
+      state.dateRange.end   = range.end;
     }
   }
 
