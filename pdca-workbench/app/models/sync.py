@@ -46,38 +46,39 @@ def sync_dealer_sales_from_json(date_text: str) -> int:
     rows = payload if isinstance(payload, list) else payload.get("dealers") or payload.get("rows") or []
     count = 0
     with Session(get_engine()) as session:
+        # 一次性拉取本月所有已有记录，避免逐行 SELECT（N+1 → 1）
+        existing_rows = session.exec(
+            select(DealerSales).where(DealerSales.check_date == date_text)
+        ).all()
+        existing_map: dict[str, DealerSales] = {r.dealer_name: r for r in existing_rows}
+
         for item in rows:
             if not isinstance(item, dict):
                 continue
             name = (item.get("dealer") or item.get("name") or item.get("dealer_name") or "").strip()
             if not name:
                 continue
-            existing = session.exec(
-                select(DealerSales).where(
-                    DealerSales.check_date == date_text,
-                    DealerSales.dealer_name == name,
-                ),
-            ).first()
             sell_in = float(item.get("sell_in_wan") or item.get("sellInWan") or 0)
             sell_out = float(item.get("sell_out_wan") or item.get("sellOutWan") or 0)
+            existing = existing_map.get(name)
             if existing:
                 existing.sell_in_wan = sell_in
                 existing.sell_out_wan = sell_out
                 existing.synced_at = datetime.utcnow()
                 session.add(existing)
             else:
-                session.add(
-                    DealerSales(
-                        check_date=date_text,
-                        dealer_name=name,
-                        region=str(item.get("region") or ""),
-                        country=str(item.get("country") or ""),
-                        sell_in_wan=sell_in,
-                        sell_out_wan=sell_out,
-                        units=int(item.get("units") or 0),
-                        source_file=str(path),
-                    ),
+                new_row = DealerSales(
+                    check_date=date_text,
+                    dealer_name=name,
+                    region=str(item.get("region") or ""),
+                    country=str(item.get("country") or ""),
+                    sell_in_wan=sell_in,
+                    sell_out_wan=sell_out,
+                    units=int(item.get("units") or 0),
+                    source_file=str(path),
                 )
+                session.add(new_row)
+                existing_map[name] = new_row
             count += 1
         session.commit()
     logger.info("同步经销商业绩 {} 条 ({})", count, path.name)

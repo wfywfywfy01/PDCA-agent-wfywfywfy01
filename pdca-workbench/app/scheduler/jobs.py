@@ -18,6 +18,20 @@ from app.models.sync import run_full_sync
 _scheduler: BackgroundScheduler | None = None
 
 
+_BACKUP_KEEP = 14  # 保留最近 N 份备份
+
+
+def _prune_backups(backup_dir: Path, pattern: str, keep: int) -> None:
+    """删除旧备份，只保留最近 keep 份。"""
+    files = sorted(backup_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in files[keep:]:
+        try:
+            old.unlink()
+            logger.info("清理旧备份: {}", old.name)
+        except Exception as exc:
+            logger.warning("清理备份失败 {}: {}", old.name, exc)
+
+
 def backup_database() -> str | None:
     """备份数据库：PostgreSQL 用 pg_dump，SQLite 用文件复制。"""
     settings = get_settings()
@@ -44,6 +58,7 @@ def backup_database() -> str | None:
         try:
             subprocess.run(cmd, env=env, check=True, capture_output=True, text=True)
             logger.info("PostgreSQL 已备份: {}", dest)
+            _prune_backups(backup_dir, "pdca_*.sql", _BACKUP_KEEP)
             return str(dest)
         except FileNotFoundError:
             logger.warning("未找到 pg_dump，跳过 PostgreSQL 备份")
@@ -58,6 +73,7 @@ def backup_database() -> str | None:
     dest = backup_dir / f"pdca_{stamp}.db"
     shutil.copy2(db_path, dest)
     logger.info("SQLite 已备份: {}", dest)
+    _prune_backups(backup_dir, "pdca_*.db", _BACKUP_KEEP)
     return str(dest)
 
 

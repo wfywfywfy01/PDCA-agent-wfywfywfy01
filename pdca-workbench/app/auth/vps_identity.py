@@ -14,7 +14,7 @@ from app.auth.security import hash_password
 from app.legacy import bridge
 
 _VPS_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
-_CACHE_SECONDS = 30
+_CACHE_SECONDS = 120
 
 
 def fetch_vps_me_payload() -> dict | None:

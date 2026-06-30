@@ -2,7 +2,7 @@
  * PDCA 工作台公共顶栏（Vue 3 CDN）
  * 支持日 / 周 / 月 / 季度 全局切换，通过 URL ?period=X&date=Y 传递给所有页面。
  */
-import { createApp, ref, onMounted } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
+import { createApp, ref, computed, onMounted } from 'https://unpkg.com/vue@3.5.13/dist/vue.esm-browser.js';
 
 export function mountPdcaShell(mountId) {
   createApp({
@@ -84,8 +84,15 @@ export function mountPdcaShell(mountId) {
       const ROLE_LABELS  = { admin: '管理员', manager: '主管', sales: '销售', viewer: '只读', dealer: '经销商' };
       const PERIOD_LABELS = { day: '日', week: '周', month: '月', quarter: '季' };
 
+      // 当前路径（去掉尾部斜杠，方便匹配）
+      const _curPath = location.pathname.replace(/\/$/, '') || '/';
+      function isActive(path) {
+        const p = path.replace(/\/$/, '') || '/';
+        return p === '/' ? _curPath === '/' : _curPath.startsWith(p);
+      }
+
       return { user, href, logout, showProfile, pwForm, changePassword,
-               ROLE_LABELS, PERIOD_LABELS, period, setPeriod };
+               ROLE_LABELS, PERIOD_LABELS, period, setPeriod, isActive };
     },
 
     template: `
@@ -101,17 +108,17 @@ export function mountPdcaShell(mountId) {
         <span class="pdca-shell-sep"></span>
 
         <!-- 导航链接 -->
-        <a :href="href('/')">经营首页</a>
-        <a :href="href('/logistics-center/')">物流进展</a>
-        <a :href="href('/walkin-cockpit/')">客流/线上</a>
-        <a :href="href('/store-five-kit/')" v-if="user.role!=='viewer'">门店五件套</a>
-        <a :href="href('/walkin-submit/')" style="background:rgba(37,99,235,0.08);color:#2563eb;border-radius:6px;padding:0 8px" v-if="user.role!=='viewer'">五件套录入</a>
-        <a :href="href('/signalseller-center/')">获客指挥</a>
-        <a :href="href('/meeting-center/')">会议中心</a>
-        <a :href="href('/onboarding-center/')">新人培训</a>
-        <a :href="href('/dashboard')">数据看板</a>
-        <a :href="href('/pdca-vps')">PDCA 日结</a>
-        <a :href="href('/admin-panel/')" v-if="user.role==='admin'" style="background:rgba(124,58,237,0.08);color:#7c3aed;border-radius:6px;padding:0 8px">管理后台</a>
+        <a :href="href('/')" :class="{ 'pdca-nav-active': isActive('/') }">经营首页</a>
+        <a :href="href('/logistics-center/')" :class="{ 'pdca-nav-active': isActive('/logistics-center') }">物流进展</a>
+        <a :href="href('/walkin-cockpit/')" :class="{ 'pdca-nav-active': isActive('/walkin-cockpit') }">客流/线上</a>
+        <a :href="href('/store-five-kit/')" v-if="user.role!=='viewer'" :class="{ 'pdca-nav-active': isActive('/store-five-kit') }">门店五件套</a>
+        <a :href="href('/walkin-submit/')" style="background:rgba(37,99,235,0.08);color:#2563eb;border-radius:6px;padding:0 8px" v-if="user.role!=='viewer'" :class="{ 'pdca-nav-active': isActive('/walkin-submit') }">五件套录入</a>
+        <a :href="href('/signalseller-center/')" :class="{ 'pdca-nav-active': isActive('/signalseller-center') }">获客指挥</a>
+        <a :href="href('/meeting-center/')" :class="{ 'pdca-nav-active': isActive('/meeting-center') }">会议中心</a>
+        <a :href="href('/onboarding-center/')" :class="{ 'pdca-nav-active': isActive('/onboarding-center') }">新人培训</a>
+        <a :href="href('/dashboard')" :class="{ 'pdca-nav-active': isActive('/dashboard') }">数据看板</a>
+        <a :href="href('/pdca-vps')" :class="{ 'pdca-nav-active': isActive('/pdca-vps') }">PDCA 日结</a>
+        <a :href="href('/admin-panel/')" v-if="user.role==='admin'" style="background:rgba(124,58,237,0.08);color:#7c3aed;border-radius:6px;padding:0 8px" :class="{ 'pdca-nav-active': isActive('/admin-panel') }">管理后台</a>
 
         <!-- 用户菜单 -->
         <span class="pdca-shell-user" style="cursor:pointer;position:relative" @click="showProfile=!showProfile">
@@ -178,6 +185,11 @@ if (typeof document !== 'undefined') {
         background: rgba(255,255,255,.15);
         margin: 0 2px;
         flex-shrink: 0;
+      }
+      .pdca-nav-active {
+        background: rgba(255,255,255,.15) !important;
+        color: #fff !important;
+        border-radius: 5px;
       }
     `;
     document.head.appendChild(style);

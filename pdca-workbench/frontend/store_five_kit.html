@@ -304,7 +304,6 @@ fetch('/api/auth/me',{credentials:'include'})
   .then(function(r){return r.ok?r.json():null})
   .then(function(me){
     if(!me){location.href='/login?next=/store-five-kit/';return}
-    // 给录入按钮加权限判断
     if(me.role==='viewer'){document.getElementById('entryBtn').style.display='none'}
     return fetch('/api/my-stores',{credentials:'include'})
       .then(function(r){return r.ok?r.json():[]})
