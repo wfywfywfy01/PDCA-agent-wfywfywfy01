@@ -135,6 +135,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     if exc.status_code == 404:
         return HTMLResponse(_404_HTML, status_code=404)
+    if exc.status_code in (401, 403):
+        next_path = request.url.path
+        return RedirectResponse(f"/login?next={next_path}")
     return HTMLResponse(_500_HTML, status_code=exc.status_code)
 
 

@@ -1,10 +1,10 @@
-region,country,dealer_name,dealer_nickname,owner,priority,status,last_followup_date,next_action
-南亚,印度,GURU ELECTRONICS SINGAPORE PTE LTD,3C,杨晶晶,A,active,2026-05-28,发送 6 月新品报价单
-南亚,印度,LZB INDIA ELECTRIC PRIVATE LIMITED,高山,杨晶晶,B,active,2026-05-14,确认 Q2 采购计划并推动报价
-南亚,印度,Sidd Senthil,Ankit Jain,何海文,B,active,2026-05-30,发送样品报价及产品手册
-南亚,印度,Sun International General Trading,,杨晶晶,B,active,2026-05-09,重新建立联系，了解当前采购需求
-中亚,土库曼斯坦,Altyn Zaman H.J.,,杨晶晶,A,active,2026-05-24,确认 5 月订单尾款及 Q3 备货计划
-中亚,乌兹别克斯坦,Bizcon Group,,杨晶晶,A,active,2026-05-26,升级联系人，推动 Q2 复购
-中亚,俄罗斯,CONTINENTAL PLUS LLC.,,杨晶晶,B,active,2026-05-20,发送新品介绍，试探 Q3 采购意向
-中亚,俄罗斯,"LLC ""TC Azimut""",,杨晶晶,A,active,2026-05-22,微信沟通复购意向，目标锁定 7 月订单
-中亚,哈萨克斯坦,LYZHINA OLGA,,杨晶晶,C,active,2026-05-10,邮件确认是否仍有采购需求
+region,country,dealer_name,dealer_nickname,owner,priority,status,last_followup_date,next_action,abcd_grade,value_score,intent_score,lead_source,followup_round,silent_days,referral_from
+南亚,印度,GURU ELECTRONICS SINGAPORE PTE LTD,3C,杨晶晶,A,active,2026-05-28,发送 6 月新品报价单,A,40,40,,1,,
+南亚,印度,LZB INDIA ELECTRIC PRIVATE LIMITED,高山,杨晶晶,B,active,2026-05-14,确认 Q2 采购计划并推动报价,B,40,28,,1,,
+南亚,印度,Sidd Senthil,Ankit Jain,何海文,B,active,2026-05-30,发送样品报价及产品手册,B,40,40,,1,,
+南亚,印度,Sun International General Trading,,杨晶晶,B,active,2026-05-09,重新建立联系，了解当前采购需求,B,40,28,,1,,
+中亚,土库曼斯坦,Altyn Zaman H.J.,,杨晶晶,A,active,2026-05-24,确认 5 月订单尾款及 Q3 备货计划,A,40,40,,1,,
+中亚,乌兹别克斯坦,Bizcon Group,,杨晶晶,A,active,2026-05-26,升级联系人，推动 Q2 复购,A,40,40,,1,,
+中亚,俄罗斯,CONTINENTAL PLUS LLC.,,杨晶晶,B,active,2026-05-20,发送新品介绍，试探 Q3 采购意向,B,40,28,,1,,
+中亚,俄罗斯,"LLC ""TC Azimut""",,杨晶晶,A,active,2026-05-22,微信沟通复购意向，目标锁定 7 月订单,A,40,40,,1,,
+中亚,哈萨克斯坦,LYZHINA OLGA,,杨晶晶,C,active,2026-05-10,邮件确认是否仍有采购需求,C,25,28,,1,,

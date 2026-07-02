@@ -1,0 +1,85 @@
+{
+  "version": "1.0",
+  "title": "经销商海外销售 · 新人入职培训（SignalSeller × PDCA）",
+  "duration_days": 5,
+  "pass_criteria": {
+    "daily_quiz_min_score": 80,
+    "shadow_customer_visits": 2,
+    "first_lead_logged": 1,
+    "first_abcd_graded": 3,
+    "pdca_daily_log_streak": 5
+  },
+  "tracks": [
+    {
+      "day": 1,
+      "theme": "认知与系统",
+      "subtitle": "红桃 · 从推销到销售",
+      "modules": [
+        { "id": "brand_story", "title": "品牌与产品认知", "duration_min": 90, "format": "视频+问答", "owner": "team_lead" },
+        { "id": "pdca_workbench", "title": "PDCA 工作台与客户管理入口", "duration_min": 60, "format": "实操", "links": ["/login", "/customer-mgmt", "/logistics-center/"] },
+        { "id": "signalseller_intro", "title": "SignalSeller 五 Agent 与四花色方法论", "duration_min": 45, "format": "讲义", "ref": "docs/SIGNALSELLER_PDCA_INTEGRATION.md" },
+        { "id": "fab_spin_basics", "title": "FABE 与 SPIN 入门", "duration_min": 60, "format": "案例演练", "agent": "OutreachCrafter" }
+      ],
+      "homework": ["完成首日日报", "登录工作台并录入 1 条测试线索", "背诵 FABE 四层含义"]
+    },
+    {
+      "day": 2,
+      "theme": "客户分级与画像",
+      "subtitle": "方块 · ABCD 与精力分配",
+      "modules": [
+        { "id": "abcd_engine", "title": "ABCD 分级规则与 PDCA 客户 priority 对齐", "duration_min": 90, "format": "讲义+打分练习", "agent": "ProfileBuilder" },
+        { "id": "customers_csv", "title": "customers.csv 字段规范与录入", "duration_min": 60, "format": "实操", "path": "teams/yang-jingjing/customers.csv" },
+        { "id": "funnel_tour", "title": "客户漏斗 / 台账 / 今日任务", "duration_min": 90, "format": "Shadow", "links": ["/customer-mgmt"] },
+        { "id": "effort_allocation", "title": "A60% B20% C15% D5% 精力分配", "duration_min": 30, "format": "讨论" }
+      ],
+      "homework": ["为 3 个真实/模拟客户打 ABCD 分", "更新 customers.csv 中 1 条 last_followup_date"]
+    },
+    {
+      "day": 3,
+      "theme": "触达与跟进",
+      "subtitle": "梅花 · 破冰与三轮状态机",
+      "modules": [
+        { "id": "outreach_templates", "title": "三类触达模板：朋友圈 / 私信 / 短文案", "duration_min": 60, "format": "写作练习", "agent": "OutreachCrafter" },
+        { "id": "followup_fsm", "title": "三轮触达状态机与触发规则", "duration_min": 90, "format": "流程图+角色扮演", "agent": "FollowUpOrchestrator" },
+        { "id": "channel_mix", "title": "1主+2辅 获客渠道组合（LinkedIn/转介绍/内容）", "duration_min": 45, "format": "讲义", "agent": "SignalHunter" },
+        { "id": "daily_log", "title": "销售日报与过程指标", "duration_min": 45, "format": "实操", "path": "teams/yang-jingjing/daily_logs/" }
+      ],
+      "homework": ["写 1 封 FABE 触达邮件", "在客户管理录入 1 次跟进记录", "提交日报（有效触达≥5）"]
+    },
+    {
+      "day": 4,
+      "theme": "成交与转介绍",
+      "subtitle": "黑桃 · 自然成交五步",
+      "modules": [
+        { "id": "natural_close", "title": "自然成交五步与零压力结尾", "duration_min": 60, "format": "案例", "agent": "FollowUpOrchestrator" },
+        { "id": "referral_loop", "title": "成交后 24h 交付 + 转介绍话术 + 阶梯激励", "duration_min": 60, "format": "话术演练", "agent": "SignalHunter" },
+        { "id": "logistics_link", "title": "物流进展与客户交付体验", "duration_min": 30, "format": "演示", "links": ["/logistics-center/"] },
+        { "id": "objection_handling", "title": "先认后解 · 情绪化解", "duration_min": 45, "format": "角色扮演" }
+      ],
+      "homework": ["整理 1 个成交/准成交客户的转介绍脚本", "检查在途物流 1 单"]
+    },
+    {
+      "day": 5,
+      "theme": "复盘与上岗",
+      "subtitle": "CommandCenter · PDCA 闭环",
+      "modules": [
+        { "id": "command_center", "title": "驾驶舱指标：线索/回复/沉默/ROI", "duration_min": 45, "format": "看板讲解", "agent": "CommandCenter" },
+        { "id": "pdca_check", "title": "日报 Check + 客户超期规则（A7天 B/C14天）", "duration_min": 60, "format": "讲义", "ref": "AGENTS.md" },
+        { "id": "weekly_plan", "title": "制定首周 Plan：新增/跟进/报价目标", "duration_min": 60, "format": "1对1", "owner": "team_lead" },
+        { "id": "graduation", "title": "上岗测验 + 师傅带教确认", "duration_min": 45, "format": "测验" }
+      ],
+      "homework": ["完成上岗测验", "与师傅确认首周 10 个目标客户清单"]
+    }
+  ],
+  "ongoing_newbie_rules": {
+    "newbie_threshold_days": 90,
+    "daily_quota_reference": "customer-mgmt dealer-adapter.js rules",
+    "coaching_touchpoints": ["day_7", "day_30", "day_60", "day_90"],
+    "mentor_checklist": [
+      "是否按 ABCD 分配精力",
+      "24h 内跟进新线索",
+      "日报连续提交",
+      "至少 1 次师傅陪访/Shadow"
+    ]
+  }
+}

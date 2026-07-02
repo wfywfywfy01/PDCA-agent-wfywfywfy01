@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "source": "SignalSeller AI获客Agent 产品文档 v1 + 《签单手账》",
+  "principle": "从推销转向销售：帮客户买到需要的解决方案，而非暴力群发",
+  "suit_mapping": {
+    "hearts": { "name": "红桃·认知", "methods": ["SPIN", "FABE", "卖点提炼"], "agent": "OutreachCrafter" },
+    "clubs": { "name": "梅花·沟通", "methods": ["客户分类", "预约破冰", "情绪化解"], "agent": "FollowUpOrchestrator" },
+    "diamonds": { "name": "方块·执行", "methods": ["ABCD分级", "SOP", "自动化触发"], "agent": "ProfileBuilder" },
+    "spades": { "name": "黑桃·成交", "methods": ["13种获客", "自然成交", "转介绍裂变"], "agent": "SignalHunter" },
+    "center": { "name": "全局协同", "methods": ["PDCA复盘", "三大报表", "数据驱动"], "agent": "CommandCenter" }
+  },
+  "abcd_grading": {
+    "value_threshold_usd": 50000,
+    "intent_threshold_pct": 60,
+    "grades": {
+      "A": {
+        "label": "高价值+高意向",
+        "rule": "value_score>=35 AND intent_score>=35",
+        "effort_pct": 60,
+        "followup_frequency": "weekly_2_3",
+        "pdca_priority_days": 7
+      },
+      "B": {
+        "label": "高价值+低意向",
+        "rule": "value_score>=35 AND intent_score<35",
+        "effort_pct": 20,
+        "followup_frequency": "weekly_1",
+        "pdca_priority_days": 14
+      },
+      "C": {
+        "label": "低价值+高意向",
+        "rule": "value_score<35 AND intent_score>=35",
+        "effort_pct": 15,
+        "followup_frequency": "biweekly_1",
+        "pdca_priority_days": 14
+      },
+      "D": {
+        "label": "低价值+低意向",
+        "rule": "default",
+        "effort_pct": 5,
+        "followup_frequency": "monthly_template",
+        "pdca_priority_days": 30
+      }
+    },
+    "auto_regrade_rules": [
+      { "from": "B", "to": "A", "when": "intent_score_increase>=10" },
+      { "from": "A", "to": "alert", "when": "silent_days>14", "action": "restart_outreach" },
+      { "from": "C", "to": "D", "when": "stalled_days>30" },
+      { "from": "D", "to": "C", "when": "customer_replied_or_clicked" }
+    ],
+    "legacy_pdca_map": {
+      "comment": "与 teams/yang-jingjing customers.csv priority 字段对齐",
+      "A": ["S", "A"],
+      "B": ["B"],
+      "C": ["C"],
+      "D": ["D", "线索", "批量"]
+    }
+  },
+  "followup_triggers": [
+    { "event": "lead_created", "action": "remind_followup", "timing": "realtime", "strategy": "value_icebreaker" },
+    { "event": "customer_says_consider", "action": "remind", "timing": "day_3", "strategy": "case_study" },
+    { "event": "silent_days>=7", "action": "silent_alert", "timing": "daily_scan", "strategy": "value_only" },
+    { "event": "proposal_sent_no_reply", "action": "followup", "timing": "day_3", "strategy": "one_minute_summary" },
+    { "event": "deal_closed", "action": "delivery_confirm", "timing": "hour_24", "strategy": "guide_plus_referral_script" }
+  ],
+  "three_round_outreach": [
+    { "round": 1, "day": 0, "strategy": "value_first", "fallback": "enter_round_2_after_3d" },
+    { "round": 2, "day": "3-5", "strategy": "social_proof", "fallback": "enter_round_3_after_7d" },
+    { "round": 3, "day": "10-14", "strategy": "scarcity_trial", "fallback": "long_term_nurture" }
+  ],
+  "alert_rules": [
+    { "metric": "silent_days", "normal_max": 7, "alert_threshold": 14, "auto_action": "restart_message" },
+    { "metric": "conversion_rate_pct", "normal_min": 20, "alert_threshold": 10, "auto_action": "ab_test_copy" },
+    { "metric": "payment_overdue_days", "normal_max": 0, "alert_threshold": 7, "auto_action": "polite_collection" },
+    { "metric": "satisfaction_score", "normal_min": 8, "alert_threshold": 6, "auto_action": "after_sales_callback" }
+  ],
+  "channel_matrix": {
+    "dealer_luxury_iot": {
+      "primary": { "channel": "referral", "weight_pct": 40 },
+      "secondary": [
+        { "channel": "linkedin", "weight_pct": 30 },
+        { "channel": "industry_report", "weight_pct": 30 }
+      ],
+      "compound": "content_marketing"
+    },
+    "dealer_manufacturing": {
+      "primary": { "channel": "expo_event", "weight_pct": 40 },
+      "secondary": [
+        { "channel": "phone_wechat", "weight_pct": 30 },
+        { "channel": "cross_industry", "weight_pct": 30 }
+      ],
+      "compound": "customer_case"
+    }
+  },
+  "hard_constraints": [
+    "先听后说：未回复不连发多条",
+    "先认后解：价值前置，不用压力话术",
+    "不争对错、不贬竞品",
+    "不空承诺：证据必须来自已验证案例",
+    "同一客户每周主动触达上限 2 次"
+  ],
+  "kpi_targets": {
+    "weekly_new_leads": { "p0": 50, "p1": 100, "p2": 150, "p3": 200 },
+    "reply_rate_pct": { "p1": 15, "p2": 20, "p3": 25 },
+    "followup_on_time_pct": { "p0": 80, "p1": 100 },
+    "silent_rate_pct": { "p0": 30, "p1": 15, "p2": 5, "p3": 5 },
+    "referral_rate_pct": { "p2": 15, "p3": 30 },
+    "cost_per_lead_cny": { "p1": 10, "p2": 5, "p3": 3 }
+  }
+}
