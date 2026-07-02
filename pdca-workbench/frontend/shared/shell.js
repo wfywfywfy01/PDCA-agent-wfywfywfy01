@@ -110,7 +110,6 @@ export function mountPdcaShell(mountId) {
         <a :href="href('/meeting-center/')">会议中心</a>
         <a :href="href('/onboarding-center/')">新人培训</a>
         <a :href="href('/dashboard')">数据看板</a>
-        <a :href="href('/pdca-vps')">PDCA 日结</a>
         <a :href="href('/admin-panel/')" v-if="user.role==='admin'" style="background:rgba(124,58,237,0.08);color:#7c3aed;border-radius:6px;padding:0 8px">管理后台</a>
 
         <!-- 用户菜单 -->

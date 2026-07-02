@@ -128,35 +128,11 @@
       </div>
     </div>
 
-    <div class="grid-main">
-      <div class="left-stack">
-        <section class="card section">
-          <div class="section-title">昨日表现打分 <span class="tag">Agent 综合评判</span></div>
-          <div class="score-box"><div class="score" id="agentScore">—</div><div><b>综合评价</b><p id="scoreComment"></p></div></div>
-        </section>
-        <section class="card section">
-          <div class="section-title">今日 ToDo</div>
-          <p class="todo-source-hint" id="todayTodoHint"></p>
-          <div class="todo-list" id="todayTodoList"></div>
-        </section>
-        <section class="card section"><div class="section-title">Hermes Agent 分配任务</div><div class="todo-list" id="agentTaskList"></div></section>
-      </div>
-
+    <div class="grid-main" style="grid-template-columns:1fr">
       <div class="right-stack">
         <section class="card section"><div class="section-title">客户管理中心 <button type="button" class="btn ghost" onclick="goDetail('customer')">详情</button></div><div class="customer-grid" id="customerCenter"></div></section>
-        <section class="card section"><div class="section-title">人力中心 <button type="button" class="btn ghost" onclick="goDetail('hr')">详情</button></div><div class="human-grid" id="humanCenter"></div></section>
       </div>
     </div>
-
-    <div class="exception-grid">
-      <section class="card section"><div class="section-title">异常情况 - 业务板块</div><div class="scroll-list" id="businessExceptions"></div></section>
-      <section class="card section"><div class="section-title">异常情况 - 事务板块</div><div class="scroll-list" id="affairExceptions"></div></section>
-    </div>
-
-    <section class="card section" style="margin-bottom:16px;">
-      <div class="section-title">重要事项与 Agent 处理建议</div>
-      <div id="importantMatters"></div>
-    </section>
 
     <div class="footer-modules">
       <section class="card section task-center-section">
