@@ -15,10 +15,6 @@
     .tab{border:1px solid rgba(255,255,255,.1);background:transparent;padding:8px 18px;
          border-radius:999px;cursor:pointer;font-weight:600;color:#94a3b8;transition:all .15s}
     .tab.active{background:rgba(78,158,245,.15);color:#4e9ef5;border-color:rgba(78,158,245,.3)}
-    .quick-links{display:flex;gap:8px;flex-wrap:wrap}
-    .quick-links a{text-decoration:none;font-size:13px;padding:6px 12px;border-radius:8px;
-                   background:rgba(255,255,255,.05);color:#94a3b8;font-weight:600;transition:all .15s}
-    .quick-links a:hover{background:rgba(255,255,255,.08);color:#e2e8f0}
     .flash{margin-bottom:12px;padding:10px 14px;border-radius:10px;
            background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);
            color:#10b981;font-size:14px;display:none}
@@ -35,26 +31,10 @@
     .metric-foot:empty{display:none}
     .metric-link{cursor:pointer;transition:transform .15s,border-color .15s}
     .metric-link:hover{transform:translateY(-2px);border-color:rgba(78,158,245,.3)}
-    .metric-link .metric-foot.action::after,.stat-link .stat-foot.action::after{content:'点击进入'}
-    .metric-link .metric-foot.action,.stat-link .stat-foot.action{font-size:0}
-    .metric-link .metric-foot.action::after,.stat-link .stat-foot.action::after{font-size:12px;color:#4e9ef5}
-    .grid-main{display:grid;grid-template-columns:.9fr 1.3fr;gap:16px;margin-bottom:16px}
-    .left-stack,.right-stack{display:grid;gap:16px}
+    .grid-main{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px}
     .section{padding:18px}
     .section-title{display:flex;justify-content:space-between;align-items:center;
                    font-size:18px;font-weight:800;margin-bottom:14px;gap:8px;flex-wrap:wrap;color:#e2e8f0}
-    .score-box{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:center}
-    .score{width:110px;height:110px;border-radius:50%;border:8px solid rgba(78,158,245,.3);
-           display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;color:#4e9ef5}
-    .todo-list,.scroll-list{max-height:210px;overflow:auto;display:grid;gap:10px}
-    .todo-source-hint{margin:0 0 10px;font-size:12px;color:#475569;line-height:1.45}
-    .todo-item,.list-row{border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px 12px;
-                         background:rgba(255,255,255,.02);display:flex;justify-content:space-between;gap:10px;align-items:center}
-    .todo-item .todo-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
-    .todo-item .todo-sub{font-size:11px;color:#475569}
-    .tag{font-size:12px;padding:3px 8px;border-radius:999px;
-         background:rgba(78,158,245,.15);color:#4e9ef5;white-space:nowrap;
-         border:1px solid rgba(78,158,245,.2)}
     .btn{border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:7px 12px;
          background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;font-size:13px;
          text-decoration:none;display:inline-block;transition:all .15s}
@@ -62,26 +42,24 @@
     .btn.ghost{background:rgba(255,255,255,.03);color:#475569}
     .customer-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
     .customer-grid .metric-card{min-height:110px;padding:16px 18px}
-    .human-grid,.task-grid,.meeting-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
-    .human-grid .metric-card,.task-grid .metric-card,.meeting-grid .metric-card{min-height:100px;padding:16px 18px}
     .progress{margin-top:8px;height:6px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;width:100%}
     .progress span{display:block;height:100%;background:#4e9ef5;border-radius:999px}
-    .exception-grid,.footer-modules{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-    .footer-modules .task-center-section .task-grid{grid-template-columns:repeat(3,1fr)}
-    .exception-item{padding:10px 12px;border-left:4px solid rgba(78,158,245,.5);
-                    background:rgba(255,255,255,.02);border-radius:8px;margin-bottom:10px}
-    .important-row{display:grid;grid-template-columns:1.1fr 1.2fr 180px;gap:12px;align-items:start;
-                   border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px;margin-bottom:10px}
-    textarea{width:100%;min-height:64px;resize:vertical;border:1px solid rgba(255,255,255,.1);
-             border-radius:8px;padding:8px;font-family:inherit;background:rgba(255,255,255,.04);
-             color:#e2e8f0;outline:none}
-    textarea:focus{border-color:#4e9ef5}
     .empty-hint{color:#475569;font-size:13px;padding:8px 0}
     #dataUpdateHint{font-size:12px;color:#475569}
+    /* 模块入口卡片 */
+    .module-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
+    .module-card{display:flex;align-items:center;justify-content:space-between;
+                 padding:24px 28px;text-decoration:none;color:#e2e8f0;
+                 transition:transform .15s,border-color .15s,background .15s;cursor:pointer}
+    .module-card:hover{transform:translateY(-2px);border-color:rgba(78,158,245,.35);
+                       background:rgba(78,158,245,.05)}
+    .module-card-body{display:flex;flex-direction:column;gap:6px}
+    .module-card-title{font-size:17px;font-weight:800;color:#e2e8f0}
+    .module-card-desc{font-size:13px;color:#475569}
+    .module-card-arrow{font-size:20px;color:#4e9ef5;opacity:.55;flex-shrink:0;margin-left:12px}
     @media(max-width:1000px){
-      .top-stats,.grid-main,.exception-grid,.footer-modules{grid-template-columns:1fr}
-      .customer-grid,.human-grid,.task-grid,.meeting-grid{grid-template-columns:repeat(2,1fr)}
-      .important-row{grid-template-columns:1fr}
+      .top-stats,.module-cards{grid-template-columns:1fr}
+      .customer-grid{grid-template-columns:repeat(2,1fr)}
     }
   </style>
 </head>
@@ -95,7 +73,6 @@
         <button type="button" class="tab" data-period="month">月</button>
         <button type="button" class="tab" data-period="quarter">季</button>
       </div>
-      <div class="quick-links" id="quickLinks"></div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span id="dataUpdateHint" style="font-size:12px;color:#9ca3af"></span>
         <button type="button" class="btn ghost" id="btnFetch" onclick="fetchRefresh()">刷新</button>
@@ -112,14 +89,14 @@
           <div class="metric-foot stat-foot" id="managerRole">加载中…</div>
         </div>
       </div>
-      <div class="card stat metric-card metric-link stat-link" role="link" tabindex="0" title="打开数据看板" onclick="location.href=withDate('/dashboard')" onkeydown="if(event.key==='Enter')location.href=withDate('/dashboard')">
+      <div class="card stat metric-card metric-link" role="link" tabindex="0" title="打开提货明细" onclick="location.href='/dealer-sellin'" onkeydown="if(event.key==='Enter')location.href='/dealer-sellin'">
         <div class="metric-body stat-body">
           <div class="metric-label label">经销商提货金额 Sell In</div>
           <div class="metric-value value" id="sellInAmount"><span class="amount-num">—</span></div>
           <div class="metric-foot stat-foot" id="sellInFoot" style="font-size:11px;color:#475569"></div>
         </div>
       </div>
-      <div class="card stat metric-card metric-link stat-link sell-out-card" role="link" tabindex="0" title="打开客流分析台（海外客流与线上经营）" onclick="location.href=withDate('/walkin-cockpit/')" onkeydown="if(event.key==='Enter')location.href=withDate('/walkin-cockpit/')">
+      <div class="card stat metric-card metric-link sell-out-card" role="link" tabindex="0" title="打开客流分析台（海外客流与线上经营）" onclick="location.href=withDate('/walkin-cockpit/')" onkeydown="if(event.key==='Enter')location.href=withDate('/walkin-cockpit/')">
         <div class="metric-body stat-body">
           <div class="metric-label label">经销商终销金额 Sell Out</div>
           <div class="metric-value value" id="sellOutAmount"><span class="amount-num">—</span></div>
@@ -128,18 +105,35 @@
       </div>
     </div>
 
-    <div class="grid-main" style="grid-template-columns:1fr">
-      <div class="right-stack">
-        <section class="card section"><div class="section-title">客户管理中心 <button type="button" class="btn ghost" onclick="goDetail('customer')">详情</button></div><div class="customer-grid" id="customerCenter"></div></section>
-      </div>
+    <div class="grid-main">
+      <section class="card section">
+        <div class="section-title">客户管理中心 <button type="button" class="btn ghost" onclick="location.href='/customer-mgmt'">详情</button></div>
+        <div class="customer-grid" id="customerCenter"></div>
+      </section>
     </div>
 
-    <div class="footer-modules">
-      <section class="card section task-center-section">
-        <div class="section-title">任务中心 <button type="button" class="btn ghost" onclick="goDetail('pdca')">详情</button></div>
-        <div class="task-grid" id="taskCenter"></div>
-      </section>
-      <section class="card section"><div class="section-title">会议中心 <button type="button" class="btn ghost" onclick="goDetail('vemory')">跳转 Vemory</button></div><div class="meeting-grid" id="meetingCenter"></div></section>
+    <div class="module-cards">
+      <a href="/logistics-center/" class="card module-card">
+        <div class="module-card-body">
+          <div class="module-card-title">物流进展</div>
+          <div class="module-card-desc">货物追踪与配送状态</div>
+        </div>
+        <span class="module-card-arrow">→</span>
+      </a>
+      <a href="/walkin-cockpit/" class="card module-card">
+        <div class="module-card-body">
+          <div class="module-card-title">客流 / 线上</div>
+          <div class="module-card-desc">海外客流与线上经营分析</div>
+        </div>
+        <span class="module-card-arrow">→</span>
+      </a>
+      <a href="/store-five-kit/" class="card module-card">
+        <div class="module-card-body">
+          <div class="module-card-title">门店五件套</div>
+          <div class="module-card-desc">各门店五件套数据展示</div>
+        </div>
+        <span class="module-card-arrow">→</span>
+      </a>
     </div>
   </div>
 
@@ -149,8 +143,6 @@
       sellIn: '/api/dashboard/sell-in',
       sellOut: '/api/dashboard/sell-out',
       customerCenter: '/api/customer-center/summary',
-      taskCenter: '/api/task-center/summary',
-      meetingCenter: '/api/meeting-center/summary',
     };
 
     const _qs0 = new URLSearchParams(location.search);
@@ -169,15 +161,6 @@
       return url + sep + 'date=' + encodeURIComponent(workDate()) + '&period=' + encodeURIComponent(currentPeriod);
     }
 
-    function buildQuickLinks() {
-      const links = [
-        ['数据看板', '/dashboard']
-      ];
-      document.getElementById('quickLinks').innerHTML = links
-        .map(([label, href]) => '<a href="' + withDate(href) + '">' + label + '</a>')
-        .join('');
-    }
-
     function showFlash() {
       const msg = new URLSearchParams(location.search).get('message');
       if (!msg) return;
@@ -186,39 +169,13 @@
       el.style.display = 'block';
     }
 
-    /** @param {number|string|null} wan */
     function formatWanHtml(wan) {
       if (wan == null || wan === '') return '<span class="amount-num">—</span>';
       return '<span class="amount-num">' + wan + '<span class="amount-unit">万</span></span>';
     }
 
-    function formatTextHtml(text) {
-      return '<span class="amount-num">' + escapeHtml(text || '—') + '</span>';
-    }
-
-    /**
-     * 统一 KPI 小卡片：标题 / 主数值 / 底部说明（可选「点击进入」）
-     * @param {{ label: string, valueHtml: string, foot?: string, link?: boolean, onClick?: string }} opts
-     */
-    function metricTileHtml(opts) {
-      var link = opts.link ? ' metric-card metric-link' : ' metric-card';
-      var click = opts.onClick ? ' onclick="' + opts.onClick + '"' : '';
-      var footClass = 'metric-foot' + (opts.link ? ' action' : '');
-      var foot = opts.foot != null && opts.foot !== '' ? escapeHtml(opts.foot) : '';
-      return (
-        '<div class="card' + link + '"' + click + '>' +
-        '<div class="metric-body">' +
-        '<div class="metric-label">' + escapeHtml(opts.label) + '</div>' +
-        '<div class="metric-value">' + opts.valueHtml + '</div>' +
-        '<div class="' + footClass + '">' + foot + '</div>' +
-        '</div></div>'
-      );
-    }
-
-    function shortRoleText(role) {
-      var parts = String(role || '').split('·').map(function (s) { return s.trim(); }).filter(Boolean);
-      if (parts.length >= 2) return parts.slice(-2).join(' · ');
-      return parts[0] || '';
+    function escapeHtml(text) {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     async function request(url, params) {
@@ -284,14 +241,13 @@
       const params = { managerId: 'default' };
       await loadSection('overview', async function () {
         const overview = await request(API.dashboard, params);
-        managerName.innerHTML = formatTextHtml(overview.managerName);
+        managerName.innerHTML = '<span class="amount-num">' + escapeHtml(overview.managerName || '—') + '</span>';
         managerRole.textContent = overview.managerRole || '';
         if (overview.sellInWan != null && overview.sellInWan !== '') {
           sellInAmount.innerHTML = formatWanHtml(overview.sellInWan);
         } else {
           sellInAmount.innerHTML = '<span class="amount-num">' + escapeHtml(overview.sellInAmount || '¥ 0') + '</span>';
         }
-        // 显示数据来源字幕
         var sellInFootEl = document.getElementById('sellInFoot');
         if (sellInFootEl) sellInFootEl.textContent = overview.sellInSub || '';
         if (overview.sellOutWan != null && overview.sellOutWan !== '') {
@@ -301,11 +257,9 @@
         }
         var sellOutCard = document.querySelector('.sell-out-card');
         if (sellOutCard) {
-          sellOutCard.title = (overview.sellOutSub || '客流分析台：海外客流与线上经营') + ' · 点击进入';
           var sellOutFootEl = document.getElementById('sellOutFoot');
           if (sellOutFootEl) sellOutFootEl.textContent = overview.sellOutSub || '';
         }
-        // 显示数据更新时间
         if (overview.dataUpdatedAt) {
           var hint = document.getElementById('dataUpdateHint');
           if (hint) {
@@ -316,29 +270,9 @@
           }
         }
       });
-      await loadSection('taskCenter', async function () {
-        renderTaskCenter(await request(API.taskCenter, params));
-      });
       await loadSection('customers', async function () {
         renderCustomers(await request(API.customerCenter, params));
       });
-      await loadSection('meeting', async function () {
-        renderMeetingCenter(await request(API.meetingCenter, params));
-      });
-    }
-
-    function renderTaskCenter(data) {
-      var statsEl = document.getElementById('taskCenter');
-      if (!statsEl) return;
-      var rows = Array.isArray(data) ? data : (data && data.summary) || [];
-      statsEl.innerHTML = rows.map(function (item) {
-        return metricTileHtml({
-          label: item.label,
-          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
-          link: true,
-          onClick: "goDetail('pdca')"
-        });
-      }).join('');
     }
 
     function renderCustomers(data) {
@@ -349,7 +283,7 @@
       customerCenter.innerHTML = data.map(function (item) {
         const width = item.target > 0 ? Math.min(item.touched / item.target * 100, 100) : 0;
         return (
-          '<div class="card metric-card metric-link" onclick="goDetail(\'customer-' + item.level + '\')">' +
+          '<div class="card metric-card metric-link" onclick="location.href=\'/customer-mgmt\'">' +
           '<div class="metric-body">' +
           '<div class="metric-label">' + escapeHtml(item.level) + ' 类客户</div>' +
           '<div class="metric-value"><span class="amount-num">' + item.total + '<span class="amount-unit">家</span></span></div>' +
@@ -358,43 +292,6 @@
           '</div></div>'
         );
       }).join('');
-    }
-
-    function renderMeetingCenter(data) {
-      meetingCenter.innerHTML = (data || []).map(function (item) {
-        return metricTileHtml({
-          label: item.label,
-          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
-          link: true,
-          onClick: "goDetail('vemory-" + item.key + "')"
-        });
-      }).join('');
-    }
-
-    function escapeHtml(text) {
-      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    function goDetail(type) {
-      const routes = {
-        customer: '/customer-mgmt',
-        vemory: '/meeting-center'
-      };
-      if (type.indexOf('customer-') === 0) {
-        location.href = withDate('/customer-mgmt');
-        return;
-      }
-      if (type.indexOf('vemory-') === 0) {
-        const filter = type.replace('vemory-', '');
-        const hash = filter && filter !== 'total' ? '#filter=' + filter : '';
-        location.href = withDate('/meeting-center') + hash;
-        return;
-      }
-      if (routes[type]) {
-        location.href = withDate(routes[type]);
-        return;
-      }
-      alert('详情页开发中：' + type);
     }
 
     document.querySelectorAll('.tab').forEach(function (btn) {
@@ -411,7 +308,6 @@
       });
     });
 
-    buildQuickLinks();
     showFlash();
     refreshDashboard();
   </script>

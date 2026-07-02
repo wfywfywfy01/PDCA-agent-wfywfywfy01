@@ -102,9 +102,6 @@ export function mountPdcaShell(mountId) {
 
         <!-- 导航链接 -->
         <a :href="href('/')">经营首页</a>
-        <a :href="href('/logistics-center/')">物流进展</a>
-        <a :href="href('/walkin-cockpit/')">客流/线上</a>
-        <a :href="href('/store-five-kit/')" v-if="user.role!=='viewer'">门店五件套</a>
         <a :href="href('/admin-panel/')" v-if="user.role==='admin'" style="background:rgba(124,58,237,0.08);color:#7c3aed;border-radius:6px;padding:0 8px">管理后台</a>
 
         <!-- 用户菜单 -->
