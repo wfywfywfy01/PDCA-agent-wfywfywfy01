@@ -86,7 +86,12 @@ async def sell_in(
     period: str = Query("day"),
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
-    return _bridge_call(service.sell_in, date or bridge.today_text(), period, default={})
+    from app.vertu.sales import fetch_sell_in
+    try:
+        return await fetch_sell_in(date or bridge.today_text(), period)
+    except Exception as exc:
+        logger.warning("vertu sell-in 失败，回退 bridge: {}", exc)
+        return _bridge_call(service.sell_in, date or bridge.today_text(), period, default={})
 
 
 @router.get("/api/dashboard/sell-out")
@@ -95,7 +100,12 @@ async def sell_out(
     period: str = Query("day"),
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
-    return _bridge_call(service.sell_out, date or bridge.today_text(), period, default={})
+    from app.vertu.sales import fetch_sell_out
+    try:
+        return await fetch_sell_out(date or bridge.today_text(), period)
+    except Exception as exc:
+        logger.warning("vertu sell-out 失败，回退 bridge: {}", exc)
+        return _bridge_call(service.sell_out, date or bridge.today_text(), period, default={})
 
 
 @router.get("/api/customer-center/summary")
@@ -119,8 +129,13 @@ async def dealer_sellin_summary(
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
     from datetime import date as _date
+    from app.vertu.sales import fetch_sellin_summary
     m = month or _date.today().strftime("%Y-%m")
-    return _bridge_call(bridge.api_dealer_sellin_summary, m, default={})
+    try:
+        return await fetch_sellin_summary(m)
+    except Exception as exc:
+        logger.warning("vertu sellin-summary 失败，回退 bridge: {}", exc)
+        return _bridge_call(bridge.api_dealer_sellin_summary, m, default={})
 
 
 @router.get("/api/task-center/panel")
