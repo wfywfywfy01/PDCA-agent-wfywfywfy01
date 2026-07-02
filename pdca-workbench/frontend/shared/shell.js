@@ -105,8 +105,7 @@ export function mountPdcaShell(mountId) {
         <a :href="href('/logistics-center/')">物流进展</a>
         <a :href="href('/walkin-cockpit/')">客流/线上</a>
         <a :href="href('/store-five-kit/')" v-if="user.role!=='viewer'">门店五件套</a>
-        <a :href="href('/walkin-submit/')" style="background:rgba(37,99,235,0.08);color:#2563eb;border-radius:6px;padding:0 8px" v-if="user.role!=='viewer'">五件套录入</a>
-        <a :href="href('/signalseller-center/')">获客指挥</a>
+<a :href="href('/signalseller-center/')">获客指挥</a>
         <a :href="href('/meeting-center/')">会议中心</a>
         <a :href="href('/onboarding-center/')">新人培训</a>
         <a :href="href('/dashboard')">数据看板</a>

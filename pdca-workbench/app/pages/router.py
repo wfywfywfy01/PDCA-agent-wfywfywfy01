@@ -60,7 +60,7 @@ a{{color:#4e9ef5;text-decoration:none}}</style></head>
 <h1>⚙️</h1>
 <p><strong style="color:#e2e8f0">{label}</strong> 在当前部署环境中不可用。</p>
 <p>This feature is not available in the current deployment.</p>
-<p style="margin-top:1.5rem"><a href="/walkin-submit">← 返回录入页</a></p>
+<p style="margin-top:1.5rem"><a href="/">← 返回首页</a></p>
 </div></body></html>"""
     return HTMLResponse(html, status_code=200)
 
@@ -82,7 +82,7 @@ async def home(
     index = settings.home_dashboard_dir / "index.html"
     if not index.is_file():
         # MVP 目录未部署，降级到录入页
-        return RedirectResponse("/walkin-submit")
+        return RedirectResponse("/dashboard")
     return html_page(index.read_text(encoding="utf-8"))
 
 
@@ -479,18 +479,6 @@ async def dealer_sellin_page(
         raise HTTPException(status_code=404, detail="dealer_sellin.html 缺失")
     return FileResponse(html_path, media_type="text/html; charset=utf-8")
 
-
-@router.get("/walkin-submit")
-@router.get("/walkin-submit/")
-async def walkin_submit_page(
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    """门店五件套录入页面（支持 ?store=STORE_ID 预设门店）。"""
-    settings = get_settings()
-    html_path = settings.frontend_dir / "walkin_submit.html"
-    if not html_path.is_file():
-        raise HTTPException(status_code=404, detail="walkin_submit.html 缺失")
-    return FileResponse(html_path, media_type="text/html; charset=utf-8")
 
 
 @router.get("/store-five-kit")
