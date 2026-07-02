@@ -20,9 +20,6 @@ from app.dashboard.router import router as dashboard_router
 from app.database import bootstrap_database, get_db_mode
 from app.logging_setup import setup_logging
 from app.logistics.router import router as logistics_router
-from app.onboarding.router import router as onboarding_router
-from app.signalseller.router import router as signalseller_router
-from app.meeting.router import router as meeting_router
 from app.pages.router import router as pages_router
 from app.files.router import router as files_router
 from app.pdca.post_router import router as pdca_post_router
@@ -40,7 +37,6 @@ PUBLIC_PATHS = {
     "/openapi.json",
     "/redoc",
     "/health",
-    "/dashboard-theme.css",
     "/workbench-cockpit-shell.css",
 }
 
@@ -97,9 +93,6 @@ async def auth_redirect_middleware(request: Request, call_next):
         return await call_next(request)
     if path.startswith("/walkin-cockpit/") and not path.endswith(".html"):
         return await call_next(request)
-    if path.startswith("/meeting-center/") and "." in path.split("/")[-1]:
-        return await call_next(request)
-
     settings = get_settings()
     if settings.auth_mode in ("vps", "hybrid"):
         return await call_next(request)
@@ -153,11 +146,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
-app.include_router(meeting_router)
 app.include_router(walkin_router)
 app.include_router(logistics_router)
-app.include_router(onboarding_router)
-app.include_router(signalseller_router)
 app.include_router(pdca_router)
 app.include_router(pdca_post_router)
 app.include_router(files_router)

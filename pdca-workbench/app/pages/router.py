@@ -82,7 +82,7 @@ async def home(
     index = settings.home_dashboard_dir / "index.html"
     if not index.is_file():
         # MVP 目录未部署，降级到录入页
-        return RedirectResponse("/dashboard")
+        return _unavailable("经营首页")
     return html_page(index.read_text(encoding="utf-8"))
 
 
@@ -244,41 +244,6 @@ async def open_im_channel(
     return _redirect_msg("/im-unread", date_text, msg)
 
 
-@router.get("/dashboard")
-async def dashboard(
-    date: str | None = None,
-    start: str = Query(""),
-    end: str = Query(""),
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    try:
-        date_text = date or bridge.today_text()
-        if start and end:
-            date_text = end
-            code, stdout, stderr = bridge.run_pdca(date_text, push=False, start_date=start)
-            if code != 0:
-                return _redirect_msg("/", date_text, "区间看板生成失败")
-        dash = bridge.output_dir(date_text) / "dashboard.html"
-        if not dash.is_file():
-            code, stdout, stderr = bridge.run_pdca(date_text, push=False)
-            if code != 0:
-                return _redirect_msg("/", date_text, "看板生成失败")
-        if not dash.is_file():
-            return _redirect_msg("/", date_text, "暂无看板")
-        html = inject_vue_shell(bridge.skin_dashboard_html(dash.read_text(encoding="utf-8"), date_text))
-        return HTMLResponse(html)
-    except Exception:
-        return _unavailable("经营看板（需要 vertu 数据服务）")
-
-
-@router.get("/dashboard-theme.css")
-async def dashboard_theme_css():
-    settings = get_settings()
-    path = settings.home_dashboard_dir / "workbench-unified.css"
-    if not path.is_file():
-        raise HTTPException(status_code=404)
-    return FileResponse(path, media_type="text/css; charset=utf-8")
-
 
 @router.get("/workbench-cockpit-shell.css")
 async def cockpit_shell_css():
@@ -331,31 +296,6 @@ async def walkin_assets(
         raise HTTPException(status_code=404)
 
 
-@router.get("/meeting-center")
-@router.get("/meeting-center/")
-async def meeting_index(
-    date: str | None = None,
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    settings = get_settings()
-    return _serve_module(
-        settings.meeting_center_dir / "index.html",
-        date or bridge.today_text(),
-        "会议中心", "会议中心",
-    )
-
-
-@router.get("/meeting-center/{rel_path:path}")
-async def meeting_assets(
-    rel_path: str,
-    date: str | None = None,
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    try:
-        return _serve_asset(bridge.resolve_meeting_center_asset, rel_path)
-    except Exception:
-        raise HTTPException(status_code=404)
-
 
 @router.get("/online-cockpit")
 @router.get("/online-cockpit/")
@@ -391,59 +331,6 @@ async def logistics_center_assets(
         raise HTTPException(status_code=404)
     return FileResponse(target, media_type=_guess_media(target))
 
-
-@router.get("/onboarding-center")
-@router.get("/onboarding-center/")
-async def onboarding_center_index(
-    date: str | None = None,
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    settings = get_settings()
-    return _serve_module(
-        settings.onboarding_center_dir / "index.html",
-        date or bridge.today_text(),
-        "新人培训", "入职中心",
-    )
-
-
-@router.get("/onboarding-center/{rel_path:path}")
-async def onboarding_center_assets(
-    rel_path: str,
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    settings = get_settings()
-    target = (settings.onboarding_center_dir / unquote(rel_path)).resolve()
-    root = settings.onboarding_center_dir.resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
-        raise HTTPException(status_code=404)
-    return FileResponse(target, media_type=_guess_media(target))
-
-
-@router.get("/signalseller-center")
-@router.get("/signalseller-center/")
-async def signalseller_center_index(
-    date: str | None = None,
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    settings = get_settings()
-    return _serve_module(
-        settings.signalseller_center_dir / "index.html",
-        date or bridge.today_text(),
-        "获客指挥", "获客指挥中心",
-    )
-
-
-@router.get("/signalseller-center/{rel_path:path}")
-async def signalseller_center_assets(
-    rel_path: str,
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    settings = get_settings()
-    target = (settings.signalseller_center_dir / unquote(rel_path)).resolve()
-    root = settings.signalseller_center_dir.resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
-        raise HTTPException(status_code=404)
-    return FileResponse(target, media_type=_guess_media(target))
 
 
 @router.get("/shared/{rel_path:path}")
