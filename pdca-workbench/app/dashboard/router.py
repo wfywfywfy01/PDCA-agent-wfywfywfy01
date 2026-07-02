@@ -98,50 +98,11 @@ async def sell_out(
     return _bridge_call(service.sell_out, date or bridge.today_text(), period, default={})
 
 
-@router.get("/api/todos/today")
-async def todos_today(
-    date: str | None = None,
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
-):
-    return _bridge_call(bridge.api_todos_today, date or bridge.today_text(), default=[])
-
-
-@router.get("/api/hermes-agent/tasks")
-async def hermes_tasks(
-    date: str | None = None,
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
-):
-    return _bridge_call(bridge.api_hermes_agent_tasks, date or bridge.today_text(), default=[])
-
-
 @router.get("/api/customer-center/summary")
 async def customer_center(
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
     return _bridge_call(bridge.api_customer_center_summary, default=[])
-
-
-@router.get("/api/hr/summary")
-async def hr_summary(
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
-):
-    return _bridge_call(bridge.api_hr_summary, default=[])
-
-
-@router.get("/api/exceptions")
-async def exceptions(
-    date: str | None = None,
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
-):
-    return _bridge_call(bridge.api_exceptions, date or bridge.today_text(), default=[])
-
-
-@router.get("/api/important-matters")
-async def important_matters(
-    date: str | None = None,
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
-):
-    return _bridge_call(bridge.api_important_matters, date or bridge.today_text(), default={})
 
 
 @router.get("/api/task-center/summary")

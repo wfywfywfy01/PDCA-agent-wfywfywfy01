@@ -104,15 +104,6 @@ async def home_classic(
     return _safe_bridge_page(bridge.render_home, date or bridge.today_text(), message, feature="经营看板")
 
 
-@router.get("/pdca-vps")
-async def pdca_vps(
-    date: str | None = None,
-    message: str = Query(""),
-    user: Annotated[User, Depends(get_current_user)] = None,
-):
-    return _safe_bridge_page(bridge.render_pdca_vps, date or bridge.today_text(), message, feature="PDCA-VPS")
-
-
 @router.get("/questionnaire")
 async def questionnaire(
     date: str | None = None,

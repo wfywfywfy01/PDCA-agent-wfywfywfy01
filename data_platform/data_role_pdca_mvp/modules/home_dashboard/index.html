@@ -148,15 +148,9 @@
       dashboard: '/api/dashboard/overview',
       sellIn: '/api/dashboard/sell-in',
       sellOut: '/api/dashboard/sell-out',
-      todo: '/api/todos/today',
-      agentTasks: '/api/hermes-agent/tasks',
       customerCenter: '/api/customer-center/summary',
-      humanCenter: '/api/hr/summary',
-      exceptions: '/api/exceptions',
-      importantMatters: '/api/important-matters',
       taskCenter: '/api/task-center/summary',
       meetingCenter: '/api/meeting-center/summary',
-      processSuggestion: '/api/agent/process-suggestion'
     };
 
     const _qs0 = new URLSearchParams(location.search);
@@ -311,8 +305,6 @@
           var sellOutFootEl = document.getElementById('sellOutFoot');
           if (sellOutFootEl) sellOutFootEl.textContent = overview.sellOutSub || '';
         }
-        agentScore.textContent = overview.agentScore != null ? overview.agentScore : '—';
-        scoreComment.textContent = overview.scoreComment || '';
         // 显示数据更新时间
         if (overview.dataUpdatedAt) {
           var hint = document.getElementById('dataUpdateHint');
@@ -324,56 +316,15 @@
           }
         }
       });
-      await loadSection('todo', async function () {
-        renderTodos(await request(API.todo, params));
-      });
       await loadSection('taskCenter', async function () {
         renderTaskCenter(await request(API.taskCenter, params));
-      });
-      await loadSection('agentTasks', async function () {
-        renderAgentTasks(await request(API.agentTasks, params));
       });
       await loadSection('customers', async function () {
         renderCustomers(await request(API.customerCenter, params));
       });
-      await loadSection('human', async function () {
-        renderHuman(await request(API.humanCenter, params));
-      });
-      await loadSection('exceptions', async function () {
-        renderExceptions(await request(API.exceptions, params));
-      });
-      await loadSection('important', async function () {
-        renderImportant(await request(API.importantMatters, params));
-      });
       await loadSection('meeting', async function () {
         renderMeetingCenter(await request(API.meetingCenter, params));
       });
-    }
-
-    function renderTodos(data) {
-      var hint = document.getElementById('todayTodoHint');
-      var yesterday = (data && data[0] && data[0].yesterday) ? data[0].yesterday : '';
-      if (hint) {
-        hint.textContent = yesterday
-          ? '来源：vertu odoo daily-report · 昨日（' + yesterday + '）群日报「明日计划」'
-          : '';
-      }
-      if (!data || !data.length) {
-        todayTodoList.innerHTML = '<div class="empty-hint">暂无今日计划，请补交昨日群日报</div>';
-        return;
-      }
-      todayTodoList.innerHTML = data.map(function (item) {
-        var sub = item.deadline ? '截止 ' + item.deadline : '';
-        if (item.progress > 0 && item.progress < 100) {
-          sub = (sub ? sub + ' · ' : '') + '进度 ' + item.progress + '%';
-        }
-        return (
-          '<div class="todo-item">' +
-          '<div class="todo-meta"><span>' + escapeHtml(item.title) + '</span>' +
-          (sub ? '<span class="todo-sub">' + escapeHtml(sub) + '</span>' : '') +
-          '</div><span class="tag">' + escapeHtml(item.status || '待办') + '</span></div>'
-        );
-      }).join('');
     }
 
     function renderTaskCenter(data) {
@@ -387,16 +338,6 @@
           link: true,
           onClick: "goDetail('pdca')"
         });
-      }).join('');
-    }
-
-    function renderAgentTasks(data) {
-      if (!data || !data.length) {
-        agentTaskList.innerHTML = '<div class="empty-hint">暂无 Agent 任务</div>';
-        return;
-      }
-      agentTaskList.innerHTML = data.map(function (item) {
-        return '<div class="todo-item"><span>' + escapeHtml(item.title) + '</span><button type="button" class="btn" onclick="goDetail(\'agent-task-' + item.id + '\')">处理</button></div>';
       }).join('');
     }
 
@@ -419,38 +360,6 @@
       }).join('');
     }
 
-    function renderHuman(data) {
-      humanCenter.innerHTML = (data || []).map(function (item) {
-        return metricTileHtml({
-          label: item.label,
-          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
-          link: true,
-          onClick: "goDetail('hr-" + item.key + "')"
-        });
-      }).join('');
-    }
-
-    function renderExceptions(data) {
-      const biz = (data && data.business) || [];
-      const aff = (data && data.affair) || [];
-      businessExceptions.innerHTML = biz.length ? biz.map(function (item) {
-        return '<div class="exception-item"><b>' + escapeHtml(item.owner) + '</b>：' + escapeHtml(item.content) + '</div>';
-      }).join('') : '<div class="empty-hint">暂无业务异常</div>';
-      affairExceptions.innerHTML = aff.length ? aff.map(function (item) {
-        return '<div class="exception-item"><b>' + escapeHtml(item.owner) + '</b>：' + escapeHtml(item.content) + '</div>';
-      }).join('') : '<div class="empty-hint">暂无事务异常</div>';
-    }
-
-    function renderImportant(data) {
-      if (!data || !data.length) {
-        importantMatters.innerHTML = '<div class="empty-hint">暂无重要事项</div>';
-        return;
-      }
-      importantMatters.innerHTML = data.map(function (item) {
-        return '<div class="important-row"><div><b>' + escapeHtml(item.title) + '</b><p>' + escapeHtml(item.desc) + '</p></div><textarea id="suggestion-' + item.id + '">' + escapeHtml(item.suggestion) + '</textarea><div><button type="button" class="btn" onclick="processSuggestion(\'' + item.id + '\', \'agent\')">一键处理</button><button type="button" class="btn ghost" style="margin-top:8px;" onclick="processSuggestion(\'' + item.id + '\', \'custom\')">按我的建议处理</button></div></div>';
-      }).join('');
-    }
-
     function renderMeetingCenter(data) {
       meetingCenter.innerHTML = (data || []).map(function (item) {
         return metricTileHtml({
@@ -466,25 +375,9 @@
       return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    async function processSuggestion(id, mode) {
-      const el = document.getElementById('suggestion-' + id);
-      const suggestion = el ? el.value : '';
-      await fetch(API.processSuggestion, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: id, suggestion: suggestion, mode: mode, date: workDate() })
-      });
-      alert(mode === 'agent' ? '已记录 Agent 处理建议' : '已记录你的处理建议，Agent 将学习');
-    }
-
     function goDetail(type) {
       const routes = {
-        todo: '/pdca-vps',
-        pdca: '/pdca-vps',
         customer: '/customer-mgmt',
-        hr: '/customer-mgmt',
-        tasks: '/todos',
-        pdca: '/pdca-vps',
         vemory: '/meeting-center'
       };
       if (type.indexOf('customer-') === 0) {
@@ -499,10 +392,6 @@
       }
       if (routes[type]) {
         location.href = withDate(routes[type]);
-        return;
-      }
-      if (type.indexOf('agent-task-') === 0) {
-        location.href = withDate('/pdca-vps');
         return;
       }
       alert('详情页开发中：' + type);

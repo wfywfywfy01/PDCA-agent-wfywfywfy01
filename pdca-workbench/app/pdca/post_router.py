@@ -118,7 +118,7 @@ async def post_pdca_task(
         )
     except Exception as exc:
         message = f"保存失败：{exc}"
-    return _redirect("/pdca-vps", task_date, message[:300])
+    return _redirect("/", task_date, message[:300])
 
 
 @router.post("/hermes-chat")

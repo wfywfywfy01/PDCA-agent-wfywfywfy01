@@ -41,28 +41,8 @@ def api_dashboard_overview(date_text: str, period: str = "day", session_user: di
     return wb().api_dashboard_overview(date_text, period, session_user=session_user)
 
 
-def api_todos_today(date_text: str | None = None) -> list:
-    return wb().api_todos_today(date_text)
-
-
-def api_hermes_agent_tasks(date_text: str) -> list:
-    return wb().api_hermes_agent_tasks(date_text)
-
-
 def api_customer_center_summary() -> list:
     return wb().api_customer_center_summary()
-
-
-def api_hr_summary() -> list:
-    return wb().api_hr_summary()
-
-
-def api_exceptions(date_text: str) -> list:
-    return wb().api_exceptions(date_text)
-
-
-def api_important_matters(date_text: str) -> dict:
-    return wb().api_important_matters(date_text)
 
 
 def api_task_center_summary(date_text: str | None = None) -> list:
@@ -117,10 +97,6 @@ def skin_dashboard_html(html: str, date_text: str) -> str:
 
 def output_dir(date_text: str) -> Path:
     return wb().output_dir(date_text)
-
-
-def render_pdca_vps(date_text: str, message: str = "") -> str:
-    return wb().render_pdca_vps(date_text, message)
 
 
 def render_questionnaire(date_text: str, message: str = "") -> str:
