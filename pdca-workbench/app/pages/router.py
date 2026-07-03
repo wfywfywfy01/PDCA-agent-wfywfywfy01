@@ -379,3 +379,16 @@ async def store_five_kit_page(
     if not html_path.is_file():
         raise HTTPException(status_code=404, detail="store_five_kit.html 缺失")
     return FileResponse(html_path, media_type="text/html; charset=utf-8")
+
+
+@router.get("/walkin-submit")
+@router.get("/walkin-submit/")
+async def walkin_submit_page(
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    """五件套录入系统（经销商独立门户，与PDCA工作台分开）。"""
+    settings = get_settings()
+    html_path = settings.frontend_dir / "walkin_submit.html"
+    if not html_path.is_file():
+        raise HTTPException(status_code=404, detail="walkin_submit.html 缺失")
+    return FileResponse(html_path, media_type="text/html; charset=utf-8")
