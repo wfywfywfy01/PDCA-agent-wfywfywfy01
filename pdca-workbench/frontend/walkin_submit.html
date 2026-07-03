@@ -140,6 +140,69 @@
 </head>
 <body>
 
+<!-- ══════════ 强制改密蒙层 ══════════ -->
+<div id="pwOverlay" style="display:none;position:fixed;inset:0;background:#0b0d13;z-index:9999;
+     align-items:center;justify-content:center;padding:1rem">
+  <div style="background:#13182a;border:1px solid rgba(255,255,255,.1);border-radius:16px;
+              padding:2rem 2.5rem;width:100%;max-width:400px">
+    <div style="text-align:center;margin-bottom:1.75rem">
+      <div style="font-size:1.1rem;font-weight:800;color:#e2e8f0;margin-bottom:.5rem">
+        Set Your Password
+      </div>
+      <div style="font-size:.82rem;color:#475569;line-height:1.5">
+        For account security, please change your<br>initial password before continuing.
+        <br><span style="color:#64748b">请修改初始密码后继续使用</span>
+      </div>
+    </div>
+    <div id="pwErr" style="display:none;padding:.6rem .9rem;background:rgba(244,63,94,.1);
+         color:#f43f5e;border:1px solid rgba(244,63,94,.25);border-radius:8px;
+         font-size:.82rem;margin-bottom:.9rem;line-height:1.4"></div>
+    <div style="margin-bottom:.75rem">
+      <label style="display:block;font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:.3rem">
+        Current Password / 当前密码
+      </label>
+      <input type="password" id="pwOld" autocomplete="current-password"
+        style="width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
+               font-size:.9rem;color:#e2e8f0;background:rgba(255,255,255,.05);outline:none;
+               font-family:inherit;transition:border-color .2s"
+        placeholder="Current password"
+        onfocus="this.style.borderColor='#4e9ef5'" onblur="this.style.borderColor='rgba(255,255,255,.1)'" />
+    </div>
+    <div style="margin-bottom:.75rem">
+      <label style="display:block;font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:.3rem">
+        New Password / 新密码
+      </label>
+      <input type="password" id="pwNew" autocomplete="new-password"
+        style="width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
+               font-size:.9rem;color:#e2e8f0;background:rgba(255,255,255,.05);outline:none;
+               font-family:inherit;transition:border-color .2s"
+        placeholder="At least 8 characters / 至少 8 位"
+        onfocus="this.style.borderColor='#4e9ef5'" onblur="this.style.borderColor='rgba(255,255,255,.1)'" />
+    </div>
+    <div style="margin-bottom:1.4rem">
+      <label style="display:block;font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:.3rem">
+        Confirm Password / 确认密码
+      </label>
+      <input type="password" id="pwConfirm" autocomplete="new-password"
+        style="width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
+               font-size:.9rem;color:#e2e8f0;background:rgba(255,255,255,.05);outline:none;
+               font-family:inherit;transition:border-color .2s"
+        placeholder="Repeat new password / 再次输入新密码"
+        onfocus="this.style.borderColor='#4e9ef5'" onblur="this.style.borderColor='rgba(255,255,255,.1)'"
+        onkeydown="if(event.key==='Enter')submitPwChange()" />
+    </div>
+    <button id="pwBtn" onclick="submitPwChange()"
+       style="width:100%;padding:.78rem;font-size:.92rem;font-weight:700;
+              background:rgba(78,158,245,.2);color:#4e9ef5;
+              border:1px solid rgba(78,158,245,.4);border-radius:10px;cursor:pointer;
+              transition:all .2s;font-family:inherit"
+       onmouseover="this.style.background='rgba(78,158,245,.32)'"
+       onmouseout="this.style.background='rgba(78,158,245,.2)'">
+      Confirm &amp; Continue / 确认修改
+    </button>
+  </div>
+</div>
+
 <div class="topbar">
   <div>
     <div class="topbar-title">门店五件套日报</div>
@@ -313,59 +376,108 @@ var _role = '';
 // 从 URL 读取预设门店（?store=STORE_ID）
 var _presetStore = new URLSearchParams(location.search).get('store') || '';
 
-// 加载当前用户 + 可见门店
+// ── 改密蒙层 ────────────────────────────────────────
+function showPwOverlay() {
+  var o = document.getElementById('pwOverlay');
+  o.style.display = 'flex';
+}
+function hidePwOverlay() {
+  document.getElementById('pwOverlay').style.display = 'none';
+}
+function showPwErr(msg) {
+  var el = document.getElementById('pwErr');
+  el.textContent = msg; el.style.display = 'block';
+}
+async function submitPwChange() {
+  var old = document.getElementById('pwOld').value;
+  var nw  = document.getElementById('pwNew').value;
+  var cf  = document.getElementById('pwConfirm').value;
+  document.getElementById('pwErr').style.display = 'none';
+  if (!old || !nw || !cf) { showPwErr('Please fill in all fields / 请填写所有字段'); return; }
+  if (nw.length < 8)      { showPwErr('New password must be at least 8 characters / 新密码至少 8 位'); return; }
+  if (nw !== cf)           { showPwErr('Passwords do not match / 两次密码不一致'); return; }
+  if (nw === old)          { showPwErr('New password must differ from current / 新密码不能与当前密码相同'); return; }
+  var btn = document.getElementById('pwBtn');
+  btn.disabled = true; btn.textContent = 'Saving… / 修改中…';
+  try {
+    var res = await fetch('/api/auth/change-password', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_password: old, new_password: nw })
+    });
+    var data = await res.json();
+    if (res.ok) {
+      hidePwOverlay();
+      initPage();
+    } else {
+      showPwErr(data.detail || 'Failed / 修改失败');
+    }
+  } catch(e) {
+    showPwErr('Network error / 网络错误，请重试');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Confirm & Continue / 确认修改';
+  }
+}
+
+// ── 初始化门店 ───────────────────────────────────────
+function initPage() {
+  fetch(API + '/api/my-stores', {credentials:'include'})
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(stores){
+      var sel  = document.getElementById('dealer_id');
+      var hSel = document.getElementById('hist_dealer');
+      sel.innerHTML = stores.length
+        ? '<option value="">— 请选择门店 —</option>'
+        : '<option value="">— 无可用门店 —</option>';
+      stores.forEach(function(s){
+        storeMap[s.store_id] = s.name;
+        var lbl = s.name + '（' + s.country + ' · ' + (s.dealer_level||'L1') + '）';
+        sel.insertAdjacentHTML('beforeend',
+          '<option value="'+s.store_id+'" data-name="'+s.name+'">'+lbl+'</option>');
+        hSel.insertAdjacentHTML('beforeend',
+          '<option value="'+s.store_id+'">'+s.name+'</option>');
+      });
+      if (_role === 'dealer') {
+        hSel.parentElement && (hSel.parentElement.style.display = 'none');
+        hSel.style.display = 'none';
+      }
+      var lockId = '';
+      if (_role === 'dealer' && stores.length === 1) {
+        lockId = stores[0].store_id;
+      } else if (_presetStore) {
+        var found = stores.some(function(s){ return s.store_id === _presetStore; });
+        if (found) lockId = _presetStore;
+      }
+      if (lockId) {
+        sel.value = lockId;
+        if (_role === 'dealer') {
+          sel.style.display = 'none';
+          var display = document.getElementById('dealer_display');
+          display.style.display = 'block';
+          display.textContent = storeMap[lockId] || lockId;
+        } else {
+          sel.disabled = true;
+          sel.style.cssText = 'background:rgba(255,255,255,.03);color:#475569';
+        }
+      }
+      if (lockId && storeMap[lockId]) {
+        document.querySelector('.topbar-sub').textContent = storeMap[lockId];
+      }
+    })
+    .catch(function(){});
+}
+
+// ── 登录检测 ─────────────────────────────────────────
 fetch('/api/auth/me', {credentials:'include'})
   .then(function(r){ return r.ok ? r.json() : null; })
   .then(function(me){
     if (!me) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
     _role = me.role || '';
-    return fetch(API + '/api/my-stores', {credentials:'include'})
-      .then(function(r){ return r.ok ? r.json() : []; })
-      .then(function(stores){
-        var sel  = document.getElementById('dealer_id');
-        var hSel = document.getElementById('hist_dealer');
-        sel.innerHTML = stores.length
-          ? '<option value="">— 请选择门店 —</option>'
-          : '<option value="">— 无可用门店 —</option>';
-        stores.forEach(function(s){
-          storeMap[s.store_id] = s.name;
-          var lbl = s.name + '（' + s.country + ' · ' + (s.dealer_level||'L1') + '）';
-          sel.insertAdjacentHTML('beforeend',
-            '<option value="'+s.store_id+'" data-name="'+s.name+'">'+lbl+'</option>');
-          hSel.insertAdjacentHTML('beforeend',
-            '<option value="'+s.store_id+'">'+s.name+'</option>');
-        });
-        // dealer 角色隐藏历史记录里的门店筛选器
-        if (_role === 'dealer') {
-          hSel.parentElement && (hSel.parentElement.style.display = 'none');
-          hSel.style.display = 'none';
-        }
-        // dealer 角色：隐藏下拉，直接显示门店名称（不可更改）
-        var lockId = '';
-        if (_role === 'dealer' && stores.length === 1) {
-          lockId = stores[0].store_id;
-        } else if (_presetStore) {
-          var found = stores.some(function(s){ return s.store_id === _presetStore; });
-          if (found) lockId = _presetStore;
-        }
-        if (lockId) {
-          sel.value = lockId;
-          if (_role === 'dealer') {
-            // dealer 角色：完全隐藏下拉，改为纯文本展示
-            sel.style.display = 'none';
-            var display = document.getElementById('dealer_display');
-            display.style.display = 'block';
-            display.textContent = storeMap[lockId] || lockId;
-          } else {
-            sel.disabled = true;
-            sel.style.cssText = 'background:rgba(255,255,255,.03);color:#475569';
-          }
-        }
-        // 更新页面副标题显示当前门店
-        if (lockId && storeMap[lockId]) {
-          document.querySelector('.topbar-sub').textContent = storeMap[lockId];
-        }
-      });
+    if (me.must_change_password) {
+      showPwOverlay();   // 强制改密，不加载门店
+    } else {
+      initPage();
+    }
   })
   .catch(function(){});
 
