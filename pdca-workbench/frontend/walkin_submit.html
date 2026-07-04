@@ -210,13 +210,7 @@
   </div>
 </div>
 
-<div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('submit',this)">📝 录入</button>
-  <button class="tab-btn" onclick="switchTab('history',this)">📋 历史记录</button>
-</div>
-
-<!-- ══════════ 录入 Tab ══════════ -->
-<div id="tab-submit" class="tab-panel active">
+<!-- ══════════ 录入 ══════════ -->
 <div class="container">
   <div id="alert" class="alert"></div>
   <form id="kitForm" novalidate>
@@ -317,46 +311,6 @@
     <button type="submit" class="btn-submit" id="submitBtn">提交日报</button>
   </form>
 </div>
-</div>
-
-<!-- ══════════ 历史 Tab ══════════ -->
-<div id="tab-history" class="tab-panel">
-<div class="container-wide">
-  <div class="card" style="padding:1rem 1.25rem">
-    <div class="filter-row">
-      <input type="month" id="hist_month" />
-      <select id="hist_dealer"><option value="">全部门店</option></select>
-      <button class="btn-sm" onclick="loadHistory()">刷新</button>
-      <a id="exportBtn" class="btn-export" style="margin-left:auto">⬇ Excel</a>
-    </div>
-    <div class="tbl-wrap">
-      <table class="hist-table">
-        <thead>
-          <tr>
-            <th class="left">日期</th>
-            <th class="left">门店</th>
-            <th>Walk-ins</th>
-            <th>Prospects</th>
-            <th>Appt.</th>
-            <th>Online</th>
-            <th>Referral</th>
-            <th>SA</th>
-            <th>Total</th>
-            <th>Shown</th>
-            <th>Sold</th>
-            <th>成交金额</th>
-            <th>提交人</th>
-          </tr>
-        </thead>
-        <tbody id="histBody">
-          <tr><td colspan="13" class="empty">点击「刷新」加载数据</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="hist-footer" id="histFooter"></div>
-  </div>
-</div>
-</div>
 
 <script>
 var API = '';
@@ -367,10 +321,7 @@ var _role = '';
 (function(){
   var d = new Date();
   var today = d.toISOString().slice(0,10);
-  var ym    = today.slice(0,7);
   document.getElementById('report_date').value = today;
-  document.getElementById('hist_month').value  = ym;
-  document.getElementById('exportBtn').href = API + '/api/export/walkin-metrics?month=' + ym;
 })();
 
 // 从 URL 读取预设门店（?store=STORE_ID）
@@ -424,8 +375,7 @@ function initPage() {
   fetch(API + '/api/my-stores', {credentials:'include'})
     .then(function(r){ return r.ok ? r.json() : []; })
     .then(function(stores){
-      var sel  = document.getElementById('dealer_id');
-      var hSel = document.getElementById('hist_dealer');
+      var sel = document.getElementById('dealer_id');
       sel.innerHTML = stores.length
         ? '<option value="">— 请选择门店 —</option>'
         : '<option value="">— 无可用门店 —</option>';
@@ -434,13 +384,7 @@ function initPage() {
         var lbl = s.name + '（' + s.country + ' · ' + (s.dealer_level||'L1') + '）';
         sel.insertAdjacentHTML('beforeend',
           '<option value="'+s.store_id+'" data-name="'+s.name+'">'+lbl+'</option>');
-        hSel.insertAdjacentHTML('beforeend',
-          '<option value="'+s.store_id+'">'+s.name+'</option>');
       });
-      if (_role === 'dealer') {
-        hSel.parentElement && (hSel.parentElement.style.display = 'none');
-        hSel.style.display = 'none';
-      }
       var lockId = '';
       if (_role === 'dealer' && stores.length === 1) {
         lockId = stores[0].store_id;
@@ -480,15 +424,6 @@ fetch('/api/auth/me', {credentials:'include'})
     }
   })
   .catch(function(){});
-
-// Tab 切换
-function switchTab(tab, btn){
-  document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
-  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
-  document.getElementById('tab-'+tab).classList.add('active');
-  btn.classList.add('active');
-  if (tab === 'history') loadHistory();
-}
 
 // 实时合计
 var srcIds = ['walkin_visits','prospect_visits','appointment_visits','online_visits','referral_visits','sa_visits'];
@@ -566,62 +501,6 @@ function resetForm(){
   updateCalc();
 }
 
-// 历史记录
-function loadHistory(){
-  var month  = document.getElementById('hist_month').value;
-  var dealer = document.getElementById('hist_dealer').value;
-  document.getElementById('exportBtn').href =
-    API+'/api/export/walkin-metrics?month='+encodeURIComponent(month);
-  var url = API+'/api/walkin-metrics?month='+encodeURIComponent(month)
-                +'&dealer_id='+encodeURIComponent(dealer);
-  document.getElementById('histBody').innerHTML =
-    '<tr><td colspan="13" class="empty">加载中…</td></tr>';
-  fetch(url,{credentials:'include'})
-  .then(function(r){ return r.json(); })
-  .then(function(data){
-    var rows = data.items||[];
-    if (!rows.length){
-      document.getElementById('histBody').innerHTML =
-        '<tr><td colspan="13" class="empty">本月暂无数据</td></tr>';
-      document.getElementById('histFooter').textContent='';
-      return;
-    }
-    var html=''; var totVisit=0,totShown=0,totSold=0,totAmt=0;
-    rows.forEach(function(r){
-      var fk = r.five_kit||{}; var fn = r.funnel||{};
-      var tv  = fk.total||0;
-      var amt = fn.deal_amount_yuan||0;
-      totVisit+=tv; totShown+=fn.touch_count||0; totSold+=fn.deal_count||0; totAmt+=amt;
-      function n(v){ return (v||0)===0 ? '<span class="num-zero">0</span>' : v; }
-      html+='<tr>'
-        +'<td class="left">'+r.report_date+'</td>'
-        +'<td class="left" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">'
-          +(storeMap[r.dealer_id]||r.dealer_id)+'</td>'
-        +'<td>'+n(fk.walkin)+'</td>'
-        +'<td>'+n(fk.prospect)+'</td>'
-        +'<td>'+n(fk.appointment)+'</td>'
-        +'<td>'+n(fk.online)+'</td>'
-        +'<td>'+n(fk.referral)+'</td>'
-        +'<td>'+n(fk.sa)+'</td>'
-        +'<td><strong>'+tv+'</strong></td>'
-        +'<td>'+n(fn.touch_count)+'</td>'
-        +'<td>'+n(fn.deal_count)+'</td>'
-        +'<td>'+(amt>0
-          ? '<span class="tag-green">¥'+(amt/10000).toFixed(2)+'万</span>'
-          : '<span class="num-zero">—</span>')+'</td>'
-        +'<td style="color:var(--s400);font-size:.72rem">'+(r.submitted_by||'—')+'</td>'
-        +'</tr>';
-    });
-    document.getElementById('histBody').innerHTML = html;
-    document.getElementById('histFooter').textContent =
-      '共 '+rows.length+' 条记录  |  总进店 '+totVisit+'  |  展示 '+totShown
-      +'  |  成交 '+totSold+'  |  Sell-out '+(totAmt/10000).toFixed(2)+'万元';
-  })
-  .catch(function(){
-    document.getElementById('histBody').innerHTML=
-      '<tr><td colspan="13" class="empty">加载失败</td></tr>';
-  });
-}
 </script>
 </body>
 </html>
