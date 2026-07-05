@@ -205,20 +205,22 @@ def _dealer_ids_for_user(user: User, session) -> list[str] | None:
 
 def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
     """按角色过滤 walkin payload 里的 stores 和 staff。
-    sales 只能看到自己名下门店；dealer 只能看到自己门店；manager/admin 不限。
+    仅 sales 角色受限（只看自己名下门店）；其余角色全量可见。
     """
-    allowed = _dealer_ids_for_user(user, session)
-    if allowed is None:
-        return payload  # manager / admin：全量可见
+    if user.role != "sales":
+        return payload
 
-    allowed_set = set(allowed)
+    owned = session.exec(
+        select(DealerStore.store_id).where(DealerStore.sales_owner == user.username)
+    ).all()
+    allowed_set = set(owned)
+
     if not allowed_set:
         payload["stores"] = []
         payload["staff"] = []
         return payload
 
     payload["stores"] = [s for s in payload.get("stores", []) if s.get("id") in allowed_set]
-    # staff 按所属门店过滤（storeId 字段）
     payload["staff"] = [s for s in payload.get("staff", []) if s.get("storeId") in allowed_set]
     return payload
 
