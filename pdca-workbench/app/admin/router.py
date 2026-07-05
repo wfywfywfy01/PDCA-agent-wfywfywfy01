@@ -18,7 +18,7 @@ from app.legacy import bridge
 from app.models.audit_log import AuditLog
 from app.models.dealer_store import DealerStore
 from app.models.monthly_target import MonthlyTarget
-from app.models.sync import run_full_sync
+from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 from app.scheduler.jobs import backup_database, daily_sync_job
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -32,6 +32,17 @@ async def trigger_sync(
     _user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
     return run_full_sync(date or bridge.today_text())
+
+
+@router.post("/sync-vps-sellout")
+async def trigger_vps_sellout_sync(
+    date: str | None = None,
+    _user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """手动触发 VPS 手机 Sell-out + 激活率同步。"""
+    date_text = date or bridge.today_text()
+    count = sync_dealer_sales_from_vps(date_text)
+    return {"ok": True, "date": date_text, "synced": count}
 
 
 @router.post("/backup")

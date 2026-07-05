@@ -300,6 +300,8 @@ def _migrate_schema() -> None:
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS walkin_visits INTEGER DEFAULT 0",
+        "ALTER TABLE dealer_sales ADD COLUMN IF NOT EXISTS phone_qty INTEGER DEFAULT 0",
+        "ALTER TABLE dealer_sales ADD COLUMN IF NOT EXISTS activation_rate FLOAT DEFAULT 0",
     ]
 
     _patches_sqlite = [
@@ -310,6 +312,8 @@ def _migrate_schema() -> None:
         "ALTER TABLE dealer_stores ADD COLUMN dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE walkin_daily_reports ADD COLUMN walkin_visits INTEGER DEFAULT 0",
+        "ALTER TABLE dealer_sales ADD COLUMN phone_qty INTEGER DEFAULT 0",
+        "ALTER TABLE dealer_sales ADD COLUMN activation_rate FLOAT DEFAULT 0",
     ]
 
     # 把之前 Excel 导入时错放到 prospect_visits 的 Walk-ins 数据迁移回 walkin_visits

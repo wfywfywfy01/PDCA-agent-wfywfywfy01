@@ -13,7 +13,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.legacy import bridge
-from app.models.sync import run_full_sync
+from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -122,6 +122,17 @@ def start_scheduler() -> BackgroundScheduler | None:
             id="daily_sync",
             max_instances=1,
         )
+
+    # 20:00 — VPS Sell-out 日内补充同步（当日 MTD 最新数据）
+    _scheduler.add_job(
+        lambda: sync_dealer_sales_from_vps(bridge.today_text()),
+        trigger="cron",
+        hour=20,
+        minute=0,
+        id="vps_dealer_sync_20",
+        max_instances=1,
+        coalesce=True,
+    )
 
     # 09:00 / 12:00 / 21:00 — KPI 数据刷新
     for hour in (9, 12, 21):

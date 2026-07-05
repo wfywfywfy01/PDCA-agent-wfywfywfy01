@@ -21,5 +21,7 @@ class DealerSales(SQLModel, table=True):
     sell_in_wan: float = Field(default=0.0)
     sell_out_wan: float = Field(default=0.0)
     units: int = Field(default=0)
+    phone_qty: int = Field(default=0)             # 手机台数（过滤商品大类=手机）
+    activation_rate: float = Field(default=0.0)  # 累计激活率 %（activated/shipped）
     source_file: str = Field(default="", max_length=512)
     synced_at: datetime = Field(default_factory=datetime.utcnow)

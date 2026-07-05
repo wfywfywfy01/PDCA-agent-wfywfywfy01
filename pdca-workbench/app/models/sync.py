@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import csv
 import json
+import subprocess
+import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -206,12 +209,114 @@ def sync_meetings(date_text: str) -> int:
     return count
 
 
+_VPS_DEALER_SCRIPT = (
+    Path(__file__).resolve().parents[3]
+    / "data_platform" / "data_role_pdca_mvp"
+    / "system_queries" / "dealer_monthly_overseas.py"
+)
+
+
+def sync_dealer_sales_from_vps(date_text: str) -> int:
+    """通过 vertu-cli 拉取 VPS odoo_sale 手机 Sell-out + 激活率，同步到 dealer_sales 表。
+    以 (check_date, dealer_name) 做 upsert；当天运行多次会覆盖同日记录。
+    """
+    import shutil
+
+    if not _VPS_DEALER_SCRIPT.is_file():
+        logger.warning("VPS dealer 脚本不存在: {}", _VPS_DEALER_SCRIPT)
+        return 0
+
+    start_date = date_text[:8] + "01"
+    params_payload = {"run_date": date_text, "start_date": start_date, "end_date": date_text}
+
+    vertu_cmd = (
+        bridge.vertu_command() if hasattr(bridge, "vertu_command")
+        else shutil.which("vertu.cmd") or shutil.which("vertu") or "vertu"
+    )
+    use_shell = sys.platform == "win32" and str(vertu_cmd).endswith(".cmd")
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as pf:
+        json.dump(params_payload, pf)
+        params_path = pf.name
+
+    try:
+        completed = subprocess.run(
+            [vertu_cmd, "odoo", "data", "sandbox",
+             "--code-file", str(_VPS_DEALER_SCRIPT),
+             "--params-file", params_path],
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
+            shell=use_shell,
+        )
+    finally:
+        Path(params_path).unlink(missing_ok=True)
+
+    raw = (completed.stdout or "").strip()
+    if not raw:
+        logger.warning("VPS dealer 同步：vertu 无输出 stderr={}", (completed.stderr or "")[:200])
+        return 0
+
+    try:
+        outer = json.loads(raw)
+        result = (
+            outer.get("result", {}).get("execution", {}).get("result")
+            or outer.get("execution", {}).get("result")
+            or outer
+        )
+        dealers = result.get("dealers", [])
+    except Exception as exc:
+        logger.warning("VPS dealer 同步：解析失败 {}", exc)
+        return 0
+
+    count = 0
+    with Session(get_engine()) as session:
+        for item in dealers:
+            name = (item.get("dealer_name") or "").strip()
+            if not name:
+                continue
+            sell_out_yuan = float(item.get("sell_out_yuan") or 0)
+            phone_qty = int(item.get("qty") or 0)
+            activation_rate = float(item.get("activation_rate") or 0)
+            sell_out_wan = round(sell_out_yuan / 10000, 4)
+
+            existing = session.exec(
+                select(DealerSales).where(
+                    DealerSales.check_date == date_text,
+                    DealerSales.dealer_name == name,
+                )
+            ).first()
+            if existing:
+                existing.sell_out_wan = sell_out_wan
+                existing.phone_qty = phone_qty
+                existing.activation_rate = activation_rate
+                existing.units = phone_qty
+                existing.synced_at = datetime.utcnow()
+                existing.source_file = "vps:odoo_sale"
+                session.add(existing)
+            else:
+                session.add(DealerSales(
+                    check_date=date_text,
+                    dealer_name=name,
+                    sell_in_wan=0.0,
+                    sell_out_wan=sell_out_wan,
+                    units=phone_qty,
+                    phone_qty=phone_qty,
+                    activation_rate=activation_rate,
+                    source_file="vps:odoo_sale",
+                ))
+            count += 1
+        session.commit()
+
+    logger.info("VPS dealer sell-out 同步 {} 条 ({})", count, date_text)
+    return count
+
+
 def run_full_sync(date_text: str | None = None) -> dict:
     """执行全量文件→数据库同步，单步失败不影响其他步骤。"""
     date_text = date_text or bridge.today_text()
     result: dict = {"date": date_text}
     for key, fn in (
         ("dealer_sales", lambda: sync_dealer_sales_from_json(date_text)),
+        ("vps_dealer_sales", lambda: sync_dealer_sales_from_vps(date_text)),
         ("pdca_tasks", lambda: sync_pdca_tasks_from_csv(date_text)),
         ("daily_reports", lambda: sync_daily_reports(date_text)),
         ("meetings", lambda: sync_meetings(date_text)),
