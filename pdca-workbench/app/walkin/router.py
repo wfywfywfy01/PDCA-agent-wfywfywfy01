@@ -49,7 +49,7 @@ _VPS_ACTIVATION_TTL = 1800  # 30 分钟（累计数据变化较慢）
 async def walkin_api(
     date: str | None = None,
     month: str = Query(""),
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     date_text = date or bridge.today_text()
@@ -66,6 +66,9 @@ async def walkin_api(
         payload = _merge_five_kit_into_payload(payload, month_text, session)
     except Exception:
         pass  # 合并失败不影响主数据
+
+    # 按角色过滤：sales 只看自己名下门店
+    payload = _filter_walkin_payload(payload, user, session)
 
     return payload
 
@@ -198,6 +201,26 @@ def _dealer_ids_for_user(user: User, session) -> list[str] | None:
         ).all()
         return list(stores)
     return None  # manager / admin: 不限
+
+
+def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
+    """按角色过滤 walkin payload 里的 stores 和 staff。
+    sales 只能看到自己名下门店；dealer 只能看到自己门店；manager/admin 不限。
+    """
+    allowed = _dealer_ids_for_user(user, session)
+    if allowed is None:
+        return payload  # manager / admin：全量可见
+
+    allowed_set = set(allowed)
+    if not allowed_set:
+        payload["stores"] = []
+        payload["staff"] = []
+        return payload
+
+    payload["stores"] = [s for s in payload.get("stores", []) if s.get("id") in allowed_set]
+    # staff 按所属门店过滤（storeId 字段）
+    payload["staff"] = [s for s in payload.get("staff", []) if s.get("storeId") in allowed_set]
+    return payload
 
 
 @router.get("/api/walkin-metrics")
