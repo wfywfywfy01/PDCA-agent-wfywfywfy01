@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新人培训 · SignalSeller × PDCA</title>
+  <link rel="stylesheet" href="/workbench-cockpit-shell.css?v=3" />
+  <style>
+    body{font-family:system-ui,sans-serif;background:#0b0d13;color:#e2e8f0;margin:0}
+    .wrap{max-width:960px;margin:0 auto;padding:20px}
+    h1{margin:0 0 6px;font-size:24px;color:#e2e8f0}
+    .sub{color:#475569;font-size:13px;margin-bottom:20px}
+    .progress-bar{height:10px;background:rgba(255,255,255,.07);border-radius:999px;overflow:hidden;margin:8px 0 18px}
+    .progress-bar i{display:block;height:100%;background:#4e9ef5;border-radius:999px}
+    .banner{background:rgba(78,158,245,.08);border:1px solid rgba(78,158,245,.2);
+            border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:#94a3b8}
+    .day{background:#13182a;border:1px solid rgba(255,255,255,.07);border-radius:14px;margin-bottom:14px;overflow:hidden}
+    .day-head{padding:14px 16px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.06)}
+    .day-head h2{margin:0;font-size:16px;color:#e2e8f0}
+    .day-head p{margin:4px 0 0;font-size:12px;color:#475569}
+    .mods{padding:8px 16px 14px}
+    .mod{display:flex;gap:12px;align-items:flex-start;padding:10px 0;
+         border-bottom:1px solid rgba(255,255,255,.04);font-size:13px}
+    .mod:last-child{border-bottom:none}
+    .mod.done{opacity:.6}
+    .mod .t{flex:1;color:#e2e8f0}
+    .mod .meta{color:#475569;white-space:nowrap}
+    .chip{display:inline-block;background:rgba(255,255,255,.06);border-radius:6px;
+          padding:2px 8px;font-size:11px;margin-right:6px;color:#94a3b8}
+    .btn-done{padding:4px 10px;border-radius:6px;border:1px solid rgba(78,158,245,.3);
+              background:rgba(78,158,245,.1);color:#4e9ef5;cursor:pointer;font-size:12px;transition:all .15s}
+    .btn-done:hover{background:rgba(78,158,245,.2)}
+    .btn-done:disabled{border-color:rgba(255,255,255,.1);color:#475569;background:transparent;cursor:default}
+    .links{margin-top:16px;display:flex;gap:12px;flex-wrap:wrap}
+    .links a{color:#4e9ef5;font-size:13px;text-decoration:none}
+    .links a:hover{text-decoration:underline}
+    .hw{margin:8px 16px 14px;padding:10px 12px;background:rgba(245,158,11,.08);
+        border-radius:8px;font-size:12px;color:#f59e0b}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 id="title">新人培训</h1>
+    <p class="sub" id="subtitle">SignalSeller 方法论 × 经销商 PDCA · 5 天上岗路径</p>
+    <div class="progress-bar"><i id="progressBar" style="width:0%"></i></div>
+    <div class="banner" id="banner">加载课表中…</div>
+    <div id="days"></div>
+    <div class="links">
+      <a href="/signalseller-center/">获客指挥</a>
+      <a href="/customer-mgmt">客户管理实操</a>
+      <a href="/logistics-center/">物流进展</a>
+      <a href="/pdca-vps">PDCA 日结</a>
+    </div>
+  </div>
+  <script>
+    var completed = new Set();
+    var progressData = {};
+    function esc(s) {
+      return String(s || '').replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+      });
+    }
+    async function markDone(moduleId, day, btn) {
+      btn.disabled = true;
+      var res = await fetch('/api/onboarding/complete', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ module_id: moduleId, day: day, score: 100 })
+      });
+      var data = await res.json();
+      if (data.ok) {
+        completed.add(moduleId);
+        progressData = data;
+        renderProgress();
+        renderDays(window._curriculum);
+      } else {
+        btn.disabled = false;
+        alert(data.detail || '打卡失败');
+      }
+    }
+    function renderProgress() {
+      var pct = progressData.progress_pct || 0;
+      document.getElementById('progressBar').style.width = pct + '%';
+      document.getElementById('banner').textContent =
+        '进度 ' + (progressData.completed_modules||0) + '/' + (progressData.total_modules||0) +
+        '（' + pct + '%）· 当前建议 Day ' + (progressData.current_day||1) +
+        (progressData.graduated ? ' · 已完成上岗课表' : '');
+    }
+    function renderDays(data) {
+      document.getElementById('days').innerHTML = (data.tracks || []).map(function (day) {
+        var mods = (day.modules || []).map(function (m) {
+          var done = completed.has(m.id);
+          var link = m.links && m.links[0] ? ' · <a href="' + esc(m.links[0]) + '">打开</a>' : '';
+          return '<div class="mod' + (done ? ' done' : '') + '">' +
+            '<div class="t"><b>' + esc(m.title) + '</b> ' + (done ? '✓' : '') + '<br>' +
+            '<span class="chip">' + esc(m.format) + '</span>' +
+            (m.agent ? '<span class="chip">' + esc(m.agent) + '</span>' : '') + link + '</div>' +
+            '<div class="meta">' + (m.duration_min || '') + ' 分</div>' +
+            '<button type="button" class="btn-done" ' + (done ? 'disabled' : '') +
+            ' data-id="' + esc(m.id) + '" data-day="' + day.day + '">' + (done ? '已完成' : '打卡') + '</button></div>';
+        }).join('');
+        var hw = (day.homework || []).length
+          ? '<div class="hw"><b>作业：</b>' + day.homework.map(esc).join('；') + '</div>' : '';
+        return '<section class="day"><div class="day-head"><h2>Day ' + day.day + ' · ' +
+          esc(day.theme) + '</h2><p>' + esc(day.subtitle) + '</p></div><div class="mods">' +
+          mods + '</div>' + hw + '</section>';
+      }).join('');
+      document.querySelectorAll('.btn-done').forEach(function (btn) {
+        btn.onclick = function () {
+          markDone(btn.getAttribute('data-id'), parseInt(btn.getAttribute('data-day'), 10), btn);
+        };
+      });
+    }
+    async function init() {
+      var res = await fetch('/api/onboarding/curriculum', { credentials: 'include' });
+      var data = await res.json();
+      window._curriculum = data;
+      document.getElementById('title').textContent = data.title || '新人培训';
+      try {
+        var pr = await fetch('/api/onboarding/progress', { credentials: 'include' });
+        if (pr.ok) {
+          progressData = await pr.json();
+          (progressData.completed_module_ids || []).forEach(function (id) { completed.add(id); });
+        }
+      } catch (_) {}
+      renderProgress();
+      renderDays(data);
+    }
+    init();
+  </script>
+</body>
+</html>

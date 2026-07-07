@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>获客指挥 · SignalSeller × PDCA</title>
+  <link rel="stylesheet" href="/workbench-cockpit-shell.css?v=3" />
+  <style>
+    body{font-family:system-ui,sans-serif;background:#0b0d13;margin:0;color:#e2e8f0}
+    .wrap{max-width:1180px;margin:0 auto;padding:20px}
+    h1{margin:0 0 4px;font-size:24px;color:#e2e8f0}
+    .sub{color:#475569;font-size:13px;margin-bottom:16px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+    .toolbar select{padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);
+                    font-size:14px;background:rgba(255,255,255,.05);color:#e2e8f0;outline:none}
+    .toolbar button{padding:8px 12px;border-radius:8px;
+                    background:rgba(78,158,245,.2);color:#4e9ef5;border:1px solid rgba(78,158,245,.3);cursor:pointer;font-size:14px}
+    .toolbar a{font-size:13px;color:#4e9ef5;text-decoration:none}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+    .stat{background:#13182a;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px}
+    .stat .k{font-size:12px;color:#475569}
+    .stat .v{font-size:26px;font-weight:700;margin-top:4px;color:#e2e8f0}
+    .alert{background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.2);color:#f43f5e;
+           border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;display:none}
+    .alert.show{display:block}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    @media(max-width:800px){.grid2{grid-template-columns:1fr}}
+    .panel{background:#13182a;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 16px}
+    .panel h2{margin:0 0 10px;font-size:15px;color:#e2e8f0}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    .tab{padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.1);
+         background:transparent;cursor:pointer;font-size:13px;color:#475569;transition:all .15s}
+    .tab.active{background:rgba(78,158,245,.12);border-color:rgba(78,158,245,.3);color:#4e9ef5;font-weight:600}
+    .card{border-bottom:1px solid rgba(255,255,255,.04);padding:12px 0;font-size:13px;color:#e2e8f0}
+    .card:last-child{border-bottom:none}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;color:#fff}
+    .badge.A{background:#dc2626}
+    .badge.B{background:#d97706}
+    .badge.C{background:#2563eb}
+    .badge.D{background:#475569}
+    .links{margin-top:16px;display:flex;gap:14px;flex-wrap:wrap}
+    .links a{color:#4e9ef5;font-size:13px;text-decoration:none}
+    .abcd-bar{display:flex;height:10px;border-radius:999px;overflow:hidden;margin:8px 0}
+    .abcd-bar span{display:block;height:100%}
+    .outreach-panel{margin-top:14px}
+    .outreach-panel textarea{width:100%;min-height:220px;border:1px solid rgba(255,255,255,.1);
+                             border-radius:10px;padding:12px;font-size:13px;font-family:inherit;
+                             background:rgba(255,255,255,.04);color:#e2e8f0;resize:vertical;box-sizing:border-box;outline:none}
+    .outreach-panel textarea:focus{border-color:#4e9ef5}
+    .outreach-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    @media(max-width:700px){.outreach-form{grid-template-columns:1fr}}
+    .outreach-form label{display:block;font-size:12px;color:#475569;margin-bottom:4px}
+    .outreach-form select{width:100%;padding:8px 10px;border-radius:8px;
+                          border:1px solid rgba(255,255,255,.1);font-size:13px;
+                          background:rgba(255,255,255,.05);color:#e2e8f0;outline:none}
+    .outreach-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+    .outreach-actions button{padding:8px 16px;border-radius:8px;
+                             background:rgba(78,158,245,.2);color:#4e9ef5;border:1px solid rgba(78,158,245,.3);cursor:pointer;font-size:13px}
+    .outreach-actions button:disabled{opacity:.5;cursor:not-allowed}
+    .outreach-actions button.secondary{background:rgba(255,255,255,.04);color:#94a3b8;border:1px solid rgba(255,255,255,.1)}
+    .spin-block{margin-bottom:10px;font-size:13px;color:#e2e8f0}
+    .spin-block ul{margin:4px 0 0 18px;color:#94a3b8}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>获客指挥</h1>
+    <p class="sub" id="scopeHint">SignalSeller · ABCD 分级 · 跟进任务 · PDCA 超期</p>
+    <div class="toolbar">
+      <label>销售 <select id="ownerFilter"><option value="">全部</option></select></label>
+      <button type="button" id="btnRefresh">刷新</button>
+      <a href="/customer-mgmt" style="font-size:13px;color:#2563eb">客户管理 →</a>
+      <a href="/onboarding-center/" style="font-size:13px;color:#2563eb">新人培训 →</a>
+    </div>
+    <div class="alert" id="alertBox"></div>
+    <div class="stats" id="stats"></div>
+    <div class="abcd-bar" id="abcdBar"></div>
+    <div class="tabs" id="gradeTabs">
+      <button class="tab active" data-abcd="all">全部</button>
+      <button class="tab" data-abcd="A">A 重点</button>
+      <button class="tab" data-abcd="B">B 培育</button>
+      <button class="tab" data-abcd="C">C 快单</button>
+      <button class="tab" data-abcd="overdue">超期/沉默</button>
+    </div>
+    <div class="grid2">
+      <div class="panel">
+        <h2>客户列表</h2>
+        <div id="customers"></div>
+      </div>
+      <div class="panel">
+        <h2>今日跟进建议（FollowUpOrchestrator）</h2>
+        <div id="tasks"></div>
+      </div>
+    </div>
+    <div class="panel outreach-panel">
+      <h2>触达文案 · OutreachCrafter</h2>
+      <p class="sub" style="margin-bottom:12px">FABE 邮件 / 一对一私信 / SPIN 问题卡 · 价值前置、零压力结尾</p>
+      <div class="outreach-form">
+        <div>
+          <label for="outreachCustomer">选择客户</label>
+          <select id="outreachCustomer"><option value="">— 请先刷新客户列表 —</option></select>
+        </div>
+        <div>
+          <label for="outreachType">模板类型</label>
+          <select id="outreachType">
+            <option value="fabe_email">FABE 邮件</option>
+            <option value="private_message">一对一私信</option>
+            <option value="spin">SPIN 问题卡</option>
+          </select>
+        </div>
+      </div>
+      <div class="outreach-actions">
+        <label style="font-size:12px;color:#64748b;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="outreachHermes" /> Hermes 润色
+        </label>
+        <button type="button" id="btnOutreachGen">生成文案</button>
+        <button type="button" id="btnOutreachCopy" class="secondary" disabled>复制文案</button>
+        <span id="outreachSource" style="font-size:12px;color:#94a3b8"></span>
+      </div>
+      <div id="outreachSpin" style="display:none"></div>
+      <textarea id="outreachResult" readonly placeholder="生成结果将显示在这里…"></textarea>
+    </div>
+    <div class="links">
+      <a href="/open-path?path=docs/SIGNALSELLER_PDCA_INTEGRATION.md">融合方案文档</a>
+    </div>
+  </div>
+  <script>
+    var currentAbcd = 'all';
+    /** @type {Object[]} 最近一次刷新的客户列表 */
+    var lastCustomerItems = [];
+    function esc(s) { return String(s||'').replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+    function qs() {
+      var q = new URLSearchParams();
+      var o = document.getElementById('ownerFilter').value;
+      if (o) q.set('owner', o);
+      if (currentAbcd === 'overdue') q.set('overdue_only', 'true');
+      else if (currentAbcd !== 'all') q.set('abcd', currentAbcd);
+      return q;
+    }
+    function renderAbcdBar(by) {
+      var total = (by.A||0)+(by.B||0)+(by.C||0)+(by.D||0) || 1;
+      var colors = {A:'#dc2626',B:'#d97706',C:'#2563eb',D:'#94a3b8'};
+      document.getElementById('abcdBar').innerHTML = ['A','B','C','D'].map(function(g){
+        var w = Math.round((by[g]||0)/total*100);
+        return w ? '<span style="width:'+w+'%;background:'+colors[g]+'" title="'+g+' '+by[g]+'"></span>' : '';
+      }).join('');
+    }
+    async function refresh() {
+      var q = qs();
+      var sum = await (await fetch('/api/signalseller/summary?'+q,{credentials:'include'})).json();
+      var list = await (await fetch('/api/signalseller/customers?'+q,{credentials:'include'})).json();
+      var tasks = await (await fetch('/api/signalseller/followup-tasks?'+q,{credentials:'include'})).json();
+      document.getElementById('scopeHint').textContent = '视角：'+(sum.owner||'全部')+(sum.role==='sales'?' · 仅本人客户':'');
+      document.getElementById('stats').innerHTML = [
+        ['客户总数', sum.total], ['A类', sum.by_abcd.A], ['超期', sum.overdue_count],
+        ['沉默≥7天', sum.silent_risk_count], ['沉默率', sum.silent_rate_pct+'%']
+      ].map(function(x){ return '<div class="stat"><div class="k">'+x[0]+'</div><div class="v">'+x[1]+'</div></div>'; }).join('');
+      renderAbcdBar(sum.by_abcd||{});
+      var alert = document.getElementById('alertBox');
+      var items = sum.attention_items||[];
+      if (items.length) {
+        alert.className = 'alert show';
+        alert.innerHTML = '<b>需关注 '+items.length+' 家</b>：'+items.map(function(x){
+          return esc(x.dealer_name)+'('+esc(x.abcd_grade)+','+(x.silent_days!=null?x.silent_days+'天':'—')+')';
+        }).join('； ');
+      } else { alert.className = 'alert'; }
+      document.getElementById('customers').innerHTML = (list.items||[]).map(function(c){
+        return '<div class="card"><span class="badge '+esc(c.abcd_grade)+'">'+esc(c.abcd_grade)+'</span> '+
+          '<b>'+esc(c.dealer_name)+'</b><br><span style="color:#64748b">'+esc(c.owner)+' · 沉默 '+
+          (c.silent_days!=null?c.silent_days+'天':'—')+' · '+esc(c.country||'')+'</span><br>'+
+          esc(c.suggested_action||c.next_action||'')+'</div>';
+      }).join('') || '<p style="color:#94a3b8">暂无客户</p>';
+      lastCustomerItems = list.items || [];
+      var sel = document.getElementById('outreachCustomer');
+      var prev = sel.value;
+      sel.innerHTML = '<option value="">— 请选择 —</option>' + lastCustomerItems.map(function(c, i){
+        return '<option value="'+i+'">'+esc(c.dealer_name)+' ('+esc(c.abcd_grade)+')</option>';
+      }).join('');
+      if (prev && sel.querySelector('option[value="'+prev+'"]')) sel.value = prev;
+      document.getElementById('tasks').innerHTML = (tasks.items||[]).map(function(t){
+        return '<div class="card"><span class="badge '+esc(t.abcd_grade)+'">'+esc(t.abcd_grade)+'</span> '+
+          '<b>'+esc(t.dealer_name)+'</b> · '+esc(t.owner)+'<br>'+esc(t.action)+'</div>';
+      }).join('') || '<p style="color:#94a3b8">暂无待跟进任务</p>';
+    }
+    document.getElementById('btnRefresh').onclick = refresh;
+    document.getElementById('ownerFilter').onchange = refresh;
+    document.getElementById('btnOutreachGen').onclick = async function(){
+      var idx = document.getElementById('outreachCustomer').value;
+      if (idx === '') { alert('请先选择客户'); return; }
+      var customer = lastCustomerItems[Number(idx)];
+      if (!customer) return;
+      var btn = document.getElementById('btnOutreachGen');
+      btn.disabled = true;
+      btn.textContent = '生成中…';
+      document.getElementById('outreachSource').textContent = '';
+      document.getElementById('outreachResult').value = '';
+      document.getElementById('outreachSpin').style.display = 'none';
+      document.getElementById('btnOutreachCopy').disabled = true;
+      try {
+        var res = await fetch('/api/signalseller/outreach/generate', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer: customer,
+            template_type: document.getElementById('outreachType').value,
+            use_hermes: document.getElementById('outreachHermes').checked
+          })
+        });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.detail || data.error || 'HTTP '+res.status);
+        document.getElementById('outreachSource').textContent = '来源：' + (data.source || 'template');
+        if (data.spin) {
+          document.getElementById('outreachResult').style.display = 'none';
+          var spinEl = document.getElementById('outreachSpin');
+          spinEl.style.display = 'block';
+          spinEl.innerHTML = Object.keys(data.spin).map(function(stage){
+            return '<div class="spin-block"><b>'+esc(stage)+'</b><ul>'+
+              (data.spin[stage]||[]).map(function(q){ return '<li>'+esc(q)+'</li>'; }).join('')+
+              '</ul></div>';
+          }).join('');
+        } else {
+          document.getElementById('outreachSpin').style.display = 'none';
+          document.getElementById('outreachResult').style.display = 'block';
+          document.getElementById('outreachResult').value = data.content || '';
+          document.getElementById('btnOutreachCopy').disabled = !data.content;
+        }
+      } catch (err) {
+        alert('生成失败：' + (err.message || err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '生成文案';
+      }
+    };
+    document.getElementById('btnOutreachCopy').onclick = function(){
+      var text = document.getElementById('outreachResult').value;
+      if (text) navigator.clipboard.writeText(text);
+    };
+    document.getElementById('outreachType').onchange = function(){
+      var isSpin = this.value === 'spin';
+      document.getElementById('outreachResult').style.display = isSpin ? 'none' : 'block';
+      document.getElementById('btnOutreachCopy').disabled = isSpin || !document.getElementById('outreachResult').value;
+    };
+    document.getElementById('gradeTabs').onclick = function(e){
+      var b = e.target.closest('.tab'); if (!b) return;
+      currentAbcd = b.getAttribute('data-abcd');
+      document.querySelectorAll('.tab').forEach(function(el){ el.classList.toggle('active', el===b); });
+      refresh();
+    };
+    (async function(){
+      try {
+        var res = await fetch('/api/signalseller/owners',{credentials:'include'});
+        if (res.ok) {
+          var data = await res.json();
+          data.items.forEach(function(n){
+            var o = document.createElement('option'); o.value=n; o.textContent=n;
+            document.getElementById('ownerFilter').appendChild(o);
+          });
+        }
+      } catch(_){}
+      var user = await fetch('/api/auth/me',{credentials:'include'});
+      if (user.ok) {
+        var u = await user.json();
+        if (u.role === 'sales') {
+          var name = u.sales_name || u.display_name;
+          document.getElementById('ownerFilter').value = name;
+          document.getElementById('ownerFilter').disabled = true;
+        }
+      }
+      refresh();
+    })();
+  </script>
+</body>
+</html>

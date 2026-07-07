@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>物流进展 · PDCA 工作台</title>
+  <link rel="stylesheet" href="/workbench-cockpit-shell.css?v=3" />
+  <style>
+    :root{--bg:#0b0d13;--card:#13182a;--text:#e2e8f0;--muted:#475569;
+          --border:rgba(255,255,255,.07);--blue:#4e9ef5;--green:#10b981;--amber:#f59e0b;--red:#f43f5e}
+    body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);margin:0}
+    .wrap{max-width:1180px;margin:0 auto;padding:20px}
+    h1{margin:0 0 4px;font-size:24px;color:var(--text)}
+    .sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+    .alert{display:none;background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.25);color:#f43f5e;
+           border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:13px}
+    .alert.show{display:block}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+             background:var(--card);border:1px solid var(--border);border-radius:12px;
+             padding:14px;margin-bottom:14px}
+    .toolbar label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+    .toolbar select,.toolbar input[type="date"],.toolbar input[type="search"]{
+      padding:8px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;font-size:14px;
+      background:rgba(255,255,255,.05);color:var(--text);outline:none}
+    .toolbar button,.btn{padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer;
+                         text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+    .btn-primary{background:rgba(78,158,245,.2);color:var(--blue);border:1px solid rgba(78,158,245,.3)}
+    .btn-ghost{background:rgba(255,255,255,.04);color:var(--muted);border:1px solid rgba(255,255,255,.1)}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    .tab{padding:8px 14px;border-radius:999px;border:1px solid var(--border);
+         background:transparent;font-size:13px;cursor:pointer;color:var(--muted);transition:all .15s}
+    .tab.active{background:rgba(78,158,245,.12);border-color:rgba(78,158,245,.3);color:var(--blue);font-weight:600}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+    .stat{background:var(--card);border-radius:12px;padding:14px;border:1px solid var(--border)}
+    .stat .k{font-size:12px;color:var(--muted)}
+    .stat .v{font-size:26px;font-weight:700;margin-top:4px;color:var(--text)}
+    .stat .v small{font-size:12px;color:var(--muted);font-weight:500}
+    .cards{display:grid;gap:12px}
+    .card{background:var(--card);border-radius:14px;padding:16px 18px;
+          border:1px solid var(--border);border-left:4px solid #475569}
+    .card.ok{border-left-color:var(--green)}
+    .card.warn { border-left-color: var(--amber); }
+    .card.bad { border-left-color: var(--red); }
+    .card-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+    .tracking { font-size: 17px; font-weight: 700; }
+    .tracking-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .badge { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; }
+    .badge.ok { background: var(--green); }
+    .badge.warn { background: var(--amber); }
+    .badge.bad { background: var(--red); }
+    .badge.mid { background: #64748b; }
+    .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 12px 0; font-size: 13px; color: #475569; }
+    .meta b { color: #334155; }
+    .bar { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+    .bar > i { display: block; height: 100%; border-radius: 999px; transition: width .3s; }
+    .bar > i.ok { background: var(--green); }
+    .bar > i.warn { background: var(--amber); }
+    .bar > i.bad { background: var(--red); }
+    .bar > i.mid { background: var(--blue); }
+    .reason { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+    .note{font-size:12px;color:var(--muted);background:rgba(255,255,255,.03);border-radius:8px;padding:8px 10px;margin-top:8px}
+    .actions{margin-top:10px;display:flex;flex-wrap:wrap;gap:12px}
+    .actions a{color:var(--blue);font-size:13px;text-decoration:none}
+    .actions a:hover{text-decoration:underline}
+    .empty,.loading{text-align:center;padding:48px 20px;color:var(--muted)}
+    .loading{display:none}
+    .loading.show{display:block}
+    .chip{display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.06);font-size:11px;color:#94a3b8}
+    @media (max-width: 640px) {
+      .wrap { padding: 14px; }
+      .tracking { font-size: 15px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>物流进展</h1>
+    <p class="sub" id="scopeHint">加载中…</p>
+
+    <div class="alert" id="alertBox"></div>
+
+    <div class="toolbar">
+      <label>批次
+        <select id="dateFilter">
+          <option value="all">全部日期</option>
+        </select>
+      </label>
+      <label id="salesWrap" style="display:none">销售
+        <select id="salesFilter"><option value="">全部</option></select>
+      </label>
+      <label>搜索
+        <input type="search" id="searchBox" placeholder="单号 / 客户 / 承运商" />
+      </label>
+      <label style="font-size:13px;color:#475569">
+        <input type="checkbox" id="openOnly" /> 仅看在途
+      </label>
+      <button type="button" class="btn btn-primary" id="btnRefresh">刷新</button>
+      <a class="btn btn-ghost" href="/logistics" id="entryLink">+ 录入单号</a>
+    </div>
+
+    <div class="tabs" id="statusTabs">
+      <button type="button" class="tab active" data-status="all">全部</button>
+      <button type="button" class="tab" data-status="attention">待关注</button>
+      <button type="button" class="tab" data-status="transit">运输中</button>
+      <button type="button" class="tab" data-status="delivered">已签收</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+    <p class="loading show" id="loading">正在加载物流数据…</p>
+    <div class="cards" id="list"></div>
+    <p class="empty" id="empty" style="display:none">
+      暂无符合条件的运单。<br />
+      <a href="/logistics" id="emptyEntry">去录入物流单号</a>
+      或切换「全部日期」查看历史批次。
+    </p>
+  </div>
+  <script>
+    var currentStatus = 'all';
+    var searchTimer = null;
+
+    function esc(s) {
+      return String(s || '').replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+      });
+    }
+
+    function badgeClass(j, delivered) {
+      if (delivered) return 'ok';
+      if (j === '正常') return 'ok';
+      if (j === '异常' || j === '待关注') return 'bad';
+      if (j === '运输中') return 'warn';
+      return 'mid';
+    }
+
+    function cardClass(j, delivered) {
+      if (delivered) return 'ok';
+      if (j === '正常') return 'ok';
+      if (j === '异常' || j === '待关注') return 'bad';
+      if (j === '运输中') return 'warn';
+      return '';
+    }
+
+    function barClass(j, delivered) {
+      return badgeClass(j, delivered);
+    }
+
+    function buildQuery() {
+      var qs = new URLSearchParams();
+      var date = document.getElementById('dateFilter').value;
+      var sales = document.getElementById('salesFilter').value;
+      var q = document.getElementById('searchBox').value.trim();
+      if (date) qs.set('date', date);
+      if (sales) qs.set('salesperson', sales);
+      if (currentStatus) qs.set('status', currentStatus);
+      if (q) qs.set('q', q);
+      if (document.getElementById('openOnly').checked) qs.set('open_only', 'true');
+      return qs;
+    }
+
+    async function loadUser() {
+      var res = await fetch('/api/auth/me', { credentials: 'include' });
+      return res.ok ? res.json() : null;
+    }
+
+    async function loadDates() {
+      try {
+        var res = await fetch('/api/logistics/dates', { credentials: 'include' });
+        if (!res.ok) return [];
+        var data = await res.json();
+        return data.items || [];
+      } catch (_) { return []; }
+    }
+
+    async function loadSalespeople() {
+      try {
+        var res = await fetch('/api/logistics/salespeople', { credentials: 'include' });
+        if (!res.ok) return [];
+        var data = await res.json();
+        return data.items || [];
+      } catch (_) { return []; }
+    }
+
+    function renderAlert(summary) {
+      var box = document.getElementById('alertBox');
+      var items = summary.attention_items || [];
+      if (!items.length) {
+        box.className = 'alert';
+        box.innerHTML = '';
+        return;
+      }
+      box.className = 'alert show';
+      box.innerHTML = '<b>需跟进 ' + summary.abnormal + ' 单</b>：' +
+        items.map(function (x) {
+          return esc(x.tracking_number) + '（' + esc(x.customer || '—') + '：' + esc(x.reason || x.judgement) + '）';
+        }).join('； ');
+    }
+
+    function renderStats(summary) {
+      document.getElementById('stats').innerHTML = [
+        ['总单数', summary.total, ''],
+        ['在途', summary.open, '未签收'],
+        ['已签收', summary.delivered, summary.delivery_rate_pct ? summary.delivery_rate_pct + '%' : ''],
+        ['待关注', summary.abnormal, '异常/超期'],
+        ['运输中', summary.in_transit, '']
+      ].map(function (x) {
+        return '<div class="stat"><div class="k">' + x[0] + '</div><div class="v">' + x[1] +
+          (x[2] ? ' <small>' + x[2] + '</small>' : '') + '</div></div>';
+      }).join('');
+    }
+
+    function renderCards(items) {
+      var box = document.getElementById('list');
+      document.getElementById('empty').style.display = items.length ? 'none' : 'block';
+      box.innerHTML = items.map(function (s) {
+        var j = s.judgement || '待核查';
+        var delivered = !!s.is_delivered;
+        var pct = s.progress_pct || 30;
+        var days = s.days_in_transit;
+        var daysText = days === null || days === undefined ? '—' : (days + ' 天');
+        var reportLink = s.check_report_exists && s.check_report_path
+          ? '<a href="/open-path?path=' + encodeURIComponent(s.check_report_path) + '">核查报告</a>'
+          : '';
+        return '<article class="card ' + cardClass(j, delivered) + '">' +
+          '<div class="card-head">' +
+          '<div><div class="tracking">' + esc(s.tracking_number) + ' · ' + esc(s.carrier || '—') + '</div>' +
+          '<div class="tracking-sub">批次 ' + esc(s.record_date || '—') +
+          (delivered ? ' · 已签收' : ' · 在途 ' + daysText) + '</div></div>' +
+          '<span class="badge ' + badgeClass(j, delivered) + '">' + (delivered ? '已签收' : esc(j)) + '</span></div>' +
+          '<div class="meta">' +
+          '<div><b>客户</b><br>' + esc(s.customer || '—') + '</div>' +
+          '<div><b>销售</b><br>' + esc(s.salesperson || '—') + '</div>' +
+          '<div><b>发货日</b><br>' + esc(s.ship_date || '—') + '</div>' +
+          '<div><b>当前状态</b><br>' + esc(s.current_status || '—') + '</div>' +
+          '<div><b>在途天数</b><br>' + daysText + '</div>' +
+          '<div><b>期望状态</b><br><span class="chip">' + esc(s.expected_status || '—') + '</span></div>' +
+          '</div>' +
+          '<div class="bar"><i class="' + barClass(j, delivered) + '" style="width:' + pct + '%"></i></div>' +
+          '<p class="reason">' + esc(s.reason || '') + '</p>' +
+          (s.note ? '<div class="note">备注：' + esc(s.note) + '</div>' : '') +
+          '<div class="actions">' +
+          (s.tracking_url ? '<a href="' + esc(s.tracking_url) + '" target="_blank" rel="noopener">官网查询</a>' : '') +
+          '<a href="/logistics?date=' + encodeURIComponent(s.record_date || '') + '">录入/更新</a>' +
+          reportLink +
+          '</div></article>';
+      }).join('');
+    }
+
+    async function refresh() {
+      var loading = document.getElementById('loading');
+      loading.className = 'loading show';
+      document.getElementById('list').innerHTML = '';
+      try {
+        var qs = buildQuery();
+        var pair = await Promise.all([
+          fetch('/api/logistics/summary?' + qs, { credentials: 'include' }),
+          fetch('/api/logistics/shipments?' + qs, { credentials: 'include' })
+        ]);
+        if (!pair[0].ok || !pair[1].ok) throw new Error('加载失败');
+        var summary = await pair[0].json();
+        var list = await pair[1].json();
+        var dateLabel = document.getElementById('dateFilter').value === 'all' ? '全部批次' : document.getElementById('dateFilter').value;
+        document.getElementById('scopeHint').textContent =
+          '视角：' + (list.salesperson || '全部') +
+          ' · ' + dateLabel +
+          (summary.role === 'sales' ? ' · 仅本人运单' : '');
+        renderAlert(summary);
+        renderStats(summary);
+        renderCards(list.items || []);
+      } catch (err) {
+        document.getElementById('scopeHint').textContent = '加载失败，请确认已登录且服务正常运行';
+        document.getElementById('empty').style.display = 'block';
+      } finally {
+        loading.className = 'loading';
+      }
+    }
+
+    document.getElementById('btnRefresh').addEventListener('click', refresh);
+    document.getElementById('dateFilter').addEventListener('change', refresh);
+    document.getElementById('salesFilter').addEventListener('change', refresh);
+    document.getElementById('openOnly').addEventListener('change', refresh);
+    document.getElementById('searchBox').addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(refresh, 300);
+    });
+    document.getElementById('statusTabs').addEventListener('click', function (e) {
+      var btn = e.target.closest('.tab');
+      if (!btn) return;
+      currentStatus = btn.getAttribute('data-status') || 'all';
+      document.querySelectorAll('.tab').forEach(function (el) {
+        el.classList.toggle('active', el === btn);
+      });
+      refresh();
+    });
+
+    (async function init() {
+      var params = new URLSearchParams(location.search);
+      var urlDate   = params.get('date');
+      var urlPeriod = params.get('period') || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) || 'day';
+
+      // 按 period 推算应选的日期
+      function _fmtD(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+      function _periodStart(anchor,period){
+        if(!anchor)return null;
+        var p=anchor.split('-'),d=new Date(+p[0],+p[1]-1,+p[2]),y=d.getFullYear(),m=d.getMonth();
+        if(period==='week'){var dow=d.getDay(),dt=dow===0?-6:1-dow,mon=new Date(d);mon.setDate(d.getDate()+dt);return _fmtD(mon);}
+        if(period==='month')return _fmtD(new Date(y,m,1));
+        if(period==='quarter')return _fmtD(new Date(y,Math.floor(m/3)*3,1));
+        return anchor;
+      }
+      // 选择器日期：period=day 选精确日期；其他尝试选最近匹配批次
+      var targetDate = urlPeriod === 'day' ? (urlDate || null) : _periodStart(urlDate, urlPeriod);
+
+      var dates = await loadDates();
+      var sel = document.getElementById('dateFilter');
+      dates.forEach(function (d) {
+        var opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        sel.appendChild(opt);
+      });
+      // 优先精确匹配；无匹配则 'all'
+      if (targetDate && dates.indexOf(targetDate) >= 0) {
+        sel.value = targetDate;
+      } else if (urlDate && (urlDate === 'all' || dates.indexOf(urlDate) >= 0)) {
+        sel.value = urlDate;
+      } else {
+        sel.value = 'all';
+      }
+
+      var entryDate = sel.value === 'all' ? (dates[0] || new Date().toISOString().slice(0, 10)) : sel.value;
+      document.getElementById('entryLink').href = '/logistics?date=' + encodeURIComponent(entryDate);
+      document.getElementById('emptyEntry').href = document.getElementById('entryLink').href;
+
+      var user = await loadUser();
+      if (user && (user.role === 'manager' || user.role === 'admin')) {
+        document.getElementById('salesWrap').style.display = '';
+        var names = await loadSalespeople();
+        names.forEach(function (n) {
+          var opt = document.createElement('option');
+          opt.value = n;
+          opt.textContent = n;
+          document.getElementById('salesFilter').appendChild(opt);
+        });
+      }
+      await refresh();
+    })();
+  </script>
+</body>
+</html>

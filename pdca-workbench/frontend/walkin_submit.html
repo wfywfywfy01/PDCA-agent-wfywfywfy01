@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>门店五件套日报 · PDCA 工作台</title>
+  <title>Store Five-Kit Daily Report · PDCA Workbench</title>
   <style>
     :root{--blue:#4e9ef5;--green:#10b981;--red:#f43f5e;--amber:#f59e0b;--purple:#a855f7;
           --bg:#0b0d13;--surf:#13182a;--surf2:#1a2035;--border:rgba(255,255,255,.07);
@@ -12,7 +12,7 @@
     body{font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
          background:var(--bg);color:var(--t1);min-height:100vh}
 
-    /* ── 顶栏 ── */
+    /* ── Top Bar ── */
     .topbar{background:rgba(11,13,19,.95);backdrop-filter:blur(12px);
             border-bottom:1px solid var(--border);padding:1rem 1.5rem;
             display:flex;align-items:center;gap:.75rem;position:sticky;top:0;z-index:100}
@@ -23,24 +23,24 @@
               padding:.35rem .8rem;border:1px solid rgba(255,255,255,.1);border-radius:6px;white-space:nowrap;transition:all .15s}
     .back-btn:hover{border-color:rgba(255,255,255,.2);color:var(--t2)}
 
-    /* ── Tab 栏 ── */
+    /* ── Tab Bar ── */
     .tabs{display:flex;border-bottom:1px solid var(--border);background:var(--surf);padding:0 1.5rem}
     .tab-btn{padding:.7rem 1.2rem;font-size:.875rem;font-weight:600;color:var(--t3);
              background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
     .tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
     .tab-panel{display:none}.tab-panel.active{display:block}
 
-    /* ── 布局 ── */
+    /* ── Layout ── */
     .container{max-width:800px;margin:1.5rem auto;padding:0 1rem 5rem}
     .container-wide{max-width:1100px;margin:1.5rem auto;padding:0 1rem 5rem}
 
-    /* ── 卡片 ── */
+    /* ── Card ── */
     .card{background:var(--surf);border-radius:14px;border:1px solid var(--border);padding:1.4rem 1.6rem;margin-bottom:1rem}
     .card-label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
                 color:var(--t3);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
     .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
 
-    /* ── 表单基础 ── */
+    /* ── Form Base ── */
     .field{margin-bottom:.85rem}
     label{display:block;font-size:.8rem;font-weight:600;color:var(--t2);margin-bottom:.3rem}
     label .req{color:var(--red);margin-left:2px}
@@ -52,11 +52,11 @@
     textarea{resize:vertical;min-height:60px}
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
 
-    /* ── 来源六格 ── */
+    /* ── Source Grid ── */
     .source-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem}
     .src-item{text-align:center}
     .src-en{font-size:.65rem;font-weight:700;color:var(--t3);letter-spacing:.03em;margin-bottom:.2rem}
-    .src-zh{font-size:.68rem;color:var(--t3);margin-bottom:.3rem}
+    .src-sub{font-size:.62rem;color:var(--t4,#334155);margin-bottom:.3rem}
     .src-item input{text-align:center;font-size:1.05rem;font-weight:700;padding:.45rem .15rem;border-radius:8px}
     .src-item.walkin input{border-color:rgba(168,85,247,.35);background:rgba(168,85,247,.07)}
     .src-item.walkin input:focus{border-color:#a855f7}
@@ -65,14 +65,14 @@
     .src-item.referral input{border-color:rgba(16,185,129,.3)}
     .src-item.sa input{border-color:rgba(245,158,11,.3)}
 
-    /* 合计条 */
+    /* Total Bar */
     .total-bar{background:rgba(78,158,245,.08);border:1px solid rgba(78,158,245,.2);
                border-radius:10px;padding:.6rem 1rem;
                margin-top:.75rem;display:flex;align-items:center;justify-content:space-between}
     .total-bar .tl{font-size:.8rem;color:var(--blue);font-weight:600}
     .total-bar .tv{font-size:1.4rem;font-weight:800;color:var(--blue)}
 
-    /* ── 产品展示 + 成交 ── */
+    /* ── Product Shown + Sales ── */
     .product-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;align-items:end}
     .product-grid .big-input input{
       text-align:center;font-size:1.4rem;font-weight:800;padding:.6rem .4rem;border-radius:10px}
@@ -88,20 +88,20 @@
                        text-align:right;margin-top:.3rem;background:rgba(16,185,129,.05)}
     .sellout-note{font-size:.68rem;color:var(--green);margin-top:.3rem;opacity:.8}
 
-    /* 提交按钮 */
+    /* Submit Button */
     .btn-submit{width:100%;padding:.85rem;font-size:.95rem;font-weight:700;
                 background:rgba(78,158,245,.25);color:var(--blue);
                 border:1px solid rgba(78,158,245,.4);border-radius:10px;cursor:pointer;transition:all .2s;margin-top:.5rem}
     .btn-submit:hover{background:rgba(78,158,245,.35);transform:translateY(-1px)}
     .btn-submit:disabled{opacity:.5;cursor:default;transform:none}
 
-    /* 提示 */
+    /* Alert */
     .hint{font-size:.68rem;color:var(--t3);margin-top:.25rem}
     .alert{padding:.75rem 1rem;border-radius:10px;margin-bottom:.85rem;font-size:.875rem;font-weight:600;display:none}
     .alert.ok{background:rgba(16,185,129,.1);color:var(--green);border:1px solid rgba(16,185,129,.25);display:block}
     .alert.err{background:rgba(244,63,94,.1);color:var(--red);border:1px solid rgba(244,63,94,.25);display:block}
 
-    /* ── 历史表 ── */
+    /* ── History Table ── */
     .filter-row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
     .filter-row input,.filter-row select{
       padding:.42rem .7rem;font-size:.8rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
@@ -129,7 +129,7 @@
     .empty{text-align:center;padding:2.5rem;color:var(--t3);font-size:.85rem}
     .hist-footer{margin-top:.6rem;font-size:.78rem;color:var(--t3)}
 
-    /* ── 响应式 ── */
+    /* ── Responsive ── */
     @media(max-width:600px){
       .source-grid{grid-template-columns:repeat(3,1fr)}
       .product-grid{grid-template-columns:1fr}
@@ -140,156 +140,99 @@
 </head>
 <body>
 
-<!-- ══════════ 强制改密蒙层 ══════════ -->
-<div id="pwOverlay" style="display:none;position:fixed;inset:0;background:#0b0d13;z-index:9999;
-     align-items:center;justify-content:center;padding:1rem">
-  <div style="background:#13182a;border:1px solid rgba(255,255,255,.1);border-radius:16px;
-              padding:2rem 2.5rem;width:100%;max-width:400px">
-    <div style="text-align:center;margin-bottom:1.75rem">
-      <div style="font-size:1.1rem;font-weight:800;color:#e2e8f0;margin-bottom:.5rem">
-        Set Your Password
-      </div>
-      <div style="font-size:.82rem;color:#475569;line-height:1.5">
-        For account security, please change your<br>initial password before continuing.
-        <br><span style="color:#64748b">请修改初始密码后继续使用</span>
-      </div>
-    </div>
-    <div id="pwErr" style="display:none;padding:.6rem .9rem;background:rgba(244,63,94,.1);
-         color:#f43f5e;border:1px solid rgba(244,63,94,.25);border-radius:8px;
-         font-size:.82rem;margin-bottom:.9rem;line-height:1.4"></div>
-    <div style="margin-bottom:.75rem">
-      <label style="display:block;font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:.3rem">
-        Current Password / 当前密码
-      </label>
-      <input type="password" id="pwOld" autocomplete="current-password"
-        style="width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
-               font-size:.9rem;color:#e2e8f0;background:rgba(255,255,255,.05);outline:none;
-               font-family:inherit;transition:border-color .2s"
-        placeholder="Current password"
-        onfocus="this.style.borderColor='#4e9ef5'" onblur="this.style.borderColor='rgba(255,255,255,.1)'" />
-    </div>
-    <div style="margin-bottom:.75rem">
-      <label style="display:block;font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:.3rem">
-        New Password / 新密码
-      </label>
-      <input type="password" id="pwNew" autocomplete="new-password"
-        style="width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
-               font-size:.9rem;color:#e2e8f0;background:rgba(255,255,255,.05);outline:none;
-               font-family:inherit;transition:border-color .2s"
-        placeholder="At least 8 characters / 至少 8 位"
-        onfocus="this.style.borderColor='#4e9ef5'" onblur="this.style.borderColor='rgba(255,255,255,.1)'" />
-    </div>
-    <div style="margin-bottom:1.4rem">
-      <label style="display:block;font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:.3rem">
-        Confirm Password / 确认密码
-      </label>
-      <input type="password" id="pwConfirm" autocomplete="new-password"
-        style="width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;
-               font-size:.9rem;color:#e2e8f0;background:rgba(255,255,255,.05);outline:none;
-               font-family:inherit;transition:border-color .2s"
-        placeholder="Repeat new password / 再次输入新密码"
-        onfocus="this.style.borderColor='#4e9ef5'" onblur="this.style.borderColor='rgba(255,255,255,.1)'"
-        onkeydown="if(event.key==='Enter')submitPwChange()" />
-    </div>
-    <button id="pwBtn" onclick="submitPwChange()"
-       style="width:100%;padding:.78rem;font-size:.92rem;font-weight:700;
-              background:rgba(78,158,245,.2);color:#4e9ef5;
-              border:1px solid rgba(78,158,245,.4);border-radius:10px;cursor:pointer;
-              transition:all .2s;font-family:inherit"
-       onmouseover="this.style.background='rgba(78,158,245,.32)'"
-       onmouseout="this.style.background='rgba(78,158,245,.2)'">
-      Confirm &amp; Continue / 确认修改
-    </button>
-  </div>
-</div>
-
 <div class="topbar">
   <div>
-    <div class="topbar-title">门店五件套日报</div>
+    <div class="topbar-title">Store Five-Kit Daily Report</div>
     <div class="topbar-sub">Walk-ins · Prospects · Appointments · Online · Referral · SA</div>
   </div>
 </div>
 
-<!-- ══════════ 录入 ══════════ -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('submit',this)">📝 Submit</button>
+  <button class="tab-btn" onclick="switchTab('history',this)">📋 History</button>
+</div>
+
+<!-- ══════════ Submit Tab ══════════ -->
+<div id="tab-submit" class="tab-panel active">
 <div class="container">
   <div id="alert" class="alert"></div>
   <form id="kitForm" novalidate>
 
-    <!-- 基本信息 -->
+    <!-- Basic Info -->
     <div class="card">
-      <div class="card-label"><span class="dot" style="background:#3b82f6"></span>基本信息</div>
+      <div class="card-label"><span class="dot" style="background:#3b82f6"></span>Basic Info</div>
       <div class="grid-2">
         <div class="field">
-          <label>日期<span class="req">*</span></label>
+          <label>Date<span class="req">*</span></label>
           <input type="date" id="report_date" required />
         </div>
         <div class="field" id="dealer_field">
-          <label>门店 / 经销商<span class="req">*</span></label>
+          <label>Store / Distributor<span class="req">*</span></label>
           <select id="dealer_id" required>
-            <option value="">— 加载中… —</option>
+            <option value="">— Loading… —</option>
           </select>
           <div id="dealer_display" style="display:none;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);border-radius:8px;font-size:.9rem;color:var(--t1);background:rgba(255,255,255,.03)"></div>
         </div>
       </div>
     </div>
 
-    <!-- 来源六件 -->
+    <!-- Traffic Sources -->
     <div class="card">
-      <div class="card-label"><span class="dot" style="background:#8b5cf6"></span>进店来源（人数）</div>
+      <div class="card-label"><span class="dot" style="background:#8b5cf6"></span>Traffic Sources (visitors)</div>
       <div class="source-grid">
         <div class="src-item walkin">
           <div class="src-en">Walk-ins</div>
-          <div class="src-zh">自然进店</div>
+          <div class="src-sub">Organic</div>
           <input type="number" id="walkin_visits" min="0" value="0" />
         </div>
         <div class="src-item">
           <div class="src-en">Prospects</div>
-          <div class="src-zh">潜在客户</div>
+          <div class="src-sub">Potential</div>
           <input type="number" id="prospect_visits" min="0" value="0" />
         </div>
         <div class="src-item appt">
           <div class="src-en">Appointments</div>
-          <div class="src-zh">预约进店</div>
+          <div class="src-sub">Booked</div>
           <input type="number" id="appointment_visits" min="0" value="0" />
         </div>
         <div class="src-item online">
           <div class="src-en">Online</div>
-          <div class="src-zh">线上引流</div>
+          <div class="src-sub">Digital</div>
           <input type="number" id="online_visits" min="0" value="0" />
         </div>
         <div class="src-item referral">
           <div class="src-en">Referral</div>
-          <div class="src-zh">介绍 / 转介</div>
+          <div class="src-sub">Word of mouth</div>
           <input type="number" id="referral_visits" min="0" value="0" />
         </div>
         <div class="src-item sa">
           <div class="src-en">SA</div>
-          <div class="src-zh">SA 主动</div>
+          <div class="src-sub">Proactive</div>
           <input type="number" id="sa_visits" min="0" value="0" />
         </div>
       </div>
       <div class="total-bar">
-        <span class="tl">Total Visitors（合计进店）</span>
+        <span class="tl">Total Visitors</span>
         <span class="tv" id="totalVisits">0</span>
       </div>
     </div>
 
-    <!-- 产品 -->
+    <!-- Product Interaction -->
     <div class="card">
-      <div class="card-label"><span class="dot" style="background:#f59e0b"></span>产品互动</div>
+      <div class="card-label"><span class="dot" style="background:#f59e0b"></span>Product Interaction</div>
       <div class="product-grid">
         <div class="big-input">
-          <label>Products Shown（产品展示 · 人次）</label>
+          <label>Products Shown (times)</label>
           <input type="number" id="touch_count" min="0" value="0" />
         </div>
         <div class="big-input">
-          <label>Products Sold（成交台数）</label>
+          <label>Products Sold (units)</label>
           <input type="number" id="deal_count" min="0" value="0" />
         </div>
       </div>
       <div style="margin-top:.6rem">
         <div class="conv-badge">
-          展示转化率（Products Sold ÷ Products Shown）
+          Conversion Rate (Products Sold ÷ Products Shown)
           <span class="cv" id="convRate">—</span>
         </div>
       </div>
@@ -302,14 +245,54 @@
       </div>
     </div>
 
-    <!-- 备注 -->
+    <!-- Notes -->
     <div class="card">
-      <div class="card-label"><span class="dot" style="background:#64748b"></span>备注（选填）</div>
-      <textarea id="notes" placeholder="活动说明、异常情况等…"></textarea>
+      <div class="card-label"><span class="dot" style="background:#64748b"></span>Notes (optional)</div>
+      <textarea id="notes" placeholder="Activities, exceptions, etc."></textarea>
     </div>
 
-    <button type="submit" class="btn-submit" id="submitBtn">提交日报</button>
+    <button type="submit" class="btn-submit" id="submitBtn">Submit</button>
   </form>
+</div>
+</div>
+
+<!-- ══════════ History Tab ══════════ -->
+<div id="tab-history" class="tab-panel">
+<div class="container-wide">
+  <div class="card" style="padding:1rem 1.25rem">
+    <div class="filter-row">
+      <input type="month" id="hist_month" />
+      <select id="hist_dealer"><option value="">All Stores</option></select>
+      <button class="btn-sm" onclick="loadHistory()">Refresh</button>
+      <a id="exportBtn" class="btn-export" style="margin-left:auto">⬇ Excel</a>
+    </div>
+    <div class="tbl-wrap">
+      <table class="hist-table">
+        <thead>
+          <tr>
+            <th class="left">Date</th>
+            <th class="left">Store</th>
+            <th>Walk-ins</th>
+            <th>Prospects</th>
+            <th>Appt.</th>
+            <th>Online</th>
+            <th>Referral</th>
+            <th>SA</th>
+            <th>Total</th>
+            <th>Shown</th>
+            <th>Sold</th>
+            <th>Revenue</th>
+            <th>Submitted By</th>
+          </tr>
+        </thead>
+        <tbody id="histBody">
+          <tr><td colspan="13" class="empty">Click "Refresh" to load data</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="hist-footer" id="histFooter"></div>
+  </div>
+</div>
 </div>
 
 <script>
@@ -317,115 +300,85 @@ var API = '';
 var storeMap = {};
 var _role = '';
 
-// 初始化日期
+// Initialize date
 (function(){
   var d = new Date();
   var today = d.toISOString().slice(0,10);
+  var ym    = today.slice(0,7);
   document.getElementById('report_date').value = today;
+  document.getElementById('hist_month').value  = ym;
+  document.getElementById('exportBtn').href = API + '/api/export/walkin-metrics?month=' + ym;
 })();
 
-// 从 URL 读取预设门店（?store=STORE_ID）
+// Read preset store from URL (?store=STORE_ID)
 var _presetStore = new URLSearchParams(location.search).get('store') || '';
 
-// ── 改密蒙层 ────────────────────────────────────────
-function showPwOverlay() {
-  var o = document.getElementById('pwOverlay');
-  o.style.display = 'flex';
-}
-function hidePwOverlay() {
-  document.getElementById('pwOverlay').style.display = 'none';
-}
-function showPwErr(msg) {
-  var el = document.getElementById('pwErr');
-  el.textContent = msg; el.style.display = 'block';
-}
-async function submitPwChange() {
-  var old = document.getElementById('pwOld').value;
-  var nw  = document.getElementById('pwNew').value;
-  var cf  = document.getElementById('pwConfirm').value;
-  document.getElementById('pwErr').style.display = 'none';
-  if (!old || !nw || !cf) { showPwErr('Please fill in all fields / 请填写所有字段'); return; }
-  if (nw.length < 8)      { showPwErr('New password must be at least 8 characters / 新密码至少 8 位'); return; }
-  if (nw !== cf)           { showPwErr('Passwords do not match / 两次密码不一致'); return; }
-  if (nw === old)          { showPwErr('New password must differ from current / 新密码不能与当前密码相同'); return; }
-  var btn = document.getElementById('pwBtn');
-  btn.disabled = true; btn.textContent = 'Saving… / 修改中…';
-  try {
-    var res = await fetch('/api/auth/change-password', {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ old_password: old, new_password: nw })
-    });
-    var data = await res.json();
-    if (res.ok) {
-      hidePwOverlay();
-      initPage();
-    } else {
-      showPwErr(data.detail || 'Failed / 修改失败');
-    }
-  } catch(e) {
-    showPwErr('Network error / 网络错误，请重试');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Confirm & Continue / 确认修改';
-  }
-}
-
-// ── 初始化门店 ───────────────────────────────────────
-function initPage() {
-  fetch(API + '/api/my-stores', {credentials:'include'})
-    .then(function(r){ return r.ok ? r.json() : []; })
-    .then(function(stores){
-      var sel = document.getElementById('dealer_id');
-      sel.innerHTML = stores.length
-        ? '<option value="">— 请选择门店 —</option>'
-        : '<option value="">— 无可用门店 —</option>';
-      stores.forEach(function(s){
-        storeMap[s.store_id] = s.name;
-        var lbl = s.name + '（' + s.country + ' · ' + (s.dealer_level||'L1') + '）';
-        sel.insertAdjacentHTML('beforeend',
-          '<option value="'+s.store_id+'" data-name="'+s.name+'">'+lbl+'</option>');
-      });
-      var lockId = '';
-      if (_role === 'dealer' && stores.length === 1) {
-        lockId = stores[0].store_id;
-      } else if (_presetStore) {
-        var found = stores.some(function(s){ return s.store_id === _presetStore; });
-        if (found) lockId = _presetStore;
-      }
-      if (lockId) {
-        sel.value = lockId;
-        if (_role === 'dealer') {
-          sel.style.display = 'none';
-          var display = document.getElementById('dealer_display');
-          display.style.display = 'block';
-          display.textContent = storeMap[lockId] || lockId;
-        } else {
-          sel.disabled = true;
-          sel.style.cssText = 'background:rgba(255,255,255,.03);color:#475569';
-        }
-      }
-      if (lockId && storeMap[lockId]) {
-        document.querySelector('.topbar-sub').textContent = storeMap[lockId];
-      }
-    })
-    .catch(function(){});
-}
-
-// ── 登录检测 ─────────────────────────────────────────
+// Load current user + visible stores
 fetch('/api/auth/me', {credentials:'include'})
   .then(function(r){ return r.ok ? r.json() : null; })
   .then(function(me){
     if (!me) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
     _role = me.role || '';
-    if (me.must_change_password) {
-      showPwOverlay();   // 强制改密，不加载门店
-    } else {
-      initPage();
-    }
+    return fetch(API + '/api/my-stores', {credentials:'include'})
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(stores){
+        var sel  = document.getElementById('dealer_id');
+        var hSel = document.getElementById('hist_dealer');
+        sel.innerHTML = stores.length
+          ? '<option value="">— Select a store —</option>'
+          : '<option value="">— No stores available —</option>';
+        stores.forEach(function(s){
+          storeMap[s.store_id] = s.name;
+          var lbl = s.name + ' (' + s.country + ' · ' + (s.dealer_level||'L1') + ')';
+          sel.insertAdjacentHTML('beforeend',
+            '<option value="'+s.store_id+'" data-name="'+s.name+'">'+lbl+'</option>');
+          hSel.insertAdjacentHTML('beforeend',
+            '<option value="'+s.store_id+'">'+s.name+'</option>');
+        });
+        // dealer role: hide store filter in history
+        if (_role === 'dealer') {
+          hSel.parentElement && (hSel.parentElement.style.display = 'none');
+          hSel.style.display = 'none';
+        }
+        // dealer role: lock to single store; or pre-select from URL param
+        var lockId = '';
+        if (_role === 'dealer' && stores.length === 1) {
+          lockId = stores[0].store_id;
+        } else if (_presetStore) {
+          var found = stores.some(function(s){ return s.store_id === _presetStore; });
+          if (found) lockId = _presetStore;
+        }
+        if (lockId) {
+          sel.value = lockId;
+          if (_role === 'dealer') {
+            // dealer role: hide dropdown, show store name as plain text
+            sel.style.display = 'none';
+            var display = document.getElementById('dealer_display');
+            display.style.display = 'block';
+            display.textContent = storeMap[lockId] || lockId;
+          } else {
+            sel.disabled = true;
+            sel.style.cssText = 'background:rgba(255,255,255,.03);color:#475569';
+          }
+        }
+        // Update subtitle with current store
+        if (lockId && storeMap[lockId]) {
+          document.querySelector('.topbar-sub').textContent = storeMap[lockId];
+        }
+      });
   })
   .catch(function(){});
 
-// 实时合计
+// Tab switch
+function switchTab(tab, btn){
+  document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('tab-'+tab).classList.add('active');
+  btn.classList.add('active');
+  if (tab === 'history') loadHistory();
+}
+
+// Live totals
 var srcIds = ['walkin_visits','prospect_visits','appointment_visits','online_visits','referral_visits','sa_visits'];
 function updateCalc(){
   var total = 0;
@@ -440,7 +393,7 @@ srcIds.concat(['touch_count','deal_count']).forEach(function(id){
   document.getElementById(id).addEventListener('input', updateCalc);
 });
 
-// 提交
+// Submit
 document.getElementById('kitForm').addEventListener('submit', function(e){
   e.preventDefault();
   var alertEl = document.getElementById('alert');
@@ -449,8 +402,8 @@ document.getElementById('kitForm').addEventListener('submit', function(e){
   var dSel    = document.getElementById('dealer_id');
   var did     = dSel.value;
   var dname   = (dSel.selectedOptions[0] && dSel.selectedOptions[0].getAttribute('data-name')) || did;
-  if (!date){ showErr('Please select a date / 请选择日期'); return; }
-  if (!did){  showErr('Please select a store / 请选择门店'); return; }
+  if (!date){ showErr('Please select a date'); return; }
+  if (!did){  showErr('Please select a store'); return; }
   var body = {
     report_date: date, dealer_id: did, dealer_name: dname,
     walkin_visits:       pInt('walkin_visits'),
@@ -465,7 +418,7 @@ document.getElementById('kitForm').addEventListener('submit', function(e){
     notes:               document.getElementById('notes').value.trim()
   };
   var btn = document.getElementById('submitBtn');
-  btn.disabled = true; btn.textContent = '提交中…';
+  btn.disabled = true; btn.textContent = 'Submitting…';
   fetch(API+'/api/walkin-metrics',{
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify(body), credentials:'include'
@@ -478,13 +431,13 @@ document.getElementById('kitForm').addEventListener('submit', function(e){
     if (!res) return;
     if (res.ok){
       alertEl.className='alert ok';
-      alertEl.textContent='✓ Saved / 已保存 — '+dname+' · '+date;
+      alertEl.textContent='✓ Saved — '+dname+' · '+date;
       window.scrollTo({top:0,behavior:'smooth'});
       resetForm();
-    } else { showErr((res.d&&res.d.detail)||'Submit failed / 提交失败'); }
+    } else { showErr((res.d&&res.d.detail)||'Submit failed'); }
   })
-  .catch(function(){ showErr('Network error, please retry / 网络错误，请重试'); })
-  .finally(function(){ btn.disabled=false; btn.textContent='Submit / 提交日报'; });
+  .catch(function(){ showErr('Network error, please retry'); })
+  .finally(function(){ btn.disabled=false; btn.textContent='Submit'; });
 });
 
 function pInt(id){ return parseInt(document.getElementById(id).value||'0',10)||0; }
@@ -501,6 +454,62 @@ function resetForm(){
   updateCalc();
 }
 
+// History
+function loadHistory(){
+  var month  = document.getElementById('hist_month').value;
+  var dealer = document.getElementById('hist_dealer').value;
+  document.getElementById('exportBtn').href =
+    API+'/api/export/walkin-metrics?month='+encodeURIComponent(month);
+  var url = API+'/api/walkin-metrics?month='+encodeURIComponent(month)
+                +'&dealer_id='+encodeURIComponent(dealer);
+  document.getElementById('histBody').innerHTML =
+    '<tr><td colspan="13" class="empty">Loading…</td></tr>';
+  fetch(url,{credentials:'include'})
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    var rows = data.items||[];
+    if (!rows.length){
+      document.getElementById('histBody').innerHTML =
+        '<tr><td colspan="13" class="empty">No data this period</td></tr>';
+      document.getElementById('histFooter').textContent='';
+      return;
+    }
+    var html=''; var totVisit=0,totShown=0,totSold=0,totAmt=0;
+    rows.forEach(function(r){
+      var fk = r.five_kit||{}; var fn = r.funnel||{};
+      var tv  = fk.total||0;
+      var amt = fn.deal_amount_yuan||0;
+      totVisit+=tv; totShown+=fn.touch_count||0; totSold+=fn.deal_count||0; totAmt+=amt;
+      function n(v){ return (v||0)===0 ? '<span class="num-zero">0</span>' : v; }
+      html+='<tr>'
+        +'<td class="left">'+r.report_date+'</td>'
+        +'<td class="left" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">'
+          +(storeMap[r.dealer_id]||r.dealer_id)+'</td>'
+        +'<td>'+n(fk.walkin)+'</td>'
+        +'<td>'+n(fk.prospect)+'</td>'
+        +'<td>'+n(fk.appointment)+'</td>'
+        +'<td>'+n(fk.online)+'</td>'
+        +'<td>'+n(fk.referral)+'</td>'
+        +'<td>'+n(fk.sa)+'</td>'
+        +'<td><strong>'+tv+'</strong></td>'
+        +'<td>'+n(fn.touch_count)+'</td>'
+        +'<td>'+n(fn.deal_count)+'</td>'
+        +'<td>'+(amt>0
+          ? '<span class="tag-green">¥'+(amt/10000).toFixed(2)+'w</span>'
+          : '<span class="num-zero">—</span>')+'</td>'
+        +'<td style="color:var(--s400);font-size:.72rem">'+(r.submitted_by||'—')+'</td>'
+        +'</tr>';
+    });
+    document.getElementById('histBody').innerHTML = html;
+    document.getElementById('histFooter').textContent =
+      rows.length+' records  |  Total Visits: '+totVisit+'  |  Shown: '+totShown
+      +'  |  Sold: '+totSold+'  |  Sell-out: ¥'+(totAmt/10000).toFixed(2)+'w';
+  })
+  .catch(function(){
+    document.getElementById('histBody').innerHTML=
+      '<tr><td colspan="13" class="empty">Failed to load</td></tr>';
+  });
+}
 </script>
 </body>
 </html>

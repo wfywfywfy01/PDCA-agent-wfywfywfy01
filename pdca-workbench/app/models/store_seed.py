@@ -41,7 +41,10 @@ _STORES: list[tuple[str, str, str, str, str, str]] = [
     ("sa005", "Sun International General Trading",        "南亚", "印度",         "L1", "april"),
     # ── 东南亚 ────────────────────────────────────────────────────────────────
     ("sea01", "BIN BIN INVESTMENT(CAMBODIA) CO LTD",      "东南亚", "柬埔寨",     "L1", "yubing"),
-    ("sea02", "VMG Communication and Technology JSC",     "东南亚", "越南",       "L2", "yubing"),
+    ("sea02a", "VMG Communication and Technology JSC · Saigon",    "东南亚", "越南", "L2", "yubing"),
+    ("sea02b", "VMG Communication and Technology JSC · Caravelle", "东南亚", "越南", "L2", "yubing"),
+    ("sea02c", "VMG Communication and Technology JSC · Majestic",  "东南亚", "越南", "L2", "yubing"),
+    ("sea02d", "VMG Communication and Technology JSC · REX",       "东南亚", "越南", "L2", "yubing"),
     ("sea03", "VST ECS (Thailand) Co., Ltd.",             "东南亚", "泰国",       "L1", "yubing"),
     ("sea04", "Zmc automotive Pte Ltd",                   "东南亚", "新加坡",     "L1", "helongcheng"),
     # ── 中亚 ──────────────────────────────────────────────────────────────────
