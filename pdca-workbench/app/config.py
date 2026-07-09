@@ -48,11 +48,20 @@ class Settings:
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.workers = int(os.environ.get("PDCA_WORKERS", "2"))
         self.secure_cookies = os.environ.get("PDCA_SECURE_COOKIES", "0") == "1"
-        self.auth_mode = os.environ.get("PDCA_AUTH_MODE", "local").strip().lower()
+        raw_mode = os.environ.get("PDCA_AUTH_MODE", "local").strip().lower()
+        if raw_mode not in ("local", "vps", "hybrid"):
+            raw_mode = "local"
+        self.auth_mode = raw_mode
         self.vps_login_url = os.environ.get(
             "PDCA_VPS_LOGIN_URL",
             "https://vps.vertu.cn",
         ).strip()
+        # 信任反向代理注入的 X-VPS-User-* / X-Forwarded-User（多用户生产）
+        self.trust_proxy_headers = os.environ.get("PDCA_TRUST_PROXY_HEADERS", "0") == "1"
+        # 每次 VPS 同步是否覆盖本地 role（默认 0，保留手工调权）
+        self.vps_sync_role = os.environ.get("PDCA_VPS_SYNC_ROLE", "0") == "1"
+        cors = os.environ.get("PDCA_CORS_ORIGINS", "").strip()
+        self.cors_origins = [o.strip() for o in cors.split(",") if o.strip()] if cors else []
         self.ssl_cert = os.environ.get("PDCA_SSL_CERT", "")
         self.ssl_key = os.environ.get("PDCA_SSL_KEY", "")
         self.pg_host = os.environ.get("PDCA_PG_HOST", "")

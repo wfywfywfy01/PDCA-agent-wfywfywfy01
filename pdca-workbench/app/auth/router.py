@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""认证 API 路由（含登录限速、强制改密、token 版本号）。"""
+"""认证 API 路由（含登录限速、强制改密、token 版本号、VPS bootstrap）。"""
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import defaultdict
 from datetime import timedelta
@@ -21,29 +22,35 @@ from app.database import get_session
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # ── 登录限速（内存，5 次失败锁 15 分钟）──────────────────────────────────────
-_FAIL_WINDOW = 300       # 5 分钟内
-_MAX_FAILS   = 5
-_LOCKOUT_SEC = 900       # 锁定 15 分钟
-
-# {key: [(timestamp, ...), ...]}
+_FAIL_WINDOW = 300
+_MAX_FAILS = 5
+_LOCKOUT_SEC = 900
 _fail_log: dict[str, list[float]] = defaultdict(list)
 
 
+def _client_ip(request: Request) -> str:
+    """取客户端 IP：优先最右侧 X-Forwarded-For（贴近真实客户端，防伪造链首）。"""
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else "unknown"
+
+
 def _rate_limit_key(request: Request, username: str) -> str:
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
-    return f"{ip}:{username}"
+    return f"{_client_ip(request)}:{username}"
 
 
 def _check_rate_limit(key: str) -> None:
     now = time.time()
     times = _fail_log[key]
-    # 清理超出窗口的记录
     _fail_log[key] = [t for t in times if now - t < _FAIL_WINDOW]
     if len(_fail_log[key]) >= _MAX_FAILS:
         wait = int(_LOCKOUT_SEC - (now - _fail_log[key][0]))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"登录失败次数过多，请 {max(wait//60,1)} 分钟后再试",
+            detail=f"登录失败次数过多，请 {max(wait // 60, 1)} 分钟后再试",
         )
 
 
@@ -54,8 +61,6 @@ def _record_fail(key: str) -> None:
 def _clear_fail(key: str) -> None:
     _fail_log.pop(key, None)
 
-
-# ── 请求体 ────────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
     username: str
@@ -75,8 +80,6 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
-# ── 端点 ──────────────────────────────────────────────────────────────────────
-
 @router.get("/config")
 async def auth_config():
     """公开：前端判断 local / vps / hybrid 认证模式。"""
@@ -84,20 +87,43 @@ async def auth_config():
     return {
         "auth_mode": settings.auth_mode,
         "vps_login_url": settings.vps_login_url,
+        "trust_proxy_headers": settings.trust_proxy_headers,
+        "default_next": "/",
     }
 
 
 @router.get("/vps-check")
-async def vps_check():
-    """公开：探测 vertu odoo me 是否可用（不写入本地用户）。"""
-    import asyncio
+async def vps_check(request: Request):
+    """
+    探测 VPS 身份是否可用（不写入本地用户）。
 
-    from app.auth.vps_identity import fetch_vps_me_payload, vps_profile
+    仅返回是否可用与脱敏姓名，不暴露 login / role 细节。
+    """
+    from app.auth.vps_identity import (
+        fetch_vps_me_payload,
+        identity_from_headers,
+        vps_display_name,
+    )
+
+    settings = get_settings()
+    if settings.trust_proxy_headers:
+        headers = {k.lower(): v for k, v in request.headers.items()}
+        identity = identity_from_headers(headers)
+        if identity:
+            return {
+                "ok": True,
+                "source": "proxy-header",
+                "profile": {"display_name": vps_display_name(identity)},
+            }
 
     vps = await asyncio.to_thread(fetch_vps_me_payload)
     if not vps:
         return {"ok": False, "detail": "未检测到 VPS 登录，请先 vertu login / 登录 Odoo"}
-    return {"ok": True, "profile": vps_profile(vps)}
+    return {
+        "ok": True,
+        "source": "vertu-me",
+        "profile": {"display_name": vps_display_name(vps)},
+    }
 
 
 @router.post("/vps-bootstrap")
@@ -107,8 +133,6 @@ async def vps_bootstrap(
 ):
     """
     VPS/hybrid 模式下签发 pdca_token Cookie，避免页面与 API 鉴权不一致。
-
-    需已通过 vertu odoo me 或本地 JWT 完成 get_current_user。
     """
     settings = get_settings()
     if settings.auth_mode not in ("vps", "hybrid"):
@@ -164,8 +188,7 @@ async def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号已停用")
 
     _clear_fail(key)
-    log_action(user.username, "login", ip=request.client.host if request.client else "")
-    settings = get_settings()
+    log_action(user.username, "login", ip=_client_ip(request))
     pwd_v = getattr(user, "pwd_version", 0) or 0
     token = create_access_token(
         {"sub": user.username, "role": user.role, "pwd_v": pwd_v},
@@ -202,22 +225,10 @@ async def logout(response: Response):
 
 @router.get("/me", response_model=UserOut)
 async def me(user: Annotated[User, Depends(get_current_user)]):
-    import asyncio
-
-    from app.auth.vps_identity import fetch_vps_me_payload, vps_display_name, vps_profile
-    from app.config import get_settings
-
-    settings = get_settings()
-    display = user.display_name
-    if settings.auth_mode in ("vps", "hybrid"):
-        vps = await asyncio.to_thread(fetch_vps_me_payload)
-        if vps:
-            prof = vps_profile(vps)
-            display = prof.get("display_name") or vps_display_name(vps)
     return UserOut(
         username=user.username,
         role=user.role,
-        display_name=display,
+        display_name=user.display_name,
         sales_name=getattr(user, "sales_name", "") or "",
         must_change_password=getattr(user, "must_change_password", False),
     )
@@ -231,7 +242,7 @@ async def change_password(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
 ):
-    """修改密码：验旧密 → 更新 + 递增 pwd_version（令旧 token 失效）+ 签发新 token。"""
+    """修改密码：验旧密 → 更新 + 递增 pwd_version + 签发新 token。"""
     if not verify_password(body.old_password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="原密码不正确")
     if len(body.new_password) < 8:
@@ -246,7 +257,6 @@ async def change_password(
     session.commit()
     session.refresh(user)
 
-    # 签发包含新 pwd_version 的 token，让前端无缝续期
     settings = get_settings()
     new_token = create_access_token(
         {"sub": user.username, "role": user.role, "pwd_v": user.pwd_version},
@@ -260,5 +270,5 @@ async def change_password(
         samesite="lax",
         max_age=settings.access_token_expire_minutes * 60,
     )
-    log_action(user.username, "change_password", ip=request.client.host if request.client else "")
+    log_action(user.username, "change_password", ip=_client_ip(request))
     return {"ok": True, "message": "密码已修改", "access_token": new_token}

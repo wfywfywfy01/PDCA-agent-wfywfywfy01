@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""VPS / vertu odoo me 身份解析与本地用户映射。"""
+"""VPS / vertu odoo me / 反向代理 Header 身份解析与本地用户映射。"""
 from __future__ import annotations
 
+import os
 import secrets
 import time
 from typing import Any
@@ -13,13 +14,16 @@ from app.auth.models import User
 from app.auth.security import hash_password
 from app.legacy import bridge
 
-_VPS_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
-_CACHE_SECONDS = 120
+_VPS_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None, "key": ""}
+_CACHE_SECONDS = 30
 
 
 def fetch_vps_me_payload() -> dict | None:
     """
-    读取 vertu `odoo me` 当前登录用户。
+    读取 vertu `odoo me` 当前登录用户（服务端会话）。
+
+    注意：多用户共享同一 PDCA 进程时，此身份为服务器 vertu 登录态，
+    生产多用户应优先使用反向代理注入的 Header（见 identity_from_headers）。
 
     @returns Odoo 用户 dict，失败返回 None
     """
@@ -32,10 +36,48 @@ def fetch_vps_me_payload() -> dict | None:
         if result.get("ok") and result.get("user"):
             _VPS_CACHE["ts"] = now
             _VPS_CACHE["payload"] = result["user"]
+            _VPS_CACHE["key"] = "vertu-me"
             return result["user"]
     except Exception as exc:
         logger.warning("VPS odoo me 失败: {}", exc)
     return None
+
+
+def identity_from_headers(headers: dict[str, str]) -> dict | None:
+    """
+    从反向代理注入的 Header 解析用户（多用户生产推荐）。
+
+    支持：
+    - X-VPS-User-Login / X-Forwarded-User
+    - X-VPS-User-Name
+    - X-VPS-Job-Title
+    - X-VPS-Department
+    - X-VPS-User-Role（可选：admin|manager|sales|dealer|viewer）
+
+    @param headers 小写 key 的 header 字典
+    """
+    login = (
+        headers.get("x-vps-user-login")
+        or headers.get("x-forwarded-user")
+        or headers.get("x-remote-user")
+        or ""
+    ).strip()
+    if not login:
+        return None
+    name = (headers.get("x-vps-user-name") or headers.get("x-forwarded-preferred-username") or "").strip()
+    job = (headers.get("x-vps-job-title") or "").strip()
+    dept = (headers.get("x-vps-department") or "").strip()
+    role_hint = (headers.get("x-vps-user-role") or "").strip().lower()
+    return {
+        "login": login,
+        "name": name or login,
+        "employee_name": name or login,
+        "display_name": name or login,
+        "job_title": job,
+        "department_name": dept,
+        "role_hint": role_hint,
+        "_source": "proxy-header",
+    }
 
 
 def _nested(row: dict, *keys: str) -> str:
@@ -48,10 +90,14 @@ def _nested(row: dict, *keys: str) -> str:
 
 def infer_pdca_role(vps: dict) -> str:
     """
-    从 VPS 用户信息推断 PDCA 角色。
+    从 VPS 用户信息推断 PDCA 角色。未匹配时默认 viewer（最小权限）。
 
-    @param vps odoo me 返回体
+    @param vps odoo me / header 身份
     """
+    hint = _nested(vps, "role_hint").lower()
+    if hint in ("admin", "manager", "sales", "dealer", "viewer"):
+        return hint
+
     groups = " ".join(
         str(vps.get(k) or "")
         for k in ("groups", "group_names", "roles", "role")
@@ -62,13 +108,17 @@ def infer_pdca_role(vps: dict) -> str:
 
     if any(k in groups for k in ("admin", "settings")) or vps.get("is_admin") in (True, 1, "1"):
         return "admin"
-    if "manager" in groups or "主管" in job or "总监" in job or "中台" in job:
-        return "manager"
-    if "经销商" in dept or "销售" in job or "dealer" in groups:
-        return "sales"
     if login in {"admin", "root"}:
         return "admin"
-    return "manager"
+    if "manager" in groups or "主管" in job or "总监" in job:
+        return "manager"
+    if "中台" in job or "中台" in dept or "数据分析" in job:
+        return "manager"
+    if "经销商" in dept or "dealer" in groups:
+        return "dealer"
+    if "销售" in job or "sales" in groups:
+        return "sales"
+    return "viewer"
 
 
 def vps_display_name(vps: dict) -> str:
@@ -87,12 +137,19 @@ def vps_username(vps: dict) -> str:
     return f"vps-{secrets.token_hex(4)}"
 
 
+def _sync_role_enabled() -> bool:
+    """是否每次同步覆盖本地 role（默认否，避免冲掉手工调权）。"""
+    return os.environ.get("PDCA_VPS_SYNC_ROLE", "0").strip() == "1"
+
+
 def ensure_vps_user(session: Session, vps: dict) -> User:
     """
     将 VPS 用户同步到本地 users 表（仅用于权限与展示，密码随机）。
 
+    新建用户时写入推断角色；已存在用户默认只更新姓名，不覆盖 role。
+
     @param session SQLModel session
-    @param vps odoo me payload
+    @param vps odoo me / header payload
     """
     username = vps_username(vps)
     name = vps_display_name(vps)
@@ -112,8 +169,10 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
         )
     else:
         user.display_name = name
-        user.role = role
-        user.sales_name = sales_name or user.sales_name
+        if _sync_role_enabled():
+            user.role = role
+        if role == "sales" and not (getattr(user, "sales_name", "") or ""):
+            user.sales_name = sales_name
         user.is_active = True
 
     session.add(user)
@@ -126,12 +185,14 @@ def vps_profile(vps: dict) -> dict:
     """@returns 前端展示用 profile"""
     name = vps_display_name(vps)
     job = _nested(vps, "job_title", "role", "title") or _nested(vps, "department_name", "department")
+    role = infer_pdca_role(vps)
     return {
         "username": vps_username(vps),
         "display_name": name,
-        "sales_name": name,
-        "role": infer_pdca_role(vps),
+        "sales_name": name if role == "sales" else "",
+        "role": role,
         "job_title": job,
         "vps_user_id": vps.get("user_id") or vps.get("id"),
         "login": vps.get("login"),
+        "source": vps.get("_source") or "vertu-me",
     }

@@ -5,13 +5,17 @@ from __future__ import annotations
 import asyncio
 from typing import Annotated, Callable
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from app.auth.models import ROLE_LEVELS, User
 from app.auth.security import decode_token
-from app.auth.vps_identity import ensure_vps_user, fetch_vps_me_payload
+from app.auth.vps_identity import (
+    ensure_vps_user,
+    fetch_vps_me_payload,
+    identity_from_headers,
+)
 from app.config import get_settings
 from app.database import get_session
 
@@ -42,8 +46,20 @@ async def _user_from_jwt(
     return user
 
 
+async def _user_from_proxy_headers(session: Session, request: Request) -> User | None:
+    """反向代理注入 Header → 本地用户。"""
+    settings = get_settings()
+    if not settings.trust_proxy_headers:
+        return None
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    identity = identity_from_headers(headers)
+    if not identity:
+        return None
+    return await asyncio.to_thread(ensure_vps_user, session, identity)
+
+
 async def _user_from_vps(session: Session) -> User | None:
-    """通过 vertu odoo me 解析当前 VPS 登录用户。"""
+    """通过 vertu odoo me 解析当前 VPS 登录用户（服务端会话）。"""
     vps = await asyncio.to_thread(fetch_vps_me_payload)
     if not vps:
         return None
@@ -51,11 +67,17 @@ async def _user_from_vps(session: Session) -> User | None:
 
 
 async def get_current_user(
+    request: Request,
     session: Annotated[Session, Depends(get_session)],
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)] = None,
     pdca_token: Annotated[str | None, Cookie()] = None,
 ) -> User:
-    """从 VPS 会话、Bearer 或 Cookie 解析当前用户。"""
+    """
+    解析当前用户，优先级：
+    1. 反向代理 Header（多用户生产）
+    2. JWT Cookie / Bearer（local / hybrid）
+    3. 服务端 vertu odoo me（vps / hybrid 兜底）
+    """
     settings = get_settings()
     mode = settings.auth_mode
     token = None
@@ -64,6 +86,12 @@ async def get_current_user(
     elif pdca_token:
         token = pdca_token
 
+    # 1) 代理 Header（所有模式均可，需显式开启）
+    proxy_user = await _user_from_proxy_headers(session, request)
+    if proxy_user:
+        return proxy_user
+
+    # 2) JWT
     if mode in ("hybrid", "local"):
         user = await _user_from_jwt(session, token)
         if user:
@@ -71,9 +99,11 @@ async def get_current_user(
         if mode == "local":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
 
-    user = await _user_from_vps(session)
-    if user:
-        return user
+    # 3) 服务端 vertu 会话
+    if mode in ("vps", "hybrid"):
+        user = await _user_from_vps(session)
+        if user:
+            return user
 
     if mode == "vps":
         raise HTTPException(

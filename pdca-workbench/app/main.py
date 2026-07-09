@@ -37,6 +37,7 @@ PUBLIC_PATHS = {
     "/openapi.json",
     "/redoc",
     "/health",
+    "/dashboard-theme.css",
     "/workbench-cockpit-shell.css",
 }
 
@@ -74,10 +75,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_settings0 = get_settings()
+_cors_origins = _settings0.cors_origins or ["*"]
+# credentials + "*" 浏览器会拒；有显式白名单时才开 credentials
+_cors_credentials = bool(_settings0.cors_origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -85,7 +90,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def auth_redirect_middleware(request: Request, call_next):
-    """未登录访问页面时跳转登录（API 返回 401）。VPS 模式由 vertu odoo me 鉴权。"""
+    """未登录访问页面时跳转登录（API 返回 401）。"""
     path = request.url.path
     if path in PUBLIC_PATHS or path.startswith("/shared/"):
         return await call_next(request)
@@ -93,7 +98,11 @@ async def auth_redirect_middleware(request: Request, call_next):
         return await call_next(request)
     if path.startswith("/walkin-cockpit/") and not path.endswith(".html"):
         return await call_next(request)
+    if path.startswith("/meeting-center/") and "." in path.split("/")[-1]:
+        return await call_next(request)
+
     settings = get_settings()
+    # vps/hybrid：页面放行，由路由 Depends(get_current_user) 鉴权
     if settings.auth_mode in ("vps", "hybrid"):
         return await call_next(request)
 
