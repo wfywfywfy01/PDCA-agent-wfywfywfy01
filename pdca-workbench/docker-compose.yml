@@ -1,3 +1,13 @@
+# PDCA 对内工作台 · Docker Compose
+# 用法（在完整仓库内）：
+#   cd /opt/PDCA-agent/pdca-workbench
+#   docker compose up -d --build
+#
+# 会自动：
+#   - 挂载 ../data_platform/data_role_pdca_mvp → /mvp（经营首页）
+#   - 挂载仓库根 → /repo
+#   - 使用 env.docker 默认配置（无需手写 .env）
+
 services:
   pdca-app:
     build: .
@@ -5,18 +15,28 @@ services:
     ports:
       - "8767:8767"
     env_file:
-      - .env
+      - path: env.docker
+        required: true
+      - path: .env
+        required: false
     environment:
-      - PDCA_HOST=0.0.0.0
-      - PDCA_WORKBENCH_PORT=8767
-      # 容器内路径（与下方 volumes 对应）
-      - PDCA_MVP_ROOT=/mvp
-      - PDCA_REPO_ROOT=/repo
+      PDCA_HOST: "0.0.0.0"
+      PDCA_WORKBENCH_PORT: "8767"
+      # 强制容器内路径，避免宿主机 Windows 路径写进 .env 导致首页不可用
+      PDCA_MVP_ROOT: /mvp
+      PDCA_REPO_ROOT: /repo
+      PDCA_AUTH_MODE: ${PDCA_AUTH_MODE:-hybrid}
+      PDCA_SECURE_COOKIES: ${PDCA_SECURE_COOKIES:-1}
     volumes:
       - ./data:/app/data
-      # 完整工作台：挂载同仓库 MVP + 仓库根（相对 docker-compose 所在目录）
       - ../data_platform/data_role_pdca_mvp:/mvp:ro
       - ../:/repo:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8767/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     networks:
       - pdca-net
@@ -29,10 +49,11 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # SSL 证书目录
+      # 若有证书可取消注释：
       # - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
-      - pdca-app
+      pdca-app:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - pdca-net
