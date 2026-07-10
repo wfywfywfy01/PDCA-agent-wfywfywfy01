@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import traceback
 from datetime import datetime
 from typing import Annotated
 
@@ -13,7 +14,8 @@ from sqlmodel import Session, select
 from app.audit import log_action
 from app.auth.deps import require_role
 from app.auth.models import ROLE_LEVELS, User
-from app.database import get_session
+from app.config import get_settings
+from app.database import check_db_connection, get_db_mode, get_session
 from app.legacy import bridge
 from app.models.audit_log import AuditLog
 from app.models.dealer_store import DealerStore
@@ -22,6 +24,78 @@ from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 from app.scheduler.jobs import backup_database, daily_sync_job
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+# ── 部署自检 ───────────────────────────────────────────────────────────────────
+
+@router.get("/diagnostics")
+async def diagnostics(_user: Annotated[User, Depends(require_role("admin"))] = None):
+    """一次性自检：MVP 模块目录 / 数据库连通性 / 关键配置，方便远程排障无需登服务器。"""
+    settings = get_settings()
+
+    module_dirs = {
+        "home_dashboard": settings.home_dashboard_dir,
+        "walkin_cockpit": settings.walkin_cockpit_dir,
+        "meeting_center": settings.meeting_center_dir,
+        "logistics_center": settings.logistics_center_dir,
+        "onboarding_center": settings.onboarding_center_dir,
+        "signalseller_center": settings.signalseller_center_dir,
+    }
+    modules = {
+        name: {
+            "path": str(path),
+            "dir_exists": path.is_dir(),
+            "index_html_exists": (path / "index.html").is_file(),
+        }
+        for name, path in module_dirs.items()
+    }
+
+    scripts_candidates = {
+        "mvp_scripts_dir": settings.scripts_dir,
+        "repo_scripts_dir": settings.repo_root / "scripts",
+    }
+    legacy_scripts = {
+        name: {
+            "path": str(path),
+            "dir_exists": path.is_dir(),
+            "pdca_workbench_py_exists": (path / "pdca_workbench.py").is_file(),
+        }
+        for name, path in scripts_candidates.items()
+    }
+
+    # 直接探测遗留 pdca_workbench.py 能否加载（不走 bridge.today_text() 的兜底逻辑），
+    # 捕获真实异常堆栈——这是 /walkin-cockpit、/logistics-center 等模块报错的根因来源。
+    legacy_bridge_probe: dict = {"ok": False, "error": None, "traceback": None}
+    try:
+        wb_module = bridge.wb()
+        legacy_bridge_probe = {"ok": True, "today_text": wb_module.today_text()}
+    except Exception as exc:  # noqa: BLE001
+        legacy_bridge_probe = {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(limit=6),
+        }
+
+    return {
+        "mvp_root": str(settings.mvp_root),
+        "mvp_root_exists": settings.mvp_root.is_dir(),
+        "repo_root": str(settings.repo_root),
+        "repo_root_exists": settings.repo_root.is_dir(),
+        "modules": modules,
+        "legacy_scripts": legacy_scripts,
+        "legacy_bridge_probe": legacy_bridge_probe,
+        "database": {
+            "mode": get_db_mode(),
+            "connected": check_db_connection(),
+            "pg_host": settings.pg_host,
+            "pg_database": settings.pg_database,
+        },
+        "auth_mode": settings.auth_mode,
+        "cors_origins": settings.cors_origins,
+        "secure_cookies": settings.secure_cookies,
+        "trust_proxy_headers": settings.trust_proxy_headers,
+        "vps_login_url": settings.vps_login_url,
+    }
 
 
 # ── 系统操作 ───────────────────────────────────────────────────────────────────

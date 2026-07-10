@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,11 @@ def wb():
 
 
 def today_text() -> str:
-    return wb().today_text()
+    """今日日期文本；遗留模块加载失败时退化为本机日期，避免各页面直接 500。"""
+    try:
+        return wb().today_text()
+    except Exception:
+        return datetime.now().strftime("%Y-%m-%d")
 
 
 def api_dashboard_overview(date_text: str, period: str = "day", session_user: dict | None = None) -> dict:

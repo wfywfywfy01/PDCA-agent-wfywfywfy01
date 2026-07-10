@@ -1,5 +1,4 @@
 import csv
-import cgi
 import html
 import json
 import mimetypes
@@ -3830,6 +3829,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         return parse_qs(raw)
 
     def read_multipart(self):
+        import cgi  # 独立 HTTP 服务模式专用；Python 3.13 移除该模块，故延迟到用到时才导入
         environ = {
             "REQUEST_METHOD": "POST",
             "CONTENT_TYPE": self.headers.get("Content-Type", ""),
