@@ -19,7 +19,14 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 WORKSPACE = _SCRIPTS_DIR.parent
-REPO_ROOT = WORKSPACE.parents[1]
+# Docker 部署下 /mvp 与 /repo 是两个独立 bind mount（不再是同一棵目录树的父子关系），
+# 优先信任 PDCA_REPO_ROOT；否则按源码仓库里 WORKSPACE 的实际嵌套深度回退。
+_env_repo_root = os.environ.get("PDCA_REPO_ROOT", "").strip()
+if _env_repo_root:
+    REPO_ROOT = Path(_env_repo_root)
+else:
+    _parents = WORKSPACE.parents
+    REPO_ROOT = _parents[1] if len(_parents) > 1 else _parents[0]
 RUN_SCRIPT = WORKSPACE / "scripts" / "run_data_role_pdca_daily.ps1"
 QUESTION_TEMPLATE = WORKSPACE / "templates" / "daily_questionnaire.md"
 HERMES_HOME = Path.home() / ".hermes" / "profiles"
