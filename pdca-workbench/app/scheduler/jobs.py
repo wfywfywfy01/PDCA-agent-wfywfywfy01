@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -16,9 +16,65 @@ from app.legacy import bridge
 from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 
 _scheduler: BackgroundScheduler | None = None
+_last_backup_error: str = ""
 
 
 _BACKUP_KEEP = 14  # 保留最近 N 份备份
+
+
+def _resolve_pg_dump() -> str | None:
+    """优先使用显式配置和较新的 PostgreSQL 客户端。"""
+    configured = get_settings().pg_dump_command
+    if configured:
+        path = Path(configured)
+        if path.is_file():
+            return str(path)
+        discovered = shutil.which(configured)
+        if discovered:
+            return discovered
+    candidates = ["pg_dump18", "pg_dump"]
+    program_files = os.environ.get("ProgramFiles", "")
+    if program_files:
+        pg_root = Path(program_files) / "PostgreSQL"
+        if pg_root.is_dir():
+            candidates = [
+                str(path) for path in sorted(
+                    pg_root.glob("*/bin/pg_dump.exe"),
+                    key=lambda p: p.parts[-3],
+                    reverse=True,
+                )
+            ] + candidates
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.is_file():
+            return str(path)
+        discovered = shutil.which(candidate)
+        if discovered:
+            return discovered
+    return None
+
+
+def backup_status() -> dict:
+    """供健康检查返回最近一次备份状态。"""
+    backup_dir = get_settings().data_dir / "backups"
+    files = sorted(
+        [
+            path for pattern in ("pdca_*.sql", "pdca_*.db")
+            for path in backup_dir.glob(pattern)
+            if path.stat().st_size > 0
+        ],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    latest = files[0] if files else None
+    fresh = bool(latest) and datetime.fromtimestamp(latest.stat().st_mtime) >= datetime.now() - timedelta(hours=36)
+    # /health 对公网开放，不把 pg_dump 的原始 stderr（可能包含主机信息）直接返回。
+    public_error = "备份任务失败，请查看服务日志" if _last_backup_error else None
+    return {
+        "ok": fresh and not _last_backup_error,
+        "latest_at": datetime.fromtimestamp(latest.stat().st_mtime).isoformat() if latest else None,
+        "last_error": public_error or (None if fresh else "最近 36 小时没有成功备份"),
+    }
 
 
 def _prune_backups(backup_dir: Path, pattern: str, keep: int) -> None:
@@ -34,37 +90,50 @@ def _prune_backups(backup_dir: Path, pattern: str, keep: int) -> None:
 
 def backup_database() -> str | None:
     """备份数据库：PostgreSQL 用 pg_dump，SQLite 用文件复制。"""
+    global _last_backup_error
     settings = get_settings()
     backup_dir = settings.data_dir / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     if settings.is_postgresql:
+        pg_dump = _resolve_pg_dump()
+        if not pg_dump:
+            _last_backup_error = "未找到兼容的 pg_dump"
+            logger.error(_last_backup_error)
+            return None
         info = settings.pg_connection_info
         dest = backup_dir / f"pdca_{stamp}.sql"
+        temp_dest = dest.with_suffix(".sql.tmp")
         env = os.environ.copy()
         if info.get("password"):
             env["PGPASSWORD"] = info["password"]
         cmd = [
-            "pg_dump",
+            pg_dump,
             "-h", info["host"],
             "-p", info["port"],
             "-U", info["user"],
             "-d", info["database"],
-            "-f", str(dest),
+            "-f", str(temp_dest),
             "--no-owner",
             "--no-acl",
         ]
         try:
             subprocess.run(cmd, env=env, check=True, capture_output=True, text=True)
+            temp_dest.replace(dest)
             logger.info("PostgreSQL 已备份: {}", dest)
+            _last_backup_error = ""
             _prune_backups(backup_dir, "pdca_*.sql", _BACKUP_KEEP)
             return str(dest)
         except FileNotFoundError:
-            logger.warning("未找到 pg_dump，跳过 PostgreSQL 备份")
+            temp_dest.unlink(missing_ok=True)
+            _last_backup_error = "未找到兼容的 pg_dump"
+            logger.warning(_last_backup_error)
             return None
         except subprocess.CalledProcessError as exc:
-            logger.error("pg_dump 失败: {}", exc.stderr or exc)
+            temp_dest.unlink(missing_ok=True)
+            _last_backup_error = (exc.stderr or str(exc)).strip()[:300]
+            logger.error("pg_dump 失败: {}", _last_backup_error)
             return None
 
     db_path = settings.data_dir / "pdca.db"
@@ -72,6 +141,7 @@ def backup_database() -> str | None:
         return None
     dest = backup_dir / f"pdca_{stamp}.db"
     shutil.copy2(db_path, dest)
+    _last_backup_error = ""
     logger.info("SQLite 已备份: {}", dest)
     _prune_backups(backup_dir, "pdca_*.db", _BACKUP_KEEP)
     return str(dest)

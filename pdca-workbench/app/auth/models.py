@@ -33,11 +33,3 @@ ROLE_LEVELS = {
     "manager": 3,  # 主管：查看所有数据
     "admin":  4,   # 管理员：全部权限
 }
-
-DEFAULT_USERS = [
-    ("admin", "admin123", "admin", "系统管理员", ""),
-    ("manager", "manager123", "manager", "海外中台主管", ""),
-    ("sales", "sales123", "sales", "何海文", "何海文"),
-    ("viewer", "viewer123", "viewer", "只读访客", ""),
-    ("may", "may123", "manager", "刘春梅", ""),
-]

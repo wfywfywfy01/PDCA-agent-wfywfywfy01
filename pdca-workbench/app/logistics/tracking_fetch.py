@@ -145,15 +145,15 @@ async def _fetch_one(browser, carrier: str, tracking_number: str) -> FetchResult
 
 
 async def _launch_browser(pw):
-    """UPS/DHL 等站点对无头 Chromium 直接重置 HTTP/2 连接（机器人检测），
-    必须以非无头模式启动真实 Chrome。要求运行环境有可用的图形会话
-    （Windows 本机/RDP 会话可用；无头 Linux 服务器需配 Xvfb 虚拟显示）。
-    """
+    """默认使用无头模式，保证后台服务和容器没有桌面会话时仍能运行。"""
+    import os
+
+    headless = os.environ.get("PDCA_TRACKING_HEADLESS", "1") == "1"
     try:
-        return await pw.chromium.launch(headless=False, channel="chrome")
+        return await pw.chromium.launch(headless=headless, channel="chrome")
     except Exception as exc:
-        logger.warning("未找到系统 Chrome，回退 Playwright 内置 Chromium（非无头）: {}", exc)
-        return await pw.chromium.launch(headless=False)
+        logger.warning("未找到系统 Chrome，回退 Playwright 内置 Chromium: {}", exc)
+        return await pw.chromium.launch(headless=headless)
 
 
 async def fetch_many(items: list[tuple[str, str]]) -> list[FetchResult]:

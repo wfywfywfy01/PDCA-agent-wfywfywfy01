@@ -104,6 +104,16 @@
     var _nextUrl = '/';
     var _authMode = 'local';
 
+    function safeNextUrl(raw) {
+      try {
+        var parsed = new URL(raw || '/', location.origin);
+        if (parsed.origin !== location.origin) return '/';
+        return parsed.pathname + parsed.search + parsed.hash;
+      } catch (_) {
+        return '/';
+      }
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async function (e) {
       e.preventDefault();
       var msgBox = document.getElementById('msgBox');
@@ -132,7 +142,7 @@
           return;
         }
         var params = new URLSearchParams(location.search);
-        _nextUrl = params.get('next') || '/';
+        _nextUrl = safeNextUrl(params.get('next'));
         _accessToken = data.access_token || '';
         if (data.must_change_password) {
           document.getElementById('cp_old').value = password;
@@ -207,7 +217,7 @@
      */
     (async function bootstrapAuth() {
       var params = new URLSearchParams(location.search);
-      _nextUrl = params.get('next') || '/';
+      _nextUrl = safeNextUrl(params.get('next'));
       if (params.get('manual') === '1' || params.get('local') === '1') return;
 
       var cfg = {};

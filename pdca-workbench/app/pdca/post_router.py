@@ -15,8 +15,13 @@ from app.models import writes as db_writes
 from app.models.sync import sync_daily_reports
 from app.pages.helpers import html_page
 from app.pdca.legacy_form import form_to_legacy
+from app.validation import require_iso_date
 
 router = APIRouter(tags=["pdca-forms"])
+
+
+def _date_or_today(value: str | None) -> str:
+    return require_iso_date(value or bridge.today_text())
 
 
 def _redirect(path: str, date_text: str, message: str = "") -> RedirectResponse:
@@ -30,7 +35,7 @@ async def post_questionnaire(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("sales"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
     bridge.save_questionnaire(date_text, form)
     qpath = bridge.questionnaire_path(date_text)
@@ -51,7 +56,7 @@ async def post_todos(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("sales"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
     bridge.append_todo(date_text, form)
     db_writes.insert_pdca_task(
@@ -71,7 +76,7 @@ async def post_logistics(
     date: str | None = None,
     user: Annotated[User, Depends(require_role("sales"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
     if user.role == "sales" and not (form.get("salesperson", [""])[0] or "").strip():
         sales_label = getattr(user, "sales_name", "") or user.display_name or user.username
@@ -92,7 +97,7 @@ async def post_run(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     code, stdout, stderr = bridge.run_pdca(date_text, push=False)
     if code == 0:
         sync_daily_reports(date_text)
@@ -107,7 +112,10 @@ async def post_pdca_task(
     _user: Annotated[User, Depends(require_role("sales"))] = None,
 ):
     form = form_to_legacy(await request.form())
-    task_date = (form.get("date", [date or bridge.today_text()])[0] or bridge.today_text())
+    task_date = require_iso_date(
+        form.get("date", [_date_or_today(date)])[0] or bridge.today_text(),
+        field="task_date",
+    )
     try:
         message = bridge.save_pdca_task_update(form)
         db_writes.update_pdca_task_from_form(
@@ -127,7 +135,7 @@ async def post_hermes_chat(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
     query_text = (form.get("query", [""])[0] or "").strip()
     result = bridge.run_hermes_chat(query_text)
@@ -142,7 +150,7 @@ async def post_agent_soul(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     agent_obj = bridge.agent_by_key(agent)
     if not agent_obj:
         return _redirect("/", date_text, "未知 Agent。")
@@ -160,7 +168,7 @@ async def post_agent_core_file(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     agent_obj = bridge.agent_by_key(agent)
     if not agent_obj or file not in bridge.agent_core_files():
         return _redirect("/", date_text, "未知 Agent 或文件。")
@@ -182,7 +190,7 @@ async def post_agent_skill(
     skill: UploadFile = File(...),
     _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     try:
         if not skill.filename:
             raise ValueError("没有收到 skill 文件。")

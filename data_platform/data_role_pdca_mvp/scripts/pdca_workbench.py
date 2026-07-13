@@ -63,7 +63,7 @@ def resolve_cockpit_asset(base_dir, root_dir, rel_path):
     if any(part in ("", ".", "..") for part in parts):
         return None
     target = (base_dir / rel).resolve()
-    if not str(target).startswith(str(root_dir)):
+    if not target.is_relative_to(Path(root_dir).resolve()):
         return None
     if not target.is_file():
         return None
@@ -2503,20 +2503,54 @@ def append_logistics(date_text, form):
 
 
 def run_pdca(date_text, push=False, start_date=None):
-    command = [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(RUN_SCRIPT),
-        "-Date",
-        date_text,
-    ]
-    if start_date:
-        command.extend(["-StartDate", start_date])
-    if push:
-        command.append("-Push")
+    if os.name == "nt" and RUN_SCRIPT.is_file():
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RUN_SCRIPT),
+            "-Date",
+            date_text,
+        ]
+        if start_date:
+            command.extend(["-StartDate", start_date])
+        if push:
+            command.append("-Push")
+    else:
+        # Linux/Docker 不依赖 PowerShell，直接调用同一底层 Python 流水线。
+        script = WORKSPACE / "scripts" / "data_role_pdca_daily.py"
+        command = [
+            sys.executable,
+            str(script),
+            "--date", date_text,
+            "--workspace", str(WORKSPACE),
+        ]
+        if start_date:
+            command.extend(["--start-date", start_date])
+
+        sources = read_json(WORKSPACE / "config" / "data_sources.json")
+        sales_json = Path(str(sources.get("sales_json") or ""))
+        if sales_json.is_file():
+            command.extend(["--sales-json", str(sales_json)])
+        else:
+            suffix = f"{start_date}_to_{date_text}" if start_date and start_date != date_text else date_text
+            cached = WORKSPACE.parents[1] / "data_raw" / f"dealer_sales_month_to_date_{suffix}.json"
+            if cached.is_file():
+                command.extend(["--sales-json", str(cached)])
+
+        sales_xlsx = Path(str(sources.get("sales_xlsx") or ""))
+        if "--sales-json" not in command and sources.get("allow_excel_demo") and sales_xlsx.is_file():
+            command.extend(["--sales-xlsx", str(sales_xlsx)])
+            if sources.get("sales_sheet"):
+                command.extend(["--sales-sheet", str(sources["sales_sheet"])])
+
+        logistics_csv = Path(str(sources.get("logistics_csv") or ""))
+        if logistics_csv.is_file():
+            command.extend(["--logistics-csv", str(logistics_csv)])
+        if push:
+            command.append("--push")
     try:
         completed = subprocess.run(
             command,

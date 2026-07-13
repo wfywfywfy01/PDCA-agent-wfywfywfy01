@@ -5,18 +5,24 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import quote, unquote, urlencode
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from loguru import logger
 
 from app.auth.deps import get_current_user, require_role
 from app.auth.models import User
 from app.config import get_settings
 from app.legacy import bridge
 from app.pages.helpers import html_page, inject_vue_shell
+from app.validation import require_iso_date, resolve_file_under
 
 router = APIRouter(tags=["pages"])
+
+
+def _date_or_today(value: str | None) -> str:
+    return require_iso_date(value or bridge.today_text())
 
 
 def _guess_media(path: Path) -> str:
@@ -33,11 +39,18 @@ def _serve_asset(resolver, rel_path: str) -> FileResponse:
 
 def _serve_skinned_html(path: Path, date_text: str, title: str, feature: str = "") -> HTMLResponse:
     if not path.is_file():
+        logger.error("模块页面文件不存在: {}", path)
         return _unavailable(feature or title)
     try:
-        html = bridge.skin_cockpit_html(path.read_text(encoding="utf-8"), date_text, title)
+        source = path.read_text(encoding="utf-8")
+        html = bridge.skin_cockpit_html(source, date_text, title)
         return html_page(html)
     except Exception:
+        logger.exception("模块页面套壳失败，回退到原始页面: {}", path)
+        try:
+            return html_page(path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.exception("模块原始页面读取失败: {}", path)
         return _unavailable(feature or title)
 
 
@@ -70,6 +83,7 @@ def _safe_bridge_page(fn, *args, feature: str = "", **kwargs) -> HTMLResponse:
     try:
         return html_page(fn(*args, **kwargs))
     except Exception:
+        logger.exception("Bridge 页面渲染失败: feature={} fn={}", feature, getattr(fn, "__name__", fn))
         return _unavailable(feature)
 
 
@@ -101,7 +115,7 @@ async def home_classic(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    return _safe_bridge_page(bridge.render_home, date or bridge.today_text(), message, feature="经营看板")
+    return _safe_bridge_page(bridge.render_home, _date_or_today(date), message, feature="经营看板")
 
 
 @router.get("/questionnaire")
@@ -110,7 +124,7 @@ async def questionnaire(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    return _safe_bridge_page(bridge.render_questionnaire, date or bridge.today_text(), message, feature="问卷")
+    return _safe_bridge_page(bridge.render_questionnaire, _date_or_today(date), message, feature="问卷")
 
 
 @router.get("/todos")
@@ -119,7 +133,7 @@ async def todos_page(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    return _safe_bridge_page(bridge.render_todos, date or bridge.today_text(), message, feature="待办中心")
+    return _safe_bridge_page(bridge.render_todos, _date_or_today(date), message, feature="待办中心")
 
 
 @router.get("/logistics")
@@ -129,11 +143,12 @@ async def logistics(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
     try:
-        html = bridge.render_logistics(date or bridge.today_text(), message)
+        date_text = _date_or_today(date)
+        html = bridge.render_logistics(date_text, message)
         html = html.replace(
             "录入物流单号</h2>",
             '录入物流单号</h2><p style="margin:6px 0 0"><a href="/logistics-center/?date='
-            + (date or bridge.today_text())
+            + date_text
             + '">查看物流进展看板 →</a></p>',
             1,
         )
@@ -155,7 +170,7 @@ async def im_unread(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    return _safe_bridge_page(bridge.render_im_unread, date or bridge.today_text(), message, feature="IM 未读")
+    return _safe_bridge_page(bridge.render_im_unread, _date_or_today(date), message, feature="IM 未读")
 
 
 @router.get("/customer-mgmt")
@@ -164,7 +179,7 @@ async def customer_mgmt(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
     try:
-        date_text = date or bridge.today_text()
+        date_text = _date_or_today(date)
         err = bridge.ensure_customer_server()
         if err:
             return _redirect_msg("/", date_text, err)
@@ -178,9 +193,9 @@ async def agent_soul(
     agent: str = Query(""),
     date: str | None = None,
     message: str = Query(""),
-    user: Annotated[User, Depends(get_current_user)] = None,
+    user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
-    return _safe_bridge_page(bridge.render_agent_soul, date or bridge.today_text(), agent, message, feature="Agent 管理")
+    return _safe_bridge_page(bridge.render_agent_soul, _date_or_today(date), agent, message, feature="Agent 管理")
 
 
 @router.get("/agent-edit")
@@ -189,9 +204,9 @@ async def agent_edit(
     file: str = Query("SOUL.md"),
     date: str | None = None,
     message: str = Query(""),
-    user: Annotated[User, Depends(get_current_user)] = None,
+    user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
-    return _safe_bridge_page(bridge.render_agent_edit, date or bridge.today_text(), agent, file, message, feature="Agent 编辑")
+    return _safe_bridge_page(bridge.render_agent_edit, _date_or_today(date), agent, file, message, feature="Agent 编辑")
 
 
 @router.get("/view-path")
@@ -201,7 +216,16 @@ async def view_path(
     from_url: str = Query("", alias="from"),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    return _safe_bridge_page(bridge.render_view_path, date or bridge.today_text(), path, from_url, feature="文件查看")
+    from app.files.router import _resolve_safe
+
+    resolved = _resolve_safe(path)
+    return _safe_bridge_page(
+        bridge.render_view_path,
+        _date_or_today(date),
+        str(resolved),
+        from_url,
+        feature="文件查看",
+    )
 
 
 @router.get("/open")
@@ -210,7 +234,7 @@ async def open_target(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     file_path = bridge.latest_output_file(date_text, target)
     if file_path and file_path.is_file():
         return RedirectResponse(f"/api/files/download?path={quote(str(file_path))}")
@@ -232,7 +256,7 @@ async def open_path_route(
     """
     from app.files.router import _resolve_safe
 
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     try:
         resolved = _resolve_safe(path)
         return RedirectResponse(f"/api/files/download?path={quote(str(resolved))}")
@@ -245,9 +269,9 @@ async def open_path_route(
 async def open_im_channel(
     channel_id: str = Query(""),
     date: str | None = None,
-    user: Annotated[User, Depends(get_current_user)] = None,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = _date_or_today(date)
     msg = bridge.open_im_channel(channel_id)
     return _redirect_msg("/im-unread", date_text, msg)
 
@@ -265,11 +289,18 @@ async def cockpit_shell_css():
 def _serve_module(index: Path, date_text: str, title: str, feature: str) -> HTMLResponse:
     """通用模块页面加载，文件不存在时返回友好提示。"""
     if not index.is_file():
+        logger.error("模块入口文件不存在: feature={} path={}", feature, index)
         return _unavailable(feature)
     try:
-        html = bridge.skin_cockpit_html(index.read_text(encoding="utf-8"), date_text, title)
+        source = index.read_text(encoding="utf-8")
+        html = bridge.skin_cockpit_html(source, date_text, title)
         return html_page(html)
     except Exception:
+        logger.exception("模块页面套壳失败，回退到原始页面: feature={} path={}", feature, index)
+        try:
+            return html_page(index.read_text(encoding="utf-8"))
+        except Exception:
+            logger.exception("模块原始页面读取失败: feature={} path={}", feature, index)
         return _unavailable(feature)
 
 
@@ -282,7 +313,7 @@ async def walkin_index(
     settings = get_settings()
     return _serve_module(
         settings.walkin_cockpit_dir / "index.html",
-        date or bridge.today_text(),
+        _date_or_today(date),
         "客流接待台", "客流接待台",
     )
 
@@ -295,9 +326,8 @@ async def walkin_assets(
 ):
     if rel_path.endswith(".html"):
         settings = get_settings()
-        path = settings.walkin_cockpit_dir / unquote(rel_path)
-        if path.is_file():
-            return _serve_module(path, date or bridge.today_text(), "客流分析台", "客流分析台")
+        path = resolve_file_under(settings.walkin_cockpit_dir, rel_path)
+        return _serve_module(path, _date_or_today(date), "客流分析台", "客流分析台")
     try:
         return _serve_asset(bridge.resolve_walkin_asset, rel_path)
     except Exception:
@@ -309,7 +339,7 @@ async def walkin_assets(
 @router.get("/online-cockpit/")
 @router.get("/online-cockpit/{rel_path:path}")
 async def online_redirect(date: str | None = None):
-    q = f"?date={date}" if date else ""
+    q = f"?date={_date_or_today(date)}" if date else ""
     return RedirectResponse(f"/walkin-cockpit/{q}#oi-merged")
 
 
@@ -322,7 +352,7 @@ async def logistics_center_index(
     settings = get_settings()
     return _serve_module(
         settings.logistics_center_dir / "index.html",
-        date or bridge.today_text(),
+        _date_or_today(date),
         "物流进展", "物流中心",
     )
 
@@ -333,10 +363,7 @@ async def logistics_center_assets(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
     settings = get_settings()
-    target = (settings.logistics_center_dir / unquote(rel_path)).resolve()
-    root = settings.logistics_center_dir.resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
-        raise HTTPException(status_code=404)
+    target = resolve_file_under(settings.logistics_center_dir, rel_path)
     return FileResponse(target, media_type=_guess_media(target))
 
 
@@ -349,7 +376,7 @@ async def meeting_center_index(
     settings = get_settings()
     return _serve_module(
         settings.meeting_center_dir / "index.html",
-        date or bridge.today_text(),
+        _date_or_today(date),
         "会议中心", "会议中心",
     )
 
@@ -360,10 +387,7 @@ async def meeting_center_assets(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
     settings = get_settings()
-    target = (settings.meeting_center_dir / unquote(rel_path)).resolve()
-    root = settings.meeting_center_dir.resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
-        raise HTTPException(status_code=404)
+    target = resolve_file_under(settings.meeting_center_dir, rel_path)
     return FileResponse(target, media_type=_guess_media(target))
 
 
@@ -376,7 +400,7 @@ async def onboarding_center_index(
     settings = get_settings()
     return _serve_module(
         settings.onboarding_center_dir / "index.html",
-        date or bridge.today_text(),
+        _date_or_today(date),
         "新人培训", "新人培训",
     )
 
@@ -387,20 +411,14 @@ async def onboarding_center_assets(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
     settings = get_settings()
-    target = (settings.onboarding_center_dir / unquote(rel_path)).resolve()
-    root = settings.onboarding_center_dir.resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
-        raise HTTPException(status_code=404)
+    target = resolve_file_under(settings.onboarding_center_dir, rel_path)
     return FileResponse(target, media_type=_guess_media(target))
 
 
 @router.get("/shared/{rel_path:path}")
 async def shared_assets(rel_path: str):
     settings = get_settings()
-    target = (settings.frontend_dir / "shared" / unquote(rel_path)).resolve()
-    root = (settings.frontend_dir / "shared").resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
-        raise HTTPException(status_code=404)
+    target = resolve_file_under(settings.frontend_dir / "shared", rel_path)
     return FileResponse(target, media_type=_guess_media(target))
 
 

@@ -17,10 +17,12 @@ from sqlmodel import Session, select
 from app.audit import log_action
 from app.auth.deps import get_current_user, require_role
 from app.auth.models import User
+from app.auth.scope import visible_dealer_names, visible_store_ids
 from app.database import get_session
 from app.legacy import bridge
 from app.models.dealer_store import DealerStore
 from app.models.walkin_daily_report import WalkinDailyReport
+from app.validation import require_iso_date
 
 router = APIRouter(tags=["walkin"])
 
@@ -52,7 +54,7 @@ async def walkin_api(
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    date_text = date or bridge.today_text()
+    date_text = require_iso_date(date or bridge.today_text())
     month_text = month.strip()
     if not re.fullmatch(r"\d{4}-\d{2}", month_text):
         month_text = date_text[:7]
@@ -79,7 +81,7 @@ async def online_channel(
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
     try:
-        return bridge.build_online_channel_payload(date or bridge.today_text())
+        return bridge.build_online_channel_payload(require_iso_date(date or bridge.today_text()))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -203,14 +205,7 @@ async def submit_walkin_metrics(
 
 def _dealer_ids_for_user(user: User, session) -> list[str] | None:
     """返回当前用户可见的 dealer_id 列表；None 表示不限制（manager/admin）。"""
-    if user.role == "dealer":
-        return [user.dealer_id] if user.dealer_id else []
-    if user.role == "sales":
-        stores = session.exec(
-            select(DealerStore.store_id).where(DealerStore.sales_owner == user.username)
-        ).all()
-        return list(stores)
-    return None  # manager / admin: 不限
+    return visible_store_ids(user, session)
 
 
 def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
@@ -530,6 +525,7 @@ def _run_dealer_vps_query(run_date: str, *, start_date: str = "", end_date: str 
 @router.get("/api/vps/dealer-sales")
 async def vps_dealer_sales(
     user: Annotated[User, Depends(require_role("viewer"))],
+    session: Annotated[Session, Depends(get_session)],
     month: str = Query(""),
     start: str = Query(""),
     end:   str = Query(""),
@@ -559,6 +555,18 @@ async def vps_dealer_sales(
 
     try:
         data = _run_dealer_vps_query(run_date, start_date=start_date, end_date=end_date)
+        names = visible_dealer_names(user, session)
+        if names is not None:
+            allowed = {name.casefold() for name in names}
+            data = dict(data)
+            data["dealers"] = [
+                row for row in data.get("dealers", [])
+                if str(row.get("dealer_name") or "").casefold() in allowed
+            ]
+            data["total"] = round(
+                sum(float(row.get("sell_out_yuan") or 0) for row in data["dealers"]),
+                2,
+            )
         return data
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"VPS 查询失败: {exc}") from exc
@@ -601,6 +609,7 @@ def _run_vps_no_params(script_path: Path) -> dict:
 @router.get("/api/vps/dealer-activation")
 async def vps_dealer_activation(
     user: Annotated[User, Depends(require_role("viewer"))],
+    session: Annotated[Session, Depends(get_session)],
 ):
     """从 VPS 拉取海外经销商累计激活数据（serial_mark）。
     返回 {dealers:[{dealer_name, shipped_vsn, activated, not_activated}], total_overseas_stock}
@@ -610,7 +619,8 @@ async def vps_dealer_activation(
     if _vps_activation_cache:
         ts, data = _vps_activation_cache
         if time.time() - ts < _VPS_ACTIVATION_TTL:
-            return data
+            names = visible_dealer_names(user, session)
+            return _scope_activation_payload(data, names)
 
     if not _ACTIVATION_SCRIPT.is_file():
         raise HTTPException(status_code=500, detail="激活查询脚本不存在")
@@ -618,6 +628,35 @@ async def vps_dealer_activation(
     try:
         data = _run_vps_no_params(_ACTIVATION_SCRIPT)
         _vps_activation_cache = (time.time(), data)
-        return data
+        names = visible_dealer_names(user, session)
+        return _scope_activation_payload(data, names)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"VPS 激活查询失败: {exc}") from exc
+
+
+def _scope_activation_payload(data: dict, names: list[str] | None) -> dict:
+    """dealer/sales 仅返回自己门店的激活数据，并重算汇总。"""
+    if names is None:
+        return data
+    allowed = {name.casefold() for name in names}
+    scoped = dict(data)
+    dealers = [
+        row for row in data.get("dealers", [])
+        if str(row.get("dealer_name") or "").casefold() in allowed
+    ]
+    shipped = sum(int(row.get("shipped") or 0) for row in dealers)
+    activated = sum(int(row.get("activated") or 0) for row in dealers)
+    local_activated = sum(int(row.get("local_activated") or 0) for row in dealers)
+    remote_activated = sum(int(row.get("remote_activated") or 0) for row in dealers)
+    scoped.update({
+        "dealers": dealers,
+        "products": [],
+        "total_overseas_stock": sum(int(row.get("not_activated") or 0) for row in dealers),
+        "total_shipped": shipped,
+        "total_activated": activated,
+        "total_local_activated": local_activated,
+        "total_remote_activated": remote_activated,
+        "overall_activation_rate": round(activated / shipped * 100, 1) if shipped else 0,
+        "overall_local_rate": round(local_activated / activated * 100, 1) if activated else 0,
+    })
+    return scoped

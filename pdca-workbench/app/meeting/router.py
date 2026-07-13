@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.auth.deps import require_role
 from app.auth.models import User
 from app.legacy import bridge
+from app.validation import require_iso_date
 
 router = APIRouter(tags=["meeting"])
 
@@ -31,7 +32,9 @@ async def summary(
     end_date: str | None = None,
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
-    return _safe_bridge(bridge.api_meeting_center_summary, date or bridge.today_text(), end_date, default=[])
+    start = require_iso_date(date or bridge.today_text())
+    finish = require_iso_date(end_date, field="end_date") if end_date else None
+    return _safe_bridge(bridge.api_meeting_center_summary, start, finish, default=[])
 
 
 @router.get("/api/meeting-center/meetings")
@@ -42,12 +45,14 @@ async def meetings(
     name: str = Query(""),
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
+    start = require_iso_date(date or bridge.today_text())
+    finish = require_iso_date(end_date, field="end_date") if end_date else ""
     return _safe_bridge(
         bridge.api_meeting_center_meetings,
-        date or bridge.today_text(),
+        start,
         phone,
         name,
-        end_date or "",
+        finish,
         default={"meetings": [], "total": 0},
     )
 
@@ -73,7 +78,7 @@ async def dispatch(
 ):
     from app.models.sync import sync_meetings
 
-    date_text = body.date or bridge.today_text()
+    date_text = require_iso_date(body.date or bridge.today_text())
     result = _safe_bridge(bridge.api_meeting_center_dispatch, body.model_dump(), date_text)
     try:
         sync_meetings(date_text)

@@ -6,7 +6,7 @@
 
 ```bash
 cd pdca-workbench
-cp .env.example .env   # 填写 PDCA_DATABASE_URL
+cp .env.example .env   # 填写 PDCA_DATABASE_URL、PDCA_SECRET_KEY
 pip install -r requirements.txt
 python scripts/init_db.py
 python run.py
@@ -14,14 +14,17 @@ python run.py
 
 访问 http://127.0.0.1:8767/login
 
-## 默认账号
+## 首次管理员
 
-| 用户名 | 密码 | 角色 |
-|--------|------|------|
-| admin | admin123 | 管理员 |
-| manager | manager123 | 主管 |
-| sales | sales123 | 销售 |
-| viewer | viewer123 | 只读 |
+系统不再创建固定密码账号。首次建库时，在 `.env` 中临时设置：
+
+```dotenv
+PDCA_BOOTSTRAP_ADMIN_USERNAME=admin
+PDCA_BOOTSTRAP_ADMIN_PASSWORD=至少12位随机密码
+```
+
+首次启动并成功创建管理员后，立即删除这两个变量。已有数据库账号不受影响；
+hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地账号。
 
 ## 完整路由表
 

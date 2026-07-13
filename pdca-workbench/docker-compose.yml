@@ -6,7 +6,7 @@
 # 会自动：
 #   - 挂载 ../data_platform/data_role_pdca_mvp → /mvp（经营首页）
 #   - 挂载仓库根 → /repo
-#   - 使用 env.docker 默认配置（无需手写 .env）
+#   - env.docker 仅含非敏感默认项；密钥和数据库连接从 .env/环境变量注入
 
 services:
   pdca-app:
@@ -20,6 +20,9 @@ services:
       - path: .env
         required: false
     environment:
+      PDCA_ENV: production
+      PDCA_SECRET_KEY: ${PDCA_SECRET_KEY:?请在未跟踪的 .env 中设置 PDCA_SECRET_KEY}
+      PDCA_DATABASE_URL: ${PDCA_DATABASE_URL:?请在未跟踪的 .env 中设置 PDCA_DATABASE_URL}
       PDCA_HOST: "0.0.0.0"
       PDCA_WORKBENCH_PORT: "8767"
       # 强制容器内路径，避免宿主机 Windows 路径写进 .env 导致首页不可用
@@ -29,7 +32,7 @@ services:
       PDCA_SECURE_COOKIES: ${PDCA_SECURE_COOKIES:-1}
     volumes:
       - ./data:/app/data
-      - ../data_platform/data_role_pdca_mvp:/mvp:ro
+      - ../data_platform/data_role_pdca_mvp:/mvp
       - ../:/repo:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8767/health"]

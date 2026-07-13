@@ -46,6 +46,7 @@ class Settings:
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
+        self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
         self.workers = int(os.environ.get("PDCA_WORKERS", "2"))
         self.secure_cookies = os.environ.get("PDCA_SECURE_COOKIES", "0") == "1"
         raw_mode = os.environ.get("PDCA_AUTH_MODE", "local").strip().lower()
@@ -69,6 +70,12 @@ class Settings:
         self.pg_user = os.environ.get("PDCA_PG_USER", "")
         self.pg_password = os.environ.get("PDCA_PG_PASSWORD", "")
         self.pg_database = os.environ.get("PDCA_PG_DATABASE", "")
+        self.pg_dump_command = os.environ.get("PDCA_PG_DUMP_COMMAND", "").strip()
+        self.bootstrap_admin_username = os.environ.get("PDCA_BOOTSTRAP_ADMIN_USERNAME", "").strip()
+        self.bootstrap_admin_password = os.environ.get("PDCA_BOOTSTRAP_ADMIN_PASSWORD", "")
+        self.bootstrap_admin_display_name = os.environ.get(
+            "PDCA_BOOTSTRAP_ADMIN_DISPLAY_NAME", "系统管理员"
+        ).strip()
 
     def _resolve_vertu_command(self) -> str:
         """解析 vertu 可执行文件完整路径（Windows 需 .cmd 绝对路径）。"""
@@ -119,27 +126,42 @@ class Settings:
 
     @property
     def home_dashboard_dir(self) -> Path:
-        return self.modules_dir / "home_dashboard"
+        return self._module_dir("home_dashboard")
 
     @property
     def walkin_cockpit_dir(self) -> Path:
-        return self.modules_dir / "walkin_cockpit"
+        return self._module_dir("walkin_cockpit")
 
     @property
     def meeting_center_dir(self) -> Path:
-        return self.modules_dir / "meeting_center"
+        return self._module_dir("meeting_center")
 
     @property
     def logistics_center_dir(self) -> Path:
-        return self.modules_dir / "logistics_center"
+        return self._module_dir("logistics_center")
 
     @property
     def onboarding_center_dir(self) -> Path:
-        return self.modules_dir / "onboarding_center"
+        return self._module_dir("onboarding_center")
 
     @property
     def signalseller_center_dir(self) -> Path:
-        return self.modules_dir / "signalseller_center"
+        return self._module_dir("signalseller_center")
+
+    def _module_dir(self, name: str) -> Path:
+        """解析模块目录，并兼容整仓部署时误配的 MVP 根目录。"""
+        primary = self.modules_dir / name
+        if (primary / "index.html").is_file():
+            return primary
+
+        candidates = (
+            self.repo_root / "data_platform" / "data_role_pdca_mvp" / "modules" / name,
+            DEFAULT_MVP / "modules" / name,
+        )
+        for candidate in candidates:
+            if candidate != primary and (candidate / "index.html").is_file():
+                return candidate.resolve()
+        return primary
 
     @property
     def team_dir(self) -> Path:

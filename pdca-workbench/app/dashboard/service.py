@@ -31,7 +31,7 @@ def _fmt_cny(yuan: float) -> str:
     return f"¥ {yuan:,.0f}"
 
 
-def merge_db_sales(data: dict, date_text: str, session) -> dict:
+def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
     """用真实数据覆盖 bridge 估算值。
 
     数据优先级（高 → 低）：
@@ -44,13 +44,29 @@ def merge_db_sales(data: dict, date_text: str, session) -> dict:
     from sqlmodel import select
     from app.models.dealer_sales import DealerSales
     from app.models.walkin_daily_report import WalkinDailyReport
+    from app.auth.scope import visible_dealer_names, visible_store_ids
 
     month = date_text[:7]
 
     # ── 1. dealer_sales 表（sync_from_vertu 写入的 Odoo 数据，最高优先）─────────────
-    db_rows = session.exec(
-        select(DealerSales).where(DealerSales.check_date.startswith(month))
-    ).all()
+    dealer_stmt = select(DealerSales).where(DealerSales.check_date.startswith(month))
+    names = visible_dealer_names(user, session) if user is not None else None
+    store_ids = visible_store_ids(user, session) if user is not None else None
+    if names is not None:
+        data.update({
+            "sellInWan": 0.0,
+            "sellInAmount": _fmt_cny(0),
+            "sellInSub": f"权限范围 · {month}",
+            "sellOutWan": 0.0,
+            "sellOutAmount": _fmt_cny(0),
+            "sellOutSub": f"权限范围 · {month}",
+        })
+        db_rows = (
+            session.exec(dealer_stmt.where(DealerSales.dealer_name.in_(names))).all()
+            if names else []
+        )
+    else:
+        db_rows = session.exec(dealer_stmt).all()
 
     has_db_sellout = False
     if db_rows:
@@ -72,11 +88,16 @@ def merge_db_sales(data: dict, date_text: str, session) -> dict:
     # ── 2. walkin_daily_reports 成交金额（经销商真实录入）────────────────────────────
     # 只要有门店录入了成交额，就用它覆盖 bridge 的估算值（dealer_sales 优先，已设标志）
     if not has_db_sellout:
-        walkin_rows = session.exec(
-            select(WalkinDailyReport).where(
-                WalkinDailyReport.report_date.startswith(month)
+        walkin_stmt = select(WalkinDailyReport).where(
+            WalkinDailyReport.report_date.startswith(month)
+        )
+        if store_ids is not None:
+            walkin_rows = (
+                session.exec(walkin_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))).all()
+                if store_ids else []
             )
-        ).all()
+        else:
+            walkin_rows = session.exec(walkin_stmt).all()
         if walkin_rows:
             total_yuan    = sum(r.deal_amount_yuan for r in walkin_rows)
             store_count   = len({r.dealer_id for r in walkin_rows if r.deal_amount_yuan > 0})

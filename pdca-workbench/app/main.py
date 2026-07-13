@@ -26,7 +26,7 @@ from app.pages.router import router as pages_router
 from app.files.router import router as files_router
 from app.pdca.post_router import router as pdca_post_router
 from app.pdca.router import router as pdca_router
-from app.scheduler.jobs import start_scheduler, stop_scheduler
+from app.scheduler.jobs import backup_status, start_scheduler, stop_scheduler
 from app.export.router import router as export_router
 from app.walkin.router import router as walkin_router
 
@@ -50,8 +50,15 @@ async def lifespan(app: FastAPI):
     setup_logging()
     settings = get_settings()
     os.environ["VERTU_COMMAND"] = settings.vertu_command
-    if "dev-secret" in settings.secret_key or "change" in settings.secret_key.lower():
-        logger.warning("⚠️  PDCA_SECRET_KEY 使用开发占位符，生产环境请在 .env 中设置强密钥！")
+    insecure_secret = (
+        len(settings.secret_key) < 32
+        or "dev-secret" in settings.secret_key
+        or "change" in settings.secret_key.lower()
+    )
+    if insecure_secret and settings.environment == "production":
+        raise RuntimeError("生产环境必须设置至少 32 位的 PDCA_SECRET_KEY")
+    if insecure_secret:
+        logger.warning("⚠️  PDCA_SECRET_KEY 仅适合本地开发，生产环境必须设置强密钥")
     mode = bootstrap_database()
     seed_users()
     from app.models.store_seed import seed_stores
@@ -177,9 +184,13 @@ async def health():
     """健康检查（含数据库连通性）。"""
     mode = get_db_mode()
     db_ok = mode in ("postgresql", "sqlite", "sqlite-fallback")
+    backup = backup_status()
+    # 本地开发不要求已有备份；生产环境必须把备份失败暴露给监控。
+    backup_required = get_settings().environment == "production"
     return {
-        "status": "ok" if db_ok else "degraded",
+        "status": "ok" if db_ok and (backup["ok"] or not backup_required) else "degraded",
         "service": "pdca-workbench",
         "database": mode,
         "database_connected": db_ok,
+        "backup": backup,
     }

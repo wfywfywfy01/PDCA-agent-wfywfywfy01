@@ -12,6 +12,7 @@ from app.auth.deps import require_role
 from app.auth.models import User
 from app.config import get_settings
 from app.legacy import bridge
+from app.validation import require_iso_date
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -54,6 +55,7 @@ async def download_output(
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
     """下载当日 PDCA 输出文件。"""
+    date = require_iso_date(date)
     file_path = bridge.latest_output_file(date, target)
     if not file_path or not file_path.is_file():
         raise HTTPException(status_code=404, detail="文件还不存在，请先运行 PDCA")

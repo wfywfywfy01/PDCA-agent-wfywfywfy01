@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from app.auth.deps import require_role
 from app.auth.models import User
+from app.auth.scope import visible_dealer_names
 from app.database import get_session
 from app.models.dealer_store import DealerStore
 from app.models.dealer_sales import DealerSales
@@ -117,7 +118,7 @@ async def export_walkin_metrics(
 
 @router.get("/dealer-sales")
 async def export_dealer_sales(
-    _user: Annotated[User, Depends(require_role("viewer"))],
+    user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
     month: str = Query(""),
 ):
@@ -125,7 +126,14 @@ async def export_dealer_sales(
     stmt = select(DealerSales).order_by(DealerSales.check_date, DealerSales.dealer_name)
     if month and re.fullmatch(r"\d{4}-\d{2}", month):
         stmt = stmt.where(DealerSales.check_date.startswith(month))
-    rows = session.exec(stmt).all()
+    names = visible_dealer_names(user, session)
+    if names is not None:
+        if not names:
+            rows = []
+        else:
+            rows = session.exec(stmt.where(DealerSales.dealer_name.in_(names))).all()
+    else:
+        rows = session.exec(stmt).all()
 
     wb = openpyxl.Workbook()
     ws = wb.active

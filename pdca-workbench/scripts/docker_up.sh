@@ -58,6 +58,6 @@ echo
 echo "=========================================="
 echo " 打开: https://pdca-workbench-teams.vertu.cn/"
 echo " 或本机: http://服务器IP/"
-echo " 登录: admin / admin123  或 VPS 一键进入"
+echo " 登录: VPS 一键进入，或使用管理员创建的本地账号"
 echo " 日志: cd $WB_DIR && docker compose logs -f"
 echo "=========================================="
