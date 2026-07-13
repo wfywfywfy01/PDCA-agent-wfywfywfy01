@@ -2,6 +2,7 @@
 """HTML 页面与静态模块托管。"""
 from __future__ import annotations
 
+import html as html_lib
 import mimetypes
 from pathlib import Path
 from typing import Annotated
@@ -87,6 +88,29 @@ def _safe_bridge_page(fn, *args, feature: str = "", **kwargs) -> HTMLResponse:
         return _unavailable(feature)
 
 
+def _customer_summary_page(rows: list[dict], date_text: str) -> HTMLResponse:
+    cards = "".join(
+        f"""<article><strong>{html_lib.escape(str(row.get('level') or '—'))} 类</strong>
+        <b>{int(row.get('total') or 0)}</b>
+        <span>已触达 {int(row.get('touched') or 0)} / 目标 {int(row.get('target') or 0)}</span></article>"""
+        for row in rows[:8]
+    )
+    content = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+    <title>客户管理 · PDCA 工作台</title><style>
+    body{{margin:0;background:#f4f7fb;color:#172033;font-family:system-ui,sans-serif}}
+    main{{max-width:1080px;margin:0 auto;padding:36px 24px}}
+    h1{{margin:0 0 8px}}p{{color:#64748b}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin:28px 0}}
+    article{{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:22px;display:grid;gap:8px}}
+    article strong{{color:#2563eb}}article b{{font-size:32px}}article span{{color:#64748b;font-size:14px}}
+    nav{{display:flex;gap:12px;flex-wrap:wrap}}nav a{{background:#2563eb;color:#fff;text-decoration:none;padding:10px 16px;border-radius:9px}}
+    nav a.alt{{background:#fff;color:#2563eb;border:1px solid #bfdbfe}}</style></head>
+    <body><main><h1>客户管理</h1><p>{date_text} · 客户分层与触达概览</p>
+    <section class="grid">{cards or '<article><span>暂无客户分层数据</span></article>'}</section>
+    <nav><a href="/dealer-sellin/">查看经销商进货</a><a class="alt" href="/walkin-cockpit/">查看客流与终销</a></nav>
+    </main></body></html>"""
+    return html_page(content)
+
+
 @router.get("/")
 async def home(
     date: str | None = None,
@@ -116,6 +140,37 @@ async def home_classic(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
     return _safe_bridge_page(bridge.render_home, _date_or_today(date), message, feature="经营看板")
+
+
+@router.get("/pdca-vps")
+async def pdca_vps(
+    date: str | None = None,
+    message: str = Query(""),
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    return _safe_bridge_page(
+        bridge.render_pdca_vps,
+        _date_or_today(date),
+        message,
+        feature="PDCA 日结",
+    )
+
+
+@router.get("/dashboard")
+async def legacy_dashboard(
+    date: str | None = None,
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    """只展示已有日看板；GET 请求不隐式运行数据流水线。"""
+    date_text = _date_or_today(date)
+    try:
+        dashboard = bridge.output_dir(date_text) / "dashboard.html"
+    except Exception:
+        logger.exception("解析日看板目录失败: date={}", date_text)
+        return _unavailable("数据看板")
+    if not dashboard.is_file():
+        return _redirect_msg("/", date_text, "这个日期还没有看板，请先运行当天 PDCA。")
+    return _serve_skinned_html(dashboard, date_text, "数据看板", "数据看板")
 
 
 @router.get("/questionnaire")
@@ -180,6 +235,16 @@ async def customer_mgmt(
 ):
     try:
         date_text = _date_or_today(date)
+        settings = get_settings()
+        if settings.environment == "production":
+            session_user = {
+                "username": user.username,
+                "display_name": user.display_name,
+                "sales_name": getattr(user, "sales_name", "") or "",
+                "role": user.role,
+            }
+            rows = bridge.api_customer_center_summary(session_user=session_user)
+            return _customer_summary_page(rows if isinstance(rows, list) else [], date_text)
         err = bridge.ensure_customer_server()
         if err:
             return _redirect_msg("/", date_text, err)
@@ -281,6 +346,15 @@ async def open_im_channel(
 async def cockpit_shell_css():
     settings = get_settings()
     path = settings.home_dashboard_dir / "workbench-cockpit-shell.css"
+    if not path.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="text/css; charset=utf-8")
+
+
+@router.get("/dashboard-theme.css")
+async def dashboard_theme_css():
+    settings = get_settings()
+    path = settings.home_dashboard_dir / "workbench-unified.css"
     if not path.is_file():
         raise HTTPException(status_code=404)
     return FileResponse(path, media_type="text/css; charset=utf-8")
@@ -412,6 +486,30 @@ async def onboarding_center_assets(
 ):
     settings = get_settings()
     target = resolve_file_under(settings.onboarding_center_dir, rel_path)
+    return FileResponse(target, media_type=_guess_media(target))
+
+
+@router.get("/signalseller-center")
+@router.get("/signalseller-center/")
+async def signalseller_center_index(
+    date: str | None = None,
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    settings = get_settings()
+    return _serve_module(
+        settings.signalseller_center_dir / "index.html",
+        _date_or_today(date),
+        "获客指挥", "SignalSeller 获客指挥",
+    )
+
+
+@router.get("/signalseller-center/{rel_path:path}")
+async def signalseller_center_assets(
+    rel_path: str,
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    settings = get_settings()
+    target = resolve_file_under(settings.signalseller_center_dir, rel_path)
     return FileResponse(target, media_type=_guess_media(target))
 
 

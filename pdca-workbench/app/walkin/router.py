@@ -18,6 +18,7 @@ from app.audit import log_action
 from app.auth.deps import get_current_user, require_role
 from app.auth.models import User
 from app.auth.scope import visible_dealer_names, visible_store_ids
+from app.config import get_settings
 from app.database import get_session
 from app.legacy import bridge
 from app.models.dealer_store import DealerStore
@@ -30,12 +31,12 @@ router = APIRouter(tags=["walkin"])
 _vps_cache: dict[str, tuple[float, dict]] = {}
 _VPS_TTL = 600  # seconds
 _DEALER_SCRIPT = (
-    Path(__file__).resolve().parents[3]
+    get_settings().repo_root
     / "data_platform" / "data_role_pdca_mvp"
     / "system_queries" / "dealer_monthly_overseas.py"
 )
 _ACTIVATION_SCRIPT = (
-    Path(__file__).resolve().parents[3]
+    get_settings().repo_root
     / "data_platform" / "data_role_pdca_mvp"
     / "system_queries" / "dealer_activation_stats.py"
 )

@@ -211,7 +211,7 @@ def sync_meetings(date_text: str) -> int:
 
 
 _VPS_DEALER_SCRIPT = (
-    Path(__file__).resolve().parents[3]
+    get_settings().repo_root
     / "data_platform" / "data_role_pdca_mvp"
     / "system_queries" / "dealer_monthly_overseas.py"
 )

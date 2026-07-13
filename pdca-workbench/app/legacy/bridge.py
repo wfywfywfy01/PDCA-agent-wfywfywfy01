@@ -121,6 +121,10 @@ def render_im_unread(date_text: str, message: str = "") -> str:
     return wb().render_im_unread(date_text, message)
 
 
+def render_pdca_vps(date_text: str, message: str = "") -> str:
+    return wb().render_pdca_vps(date_text, message)
+
+
 def render_customer_mgmt_frame(date_text: str) -> str:
     return wb().render_customer_mgmt_frame(date_text)
 

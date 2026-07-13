@@ -27,6 +27,7 @@ from app.files.router import router as files_router
 from app.pdca.post_router import router as pdca_post_router
 from app.pdca.router import router as pdca_router
 from app.scheduler.jobs import backup_status, start_scheduler, stop_scheduler
+from app.signalseller.router import router as signalseller_router
 from app.export.router import router as export_router
 from app.walkin.router import router as walkin_router
 
@@ -171,6 +172,7 @@ app.include_router(walkin_router)
 app.include_router(logistics_router)
 app.include_router(meeting_router)
 app.include_router(onboarding_router)
+app.include_router(signalseller_router)
 app.include_router(pdca_router)
 app.include_router(pdca_post_router)
 app.include_router(files_router)

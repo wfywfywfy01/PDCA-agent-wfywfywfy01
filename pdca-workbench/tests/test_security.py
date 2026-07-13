@@ -13,6 +13,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.auth.models import User
 from app.auth.scope import visible_dealer_names, visible_store_ids
 from app.config import Settings
+from app.main import app
 from app.models.dealer_store import DealerStore
 from app.pages.router import _serve_module, view_path, walkin_assets
 from app.pdca.post_router import post_questionnaire
@@ -84,6 +85,26 @@ class InputValidationTests(unittest.TestCase):
                 settings = Settings()
             self.assertEqual(settings.walkin_cockpit_dir, expected.resolve())
 
+    def test_legacy_bridge_imports_with_flat_docker_mounts(self):
+        """模拟 /mvp 与 /repo 分离时，workbench_data 必须信任 PDCA_REPO_ROOT。"""
+        import importlib
+        import sys
+
+        scripts_dir = Path(__file__).resolve().parents[2] / "data_platform" / "data_role_pdca_mvp" / "scripts"
+        with tempfile.TemporaryDirectory() as repo, patch.dict(
+            os.environ,
+            {"PDCA_REPO_ROOT": repo},
+            clear=False,
+        ):
+            sys.path.insert(0, str(scripts_dir))
+            try:
+                sys.modules.pop("workbench_data", None)
+                module = importlib.import_module("workbench_data")
+                self.assertEqual(module.REPO_ROOT, Path(repo).resolve())
+            finally:
+                sys.path.remove(str(scripts_dir))
+                sys.modules.pop("workbench_data", None)
+
 
 class DataScopeTests(unittest.TestCase):
     def setUp(self):
@@ -111,6 +132,19 @@ class DataScopeTests(unittest.TestCase):
 
     def test_manager_scope_is_unrestricted(self):
         self.assertIsNone(visible_store_ids(User(role="manager"), self.session))
+
+
+class RouteRegistrationTests(unittest.TestCase):
+    def test_public_workbench_routes_are_registered(self):
+        paths = {route.path for route in app.routes}
+        expected = {
+            "/pdca-vps",
+            "/dashboard",
+            "/signalseller-center/",
+            "/api/signalseller/summary",
+            "/api/signalseller/customers",
+        }
+        self.assertFalse(expected - paths)
 
 
 if __name__ == "__main__":

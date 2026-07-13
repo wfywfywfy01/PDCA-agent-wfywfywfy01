@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -14,7 +15,9 @@ from datetime import datetime
 from pathlib import Path
 
 WORKSPACE = Path(__file__).resolve().parents[1]
-REPO_ROOT = WORKSPACE.parents[1]
+# Docker 中 WORKSPACE=/mvp、仓库=/repo，两者不是父子目录；优先使用部署配置。
+# 本地源码布局下 WORKSPACE.parent.parent 仍会落到仓库根目录。
+REPO_ROOT = Path(os.environ.get("PDCA_REPO_ROOT", "").strip() or WORKSPACE.parent.parent).resolve()
 DATA_SOURCES = WORKSPACE / "config" / "data_sources.json"
 DATA_RAW = REPO_ROOT / "data_raw"
 WALKIN_DATA = WORKSPACE / "modules" / "walkin_cockpit" / "data"
