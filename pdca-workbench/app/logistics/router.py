@@ -80,3 +80,12 @@ async def logistics_salespeople(
 ):
     """主管可选的销售名单。"""
     return {"items": service.list_salespeople()}
+
+
+@router.post("/refresh-tracking")
+async def refresh_tracking(
+    user: Annotated[User, Depends(require_role("manager"))],
+):
+    """从 UPS/FedEx/DHL 官网抓取在途运单最新状态（SF 顺丰需图形验证码，跳过）。"""
+    result = await service.refresh_tracking_statuses()
+    return result

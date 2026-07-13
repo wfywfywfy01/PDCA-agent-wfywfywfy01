@@ -372,78 +372,6 @@
     );
   }
 
-  function regionActivationRows(agg) {
-    var rows = [];
-    for (var i = 0; i < (agg || []).length; i++) {
-      var r = agg[i];
-      var lead = r.ld || 0;
-      var h = hashStr((r.rg || '') + '|activation');
-      var actRate = 0.078 + (h % 42) / 1000;
-      var offRate = 0.028 + ((h >> 3) % 48) / 1000;
-      if (r.rg === '欧洲') offRate = Math.max(offRate, 0.064);
-      var activation = Math.max(0, Math.round(lead * actRate));
-      var offsite = Math.max(0, Math.round(activation * offRate));
-      rows.push({
-        rg: r.rg,
-        lead: lead,
-        activation: activation,
-        activationRate: lead > 0 ? Math.round((activation / lead) * 1000) / 10 : 0,
-        offsite: offsite,
-        offsiteRate: activation > 0 ? Math.round((offsite / activation) * 1000) / 10 : 0,
-      });
-    }
-    rows.sort(function (a, b) {
-      return b.activation - a.activation;
-    });
-    return rows;
-  }
-
-  function renderRegionActivationBars(agg) {
-    var rows = regionActivationRows(agg);
-    if (!rows.length) return '<p class="oi-note">暂无大区激活数据。</p>';
-    var mx = Math.max(
-      1,
-      rows.reduce(function (m, r) {
-        return Math.max(m, r.activation, r.offsite);
-      }, 0)
-    );
-    var html = '<div class="oi-activation-list">';
-    for (var i = 0; i < rows.length; i++) {
-      var r = rows[i];
-      var aw = Math.max(4, Math.round((r.activation / mx) * 100));
-      var ow = Math.max(4, Math.round((r.offsite / mx) * 100));
-      var warnA = r.activationRate < 10;
-      var warnO = r.offsiteRate > 5;
-      html +=
-        '<div class="oi-activation-row">' +
-        '<div class="oi-activation-head"><strong>' +
-        r.rg +
-        '</strong><span>' +
-        (warnA ? '异常提醒：激活率低于10% · ' : '') +
-        (warnO ? '异常提醒：异地激活率高于5%' : '') +
-        '</span></div>' +
-        '<div class="oi-activation-bar"><span style="width:' +
-        aw +
-        '%;background:#3b82f6"></span><em>激活 ' +
-        r.activation +
-        ' · ' +
-        r.activationRate +
-        '%</em></div>' +
-        '<div class="oi-activation-bar"><span style="width:' +
-        ow +
-        '%;background:' +
-        (warnO ? '#ef4444' : '#a855f7') +
-        '"></span><em>异地 ' +
-        r.offsite +
-        ' · ' +
-        r.offsiteRate +
-        '%</em></div>' +
-        '</div>';
-    }
-    html += '<p class="oi-note">口径：激活数按大区线索派生；异地激活指登记大区与激活大区不一致，例如越南客户在欧洲激活。</p></div>';
-    return html;
-  }
-
   function renderCustomerBars(own, vertu) {
     var mx = Math.max(own, vertu, 1);
     return (
@@ -684,17 +612,12 @@
         okr.foot +
         '</p></div>' +
         renderDealerRegionHtml(ref && ref.dealerRegion) +
-        '<div class="oi-two-col">' +
-        '<div class="oi-card">' +
-        '<h3>各大区激活与异地激活</h3>' +
-        renderRegionActivationBars(agg) +
-        '</div>' +
         '<div class="oi-card">' +
         '<h3>客户来源（人）</h3>' +
         '<p class="oi-note">替代原「四周线索趋势」：代理商 <strong>自有有效客户</strong> 与 <strong>VERTU 推送</strong>（进店人数扣除自有有效口径）。</p>' +
         '<div class="oi-bar-wrap">' +
         renderCustomerBars(cust.own, cust.vertu) +
-        '</div></div></div>' +
+        '</div></div>' +
         '<div class="oi-card">' +
         '<h3>区域线索堆叠（条）</h3>' +
         '<div class="oi-stack-row">' +

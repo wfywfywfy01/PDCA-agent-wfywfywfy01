@@ -131,6 +131,7 @@ def init_db() -> None:
     from app.models.dealer_store import DealerStore  # noqa: F401
     from app.models.monthly_target import MonthlyTarget  # noqa: F401
     from app.models.audit_log import AuditLog  # noqa: F401
+    from app.models.tracking_status import TrackingAutoStatus  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     _migrate_schema()
@@ -149,8 +150,17 @@ def _migrate_schema() -> None:
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS walkin_visits INTEGER DEFAULT 0",
+        "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS cross_visits INTEGER DEFAULT 0",
+        "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS recruit_visits INTEGER DEFAULT 0",
+        "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS existing_visits INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN IF NOT EXISTS phone_qty INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN IF NOT EXISTS activation_rate FLOAT DEFAULT 0",
+        # 旧进店来源分类（自然进/预约/潜客/介绍/SA）已废弃，替换为 walkin/cross/online/recruit/existing 五分类；
+        # 这几列原来是 NOT NULL，不删掉的话新 taxonomy 的 INSERT 会因为缺列违反约束而失败
+        "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS prospect_visits",
+        "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS appointment_visits",
+        "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS referral_visits",
+        "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS sa_visits",
     ]
     _patches_sqlite = [
         "ALTER TABLE users ADD COLUMN sales_name VARCHAR(128) DEFAULT ''",
@@ -160,15 +170,16 @@ def _migrate_schema() -> None:
         "ALTER TABLE dealer_stores ADD COLUMN dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE walkin_daily_reports ADD COLUMN walkin_visits INTEGER DEFAULT 0",
+        "ALTER TABLE walkin_daily_reports ADD COLUMN cross_visits INTEGER DEFAULT 0",
+        "ALTER TABLE walkin_daily_reports ADD COLUMN recruit_visits INTEGER DEFAULT 0",
+        "ALTER TABLE walkin_daily_reports ADD COLUMN existing_visits INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN phone_qty INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN activation_rate FLOAT DEFAULT 0",
+        "ALTER TABLE walkin_daily_reports DROP COLUMN prospect_visits",
+        "ALTER TABLE walkin_daily_reports DROP COLUMN appointment_visits",
+        "ALTER TABLE walkin_daily_reports DROP COLUMN referral_visits",
+        "ALTER TABLE walkin_daily_reports DROP COLUMN sa_visits",
     ]
-    # 把之前 Excel 导入时错放到 prospect_visits 的 Walk-ins 数据迁移回 walkin_visits
-    _fix_walkin = (
-        "UPDATE walkin_daily_reports "
-        "SET walkin_visits = prospect_visits, prospect_visits = 0 "
-        "WHERE notes LIKE 'Excel导入%' AND walkin_visits = 0 AND prospect_visits > 0"
-    )
     with engine.connect() as conn:
         if dialect == "postgresql":
             for sql in _patches_pg:
@@ -182,10 +193,6 @@ def _migrate_schema() -> None:
                     conn.exec_driver_sql(sql)
                 except Exception:
                     pass
-        try:
-            conn.exec_driver_sql(_fix_walkin)
-        except Exception:
-            pass
         conn.commit()
 
 

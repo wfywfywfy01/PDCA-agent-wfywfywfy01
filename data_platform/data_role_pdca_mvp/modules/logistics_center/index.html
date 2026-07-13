@@ -39,6 +39,7 @@
     .card{background:var(--card);border-radius:14px;padding:16px 18px;
           border:1px solid var(--border);border-left:4px solid #475569}
     .card.ok{border-left-color:var(--green)}
+    .card.good{border-left-color:var(--blue)}
     .card.warn { border-left-color: var(--amber); }
     .card.bad { border-left-color: var(--red); }
     .card-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
@@ -46,6 +47,7 @@
     .tracking-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .badge { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; }
     .badge.ok { background: var(--green); }
+    .badge.good { background: var(--blue); }
     .badge.warn { background: var(--amber); }
     .badge.bad { background: var(--red); }
     .badge.mid { background: #64748b; }
@@ -54,6 +56,7 @@
     .bar { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
     .bar > i { display: block; height: 100%; border-radius: 999px; transition: width .3s; }
     .bar > i.ok { background: var(--green); }
+    .bar > i.good { background: var(--blue); }
     .bar > i.warn { background: var(--amber); }
     .bar > i.bad { background: var(--red); }
     .bar > i.mid { background: var(--blue); }
@@ -95,8 +98,10 @@
         <input type="checkbox" id="openOnly" /> 仅看在途
       </label>
       <button type="button" class="btn btn-primary" id="btnRefresh">刷新</button>
+      <button type="button" class="btn btn-ghost" id="btnTrackingRefresh" style="display:none">同步官网物流状态</button>
       <a class="btn btn-ghost" href="/logistics" id="entryLink">+ 录入单号</a>
     </div>
+    <p class="tracking-sub" id="trackingRefreshHint" style="display:none"></p>
 
     <div class="tabs" id="statusTabs">
       <button type="button" class="tab active" data-status="all">全部</button>
@@ -124,9 +129,10 @@
       });
     }
 
+    // 'ok'（绿）专指已签收；在途但状态正常用 'good'（蓝），避免和"已签收"视觉混淆
     function badgeClass(j, delivered) {
       if (delivered) return 'ok';
-      if (j === '正常') return 'ok';
+      if (j === '正常') return 'good';
       if (j === '异常' || j === '待关注') return 'bad';
       if (j === '运输中') return 'warn';
       return 'mid';
@@ -134,7 +140,7 @@
 
     function cardClass(j, delivered) {
       if (delivered) return 'ok';
-      if (j === '正常') return 'ok';
+      if (j === '正常') return 'good';
       if (j === '异常' || j === '待关注') return 'bad';
       if (j === '运输中') return 'warn';
       return '';
@@ -230,7 +236,8 @@
           '<div><b>客户</b><br>' + esc(s.customer || '—') + '</div>' +
           '<div><b>销售</b><br>' + esc(s.salesperson || '—') + '</div>' +
           '<div><b>发货日</b><br>' + esc(s.ship_date || '—') + '</div>' +
-          '<div><b>当前状态</b><br>' + esc(s.current_status || '—') + '</div>' +
+          '<div><b>当前状态</b><br>' + esc(s.current_status || '—') +
+          (s.status_source === 'auto' ? ' <span class="chip">官网自动</span>' : '') + '</div>' +
           '<div><b>在途天数</b><br>' + daysText + '</div>' +
           '<div><b>期望状态</b><br><span class="chip">' + esc(s.expected_status || '—') + '</span></div>' +
           '</div>' +
@@ -274,6 +281,33 @@
       }
     }
 
+    async function refreshTrackingFromCarriers() {
+      var btn = document.getElementById('btnTrackingRefresh');
+      var hint = document.getElementById('trackingRefreshHint');
+      btn.disabled = true;
+      btn.textContent = '同步中…（约需 1-2 分钟）';
+      hint.style.display = 'none';
+      try {
+        var res = await fetch('/api/logistics/refresh-tracking', { method: 'POST', credentials: 'include' });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '同步失败');
+        hint.style.display = 'block';
+        if (data.skipped_no_candidates) {
+          hint.textContent = '没有可同步的在途 UPS/FedEx/DHL 运单（SF 顺丰需人工录入）。';
+        } else {
+          hint.textContent = '已同步 ' + data.attempted + ' 单，成功 ' + data.ok + ' 单，失败 ' + data.failed +
+            ' 单（SF 顺丰需人工录入）。';
+        }
+        await refresh();
+      } catch (err) {
+        hint.style.display = 'block';
+        hint.textContent = '同步失败：' + (err && err.message ? err.message : '请稍后重试');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '同步官网物流状态';
+      }
+    }
+    document.getElementById('btnTrackingRefresh').addEventListener('click', refreshTrackingFromCarriers);
     document.getElementById('btnRefresh').addEventListener('click', refresh);
     document.getElementById('dateFilter').addEventListener('change', refresh);
     document.getElementById('salesFilter').addEventListener('change', refresh);
@@ -293,23 +327,8 @@
     });
 
     (async function init() {
-      var params = new URLSearchParams(location.search);
-      var urlDate   = params.get('date');
-      var urlPeriod = params.get('period') || (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) || 'day';
-
-      // 按 period 推算应选的日期
-      function _fmtD(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
-      function _periodStart(anchor,period){
-        if(!anchor)return null;
-        var p=anchor.split('-'),d=new Date(+p[0],+p[1]-1,+p[2]),y=d.getFullYear(),m=d.getMonth();
-        if(period==='week'){var dow=d.getDay(),dt=dow===0?-6:1-dow,mon=new Date(d);mon.setDate(d.getDate()+dt);return _fmtD(mon);}
-        if(period==='month')return _fmtD(new Date(y,m,1));
-        if(period==='quarter')return _fmtD(new Date(y,Math.floor(m/3)*3,1));
-        return anchor;
-      }
-      // 选择器日期：period=day 选精确日期；其他尝试选最近匹配批次
-      var targetDate = urlPeriod === 'day' ? (urlDate || null) : _periodStart(urlDate, urlPeriod);
-
+      // 物流是运单跟踪视图，不是"某段时间发生了多少"的流量指标，日/周/月/季全局选择器对它不适用；
+      // 这里只保留「批次」下拉手动选择，忽略 URL 上的 period/date。
       var dates = await loadDates();
       var sel = document.getElementById('dateFilter');
       dates.forEach(function (d) {
@@ -318,22 +337,16 @@
         opt.textContent = d;
         sel.appendChild(opt);
       });
-      // 优先精确匹配；无匹配则 'all'
-      if (targetDate && dates.indexOf(targetDate) >= 0) {
-        sel.value = targetDate;
-      } else if (urlDate && (urlDate === 'all' || dates.indexOf(urlDate) >= 0)) {
-        sel.value = urlDate;
-      } else {
-        sel.value = 'all';
-      }
+      sel.value = 'all';
 
-      var entryDate = sel.value === 'all' ? (dates[0] || new Date().toISOString().slice(0, 10)) : sel.value;
+      var entryDate = dates[0] || new Date().toISOString().slice(0, 10);
       document.getElementById('entryLink').href = '/logistics?date=' + encodeURIComponent(entryDate);
       document.getElementById('emptyEntry').href = document.getElementById('entryLink').href;
 
       var user = await loadUser();
       if (user && (user.role === 'manager' || user.role === 'admin')) {
         document.getElementById('salesWrap').style.display = '';
+        document.getElementById('btnTrackingRefresh').style.display = '';
         var names = await loadSalespeople();
         names.forEach(function (n) {
           var opt = document.createElement('option');

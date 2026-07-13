@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.audit import log_action
@@ -92,23 +92,22 @@ class WalkinMetricsSubmit(BaseModel):
     report_date: str                  # YYYY-MM-DD
     dealer_id: str
     dealer_name: str
-    walkin_visits: int = 0            # Walk-ins 自然进店
-    prospect_visits: int = 0          # Prospects 潜在客户
-    appointment_visits: int = 0       # Appointments 预约
-    online_visits: int = 0            # Online 线上
-    referral_visits: int = 0          # Referral 介绍
-    sa_visits: int = 0                # SA 主动
-    touch_count: int = 0              # Products Shown 产品展示
-    use_count: int = 0
-    wechat_add_count: int = 0
-    deal_count: int = 0               # Products Sold 成交台数
-    deal_amount_yuan: float = 0.0     # Revenue 成交金额
+    walkin_visits: int = Field(0, ge=0)             # walkin 直接进店
+    cross_visits: int = Field(0, ge=0)              # 异业：同业其他奢侈品员工介绍
+    online_visits: int = Field(0, ge=0)             # 线上：各种社媒渠道
+    recruit_visits: int = Field(0, ge=0)            # 招聘：招聘的新员工自带客户
+    existing_visits: int = Field(0, ge=0)           # 存量：老客户
+    touch_count: int = Field(0, ge=0)               # Products Shown 产品展示
+    use_count: int = Field(0, ge=0)
+    wechat_add_count: int = Field(0, ge=0)
+    deal_count: int = Field(0, ge=0)                # Products Sold 成交台数
+    deal_amount_yuan: float = Field(0.0, ge=0.0)    # Revenue 成交金额
     notes: str = ""
 
 
 @router.get("/api/my-stores")
 async def get_my_stores(
-    user: Annotated[User, Depends(require_role("dealer"))],
+    user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
 ):
     """返回当前用户可见的门店列表（dealer=自己门店，sales=名下门店，manager/admin=全部）。"""
@@ -137,11 +136,19 @@ async def submit_walkin_metrics(
     user: Annotated[User, Depends(require_role("dealer"))],
     session: Annotated[Session, Depends(get_session)],
 ):
-    """提交门店五件套日报（dealer及以上权限）。dealer角色只能提交自己绑定的门店。"""
+    """提交门店五件套日报（dealer及以上权限）。dealer/sales角色只能提交自己名下的门店。"""
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.report_date):
         raise HTTPException(status_code=422, detail="report_date 格式应为 YYYY-MM-DD")
     if not body.dealer_id.strip():
         raise HTTPException(status_code=422, detail="dealer_id 不能为空")
+    if body.report_date > bridge.today_text():
+        raise HTTPException(status_code=422, detail="report_date 不能是未来日期")
+
+    dealer_store = session.exec(
+        select(DealerStore).where(DealerStore.store_id == body.dealer_id)
+    ).first()
+    if not dealer_store:
+        raise HTTPException(status_code=422, detail="dealer_id 不存在，请从门店列表选择")
 
     # dealer角色强制锁定自己的门店
     if user.role == "dealer":
@@ -149,6 +156,10 @@ async def submit_walkin_metrics(
             raise HTTPException(status_code=403, detail="账号未绑定门店，请联系管理员")
         if body.dealer_id != user.dealer_id:
             raise HTTPException(status_code=403, detail="只能提交自己门店的数据")
+    # sales角色只能提交自己名下门店的数据
+    elif user.role == "sales":
+        if dealer_store.sales_owner != user.username:
+            raise HTTPException(status_code=403, detail="只能提交自己名下门店的数据")
 
     # 同一门店同一天只保留最新一条（upsert）
     existing = session.exec(
@@ -162,17 +173,16 @@ async def submit_walkin_metrics(
         report_date=body.report_date,
         dealer_id=body.dealer_id,
         dealer_name=body.dealer_name,
-        walkin_visits=max(0, body.walkin_visits),
-        prospect_visits=max(0, body.prospect_visits),
-        appointment_visits=max(0, body.appointment_visits),
-        online_visits=max(0, body.online_visits),
-        referral_visits=max(0, body.referral_visits),
-        sa_visits=max(0, body.sa_visits),
-        touch_count=max(0, body.touch_count),
-        use_count=max(0, body.use_count),
-        wechat_add_count=max(0, body.wechat_add_count),
-        deal_count=max(0, body.deal_count),
-        deal_amount_yuan=max(0.0, body.deal_amount_yuan),
+        walkin_visits=body.walkin_visits,
+        cross_visits=body.cross_visits,
+        online_visits=body.online_visits,
+        recruit_visits=body.recruit_visits,
+        existing_visits=body.existing_visits,
+        touch_count=body.touch_count,
+        use_count=body.use_count,
+        wechat_add_count=body.wechat_add_count,
+        deal_count=body.deal_count,
+        deal_amount_yuan=body.deal_amount_yuan,
         notes=body.notes,
         submitted_by=user.username,
     )
@@ -205,15 +215,16 @@ def _dealer_ids_for_user(user: User, session) -> list[str] | None:
 
 def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
     """按角色过滤 walkin payload 里的 stores 和 staff。
-    仅 sales 角色受限（只看自己名下门店）；其余角色全量可见。
+    sales 角色只看自己名下门店；dealer 角色只看自己绑定的门店；其余角色（manager/admin/viewer）全量可见。
     """
-    if user.role != "sales":
+    if user.role == "sales":
+        allowed_set = set(session.exec(
+            select(DealerStore.store_id).where(DealerStore.sales_owner == user.username)
+        ).all())
+    elif user.role == "dealer":
+        allowed_set = {user.dealer_id} if user.dealer_id else set()
+    else:
         return payload
-
-    owned = session.exec(
-        select(DealerStore.store_id).where(DealerStore.sales_owner == user.username)
-    ).all()
-    allowed_set = set(owned)
 
     if not allowed_set:
         payload["stores"] = []
@@ -227,7 +238,7 @@ def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
 
 @router.get("/api/walkin-metrics")
 async def list_walkin_metrics(
-    user: Annotated[User, Depends(require_role("dealer"))],
+    user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
     month: str = Query(""),
     dealer_id: str = Query(""),
@@ -255,11 +266,10 @@ async def list_walkin_metrics(
                 "dealer_name": r.dealer_name,
                 "five_kit": {
                     "walkin": r.walkin_visits,
-                    "prospect": r.prospect_visits,
-                    "appointment": r.appointment_visits,
+                    "cross": r.cross_visits,
                     "online": r.online_visits,
-                    "referral": r.referral_visits,
-                    "sa": r.sa_visits,
+                    "recruit": r.recruit_visits,
+                    "existing": r.existing_visits,
                     "total": r.total_visits,
                 },
                 "funnel": {
@@ -281,7 +291,7 @@ async def list_walkin_metrics(
 
 @router.get("/api/walkin-metrics/summary")
 async def walkin_metrics_summary(
-    user: Annotated[User, Depends(require_role("dealer"))],
+    user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
     month: str = Query(""),
     start: str = Query(""),
@@ -313,23 +323,22 @@ async def walkin_metrics_summary(
         return {
             "month": month,
             "record_count": 0,
-            "five_kit": {"appointment": 0, "prospect": 0, "online": 0, "referral": 0, "sa": 0, "total": 0},
+            "five_kit": {"walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0, "total": 0},
             "funnel": {"total_visits": 0, "touch_count": 0, "use_count": 0, "wechat_add_count": 0, "deal_count": 0, "deal_amount_yuan": 0.0},
             "by_dealer": [],
         }
 
-    agg = dict(walkin=0, prospect=0, appointment=0, online=0, referral=0, sa=0,
+    agg = dict(walkin=0, cross=0, online=0, recruit=0, existing=0,
                total_visits=0, touch=0, use=0, wechat=0, deal_count=0, deal_amount=0.0)
 
     dealer_map: dict[str, dict] = {}
 
     for r in rows:
         agg["walkin"] += r.walkin_visits
-        agg["prospect"] += r.prospect_visits
-        agg["appointment"] += r.appointment_visits
+        agg["cross"] += r.cross_visits
         agg["online"] += r.online_visits
-        agg["referral"] += r.referral_visits
-        agg["sa"] += r.sa_visits
+        agg["recruit"] += r.recruit_visits
+        agg["existing"] += r.existing_visits
         tv = r.total_visits
         agg["total_visits"] += tv
         agg["touch"] += r.touch_count
@@ -340,20 +349,19 @@ async def walkin_metrics_summary(
 
         dm = dealer_map.setdefault(r.dealer_id, {
             "dealer_id": r.dealer_id, "dealer_name": r.dealer_name,
-            "walkin": 0, "prospect": 0, "appointment": 0, "online": 0, "referral": 0, "sa": 0,
+            "walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0,
             "total_visits": 0, "deal_count": 0, "deal_amount_yuan": 0.0,
         })
         dm["walkin"] += r.walkin_visits
-        dm["prospect"] += r.prospect_visits
-        dm["appointment"] += r.appointment_visits
+        dm["cross"] += r.cross_visits
         dm["online"] += r.online_visits
-        dm["referral"] += r.referral_visits
-        dm["sa"] += r.sa_visits
+        dm["recruit"] += r.recruit_visits
+        dm["existing"] += r.existing_visits
         dm["total_visits"] += tv
         dm["deal_count"] += r.deal_count
         dm["deal_amount_yuan"] += r.deal_amount_yuan
 
-    total_src = agg["walkin"] + agg["prospect"] + agg["appointment"] + agg["online"] + agg["referral"] + agg["sa"]
+    total_src = agg["walkin"] + agg["cross"] + agg["online"] + agg["recruit"] + agg["existing"]
 
     def pct(n):
         return round(n / total_src * 100, 1) if total_src else 0
@@ -363,19 +371,17 @@ async def walkin_metrics_summary(
         "record_count": len(rows),
         "five_kit": {
             "walkin": agg["walkin"],
-            "prospect": agg["prospect"],
-            "appointment": agg["appointment"],
+            "cross": agg["cross"],
             "online": agg["online"],
-            "referral": agg["referral"],
-            "sa": agg["sa"],
+            "recruit": agg["recruit"],
+            "existing": agg["existing"],
             "total": total_src,
             "pct": {
                 "walkin": pct(agg["walkin"]),
-                "prospect": pct(agg["prospect"]),
-                "appointment": pct(agg["appointment"]),
+                "cross": pct(agg["cross"]),
                 "online": pct(agg["online"]),
-                "referral": pct(agg["referral"]),
-                "sa": pct(agg["sa"]),
+                "recruit": pct(agg["recruit"]),
+                "existing": pct(agg["existing"]),
             },
         },
         "funnel": {
@@ -410,16 +416,15 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
     dealer_agg: dict[str, dict] = {}
     for r in rows:
         d = dealer_agg.setdefault(r.dealer_id, {
-            "walkin": 0, "prospect": 0, "appointment": 0, "online": 0, "referral": 0, "sa": 0,
+            "walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0,
             "total_visits": 0, "touch": 0, "use": 0, "wechat": 0,
             "deal_count": 0, "deal_amount_yuan": 0.0,
         })
         d["walkin"] += r.walkin_visits
-        d["prospect"] += r.prospect_visits
-        d["appointment"] += r.appointment_visits
+        d["cross"] += r.cross_visits
         d["online"] += r.online_visits
-        d["referral"] += r.referral_visits
-        d["sa"] += r.sa_visits
+        d["recruit"] += r.recruit_visits
+        d["existing"] += r.existing_visits
         d["total_visits"] += r.total_visits
         d["touch"] += r.touch_count
         d["use"] += r.use_count
@@ -435,11 +440,10 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
             # 注入五件套来源字段
             store["fiveKit"] = {
                 "walkin": d["walkin"],
-                "prospect": d["prospect"],
-                "appointment": d["appointment"],
+                "cross": d["cross"],
                 "online": d["online"],
-                "referral": d["referral"],
-                "sa": d["sa"],
+                "recruit": d["recruit"],
+                "existing": d["existing"],
                 "total": d["total_visits"],
             }
             # 用真实 deal_amount_yuan 覆盖估算的 totalSalesAmount（如果大于 0）

@@ -12,7 +12,7 @@ def inject_vue_shell(html: str) -> str:
     shell = (
         '<div id="pdca-shell-root"></div>'
         '<link rel="stylesheet" href="/shared/shell.css" />'
-        '<script type="module" src="/shared/shell.js"></script>'
+        '<script type="module" src="/shared/shell.js?v=2"></script>'
     )
     return html.replace("<body>", "<body>" + shell, 1)
 

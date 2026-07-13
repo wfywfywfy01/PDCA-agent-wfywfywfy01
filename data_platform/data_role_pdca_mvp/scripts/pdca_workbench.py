@@ -180,6 +180,16 @@ def serve_dashboard_html(handler, dashboard_path, date_text):
     handler.send_html(skin_dashboard_html(html, date_text))
 
 
+def filter_dealers_for_user(dealers, session_user):
+    """sales 角色只看自己名下代理（salesPerson 匹配 sales_name），其余角色看全公司。"""
+    if not session_user or session_user.get("role") != "sales":
+        return dealers
+    sales_name = str(session_user.get("sales_name") or "").strip()
+    if not sales_name:
+        return dealers
+    return [d for d in dealers if str(d.get("salesPerson") or "").strip() == sales_name]
+
+
 def load_dealer_reference():
     if not DEALER_REF_JSON.is_file():
         return []
@@ -217,10 +227,11 @@ def load_chart_data(date_text):
         return None
 
 
-def chart_performance_total(chart_data, period, date_text):
+def chart_performance_total(chart_data, period, date_text, sales_name=""):
     """
     与数据看板「实际达成」同口径：VPS 销售员业绩合计。
     月视图 = salesperson_top（看板本月 583.76万 即此字段之和）。
+    sales_name 非空时只汇总 dimension 匹配该销售员的行。
     """
     period_rows = {
         "day": ("salesperson_daily", "今日"),
@@ -230,16 +241,18 @@ def chart_performance_total(chart_data, period, date_text):
     }
     key, label = period_rows.get(period, period_rows["month"])
     rows = chart_data.get(key) or []
+    if sales_name:
+        rows = [r for r in rows if str(r.get("dimension") or "").strip() == sales_name]
     total_yuan = sum(float(row.get("performance") or 0) for row in rows)
     wan = round(total_yuan / 10000, 2)
     return total_yuan, wan, f"{label}实际达成"
 
 
-def sell_in_from_chart(date_text, period):
+def sell_in_from_chart(date_text, period, sales_name=""):
     chart = load_chart_data(date_text)
     if not chart:
         return None
-    return chart_performance_total(chart, period, date_text)
+    return chart_performance_total(chart, period, date_text, sales_name=sales_name)
 
 
 def api_dashboard_overview(date_text, period, session_user=None):
@@ -250,11 +263,14 @@ def api_dashboard_overview(date_text, period, session_user=None):
         user = identity.get("user") or {} if identity.get("ok") else {}
         name = nested_value(user, "employee_name", "name", "display_name") or nested_value(user, "name", "display_name") or "数据岗"
         role = nested_value(user, "job_title", "role") or "PDCA 工作台"
-    dealers = load_dealer_reference()
+    dealers = filter_dealers_for_user(load_dealer_reference(), session_user)
     sell_out, sell_out_sub = dealer_sell_out_total(dealers)
     sell_in_sub = ""
     sell_in_wan = 0.0
-    chart_sell_in = sell_in_from_chart(date_text, period)
+    scope_sales_name = ""
+    if session_user and session_user.get("role") == "sales":
+        scope_sales_name = str(session_user.get("sales_name") or "").strip()
+    chart_sell_in = sell_in_from_chart(date_text, period, sales_name=scope_sales_name)
     if chart_sell_in:
         sell_in, sell_in_wan, sell_in_sub = chart_sell_in
     else:
@@ -385,8 +401,8 @@ def api_hermes_agent_tasks(date_text):
     return tasks[:5]
 
 
-def api_customer_center_summary():
-    dealers = load_dealer_reference()
+def api_customer_center_summary(session_user=None):
+    dealers = filter_dealers_for_user(load_dealer_reference(), session_user)
     buckets = {"S": [], "A": [], "B": [], "C": []}
     for dealer in dealers:
         ctype = (dealer.get("customerType") or "S").upper()[:1]
@@ -572,7 +588,7 @@ def enrich_vemory_meetings(payload: dict) -> dict:
     return payload
 
 
-def api_meeting_center_summary(date_text=None):
+def api_meeting_center_summary(date_text=None, end_date=None):
     date_text = date_text or today_text()
     if not fetch_vemory_meetings:
         return [
@@ -581,7 +597,9 @@ def api_meeting_center_summary(date_text=None):
             {"key": "report", "label": "汇报会议", "value": 0},
             {"key": "customer", "label": "客户会议", "value": 0},
         ]
-    payload = enrich_vemory_meetings(fetch_vemory_meetings(date_text, vertu_cmd=vertu_command()))
+    payload = enrich_vemory_meetings(
+        fetch_vemory_meetings(date_text, vertu_cmd=vertu_command(), end_date=end_date or "")
+    )
     counts = payload.get("counts") or meeting_center_counts(payload.get("meetings") or [])
     labels = {
         "total": "总会议数",
@@ -592,11 +610,11 @@ def api_meeting_center_summary(date_text=None):
     return [{"key": key, "label": labels[key], "value": counts.get(key, 0)} for key in labels]
 
 
-def api_meeting_center_meetings(date_text, person_phone="", person_name=""):
+def api_meeting_center_meetings(date_text, person_phone="", person_name="", end_date=""):
     if not fetch_vemory_meetings:
         return {"ok": False, "error": "vemory_bridge 未加载", "meetings": [], "counts": {}, "summary": {}}
     payload = enrich_vemory_meetings(
-        fetch_vemory_meetings(date_text, person_phone, person_name, vertu_cmd=vertu_command())
+        fetch_vemory_meetings(date_text, person_phone, person_name, vertu_cmd=vertu_command(), end_date=end_date or "")
     )
     return payload
 
@@ -1891,15 +1909,11 @@ def resolve_workbench_profile(session_user: dict | None) -> tuple[str, str, str]
     sales_name = str(session_user.get("sales_name") or "").strip()
     role = str(session_user.get("role") or "").strip()
     hints = person_name_hints(session_user)
-    desk_role = role in ("admin", "manager", "viewer")
-
-    if desk_role or not hints:
-        identity = fetch_vps_identity()
-        if identity.get("ok"):
-            vu = identity.get("user") or {}
-            me_name, me_job = profile_from_vps_me(vu, role)
-            if me_name and not is_generic_profile_label(me_name, role):
-                return me_name, me_job, "vps-me"
+    # 注意：这里不能无条件用 fetch_vps_identity()（服务器本机 vertu 会话）去猜"这是谁"——
+    # 那是运行这个进程的机器当前登录的 VPS 账号，和实际发请求登录 8767 的人没有任何绑定关系。
+    # 之前这里对 admin/manager/viewer 三个角色无条件信任它，导致不管谁用这几个账号登录，
+    # 姓名都被覆盖成服务器机器上 vertu 登录的那个人（一直显示"付汪阳"）。
+    # 下面 username==me_login 或姓名命中 hints 才采信的那次 fetch_vps_identity() 调用才是安全的。
 
     for hint in hints:
         employee = lookup_vps_employee_by_hint(hint)

@@ -53,7 +53,7 @@
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
 
     /* ── Source Grid ── */
-    .source-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem}
+    .source-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:.5rem}
     .src-item{text-align:center}
     .src-en{font-size:.65rem;font-weight:700;color:var(--t3);letter-spacing:.03em;margin-bottom:.2rem}
     .src-sub{font-size:.62rem;color:var(--t4,#334155);margin-bottom:.3rem}
@@ -63,7 +63,6 @@
     .src-item.appt input{border-color:rgba(78,158,245,.3)}
     .src-item.online input{border-color:rgba(14,165,233,.3)}
     .src-item.referral input{border-color:rgba(16,185,129,.3)}
-    .src-item.sa input{border-color:rgba(245,158,11,.3)}
 
     /* Total Bar */
     .total-bar{background:rgba(78,158,245,.08);border:1px solid rgba(78,158,245,.2);
@@ -143,7 +142,7 @@
 <div class="topbar">
   <div>
     <div class="topbar-title">Store Five-Kit Daily Report</div>
-    <div class="topbar-sub">Walk-ins · Prospects · Appointments · Online · Referral · SA</div>
+    <div class="topbar-sub">Walk-in · Cross-industry · Online · Recruit · Existing</div>
   </div>
 </div>
 
@@ -181,34 +180,29 @@
       <div class="card-label"><span class="dot" style="background:#8b5cf6"></span>Traffic Sources (visitors)</div>
       <div class="source-grid">
         <div class="src-item walkin">
-          <div class="src-en">Walk-ins</div>
-          <div class="src-sub">Organic</div>
+          <div class="src-en">Walk-in</div>
+          <div class="src-sub">直接进店</div>
           <input type="number" id="walkin_visits" min="0" value="0" />
         </div>
-        <div class="src-item">
-          <div class="src-en">Prospects</div>
-          <div class="src-sub">Potential</div>
-          <input type="number" id="prospect_visits" min="0" value="0" />
-        </div>
-        <div class="src-item appt">
-          <div class="src-en">Appointments</div>
-          <div class="src-sub">Booked</div>
-          <input type="number" id="appointment_visits" min="0" value="0" />
+        <div class="src-item referral">
+          <div class="src-en">Cross-industry</div>
+          <div class="src-sub">异业：同业其他奢侈品员工介绍</div>
+          <input type="number" id="cross_visits" min="0" value="0" />
         </div>
         <div class="src-item online">
           <div class="src-en">Online</div>
-          <div class="src-sub">Digital</div>
+          <div class="src-sub">线上：各种社媒渠道</div>
           <input type="number" id="online_visits" min="0" value="0" />
         </div>
-        <div class="src-item referral">
-          <div class="src-en">Referral</div>
-          <div class="src-sub">Word of mouth</div>
-          <input type="number" id="referral_visits" min="0" value="0" />
+        <div class="src-item appt">
+          <div class="src-en">Recruit</div>
+          <div class="src-sub">招聘：新员工自带客户</div>
+          <input type="number" id="recruit_visits" min="0" value="0" />
         </div>
-        <div class="src-item sa">
-          <div class="src-en">SA</div>
-          <div class="src-sub">Proactive</div>
-          <input type="number" id="sa_visits" min="0" value="0" />
+        <div class="src-item">
+          <div class="src-en">Existing</div>
+          <div class="src-sub">存量：老客户</div>
+          <input type="number" id="existing_visits" min="0" value="0" />
         </div>
       </div>
       <div class="total-bar">
@@ -272,12 +266,11 @@
           <tr>
             <th class="left">Date</th>
             <th class="left">Store</th>
-            <th>Walk-ins</th>
-            <th>Prospects</th>
-            <th>Appt.</th>
+            <th>Walk-in</th>
+            <th>Cross-ind.</th>
             <th>Online</th>
-            <th>Referral</th>
-            <th>SA</th>
+            <th>Recruit</th>
+            <th>Existing</th>
             <th>Total</th>
             <th>Shown</th>
             <th>Sold</th>
@@ -286,7 +279,7 @@
           </tr>
         </thead>
         <tbody id="histBody">
-          <tr><td colspan="13" class="empty">Click "Refresh" to load data</td></tr>
+          <tr><td colspan="12" class="empty">Click "Refresh" to load data</td></tr>
         </tbody>
       </table>
     </div>
@@ -386,7 +379,7 @@ function switchTab(tab, btn){
 }
 
 // Live totals
-var srcIds = ['walkin_visits','prospect_visits','appointment_visits','online_visits','referral_visits','sa_visits'];
+var srcIds = ['walkin_visits','cross_visits','online_visits','recruit_visits','existing_visits'];
 function updateCalc(){
   var total = 0;
   srcIds.forEach(function(id){ total += pInt(id); });
@@ -414,11 +407,10 @@ document.getElementById('kitForm').addEventListener('submit', function(e){
   var body = {
     report_date: date, dealer_id: did, dealer_name: dname,
     walkin_visits:       pInt('walkin_visits'),
-    prospect_visits:     pInt('prospect_visits'),
-    appointment_visits:  pInt('appointment_visits'),
+    cross_visits:        pInt('cross_visits'),
     online_visits:       pInt('online_visits'),
-    referral_visits:     pInt('referral_visits'),
-    sa_visits:           pInt('sa_visits'),
+    recruit_visits:      pInt('recruit_visits'),
+    existing_visits:     pInt('existing_visits'),
     touch_count:         pInt('touch_count'),
     deal_count:          pInt('deal_count'),
     deal_amount_yuan:    parseFloat(document.getElementById('deal_amount_yuan').value||'0')||0,
@@ -470,14 +462,14 @@ function loadHistory(){
   var url = API+'/api/walkin-metrics?month='+encodeURIComponent(month)
                 +'&dealer_id='+encodeURIComponent(dealer);
   document.getElementById('histBody').innerHTML =
-    '<tr><td colspan="13" class="empty">Loading…</td></tr>';
+    '<tr><td colspan="12" class="empty">Loading…</td></tr>';
   fetch(url,{credentials:'include'})
   .then(function(r){ return r.json(); })
   .then(function(data){
     var rows = data.items||[];
     if (!rows.length){
       document.getElementById('histBody').innerHTML =
-        '<tr><td colspan="13" class="empty">No data this period</td></tr>';
+        '<tr><td colspan="12" class="empty">No data this period</td></tr>';
       document.getElementById('histFooter').textContent='';
       return;
     }
@@ -493,11 +485,10 @@ function loadHistory(){
         +'<td class="left" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">'
           +(storeMap[r.dealer_id]||r.dealer_id)+'</td>'
         +'<td>'+n(fk.walkin)+'</td>'
-        +'<td>'+n(fk.prospect)+'</td>'
-        +'<td>'+n(fk.appointment)+'</td>'
+        +'<td>'+n(fk.cross)+'</td>'
         +'<td>'+n(fk.online)+'</td>'
-        +'<td>'+n(fk.referral)+'</td>'
-        +'<td>'+n(fk.sa)+'</td>'
+        +'<td>'+n(fk.recruit)+'</td>'
+        +'<td>'+n(fk.existing)+'</td>'
         +'<td><strong>'+tv+'</strong></td>'
         +'<td>'+n(fn.touch_count)+'</td>'
         +'<td>'+n(fn.deal_count)+'</td>'
@@ -514,7 +505,7 @@ function loadHistory(){
   })
   .catch(function(){
     document.getElementById('histBody').innerHTML=
-      '<tr><td colspan="13" class="empty">Failed to load</td></tr>';
+      '<tr><td colspan="12" class="empty">Failed to load</td></tr>';
   });
 }
 </script>

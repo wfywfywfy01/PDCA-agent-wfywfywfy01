@@ -30,7 +30,9 @@ def _resolve_safe(path_text: str) -> Path:
     target = Path(path_text).resolve()
     for root in _allowed_roots():
         root_resolved = root.resolve()
-        if str(target).startswith(str(root_resolved)) and target.is_file():
+        # 用 is_relative_to 而不是字符串前缀匹配——字符串前缀会被同名前缀的兄弟目录绕过
+        # （比如 root="outputs"，target="outputs_backup/xxx" 也会被字符串前缀判断为"在范围内"）
+        if target.is_relative_to(root_resolved) and target.is_file():
             return target
     raise HTTPException(status_code=403, detail="路径不在允许范围内或文件不存在")
 

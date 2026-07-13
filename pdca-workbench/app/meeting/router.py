@@ -28,14 +28,16 @@ def _safe_bridge(fn, *args, default=None, **kwargs):
 @router.get("/api/meeting-center/summary")
 async def summary(
     date: str | None = None,
+    end_date: str | None = None,
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
-    return _safe_bridge(bridge.api_meeting_center_summary, date or bridge.today_text(), default=[])
+    return _safe_bridge(bridge.api_meeting_center_summary, date or bridge.today_text(), end_date, default=[])
 
 
 @router.get("/api/meeting-center/meetings")
 async def meetings(
     date: str | None = None,
+    end_date: str | None = None,
     phone: str = Query(""),
     name: str = Query(""),
     _user: Annotated[User, Depends(require_role("viewer"))] = None,
@@ -45,6 +47,7 @@ async def meetings(
         date or bridge.today_text(),
         phone,
         name,
+        end_date or "",
         default={"meetings": [], "total": 0},
     )
 

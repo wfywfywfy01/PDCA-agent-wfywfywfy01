@@ -63,7 +63,7 @@
     .kpi-red   .kpi-value{color:var(--red)}
 
     /* ── VPS 排行条 ── */
-    #rankStrip{background:var(--surf2);border-bottom:1px solid var(--border);
+    #rankStrip,#productStrip{background:var(--surf2);border-bottom:1px solid var(--border);
                padding:.6rem 1.5rem;display:none;align-items:center;gap:.5rem;overflow-x:auto}
     .rank-label{font-size:.62rem;font-weight:700;color:var(--t3);
                 text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;flex-shrink:0}
@@ -200,7 +200,7 @@
   <input type="date" class="date-input" id="anchorPicker" />
   <button class="btn-refresh" onclick="load()">刷新</button>
   <span class="vps-badge" id="vpsBadge" style="display:none"></span>
-  <a href="/walkin-cockpit/" class="header-back">← 客流看板</a>
+  <a href="/walkin-cockpit/" class="header-back">← 客流接待台</a>
 </header>
 
 <div id="kpiBar" class="kpi-bar" style="display:none">
@@ -212,7 +212,7 @@
   <div class="kpi-cell kpi-blue">
     <div class="kpi-label">累计激活</div>
     <div class="kpi-value" id="k-activated">—</div>
-    <div class="kpi-sub">台 · 全部历史</div>
+    <div class="kpi-sub" id="k-activated-sub">台 · 全部历史</div>
   </div>
   <div class="kpi-cell kpi-amber">
     <div class="kpi-label">待激活</div>
@@ -235,6 +235,12 @@
 <div id="rankStrip">
   <span class="rank-label">Sell-out 排行</span>
   <div class="rank-pills" id="rankPills"></div>
+</div>
+
+<!-- 产品激活排行（有数据时展开） -->
+<div id="productStrip">
+  <span class="rank-label">产品激活排行</span>
+  <div class="rank-pills" id="productPills"></div>
 </div>
 
 <div class="page-body">
@@ -372,6 +378,10 @@ function renderAll(range){
   document.getElementById('k-stock').textContent=stock;
   document.getElementById('k-reported').textContent=reported;
   document.getElementById('k-total-sub').textContent='共 '+storeList.length+' 家';
+  if(act&&act.total_activated){
+    document.getElementById('k-activated-sub').textContent=
+      '本地 '+(act.total_local_activated||0)+'('+(act.overall_local_rate||0)+'%) · 异地 '+(act.total_remote_activated||0);
+  }
 
   if(vps||act){
     var badge=document.getElementById('vpsBadge');
@@ -393,6 +403,20 @@ function renderAll(range){
         +'</div>';
     }).join('');
     document.getElementById('rankPills').innerHTML=pills;
+  }
+
+  // 产品激活排行
+  if(act&&act.products&&act.products.length){
+    var pstrip=document.getElementById('productStrip');
+    pstrip.style.display='flex';
+    var ppills=act.products.slice(0,10).map(function(p,i){
+      return '<div class="rank-pill">'
+        +'<span class="medal">'+(i+1)+'. </span>'
+        +'<span class="rname">'+esc(p.product_name)+'</span>'
+        +'<span class="ramt">'+(p.activated||0)+' 台</span>'
+        +'</div>';
+    }).join('');
+    document.getElementById('productPills').innerHTML=ppills;
   }
 
   // 显示过滤器
@@ -498,18 +522,24 @@ function renderCard(store,sd,vd,ad){
       +'<div class="act-cell"><div class="act-lab">未激活</div><div class="act-val v-amber">'+notAct+'</div></div>'
       +'<div class="act-cell"><div class="act-lab">激活率</div><div class="act-val v-blue">'+esc(pct)+'</div></div>'
       +'</div>';
+    if(ad.activated>0){
+      actRow+='<div class="act-row">'
+        +'<div class="act-cell"><div class="act-lab">本地激活</div><div class="act-val v-green">'+(ad.local_activated||0)+'</div></div>'
+        +'<div class="act-cell"><div class="act-lab">异地激活</div><div class="act-val v-amber">'+(ad.remote_activated||0)+'</div></div>'
+        +'<div class="act-cell"><div class="act-lab">本地率</div><div class="act-val v-blue">'+(ad.local_activation_rate||0)+'%</div></div>'
+        +'</div>';
+    }
   }
 
   // 进店来源条
   var srcHtml='';
   if(hasKit){
     var srcs=[
-      {n:'自然进',v:sd.walkin||0,c:'#475569'},
-      {n:'预约',v:sd.appointment||0,c:'#2563eb'},
-      {n:'潜客',v:sd.prospect||0,c:'#7c3aed'},
+      {n:'Walkin',v:sd.walkin||0,c:'#475569'},
+      {n:'异业',v:sd.cross||0,c:'#d97706'},
       {n:'线上',v:sd.online||0,c:'#0891b2'},
-      {n:'介绍',v:sd.referral||0,c:'#d97706'},
-      {n:'SA',v:sd.sa||0,c:'#e11d48'},
+      {n:'招聘',v:sd.recruit||0,c:'#2563eb'},
+      {n:'存量',v:sd.existing||0,c:'#7c3aed'},
     ];
     var tot=sd.total_visits||1;
     var rows=srcs.filter(function(s){return s.v>0}).map(function(s){

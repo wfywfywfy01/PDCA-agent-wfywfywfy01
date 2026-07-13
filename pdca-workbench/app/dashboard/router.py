@@ -110,9 +110,15 @@ async def sell_out(
 
 @router.get("/api/customer-center/summary")
 async def customer_center(
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
 ):
-    return _bridge_call(bridge.api_customer_center_summary, default=[])
+    session_user = {
+        "username": user.username,
+        "display_name": user.display_name,
+        "sales_name": getattr(user, "sales_name", "") or "",
+        "role": user.role,
+    }
+    return _bridge_call(bridge.api_customer_center_summary, session_user, default=[])
 
 
 @router.get("/api/task-center/summary")

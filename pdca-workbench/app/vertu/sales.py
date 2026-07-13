@@ -1,9 +1,19 @@
 # -*- coding: utf-8 -*-
 """通过 vertu CLI 从 Odoo 实时拉取 sell-in / sell-out 数据。
 
-sell-in  (经销商提货) → sale.order ORM _read_group（Frank 的 Personal Orders）
-sell-out (经销商终销) → dealer.sale.order ORM search_read（海外经销商终销）
-sellin-summary        → sale.order ORM 按 partner_id 分组 + 6 个月趋势
+sell-in  (各销售业绩，如杨晶晶/何海文等) → odoo_sale SQL 视图，按销售日期区间求和
+                「一级部门」='海外渠道' AND 「二级部门」LIKE '经销商%'
+sell-out (代理商终端销售，卖给最终消费者) → dealer.sale.order ORM search_read（经销商自行
+                录入的终端销售单，数据量天然偏少——多数经销商并未持续在此录入）
+sellin-summary        → sale.order ORM 按 partner_id 分组 + 6 个月趋势（另一独立指标，未改）
+
+排错记录（2026-07-11）：曾误判 sql_read 对 odoo_sale 有行级权限阻塞（付汪阳只能看自己），
+实测账号对「海外渠道」部门树有完整读权限（792 条/¥617万，覆盖全体销售）。真正原因是部门
+命名变更：「海外事业部」→「海外渠道」，「经销商」→「经销商一/二/三部」，旧的精确匹配
+WHERE 条件（pull_dealer_sales_odoo_sale.py / dealer_monthly_overseas.py 用的旧名）从此
+静默匹配 0 行，导致每日 20:00 的 sync_dealer_sales_from_vps 定时同步任务实际失效多日而
+无人察觉。sell-in 已按新部门名重写；sell-out 语义上就是不同的表（dealer.sale.order），与
+部门改名无关。
 """
 from __future__ import annotations
 
@@ -14,19 +24,17 @@ from app.vertu.client import run_vertu_sandbox
 _SELL_IN_CODE = """
 start = params['start']
 end = params['end']
-recs = env['sale.order']._read_group(
-    [('date_order', '>=', start + ' 00:00:00'),
-     ('date_order', '<=', end + ' 23:59:59'),
-     ('state', 'in', ['sale', 'done'])],
-    [],
-    ['amount_total:sum']
-)
-total = float(recs[0][0] or 0) if recs else 0.0
-ai['result'] = {
-    'amount': total,
-    'wan': round(total / 10000, 2),
-    'note': 'Odoo实时 · sale.order',
-}
+rows = sql_read('''
+    SELECT SUM("实际金额") AS total, COUNT(*) AS cnt
+    FROM odoo_sale
+    WHERE "销售日期" >= %(start)s
+      AND "销售日期" <= %(end)s
+      AND "一级部门" = '海外渠道'
+      AND "二级部门" LIKE '经销商%%'
+''', {'start': start, 'end': end})
+total = float(rows[0]['total'] or 0) if rows else 0.0
+count = int(rows[0]['cnt'] or 0) if rows else 0
+ai['result'] = {'amount': total, 'count': count}
 """
 
 _SELL_OUT_CODE = """
@@ -160,24 +168,41 @@ def _trend_months(month: str) -> list[dict]:
     return result
 
 
+_PERIOD_LABEL = {"day": "今日", "today": "今日", "week": "本周", "month": "本月", "quarter": "本季度"}
+
+
 async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
-    """Sell-in KPI via sale.order ORM（无 SQL 超时风险）。"""
+    """Sell-in KPI：海外渠道/经销商各部销售业绩汇总，按 day/week/month/quarter 区分区间。"""
     start, end = _date_range(date_text, period)
     data = await run_vertu_sandbox(_SELL_IN_CODE, {"start": start, "end": end})
     result = _exec_result(data)
     if result is None:
         raise RuntimeError("vertu sell-in returned no result")
-    return result
+    amount = float(result.get("amount", 0) or 0)
+    label = _PERIOD_LABEL.get(period, "今日")
+    return {
+        "amount": amount,
+        "wan": round(amount / 10000, 2),
+        "note": f"{label} Odoo实时 · odoo_sale",
+    }
 
 
 async def fetch_sell_out(date_text: str, period: str = "day") -> dict:
-    """Sell-out KPI 汇总 dealer.sale.order。"""
+    """Sell-out KPI 汇总 dealer.sale.order（代理商终端销售，经销商自行录入），
+    按 day/week/month/quarter 区分区间。数据天然偏少，见模块顶部说明。
+    """
     start, end = _date_range(date_text, period)
     data = await run_vertu_sandbox(_SELL_OUT_CODE, {"start": start, "end": end})
     result = _exec_result(data)
     if result is None:
         raise RuntimeError("vertu sell-out returned no result")
-    return {"amount": result.get("amount", 0)}
+    amount = float(result.get("amount", 0) or 0)
+    label = _PERIOD_LABEL.get(period, "今日")
+    return {
+        "amount": amount,
+        "wan": round(amount / 10000, 2),
+        "note": f"{label} Odoo实时 · dealer.sale.order",
+    }
 
 
 async def fetch_sellin_summary(month: str | None = None) -> dict:

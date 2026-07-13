@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
-"""门店五件套日报表（每日进店来源 + 成交漏斗 + Sell-out）。"""
+"""门店五件套日报表（每日进店来源 + 成交漏斗 + Sell-out）。
+
+进店来源分五类（2026-07-12 起，替换旧的 自然进/预约/潜客/线上/介绍/SA 六分类）：
+  walkin   - 直接进店人数
+  cross    - 异业：同业其他奢侈品员工介绍
+  online   - 线上：各种社媒渠道
+  recruit  - 招聘：招聘的新员工自带客户
+  existing - 存量：老客户
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -18,17 +26,16 @@ class WalkinDailyReport(SQLModel, table=True):
     dealer_id: str = Field(index=True, max_length=64)     # 对应 walkin JSON 里的 store id
     dealer_name: str = Field(max_length=256)
 
-    # 五件套来源人数（顺序对齐 Excel Summary 表头）
-    walkin_visits: int = Field(default=0)         # Walk-ins 自然进店
-    prospect_visits: int = Field(default=0)       # Prospects 潜在客户
-    appointment_visits: int = Field(default=0)    # Appointments 预约进店
-    online_visits: int = Field(default=0)         # Online 线上引流
-    referral_visits: int = Field(default=0)       # Referral 介绍/转介绍
-    sa_visits: int = Field(default=0)             # SA 主动开发
+    # 五件套来源人数
+    walkin_visits: int = Field(default=0)      # walkin 直接进店
+    cross_visits: int = Field(default=0)       # 异业：同业其他奢侈品员工介绍
+    online_visits: int = Field(default=0)      # 线上：各种社媒渠道
+    recruit_visits: int = Field(default=0)     # 招聘：招聘的新员工自带客户
+    existing_visits: int = Field(default=0)    # 存量：老客户
 
     # 转化漏斗
     touch_count: int = Field(default=0)           # 触摸产品（人次）
-    use_count: int = Field(default=0)             # 试用体验（人次）
+    use_count: int = Field(default=0)              # 试用体验（人次）
     wechat_add_count: int = Field(default=0)      # 微信添加数
     deal_count: int = Field(default=0)            # 成交组数
     deal_amount_yuan: float = Field(default=0.0)  # 成交金额（元，即 sell-out）
@@ -41,9 +48,8 @@ class WalkinDailyReport(SQLModel, table=True):
     def total_visits(self) -> int:
         return (
             self.walkin_visits
-            + self.prospect_visits
-            + self.appointment_visits
+            + self.cross_visits
             + self.online_visits
-            + self.referral_visits
-            + self.sa_visits
+            + self.recruit_visits
+            + self.existing_visits
         )

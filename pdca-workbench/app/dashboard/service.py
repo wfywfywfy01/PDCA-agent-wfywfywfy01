@@ -20,7 +20,11 @@ def sell_in(date_text: str, period: str = "day") -> dict:
 
 def sell_out(date_text: str, period: str = "day") -> dict:
     data = overview(date_text, period)
-    return {"amount": data["sellOutAmount"]}
+    return {
+        "amount": data["sellOutAmount"],
+        "wan": data["sellOutWan"],
+        "note": data["sellOutSub"],
+    }
 
 
 def _fmt_cny(yuan: float) -> str:

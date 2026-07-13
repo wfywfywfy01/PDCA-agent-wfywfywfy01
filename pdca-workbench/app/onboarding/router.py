@@ -40,4 +40,4 @@ async def onboarding_complete(
     user: Annotated[User, Depends(require_role("sales"))],
 ):
     """培训模块打卡。"""
-    return service.complete_module(user.username, body.module_id, body.day, body.score)
+    return service.complete_module(user.username, body.module_id, body.day, body.score, user.role)

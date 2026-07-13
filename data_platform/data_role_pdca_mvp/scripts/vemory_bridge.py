@@ -173,14 +173,15 @@ def meeting_center_counts(meetings: list[dict]) -> dict:
     return buckets
 
 
-def cache_path(meeting_date: str, person_phone: str = "") -> Path:
+def cache_path(meeting_date: str, person_phone: str = "", end_date: str = "") -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     suffix = normalize_phone(person_phone) or "self"
-    return CACHE_DIR / f"{meeting_date}_{suffix}.json"
+    range_suffix = f"_{end_date}" if end_date and end_date != meeting_date else ""
+    return CACHE_DIR / f"{meeting_date}{range_suffix}_{suffix}.json"
 
 
-def load_cache(meeting_date: str, person_phone: str = "") -> dict | None:
-    path = cache_path(meeting_date, person_phone)
+def load_cache(meeting_date: str, person_phone: str = "", end_date: str = "") -> dict | None:
+    path = cache_path(meeting_date, person_phone, end_date)
     if not path.is_file():
         return None
     try:
@@ -192,8 +193,8 @@ def load_cache(meeting_date: str, person_phone: str = "") -> dict | None:
         return None
 
 
-def save_cache(meeting_date: str, payload: dict, person_phone: str = "") -> None:
-    cache_path(meeting_date, person_phone).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_cache(meeting_date: str, payload: dict, person_phone: str = "", end_date: str = "") -> None:
+    cache_path(meeting_date, person_phone, end_date).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def extract_json_payload(text: str):
@@ -209,8 +210,12 @@ def extract_json_payload(text: str):
     raise ValueError("VPS 返回内容不是 JSON")
 
 
-def proxy_customer_vemory(meeting_date: str, person_phone: str = "", person_name: str = "") -> dict | None:
+def proxy_customer_vemory(meeting_date: str, person_phone: str = "", person_name: str = "", end_date: str = "") -> dict | None:
     import socket
+
+    # 客户管理服务（8787）目前只按单日聚合，跨天区间一律不走代理，直接落到 call_vemory_cli 走真实区间查询
+    if end_date and end_date != meeting_date:
+        return None
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
@@ -261,10 +266,11 @@ def todo_assignments(meeting: dict) -> list[dict]:
     return rows
 
 
-def call_vemory_cli(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu", timeout: int = 45) -> dict:
+def call_vemory_cli(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu", end_date: str = "", timeout: int = 45) -> dict:
+    end = end_date or meeting_date
     vertu = shutil.which(vertu_cmd) or vertu_cmd
     if not shutil.which(vertu_cmd) and not Path(vertu_cmd).exists():
-        cached = load_cache(meeting_date, person_phone)
+        cached = load_cache(meeting_date, person_phone, end)
         if cached:
             cached["warning"] = "vps-cli 未安装，当前展示缓存。"
             return cached
@@ -292,8 +298,8 @@ def call_vemory_cli(meeting_date: str, person_phone: str = "", person_name: str 
             }
 
     candidates = [
-        [vertu, "odoo", "vemory", "meetings", "--start-date", meeting_date, "--end-date", meeting_date, "--max-meetings", "50", *user_args],
-        [vertu, "odoo", "vemory", "meetings", meeting_date, "--end-date", meeting_date, "--max-meetings", "50", *user_args],
+        [vertu, "odoo", "vemory", "meetings", "--start-date", meeting_date, "--end-date", end, "--max-meetings", "200", *user_args],
+        [vertu, "odoo", "vemory", "meetings", meeting_date, "--end-date", end, "--max-meetings", "200", *user_args],
     ]
     errors = []
     for cmd in candidates:
@@ -307,11 +313,12 @@ def call_vemory_cli(meeting_date: str, person_phone: str = "", person_name: str 
             errors.append("Vemory 返回不是 JSON。")
             continue
         normalized = normalize_vemory_payload(raw, meeting_date)
+        normalized["date_end"] = end
         normalized["person"] = {"name": person_name, "phone": person_phone}
-        save_cache(meeting_date, normalized, person_phone)
+        save_cache(meeting_date, normalized, person_phone, end)
         return normalized
 
-    cached = load_cache(meeting_date, person_phone)
+    cached = load_cache(meeting_date, person_phone, end)
     if cached:
         cached["warning"] = "VPS 调用失败，当前展示缓存。"
         cached["cli_errors"] = errors[-2:]
@@ -372,8 +379,8 @@ def resolve_vemory_user_id(vertu: str, phone: str, person_name: str = "", timeou
     return None, "未能通过手机号解析 Vemory user_id；" + "；".join(errors[-2:])
 
 
-def fetch_vemory_meetings(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu") -> dict:
-    proxied = proxy_customer_vemory(meeting_date, person_phone, person_name)
+def fetch_vemory_meetings(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu", end_date: str = "") -> dict:
+    proxied = proxy_customer_vemory(meeting_date, person_phone, person_name, end_date)
     if proxied:
         return proxied
-    return call_vemory_cli(meeting_date, person_phone, person_name, vertu_cmd=vertu_cmd)
+    return call_vemory_cli(meeting_date, person_phone, person_name, vertu_cmd=vertu_cmd, end_date=end_date)

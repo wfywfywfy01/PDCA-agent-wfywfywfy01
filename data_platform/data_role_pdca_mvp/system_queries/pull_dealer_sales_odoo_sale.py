@@ -9,8 +9,8 @@ run_date = params.get("run_date") or _today
 month_start = params.get("start_date") or (run_date[:8] + "01")
 
 dept_where = """
-    "一级部门" = '海外事业部'
-    AND "二级部门" = '经销商'
+    "一级部门" = '海外渠道'
+    AND "二级部门" LIKE '经销商%%'
     AND "订单状态" IN ('sale', 'done')
 """
 
@@ -134,10 +134,10 @@ ai["result"] = {
     "run_date": run_date,
     "month_start": month_start,
     "period_start": month_start,
-    "scope": "海外事业部 / 经销商",
+    "scope": "海外渠道 / 经销商",
     "filters": {
-        "一级部门": "海外事业部",
-        "二级部门": "经销商",
+        "一级部门": "海外渠道",
+        "二级部门": "经销商%",
         "订单状态": ["sale", "done"],
     },
     "summary_mode": True,

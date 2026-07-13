@@ -67,12 +67,7 @@
   <div class="page">
     <div id="flashMsg" class="flash"></div>
     <div class="toolbar">
-      <div class="tabs" id="periodTabs">
-        <button type="button" class="tab active" data-period="day">日</button>
-        <button type="button" class="tab" data-period="week">周</button>
-        <button type="button" class="tab" data-period="month">月</button>
-        <button type="button" class="tab" data-period="quarter">季</button>
-      </div>
+      <!-- 日/周/月/季切换已统一由顶部共享导航栏（shared/shell.js）提供，这里不再重复一份 -->
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span id="dataUpdateHint" style="font-size:12px;color:#9ca3af"></span>
         <button type="button" class="btn ghost" id="btnFetch" onclick="fetchRefresh()">刷新</button>
@@ -96,7 +91,7 @@
           <div class="metric-foot stat-foot" id="sellInFoot" style="font-size:11px;color:#475569"></div>
         </div>
       </div>
-      <div class="card stat metric-card metric-link sell-out-card" role="link" tabindex="0" title="打开客流分析台（海外客流与线上经营）" onclick="location.href=withDate('/walkin-cockpit/')" onkeydown="if(event.key==='Enter')location.href=withDate('/walkin-cockpit/')">
+      <div class="card stat metric-card metric-link sell-out-card" role="link" tabindex="0" title="打开客流接待台（海外客流与线上经营）" onclick="location.href=withDate('/walkin-cockpit/')" onkeydown="if(event.key==='Enter')location.href=withDate('/walkin-cockpit/')">
         <div class="metric-body stat-body">
           <div class="metric-label label">经销商终销金额 Sell Out</div>
           <div class="metric-value value" id="sellOutAmount"><span class="amount-num">—</span></div>
@@ -122,15 +117,36 @@
       </a>
       <a href="/walkin-cockpit/" class="card module-card">
         <div class="module-card-body">
-          <div class="module-card-title">客流 / 线上</div>
-          <div class="module-card-desc">海外客流与线上经营分析</div>
+          <div class="module-card-title">客流接待台</div>
+          <div class="module-card-desc">进店接待、转化漏斗与线上经营分析</div>
         </div>
         <span class="module-card-arrow">→</span>
       </a>
-      <a href="/store-five-kit/" class="card module-card">
+      <a href="/store-five-kit/" class="card module-card" id="cardStoreFiveKit">
         <div class="module-card-body">
           <div class="module-card-title">门店五件套</div>
           <div class="module-card-desc">各门店五件套数据展示</div>
+        </div>
+        <span class="module-card-arrow">→</span>
+      </a>
+      <a href="/meeting-center/" class="card module-card">
+        <div class="module-card-body">
+          <div class="module-card-title">会议中心</div>
+          <div class="module-card-desc">会议纪要与待办分发</div>
+        </div>
+        <span class="module-card-arrow">→</span>
+      </a>
+      <a href="/onboarding-center/" class="card module-card">
+        <div class="module-card-body">
+          <div class="module-card-title">新人培训</div>
+          <div class="module-card-desc">新人上手课程与进度跟踪</div>
+        </div>
+        <span class="module-card-arrow">→</span>
+      </a>
+      <a href="/admin-panel/" class="card module-card" id="cardAdminPanel">
+        <div class="module-card-body">
+          <div class="module-card-title">管理后台</div>
+          <div class="module-card-desc">用户与权限管理</div>
         </div>
         <span class="module-card-arrow">→</span>
       </a>
@@ -237,29 +253,23 @@
       }
     }
 
+    function renderSellCard(amountEl, footEl, wan, amountText, note) {
+      if (wan != null && wan !== '') {
+        amountEl.innerHTML = formatWanHtml(wan);
+      } else {
+        amountEl.innerHTML = '<span class="amount-num">' + escapeHtml(amountText || '¥ 0') + '</span>';
+      }
+      if (footEl) footEl.textContent = note || '';
+    }
+
     async function refreshDashboard() {
       const params = { managerId: 'default' };
+      let overview = null;
+
       await loadSection('overview', async function () {
-        const overview = await request(API.dashboard, params);
+        overview = await request(API.dashboard, params);
         managerName.innerHTML = '<span class="amount-num">' + escapeHtml(overview.managerName || '—') + '</span>';
         managerRole.textContent = overview.managerRole || '';
-        if (overview.sellInWan != null && overview.sellInWan !== '') {
-          sellInAmount.innerHTML = formatWanHtml(overview.sellInWan);
-        } else {
-          sellInAmount.innerHTML = '<span class="amount-num">' + escapeHtml(overview.sellInAmount || '¥ 0') + '</span>';
-        }
-        var sellInFootEl = document.getElementById('sellInFoot');
-        if (sellInFootEl) sellInFootEl.textContent = overview.sellInSub || '';
-        if (overview.sellOutWan != null && overview.sellOutWan !== '') {
-          sellOutAmount.innerHTML = formatWanHtml(overview.sellOutWan);
-        } else {
-          sellOutAmount.innerHTML = '<span class="amount-num">' + escapeHtml(overview.sellOutAmount || '¥ 0') + '</span>';
-        }
-        var sellOutCard = document.querySelector('.sell-out-card');
-        if (sellOutCard) {
-          var sellOutFootEl = document.getElementById('sellOutFoot');
-          if (sellOutFootEl) sellOutFootEl.textContent = overview.sellOutSub || '';
-        }
         if (overview.dataUpdatedAt) {
           var hint = document.getElementById('dataUpdateHint');
           if (hint) {
@@ -270,6 +280,35 @@
           }
         }
       });
+
+      // Sell In / Sell Out：分别按当前 period（日/周/月/季）向 Odoo 实时取数，
+      // 不能复用 overview 里的字段（那部分对 period 不敏感，会一直显示月度累计）。
+      await loadSection('sellIn', async function () {
+        try {
+          const sellIn = await request(API.sellIn, params);
+          renderSellCard(sellInAmount, document.getElementById('sellInFoot'), sellIn.wan,
+            sellIn.amount != null ? ('¥ ' + Math.round(sellIn.amount).toLocaleString()) : null, sellIn.note);
+        } catch (err) {
+          if (overview) {
+            renderSellCard(sellInAmount, document.getElementById('sellInFoot'), overview.sellInWan, overview.sellInAmount, overview.sellInSub);
+          }
+          throw err;
+        }
+      });
+
+      await loadSection('sellOut', async function () {
+        try {
+          const sellOut = await request(API.sellOut, params);
+          renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), sellOut.wan,
+            sellOut.amount != null ? ('¥ ' + Math.round(sellOut.amount).toLocaleString()) : null, sellOut.note);
+        } catch (err) {
+          if (overview) {
+            renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), overview.sellOutWan, overview.sellOutAmount, overview.sellOutSub);
+          }
+          throw err;
+        }
+      });
+
       await loadSection('customers', async function () {
         renderCustomers(await request(API.customerCenter, params));
       });
@@ -294,22 +333,29 @@
       }).join('');
     }
 
-    document.querySelectorAll('.tab').forEach(function (btn) {
-      if (btn.dataset.period === currentPeriod) {
-        document.querySelectorAll('.tab').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-      }
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('.tab').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        currentPeriod = btn.dataset.period;
-        if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('pdca_period', currentPeriod);
-        refreshDashboard();
-      });
-    });
+
+    async function applyRoleVisibility() {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (!res.ok) return;
+        const me = await res.json();
+        var hideIfViewer = ['cardStoreFiveKit'];
+        if (me.role === 'viewer') {
+          hideIfViewer.forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+          });
+        }
+        if (me.role !== 'admin') {
+          var admin = document.getElementById('cardAdminPanel');
+          if (admin) admin.style.display = 'none';
+        }
+      } catch (_) {}
+    }
 
     showFlash();
     refreshDashboard();
+    applyRoleVisibility();
   </script>
 </body>
 </html>

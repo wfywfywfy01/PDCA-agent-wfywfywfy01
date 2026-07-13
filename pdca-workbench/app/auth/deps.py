@@ -58,12 +58,50 @@ async def _user_from_proxy_headers(session: Session, request: Request) -> User |
     return await asyncio.to_thread(ensure_vps_user, session, identity)
 
 
-async def _user_from_vps(session: Session) -> User | None:
-    """通过 vertu odoo me 解析当前 VPS 登录用户（服务端会话）。"""
+_LOCALHOST_ADDRS = {"127.0.0.1", "::1"}
+
+
+async def _user_from_vps(session: Session, request: Request) -> User | None:
+    """通过 vertu odoo me 解析当前 VPS 登录用户（服务端会话）。
+
+    这是"本机免登录"的便利兜底，本质是把跑这个进程的机器上的 vertu 会话
+    当成请求方身份，和实际发请求的人没有任何绑定关系。只允许来自
+    127.0.0.1 的请求走这条路径，否则局域网内任何能连上这个端口的人
+    都能白嫖服务器本机的 VPS 登录身份（曾经确认过：不带任何 cookie/token
+    直接 curl /api/auth/me 也能拿到 manager 身份）。
+    """
+    client_host = request.client.host if request.client else None
+    if client_host not in _LOCALHOST_ADDRS:
+        return None
     vps = await asyncio.to_thread(fetch_vps_me_payload)
     if not vps:
         return None
     return await asyncio.to_thread(ensure_vps_user, session, vps)
+
+
+# 强制改密期间仍需放行的路径（改密本身、查身份、登出、判断认证模式）；
+# 其余所有 API/页面在 must_change_password=True 时一律 403，
+# 之前这条只在 login.html 的弹窗里前端拦截，直接调 API 或换个 URL 就能绕过。
+_MUST_CHANGE_PW_ALLOWLIST = {
+    "/api/auth/change-password",
+    "/api/auth/me",
+    "/api/auth/logout",
+    "/api/auth/config",
+    "/api/auth/login",
+    "/api/auth/vps-check",
+    "/api/auth/vps-bootstrap",
+}
+
+
+def _check_must_change_password(user: User, request: Request) -> None:
+    if not getattr(user, "must_change_password", False):
+        return
+    if request.url.path in _MUST_CHANGE_PW_ALLOWLIST:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="请先修改初始密码后再继续操作",
+    )
 
 
 async def get_current_user(
@@ -89,20 +127,23 @@ async def get_current_user(
     # 1) 代理 Header（所有模式均可，需显式开启）
     proxy_user = await _user_from_proxy_headers(session, request)
     if proxy_user:
+        _check_must_change_password(proxy_user, request)
         return proxy_user
 
     # 2) JWT
     if mode in ("hybrid", "local"):
         user = await _user_from_jwt(session, token)
         if user:
+            _check_must_change_password(user, request)
             return user
         if mode == "local":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
 
-    # 3) 服务端 vertu 会话
+    # 3) 服务端 vertu 会话（仅限本机请求，见 _user_from_vps 注释）
     if mode in ("vps", "hybrid"):
-        user = await _user_from_vps(session)
+        user = await _user_from_vps(session, request)
         if user:
+            _check_must_change_password(user, request)
             return user
 
     if mode == "vps":

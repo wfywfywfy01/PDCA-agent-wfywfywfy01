@@ -20,6 +20,8 @@ from app.dashboard.router import router as dashboard_router
 from app.database import bootstrap_database, get_db_mode
 from app.logging_setup import setup_logging
 from app.logistics.router import router as logistics_router
+from app.meeting.router import router as meeting_router
+from app.onboarding.router import router as onboarding_router
 from app.pages.router import router as pages_router
 from app.files.router import router as files_router
 from app.pdca.post_router import router as pdca_post_router
@@ -160,6 +162,8 @@ app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(walkin_router)
 app.include_router(logistics_router)
+app.include_router(meeting_router)
+app.include_router(onboarding_router)
 app.include_router(pdca_router)
 app.include_router(pdca_post_router)
 app.include_router(files_router)

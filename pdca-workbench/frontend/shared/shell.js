@@ -12,8 +12,14 @@ export function mountPdcaShell(mountId) {
       const pwForm      = ref({ old: '', newPw: '', confirm: '', msg: '', err: '' });
 
       // ── 时间参数（从 URL 读取，sessionStorage 兜底）──
+      function _todayText() {
+        const d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
       const _qs      = new URLSearchParams(location.search);
-      const date     = ref(_qs.get('date')   || '');
+      // date 必须始终有值：否则 setPeriod() 切换期间时不会带上 date 参数，
+      // 各页面的 period 联动逻辑（普遍要求 date 存在才计算区间）会静默失效。
+      const date     = ref(_qs.get('date')   || _todayText());
       const period   = ref(
         _qs.get('period') ||
         (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) ||
@@ -48,6 +54,7 @@ export function mountPdcaShell(mountId) {
         }
         const params = new URLSearchParams(location.search);
         params.set('period', p);
+        params.set('date', date.value); // 确保 date 始终随 period 一起下发，否则各页面区间计算会拿不到锚点日期
         location.search = params.toString(); // 触发页面重载
       }
 
@@ -107,18 +114,8 @@ export function mountPdcaShell(mountId) {
 
         <span class="pdca-shell-sep"></span>
 
-        <!-- 导航链接 -->
+        <!-- 导航链接：仅保留首页入口，其余模块已在首页做成卡片 -->
         <a :href="href('/')" :class="{ 'pdca-nav-active': isActive('/') }">经营首页</a>
-        <a :href="href('/logistics-center/')" :class="{ 'pdca-nav-active': isActive('/logistics-center') }">物流进展</a>
-        <a :href="href('/walkin-cockpit/')" :class="{ 'pdca-nav-active': isActive('/walkin-cockpit') }">客流/线上</a>
-        <a :href="href('/store-five-kit/')" v-if="user.role!=='viewer'" :class="{ 'pdca-nav-active': isActive('/store-five-kit') }">门店五件套</a>
-        <a :href="href('/walkin-submit/')" style="background:rgba(37,99,235,0.08);color:#2563eb;border-radius:6px;padding:0 8px" v-if="user.role!=='viewer'" :class="{ 'pdca-nav-active': isActive('/walkin-submit') }">五件套录入</a>
-        <a :href="href('/signalseller-center/')" :class="{ 'pdca-nav-active': isActive('/signalseller-center') }">获客指挥</a>
-        <a :href="href('/meeting-center/')" :class="{ 'pdca-nav-active': isActive('/meeting-center') }">会议中心</a>
-        <a :href="href('/onboarding-center/')" :class="{ 'pdca-nav-active': isActive('/onboarding-center') }">新人培训</a>
-        <a :href="href('/dashboard')" :class="{ 'pdca-nav-active': isActive('/dashboard') }">数据看板</a>
-        <a :href="href('/pdca-vps')" :class="{ 'pdca-nav-active': isActive('/pdca-vps') }">PDCA 日结</a>
-        <a :href="href('/admin-panel/')" v-if="user.role==='admin'" style="background:rgba(124,58,237,0.08);color:#7c3aed;border-radius:6px;padding:0 8px" :class="{ 'pdca-nav-active': isActive('/admin-panel') }">管理后台</a>
 
         <!-- 用户菜单 -->
         <span class="pdca-shell-user" style="cursor:pointer;position:relative" @click="showProfile=!showProfile">

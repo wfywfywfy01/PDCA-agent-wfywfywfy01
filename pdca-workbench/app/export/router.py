@@ -84,7 +84,7 @@ async def export_walkin_metrics(
 
     headers = [
         "日期", "门店ID", "门店名称",
-        "预约进店", "潜在客户", "线上引流", "介绍/转介", "SA主动", "合计进店",
+        "walkin直接进店", "异业介绍", "线上", "招聘自带", "存量老客户", "合计进店",
         "触摸产品", "试用体验", "微信添加", "成交组数",
         "成交金额(元)", "成交金额(万)",
         "提交人", "提交时间",
@@ -93,11 +93,11 @@ async def export_walkin_metrics(
     _header_style(ws, 1, len(headers))
 
     for r in rows:
-        total = r.appointment_visits + r.prospect_visits + r.online_visits + r.referral_visits + r.sa_visits
+        total = r.total_visits
         ws.append([
             r.report_date, r.dealer_id, r.dealer_name,
-            r.appointment_visits, r.prospect_visits, r.online_visits,
-            r.referral_visits, r.sa_visits, total,
+            r.walkin_visits, r.cross_visits, r.online_visits,
+            r.recruit_visits, r.existing_visits, total,
             r.touch_count, r.use_count, r.wechat_add_count, r.deal_count,
             r.deal_amount_yuan, round(r.deal_amount_yuan / 10000, 4),
             r.submitted_by,

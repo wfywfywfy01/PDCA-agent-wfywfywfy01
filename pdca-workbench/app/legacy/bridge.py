@@ -46,8 +46,8 @@ def api_dashboard_overview(date_text: str, period: str = "day", session_user: di
     return wb().api_dashboard_overview(date_text, period, session_user=session_user)
 
 
-def api_customer_center_summary() -> list:
-    return wb().api_customer_center_summary()
+def api_customer_center_summary(session_user: dict | None = None) -> list:
+    return wb().api_customer_center_summary(session_user=session_user)
 
 
 def api_task_center_summary(date_text: str | None = None) -> list:
@@ -58,16 +58,17 @@ def api_task_center_panel(date_text: str | None = None) -> dict:
     return wb().api_task_center_panel(date_text)
 
 
-def api_meeting_center_summary(date_text: str | None = None) -> list:
-    return wb().api_meeting_center_summary(date_text)
+def api_meeting_center_summary(date_text: str | None = None, end_date: str | None = None) -> list:
+    return wb().api_meeting_center_summary(date_text, end_date)
 
 
 def api_meeting_center_meetings(
     date_text: str,
     person_phone: str = "",
     person_name: str = "",
+    end_date: str = "",
 ) -> dict:
-    return wb().api_meeting_center_meetings(date_text, person_phone, person_name)
+    return wb().api_meeting_center_meetings(date_text, person_phone, person_name, end_date)
 
 
 def api_meeting_center_people() -> dict:

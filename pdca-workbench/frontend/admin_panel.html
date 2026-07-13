@@ -214,13 +214,15 @@
     <div class="field"><label>显示姓名</label><input id="um_display" type="text" /></div>
     <div class="field"><label>销售名（对应物流 CSV）</label><input id="um_sales" type="text" /></div>
     <div class="field"><label>角色</label>
-      <select id="um_role">
+      <select id="um_role" onchange="document.getElementById('um_dealer_wrap').style.display=this.value==='dealer'?'':'none'">
         <option value="viewer">只读 viewer</option>
+        <option value="dealer">经销商 dealer</option>
         <option value="sales" selected>销售 sales</option>
         <option value="manager">主管 manager</option>
         <option value="admin">管理员 admin</option>
       </select>
     </div>
+    <div class="field" id="um_dealer_wrap" style="display:none"><label>绑定门店 store_id（dealer 角色专用）</label><input id="um_dealer" type="text" placeholder="如 sea01" /></div>
     <div class="field"><label>初始密码（至少 8 位）<span style="color:#e11d48">*</span></label><input id="um_password" type="password" /></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('userModal')">取消</button>
@@ -266,7 +268,10 @@ function switchTab(tab, btn) {
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
 function setAlert(id,msg,type){var el=document.getElementById(id);el.textContent=msg;el.className='alert-inline '+(type||'err');setTimeout(function(){el.className='alert-inline';},4000);}
-function roleBadge(r){return '<span class="badge badge-'+r+'">'+r+'</span>';}
+function roleBadge(r){return '<span class="badge badge-'+esc(r)+'">'+esc(r)+'</span>';}
+// 用户名/门店名/审计日志等字段是用户可控输入（甚至可能来自 X-VPS-User-Name 头），
+// 直接拼进 innerHTML 会构成存储型 XSS，统一转义后再拼
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
 
 // ── 用户管理 ──
 function loadUsers(){
@@ -275,24 +280,26 @@ function loadUsers(){
     var html='';
     us.forEach(function(u){
       html+='<tr>'
-        +'<td><strong>'+u.username+'</strong></td>'
-        +'<td>'+u.display_name+'</td>'
+        +'<td><strong>'+esc(u.username)+'</strong></td>'
+        +'<td>'+esc(u.display_name)+'</td>'
         +'<td>'+roleBadge(u.role)+'</td>'
-        +'<td style="color:#64748b">'+u.sales_name+'</td>'
+        +'<td style="color:#64748b">'+esc(u.sales_name)+'</td>'
         +'<td>'+(u.is_active?'<span class="badge badge-ok">启用</span>':'<span class="badge badge-off">停用</span>')+'</td>'
         +'<td>'+(u.must_change_password?'<span class="badge badge-warn">需改密</span>':'')+'</td>'
-        +'<td style="color:#94a3b8;font-size:.7rem">'+(u.created_at||'').slice(0,10)+'</td>'
+        +'<td style="color:#94a3b8;font-size:.7rem">'+esc((u.created_at||'').slice(0,10))+'</td>'
         +'<td style="display:flex;gap:.4rem;flex-wrap:wrap">'
-        +'<button class="btn btn-success" style="font-size:.7rem;padding:3px 8px" onclick="resetPwd(\''+u.username+'\')">重置密码</button>'
-        +(u.is_active?'<button class="btn btn-danger" style="font-size:.7rem;padding:3px 8px" onclick="deactivateUser(\''+u.username+'\')">停用</button>':'')
+        +'<button class="btn btn-success" style="font-size:.7rem;padding:3px 8px" onclick="resetPwd(\''+esc(u.username)+'\')">重置密码</button>'
+        +(u.is_active?'<button class="btn btn-danger" style="font-size:.7rem;padding:3px 8px" onclick="deactivateUser(\''+esc(u.username)+'\')">停用</button>'
+          :'<button class="btn btn-success" style="font-size:.7rem;padding:3px 8px" onclick="reactivateUser(\''+esc(u.username)+'\')">启用</button>')
         +'</td></tr>';
     });
     document.getElementById('usersTbody').innerHTML=html;
   }).catch(function(){});
 }
 function openUserModal(){
-  ['um_username','um_display','um_sales','um_password'].forEach(function(id){document.getElementById(id).value='';});
+  ['um_username','um_display','um_sales','um_dealer','um_password'].forEach(function(id){document.getElementById(id).value='';});
   document.getElementById('um_role').value='sales';
+  document.getElementById('um_dealer_wrap').style.display='none';
   document.getElementById('userModalAlert').className='alert-inline';
   openModal('userModal');
 }
@@ -301,6 +308,7 @@ function submitUser(){
     display_name:document.getElementById('um_display').value.trim(),
     sales_name:document.getElementById('um_sales').value.trim(),
     role:document.getElementById('um_role').value,
+    dealer_id:document.getElementById('um_dealer').value.trim(),
     password:document.getElementById('um_password').value};
   if(!body.username||!body.password){setAlert('userModalAlert','用户名和密码不能为空','err');return;}
   fetch(API+'/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
@@ -314,12 +322,28 @@ function resetPwd(username){
   var pw=prompt('为 '+username+' 设置新密码（至少 8 位）：');
   if(!pw||pw.length<8){if(pw!==null)alert('密码至少 8 位');return;}
   fetch(API+'/api/admin/users/'+username+'/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({new_password:pw})})
-    .then(function(r){return r.json();}).then(function(d){setAlert('alertUsers',(d.message||'已重置'),'ok');loadUsers();});
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertUsers',(res.d.message||'已重置'),'ok');loadUsers();}
+      else{setAlert('alertUsers',res.d.detail||'重置失败','err');}
+    });
 }
 function deactivateUser(username){
   if(!confirm('确认停用用户「'+username+'」？'))return;
   fetch(API+'/api/admin/users/'+username,{method:'DELETE',credentials:'include'})
-    .then(function(r){return r.json();}).then(function(d){setAlert('alertUsers','用户已停用','ok');loadUsers();});
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertUsers','用户已停用','ok');loadUsers();}
+      else{setAlert('alertUsers',res.d.detail||'停用失败','err');}
+    });
+}
+function reactivateUser(username){
+  fetch(API+'/api/admin/users/'+username,{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({is_active:true})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertUsers','用户已启用','ok');loadUsers();}
+      else{setAlert('alertUsers',res.d.detail||'启用失败','err');}
+    });
 }
 
 // ── 门店管理 ──
@@ -330,10 +354,10 @@ function loadStores(incl){
     var html='';
     ss.forEach(function(s){
       html+='<tr>'
-        +'<td><code>'+s.store_id+'</code></td><td>'+s.name+'</td><td>'+s.region+'</td><td>'+s.country+'</td>'
+        +'<td><code>'+esc(s.store_id)+'</code></td><td>'+esc(s.name)+'</td><td>'+esc(s.region)+'</td><td>'+esc(s.country)+'</td>'
         +'<td>'+(s.is_active?'<span class="badge badge-ok">启用</span>':'<span class="badge badge-off">停用</span>')+'</td>'
-        +'<td>'+s.sort_order+'</td>'
-        +'<td><button class="btn btn-danger" style="font-size:.7rem;padding:3px 8px" onclick="toggleStore(\''+s.store_id+'\','+!s.is_active+')">'+(s.is_active?'停用':'启用')+'</button></td></tr>';
+        +'<td>'+esc(s.sort_order)+'</td>'
+        +'<td><button class="btn btn-danger" style="font-size:.7rem;padding:3px 8px" onclick="toggleStore(\''+esc(s.store_id)+'\','+!s.is_active+')">'+(s.is_active?'停用':'启用')+'</button></td></tr>';
     });
     document.getElementById('storesTbody').innerHTML=html;
   });
@@ -398,7 +422,7 @@ function loadTargets(){
 function renderTargetCard(dealerId,name,t,month){
   var sid=dealerId?dealerId:'_global';
   return '<div class="target-card">'
-    +'<div class="tc-name">'+name+'</div>'
+    +'<div class="tc-name">'+esc(name)+'</div>'
     +'<div class="tc-row"><span class="tc-label">Sell-out 目标(万)</span><input class="tc-input" id="t_so_'+sid+'" type="number" value="'+(t.sell_out_target_yuan/10000).toFixed(2)+'" step="0.1" /></div>'
     +'<div class="tc-row"><span class="tc-label">进店目标(组)</span><input class="tc-input" id="t_vi_'+sid+'" type="number" value="'+t.visit_target+'" /></div>'
     +'<div class="tc-row"><span class="tc-label">成交目标(组)</span><input class="tc-input" id="t_de_'+sid+'" type="number" value="'+t.deal_target+'" /></div>'
@@ -434,12 +458,12 @@ function loadAudit(){
     var html='';
     rows.forEach(function(r){
       var label=ACTION_LABELS[r.action]||r.action;
-      html+='<tr><td style="color:#94a3b8;font-size:.72rem;white-space:nowrap">'+(r.created_at||'').slice(0,16)+'</td>'
-        +'<td><strong>'+r.username+'</strong></td>'
-        +'<td><span class="badge '+(r.action==='login'?'badge-ok':r.action==='change_password'||r.action==='reset_password'?'badge-warn':'badge-admin')+'">'+label+'</span></td>'
-        +'<td style="color:#475569">'+r.resource+'</td>'
-        +'<td><span class="action-log">'+r.detail.slice(0,80)+'</span></td>'
-        +'<td style="color:#94a3b8">'+r.ip+'</td></tr>';
+      html+='<tr><td style="color:#94a3b8;font-size:.72rem;white-space:nowrap">'+esc((r.created_at||'').slice(0,16))+'</td>'
+        +'<td><strong>'+esc(r.username)+'</strong></td>'
+        +'<td><span class="badge '+(r.action==='login'?'badge-ok':r.action==='change_password'||r.action==='reset_password'?'badge-warn':'badge-admin')+'">'+esc(label)+'</span></td>'
+        +'<td style="color:#475569">'+esc(r.resource)+'</td>'
+        +'<td><span class="action-log">'+esc((r.detail||'').slice(0,80))+'</span></td>'
+        +'<td style="color:#94a3b8">'+esc(r.ip)+'</td></tr>';
     });
     document.getElementById('auditTbody').innerHTML=html;
   });

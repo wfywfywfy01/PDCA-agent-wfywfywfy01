@@ -16,14 +16,15 @@
 
 字段映射（Sales Report → DB）:
   Walk-ins       → walkin_visits
-  Prospects      → prospect_visits
-  Appointments   → appointment_visits
   Online         → online_visits
-  Referral       → referral_visits
-  SA             → sa_visits
   Products Shown → touch_count
   Products Sold  → deal_count
   Revenue        → deal_amount_yuan
+
+  注意（2026-07-12 进店来源改分类后）：Prospects/Appointments/Referral/SA 对应的旧字段
+  （prospect_visits/appointment_visits/referral_visits/sa_visits）已在新 5 分类
+  （walkin/cross/online/recruit/existing）中被移除，且和新分类没有干净的一一对应关系，
+  故此处不再写入——这几类历史数据不再单独保留，和线上已迁移数据的处理口径一致。
 
 字段映射（Operation Report → DB）:
   In-store count       → walkin_visits
@@ -116,11 +117,8 @@ def _to_records() -> list[WalkinDailyReport]:
             dealer_id=TH[0],
             dealer_name=TH[1],
             walkin_visits=walkin,
-            prospect_visits=prospect,
-            appointment_visits=appt,
+            # prospect/appt/referral/sa 不再写入，见文件头注释
             online_visits=online,
-            referral_visits=referral,
-            sa_visits=sa,
             touch_count=touch,
             use_count=use,
             deal_count=deal,
@@ -154,11 +152,8 @@ def _to_records() -> list[WalkinDailyReport]:
             dealer_id=VN[0],
             dealer_name=VN[1],
             walkin_visits=walkin,
-            prospect_visits=prospect,
-            appointment_visits=appt,
+            # prospect/appt/referral/sa 不再写入，见文件头注释
             online_visits=online,
-            referral_visits=referral,
-            sa_visits=sa,
             touch_count=touch,
             use_count=use,
             deal_count=deal,

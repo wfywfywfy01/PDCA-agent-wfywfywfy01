@@ -319,18 +319,28 @@
         alert('这场会议没有可分配的 Todo');
         return;
       }
-      const res = await fetch('/api/meeting-center/dispatch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: document.getElementById('mcDate').value || workDate(),
-          meeting_id: meeting.id,
-          meeting_title: meeting.title,
-          assignments: meeting.assignments
-        })
-      });
-      const payload = await res.json();
-      alert(payload.message || (payload.ok ? '已写入 VPS 待办' : (payload.error || '写入失败')));
+      const btn = document.getElementById('mcDispatch');
+      if (btn.disabled) return; // 防止双击/请求未返回时重复点击造成重复建单
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = '写入中…';
+      try {
+        const res = await fetch('/api/meeting-center/dispatch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: document.getElementById('mcDate').value || workDate(),
+            meeting_id: meeting.id,
+            meeting_title: meeting.title,
+            assignments: meeting.assignments
+          })
+        });
+        const payload = await res.json();
+        alert(payload.message || (payload.ok ? '已写入 VPS 待办' : (payload.error || '写入失败')));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
     }
 
     document.getElementById('mcRefresh').addEventListener('click', loadMeetings);

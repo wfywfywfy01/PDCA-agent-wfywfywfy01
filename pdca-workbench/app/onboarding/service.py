@@ -65,7 +65,10 @@ def build_progress(username: str, role: str) -> dict:
 
     pass_criteria = curriculum.get("pass_criteria", {})
     min_modules = total
-    graduated = role not in ("sales",) or completed >= min_modules
+    # 之前对非 sales 角色（viewer/dealer/manager/admin）无条件判定 graduated=True，
+    # 结果比如 manager 账号进度 1/20（5%）也显示"已完成上岗课表"，具有误导性——
+    # 毕业与否统一按实际完成数判断，不再按角色开后门
+    graduated = completed >= min_modules if min_modules else True
 
     return {
         "username": username,
@@ -80,12 +83,13 @@ def build_progress(username: str, role: str) -> dict:
     }
 
 
-def complete_module(username: str, module_id: str, day: int = 1, score: int = 0) -> dict:
+def complete_module(username: str, module_id: str, day: int = 1, score: int = 0, role: str = "sales") -> dict:
     """打卡完成一个培训模块。"""
     from app.models.onboarding_progress import OnboardingProgress
 
     if not module_id.strip():
         return {"ok": False, "detail": "module_id 不能为空"}
+    score = max(0, min(100, score))
     try:
         with Session(get_engine()) as session:
             exists = session.exec(
@@ -108,7 +112,7 @@ def complete_module(username: str, module_id: str, day: int = 1, score: int = 0)
                     ),
                 )
             session.commit()
-        return {"ok": True, **build_progress(username, "sales")}
+        return {"ok": True, **build_progress(username, role)}
     except Exception as exc:
         logger.warning("写入 onboarding_progress 失败: {}", exc)
         return {"ok": False, "detail": str(exc)}

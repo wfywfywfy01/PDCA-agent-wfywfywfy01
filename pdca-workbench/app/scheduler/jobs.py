@@ -89,6 +89,19 @@ def daily_sync_job() -> None:
     backup_database()
 
 
+def logistics_tracking_refresh_job() -> None:
+    """物流状态自动刷新（07:30）：抓取 UPS/FedEx/DHL 在途运单官网状态。"""
+    import asyncio
+    from app.logistics.service import refresh_tracking_statuses
+
+    logger.info("物流状态自动刷新开始")
+    try:
+        result = asyncio.run(refresh_tracking_statuses())
+        logger.info("物流状态自动刷新完成: {}", result)
+    except Exception as exc:
+        logger.exception("物流状态自动刷新异常: {}", exc)
+
+
 def kpi_refresh_job() -> None:
     """KPI 数据刷新（09:00 / 12:00 / 21:00）：重新生成 chart_data.json + dashboard.html。"""
     date_text = bridge.today_text()
@@ -150,6 +163,17 @@ def start_scheduler() -> BackgroundScheduler | None:
         coalesce=True,
     )
 
+    # 07:30 — 物流状态自动刷新（UPS/FedEx/DHL 官网）
+    _scheduler.add_job(
+        logistics_tracking_refresh_job,
+        trigger="cron",
+        hour=7,
+        minute=30,
+        id="logistics_tracking_refresh",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # 09:00 / 12:00 / 21:00 — KPI 数据刷新
     for hour in (9, 12, 21):
         _scheduler.add_job(
@@ -163,7 +187,10 @@ def start_scheduler() -> BackgroundScheduler | None:
         )
 
     _scheduler.start()
-    logger.info("调度器已启动 cron={} kpi_refresh=09:00/12:00/21:00", settings.sync_cron)
+    logger.info(
+        "调度器已启动 cron={} logistics_tracking=07:30 kpi_refresh=09:00/12:00/21:00",
+        settings.sync_cron,
+    )
     return _scheduler
 
 

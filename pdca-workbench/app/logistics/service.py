@@ -199,7 +199,28 @@ def _sort_shipments(rows: list[dict]) -> list[dict]:
     )
 
 
-def _enrich_row(row: dict, carriers: dict, cfg: dict, file_date: str, ref_date: str) -> dict:
+def _apply_auto_status(enriched: dict, auto_map: dict[str, "object"]) -> None:
+    """用官网自动抓取结果覆盖人工录入的 current_status（仅 UPS/FedEx/DHL）。"""
+    tracking = (enriched.get("tracking_number") or "").strip()
+    auto = auto_map.get(tracking) if tracking else None
+    if not auto or not getattr(auto, "fetch_ok", False):
+        return
+    enriched["current_status"] = auto.status_text
+    enriched["status_source"] = "auto"
+    enriched["status_fetched_at"] = auto.fetched_at.isoformat() if auto.fetched_at else ""
+    enriched.pop("judgement", None)  # 强制按最新抓取状态重新判定
+    if auto.is_delivered:
+        enriched["is_delivered_override"] = True
+
+
+def _enrich_row(
+    row: dict,
+    carriers: dict,
+    cfg: dict,
+    file_date: str,
+    ref_date: str,
+    auto_map: dict[str, "object"] | None = None,
+) -> dict:
     enriched = dict(row)
     tracking = (enriched.get("tracking_number") or "").strip()
     enriched["record_date"] = file_date
@@ -208,21 +229,18 @@ def _enrich_row(row: dict, carriers: dict, cfg: dict, file_date: str, ref_date: 
         enriched.get("carrier", ""),
         tracking,
     )
-    if not enriched.get("judgement"):
-        judgement, reason, progress = _judge_status(enriched, cfg, file_date)
-        enriched["judgement"] = judgement
-        enriched["reason"] = reason
-        enriched["progress_pct"] = progress
-    else:
-        progress = enriched.get("progress_pct")
-        if progress is None:
-            _, _, progress = _judge_status(enriched, cfg, file_date)
-        enriched["progress_pct"] = int(progress or 30)
-    enriched["is_delivered"] = _is_delivered(enriched)
-    enriched["days_in_transit"] = _days_since_ship(
-        enriched.get("ship_date", ""),
-        ref_date or file_date,
-    )
+    enriched.setdefault("status_source", "manual")
+    if auto_map:
+        _apply_auto_status(enriched, auto_map)
+    # 判定永远按真实今天重新算，不能只在"没有已存判定"时才算一次——
+    # 否则录入批次当天算出的判定（比如 7 天预警）会被永久冻结在 outputs 里的旧结果 CSV 中，
+    # 不会因为时间推移而重新升级/降级
+    judgement, reason, progress = _judge_status(enriched, cfg, ref_date)
+    enriched["judgement"] = judgement
+    enriched["reason"] = reason
+    enriched["progress_pct"] = progress
+    enriched["is_delivered"] = _is_delivered(enriched) or bool(enriched.get("is_delivered_override"))
+    enriched["days_in_transit"] = _days_since_ship(enriched.get("ship_date", ""), ref_date)
     enriched["check_report_path"] = check_report_relative_path(file_date)
     enriched["check_report_exists"] = bool(enriched["check_report_path"])
     return enriched
@@ -249,6 +267,22 @@ def check_report_relative_path(date_text: str) -> str:
     return ""
 
 
+def load_auto_status_map() -> dict[str, object]:
+    """读取 tracking_auto_status 表，按运单号返回最新抓取记录。"""
+    try:
+        from sqlmodel import Session, select
+        from app.database import get_engine
+        from app.models.tracking_status import TrackingAutoStatus
+
+        with Session(get_engine()) as session:
+            rows = session.exec(select(TrackingAutoStatus)).all()
+            return {r.tracking_number: r for r in rows}
+    except Exception as exc:
+        logger_warn = __import__("loguru").logger
+        logger_warn.warning("读取自动物流状态失败: {}", exc)
+        return {}
+
+
 def load_shipments(
     date_text: str | None = None,
     salesperson: str | None = None,
@@ -262,7 +296,11 @@ def load_shipments(
     outputs_dir = settings.mvp_root / "outputs"
     carriers = _load_carriers()
     cfg = _load_settings()
-    ref_date = date_text or bridge.today_text()
+    # "在途天数"/7天预警的参照点永远是真实今天，不能用录入批次日（date_text 可能是具体批次日
+    # 甚至字面量 "all"）——否则默认视图（date=all）在途天数全部算不出来，选中某批次时算出来的
+    # 天数也是"以录入那天为准"而不是"以现在为准"
+    ref_date = bridge.today_text()
+    auto_map = load_auto_status_map()
     merged: dict[str, dict] = {}
 
     if not inputs_dir.is_dir():
@@ -284,7 +322,7 @@ def load_shipments(
             enriched = dict(row)
             if tracking in results_by_tracking:
                 enriched.update(results_by_tracking[tracking])
-            merged[tracking] = _enrich_row(enriched, carriers, cfg, file_date, ref_date)
+            merged[tracking] = _enrich_row(enriched, carriers, cfg, file_date, ref_date, auto_map)
 
     rows = list(merged.values())
     if salesperson:
@@ -338,3 +376,66 @@ def list_salespeople() -> list[str]:
         if name:
             names.add(name)
     return sorted(names)
+
+
+async def refresh_tracking_statuses() -> dict:
+    """从 UPS/FedEx/DHL 官网抓取在途运单的最新状态，写入 tracking_auto_status 表。
+
+    SF 顺丰官网强制图形验证码，跳过（继续使用人工录入）。
+    """
+    from app.logistics import tracking_fetch
+
+    open_rows = load_shipments(date_text="all", open_only=True)
+    candidates = [
+        (row.get("carrier", ""), (row.get("tracking_number") or "").strip())
+        for row in open_rows
+        if tracking_fetch.is_supported_carrier(row.get("carrier", ""))
+        and (row.get("tracking_number") or "").strip()
+    ]
+    # 去重（同一运单可能出现在多个日期批次）
+    candidates = list({(c, t) for c, t in candidates})
+
+    if not candidates:
+        return {"attempted": 0, "ok": 0, "failed": 0, "skipped_no_candidates": True}
+
+    results = await tracking_fetch.fetch_many(candidates)
+
+    from datetime import datetime
+    from sqlmodel import Session, select
+    from app.database import get_engine
+    from app.models.tracking_status import TrackingAutoStatus
+
+    ok_count = 0
+    with Session(get_engine()) as session:
+        for r in results:
+            existing = session.exec(
+                select(TrackingAutoStatus).where(
+                    TrackingAutoStatus.tracking_number == r.tracking_number
+                )
+            ).first()
+            if existing:
+                existing.carrier = r.carrier
+                existing.status_text = r.status_text
+                existing.is_delivered = r.is_delivered
+                existing.fetch_ok = r.fetch_ok
+                existing.error = r.error
+                existing.fetched_at = datetime.utcnow()
+                session.add(existing)
+            else:
+                session.add(TrackingAutoStatus(
+                    tracking_number=r.tracking_number,
+                    carrier=r.carrier,
+                    status_text=r.status_text,
+                    is_delivered=r.is_delivered,
+                    fetch_ok=r.fetch_ok,
+                    error=r.error,
+                ))
+            if r.fetch_ok:
+                ok_count += 1
+        session.commit()
+
+    return {
+        "attempted": len(results),
+        "ok": ok_count,
+        "failed": len(results) - ok_count,
+    }

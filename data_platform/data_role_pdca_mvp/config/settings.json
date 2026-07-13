@@ -9,6 +9,6 @@
   "summary_dimensions": ["salesperson", "product", "customer"],
   "logistics": {
     "normal_keywords": ["delivered", "in transit", "out for delivery", "label created", "已签收", "运输中", "派送中"],
-    "abnormal_keywords": ["exception", "delay", "returned", "failed", "held", "异常", "延误", "退回", "派送失败"]
+    "abnormal_keywords": ["exception", "delay", "returned", "failed", "held", "invalid", "not found", "异常", "延误", "退回", "派送失败", "无效", "查无", "查询不到"]
   }
 }

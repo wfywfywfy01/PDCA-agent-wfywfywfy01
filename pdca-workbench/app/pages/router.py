@@ -223,12 +223,20 @@ async def open_path_route(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
+    """打开一个文件（跳转到受控下载）。
+
+    之前这里只判断 Path(path).resolve().is_file()，不检查是否在允许目录内——
+    等于给任何已登录用户（包括 viewer）开了一个"服务器上任意绝对路径是否存在"的探测接口
+    （存在返回跳转、不存在返回提示，响应可区分）。下载本身在 /api/files/download 有目录白名单，
+    但这道口子在那之前就已经泄露了存在性，这里必须用同一套白名单先过滤。
+    """
+    from app.files.router import _resolve_safe
+
     date_text = date or bridge.today_text()
     try:
-        resolved = Path(path).resolve()
-        if resolved.is_file():
-            return RedirectResponse(f"/api/files/download?path={quote(str(resolved))}")
-    except OSError:
+        resolved = _resolve_safe(path)
+        return RedirectResponse(f"/api/files/download?path={quote(str(resolved))}")
+    except HTTPException:
         pass
     return _redirect_msg("/", date_text, "文件还不存在。")
 
@@ -275,7 +283,7 @@ async def walkin_index(
     return _serve_module(
         settings.walkin_cockpit_dir / "index.html",
         date or bridge.today_text(),
-        "客流分析台", "客流分析台",
+        "客流接待台", "客流接待台",
     )
 
 
@@ -331,6 +339,59 @@ async def logistics_center_assets(
         raise HTTPException(status_code=404)
     return FileResponse(target, media_type=_guess_media(target))
 
+
+@router.get("/meeting-center")
+@router.get("/meeting-center/")
+async def meeting_center_index(
+    date: str | None = None,
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    settings = get_settings()
+    return _serve_module(
+        settings.meeting_center_dir / "index.html",
+        date or bridge.today_text(),
+        "会议中心", "会议中心",
+    )
+
+
+@router.get("/meeting-center/{rel_path:path}")
+async def meeting_center_assets(
+    rel_path: str,
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    settings = get_settings()
+    target = (settings.meeting_center_dir / unquote(rel_path)).resolve()
+    root = settings.meeting_center_dir.resolve()
+    if not str(target).startswith(str(root)) or not target.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(target, media_type=_guess_media(target))
+
+
+@router.get("/onboarding-center")
+@router.get("/onboarding-center/")
+async def onboarding_center_index(
+    date: str | None = None,
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    settings = get_settings()
+    return _serve_module(
+        settings.onboarding_center_dir / "index.html",
+        date or bridge.today_text(),
+        "新人培训", "新人培训",
+    )
+
+
+@router.get("/onboarding-center/{rel_path:path}")
+async def onboarding_center_assets(
+    rel_path: str,
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    settings = get_settings()
+    target = (settings.onboarding_center_dir / unquote(rel_path)).resolve()
+    root = settings.onboarding_center_dir.resolve()
+    if not str(target).startswith(str(root)) or not target.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(target, media_type=_guess_media(target))
 
 
 @router.get("/shared/{rel_path:path}")
