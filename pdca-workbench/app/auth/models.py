@@ -39,4 +39,5 @@ DEFAULT_USERS = [
     ("manager", "manager123", "manager", "海外中台主管", ""),
     ("sales", "sales123", "sales", "何海文", "何海文"),
     ("viewer", "viewer123", "viewer", "只读访客", ""),
+    ("may", "may123", "manager", "刘春梅", ""),
 ]
