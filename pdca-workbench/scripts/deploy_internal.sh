@@ -46,8 +46,9 @@ PDCA_VPS_SYNC_ROLE=0
 PDCA_CORS_ORIGINS=https://pdca-workbench-teams.vertu.cn
 VERTU_COMMAND=vertu-cli
 VERTU_VPS_SERVICE_URL=${VERTU_VPS_SERVICE_URL:-https://vps-service.vertu.cn}
-VERTU_APP_ID=${VERTU_APP_ID:-pdca-workbench}
+VERTU_APP_ID=${VERTU_APP_ID:-cursor}
 VERTU_APP_KEY=$VERTU_APP_KEY
+VERTU_USER_LOGIN=${VERTU_USER_LOGIN:-}
 PDCA_REQUIRE_VERTU=1
 PDCA_INCLUDE_DEMO_DATA=0
 PDCA_SCHEDULER_ENABLED=1
@@ -72,12 +73,14 @@ updates = {
     "VERTU_VPS_SERVICE_URL": os.environ.get(
         "VERTU_VPS_SERVICE_URL", "https://vps-service.vertu.cn"
     ),
-    "VERTU_APP_ID": os.environ.get("VERTU_APP_ID", "pdca-workbench"),
+    "VERTU_APP_ID": os.environ.get("VERTU_APP_ID", "cursor"),
     "PDCA_REQUIRE_VERTU": "1",
     "PDCA_INCLUDE_DEMO_DATA": "0",
 }
 if os.environ.get("VERTU_APP_KEY"):
     updates["VERTU_APP_KEY"] = os.environ["VERTU_APP_KEY"]
+if os.environ.get("VERTU_USER_LOGIN"):
+    updates["VERTU_USER_LOGIN"] = os.environ["VERTU_USER_LOGIN"]
 lines = env_path.read_text(encoding="utf-8").splitlines()
 seen = set()
 out = []
@@ -106,6 +109,10 @@ if ! grep -Eq '^PDCA_DATABASE_URL=postgresql' "$ENV_FILE"; then
 fi
 if ! grep -Eq '^VERTU_APP_KEY=.+$' "$ENV_FILE"; then
   echo "VERTU_APP_KEY 未配置；请用 vertu-cli agent bind 签发后写入未跟踪的 .env" >&2
+  exit 1
+fi
+if ! grep -Eq '^VERTU_USER_LOGIN=.+$' "$ENV_FILE"; then
+  echo "VERTU_USER_LOGIN is required; copy it from vertu-cli agent env" >&2
   exit 1
 fi
 
@@ -141,10 +148,10 @@ for raw_line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     if not line or line.startswith("#") or "=" not in line:
         continue
     key, value = line.split("=", 1)
-    if key in {"VERTU_VPS_SERVICE_URL", "VERTU_APP_ID", "VERTU_APP_KEY"}:
+    if key in {"VERTU_VPS_SERVICE_URL", "VERTU_APP_ID", "VERTU_APP_KEY", "VERTU_USER_LOGIN"}:
         env[key] = value.strip()
 result = subprocess.run(
-    ["vertu-cli", "auth", "status", "--json"],
+    ["vertu-cli", "auth", "scopes", "--json"],
     env=env,
     capture_output=True,
     text=True,
@@ -154,7 +161,7 @@ try:
     payload = json.loads(result.stdout)
 except json.JSONDecodeError:
     payload = {}
-if result.returncode or not payload.get("logged_in") or not payload.get("server_authorized"):
+if result.returncode or not payload.get("login") or not isinstance(payload.get("userScopes"), list):
     raise SystemExit("vertu-cli 应用凭证预检失败；请检查 VERTU_APP_ID / VERTU_APP_KEY")
 PY
   if command -v pip3 >/dev/null 2>&1; then

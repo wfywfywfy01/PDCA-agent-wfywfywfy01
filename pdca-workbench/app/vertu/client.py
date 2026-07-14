@@ -155,20 +155,27 @@ async def vertu_health(force: bool = False) -> dict:
     if not resolved:
         value = {"ok": False, "installed": False, "auth_mode": None, "detail": "vertu-cli 未安装"}
     else:
-        code, stdout, stderr = await run_vertu(["auth", "status", "--json"], timeout=12.0)
+        # `auth status` in vertu-cli 2.1.x still requires a local
+        # ~/.vertu/vps-service.json even when complete Agent credentials are
+        # supplied through environment variables. Containers intentionally do
+        # not persist that human-login file, so validate the server-backed
+        # scopes endpoint instead.
+        code, stdout, stderr = await run_vertu(["auth", "scopes", "--json"], timeout=12.0)
         try:
             payload = json.loads(stdout.strip()) if stdout.strip() else {}
         except json.JSONDecodeError:
             payload = {}
-        logged_in = bool(payload.get("logged_in") and payload.get("server_authorized"))
+        scopes = payload.get("userScopes")
+        authorized = bool(code == 0 and payload.get("login") and isinstance(scopes, list))
+        agent_app_id = payload.get("agentAppId")
         value = {
-            "ok": code == 0 and logged_in,
+            "ok": authorized,
             "installed": True,
-            "auth_mode": payload.get("auth_mode"),
-            "never_expires": bool(payload.get("never_expires")),
-            "detail": None if code == 0 and logged_in else "vertu-cli 凭据不可用",
+            "auth_mode": "agent" if agent_app_id else "session",
+            "never_expires": bool(agent_app_id),
+            "detail": None if authorized else "vertu-cli 凭据不可用",
         }
         if code != 0:
-            logger.warning("vertu-cli auth status 失败: {}", (stderr or "")[:200])
+            logger.warning("vertu-cli auth scopes 失败: {}", (stderr or "")[:200])
     _HEALTH_CACHE.update({"ts": now, "value": value})
     return dict(value)

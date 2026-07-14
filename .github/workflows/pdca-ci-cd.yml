@@ -14,7 +14,13 @@ on:
       - "pdca-workbench/**"
       - "data_platform/data_role_pdca_mvp/**"
       - "README.md"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      deploy_via_ssh:
+        description: "Only enable when the target has a GitHub-reachable SSH address"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,6 +65,7 @@ jobs:
           PDCA_SECRET_KEY: ci-only-secret-key-at-least-32-characters
           PDCA_DATABASE_URL: postgresql+psycopg2://pdca:dummy@postgres.invalid:5432/pdca
           VERTU_APP_KEY: ci-only-not-a-real-key
+          VERTU_USER_LOGIN: ci@example.invalid
         run: docker compose config --quiet
 
   image:
@@ -104,7 +111,11 @@ jobs:
 
   deploy:
     name: Deploy production
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # 10.100.0.176 is an internal Caddy/Docker host and cannot be reached by a
+    # GitHub-hosted runner. Normal main pushes publish the tested image; an
+    # internal deployment runner pulls it outbound. Keep SSH as an explicit
+    # break-glass option for a future publicly reachable/bastion endpoint.
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_via_ssh
     needs: [test, image]
     runs-on: ubuntu-latest
     timeout-minutes: 15

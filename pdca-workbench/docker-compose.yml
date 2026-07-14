@@ -35,8 +35,9 @@ services:
       PDCA_REQUIRE_VERTU: "1"
       VERTU_COMMAND: vertu-cli
       VERTU_VPS_SERVICE_URL: ${VERTU_VPS_SERVICE_URL:-https://vps-service.vertu.cn}
-      VERTU_APP_ID: ${VERTU_APP_ID:-pdca-workbench}
+      VERTU_APP_ID: ${VERTU_APP_ID:-cursor}
       VERTU_APP_KEY: ${VERTU_APP_KEY:?请在未跟踪的 .env 中设置 VERTU_APP_KEY}
+      VERTU_USER_LOGIN: ${VERTU_USER_LOGIN:?请在未跟踪的 .env 中设置 VERTU_USER_LOGIN}
     volumes:
       - ./data:/app/data
       - ../data_platform/data_role_pdca_mvp:/mvp

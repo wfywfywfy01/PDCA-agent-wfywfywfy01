@@ -39,15 +39,16 @@ if [[ ! -f .env ]]; then
 PDCA_SECRET_KEY=
 PDCA_DATABASE_URL=
 VERTU_APP_KEY=
+VERTU_USER_LOGIN=
 EOF
   chmod 600 .env
-  echo "❌ 已生成 .env 模板。请填写 PDCA_SECRET_KEY、PDCA_DATABASE_URL、VERTU_APP_KEY 后重试。"
+  echo "❌ 已生成 .env 模板。请填写 PDCA_SECRET_KEY、PDCA_DATABASE_URL、VERTU_APP_KEY、VERTU_USER_LOGIN 后重试。"
   exit 1
 else
   echo "✅ 使用已有 .env（compose 仍强制 PDCA_MVP_ROOT=/mvp）"
 fi
 
-for key in PDCA_SECRET_KEY PDCA_DATABASE_URL VERTU_APP_KEY; do
+for key in PDCA_SECRET_KEY PDCA_DATABASE_URL VERTU_APP_KEY VERTU_USER_LOGIN; do
   if ! grep -Eq "^${key}=.+$" .env; then
     echo "❌ .env 缺少必填配置: $key" >&2
     exit 1

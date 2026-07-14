@@ -65,3 +65,20 @@ bash pdca-workbench/scripts/docker_smoke_test.sh pdca-workbench:local-smoke
 - 创建 GitHub `production` Environment，可按需要增加审批人。
 - 保护 `main`，要求 `Python tests and configuration` 与 `Container build` 成功后才能合并。
 - 禁止直接向 `main` 推送，日常改动统一通过 PR。
+
+## 内网 176 发布方式
+
+`10.100.0.176` 是 Caddy/Docker 内网主机，GitHub 托管 runner 无法访问它的 22 端口。
+因此 `main` 的默认流程在门禁全绿后发布精确 SHA 镜像到 GHCR，再由内网开发机执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\pdca-workbench\scripts\deploy_remote_docker.ps1
+```
+
+脚本只选择最新的成功 `main` 流水线，拉取已通过容器冒烟的精确 SHA，
+上传对应 Git 发布目录，执行 PostgreSQL 备份，启动新容器，然后验证容器和公网健康状态。
+若健康检查失败，会恢复上一个镜像和 release 目录。SSH 发布仅保留为手工
+`workflow_dispatch` 的应急选项，且只能在配置了 GitHub 可达的堡垒机/公网 SSH 时启用。
+
+> 当前无 TLS 的 `tcp://10.100.0.176:2375` 等同于宿主机 root 权限，只应在受信内网临时使用。
+> 后续应改为 `ssh://` Docker Context 或双向 TLS 2376。
