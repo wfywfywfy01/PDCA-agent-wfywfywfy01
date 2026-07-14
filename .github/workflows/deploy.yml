@@ -1,0 +1,47 @@
+name: Deploy PDCA Workbench
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pdca-workbench/**"
+      - "data_platform/data_role_pdca_mvp/**"
+  workflow_dispatch: {}
+
+concurrency:
+  group: pdca-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH (health-checked, auto-rollback on failure)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PDCA_DEPLOY_HOST }}
+          username: ${{ secrets.PDCA_DEPLOY_USER }}
+          key: ${{ secrets.PDCA_DEPLOY_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /opt/PDCA-agent
+
+            PREV_COMMIT="$(git rev-parse HEAD)"
+            git fetch origin main
+            git reset --hard origin/main
+            NEW_COMMIT="$(git rev-parse HEAD)"
+            echo "Deploying ${PREV_COMMIT} -> ${NEW_COMMIT}"
+
+            if bash pdca-workbench/scripts/docker_up.sh; then
+              echo "Deploy succeeded at ${NEW_COMMIT}"
+            else
+              echo "Deploy failed health check, rolling back to ${PREV_COMMIT}"
+              git reset --hard "${PREV_COMMIT}"
+              if bash pdca-workbench/scripts/docker_up.sh; then
+                echo "Rolled back successfully to ${PREV_COMMIT}"
+              else
+                echo "Rollback redeploy ALSO failed, needs manual intervention"
+              fi
+              exit 1
+            fi
