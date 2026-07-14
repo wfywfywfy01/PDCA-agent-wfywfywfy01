@@ -14,7 +14,7 @@ $EnvFile = Join-Path $WorkbenchRoot ".env"
 $HelperImage = "vertu-registry.cn-chengdu.cr.aliyuncs.com/base/postgres:18.4-bookworm"
 
 function Invoke-Docker {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DockerArgs)
+    param([string[]]$DockerArgs)
     $output = & docker -H $DockerHost @DockerArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Remote Docker command failed: docker $($DockerArgs[0])"
@@ -113,7 +113,7 @@ function Start-PdcaContainer {
         "-e", "VERTU_USER_LOGIN=$($Agent.VERTU_USER_LOGIN)",
         $Image
     )
-    Invoke-Docker @dockerArgs | Out-Null
+    Invoke-Docker -DockerArgs $dockerArgs | Out-Null
 }
 
 if (-not (Test-Path -LiteralPath $EnvFile)) {
@@ -139,9 +139,13 @@ if (-not $SkipCiCheck) {
 }
 
 $image = "${ImageRegistry}:$Sha"
-$currentRevision = (& docker -H $DockerHost inspect pdca-workbench `
-    --format '{{index .Config.Labels "com.vertu.pdca.revision"}}' 2>$null)
-if ($LASTEXITCODE -eq 0 -and $currentRevision -eq $Sha) {
+$currentInspect = & docker -H $DockerHost inspect pdca-workbench 2>$null
+$currentRevision = ""
+if ($LASTEXITCODE -eq 0 -and $currentInspect) {
+    $currentObject = ($currentInspect | ConvertFrom-Json)[0]
+    $currentRevision = $currentObject.Config.Labels.'com.vertu.pdca.revision'
+}
+if ($currentRevision -eq $Sha) {
     $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 20
     if ($health.status -eq "ok") {
         Write-Output "Already deployed and healthy: $Sha"
@@ -150,7 +154,7 @@ if ($LASTEXITCODE -eq 0 -and $currentRevision -eq $Sha) {
 }
 
 Write-Output "Pulling tested image $image"
-Invoke-Docker pull $image | Out-Null
+Invoke-Docker -DockerArgs @("pull", $image) | Out-Null
 
 & git -C $RepoRoot fetch --no-tags origin $Sha
 if ($LASTEXITCODE -ne 0) { throw "git fetch failed for $Sha" }
@@ -158,12 +162,16 @@ $archive = Join-Path $env:TEMP "pdca-release-$Sha.tar"
 try {
     & git -C $RepoRoot archive --format=tar --output=$archive $Sha
     if ($LASTEXITCODE -ne 0) { throw "git archive failed for $Sha" }
-    $helper = (Invoke-Docker create --entrypoint sh `
-        -v "/opt/PDCA-releases:/releases" $HelperImage -lc `
-        "set -eu; mkdir -p '/releases/$Sha'; tar -xf /tmp/release.tar -C '/releases/$Sha'; printf '%s\n' '$Sha' > '/releases/$Sha/.pdca-release'").Trim()
+    $helperArgs = @(
+        "create", "--entrypoint", "sh",
+        "-v", "/opt/PDCA-releases:/releases",
+        $HelperImage, "-lc",
+        "set -eu; mkdir -p '/releases/$Sha'; tar -xf /tmp/release.tar -C '/releases/$Sha'; printf '%s\n' '$Sha' > '/releases/$Sha/.pdca-release'"
+    )
+    $helper = (Invoke-Docker -DockerArgs $helperArgs).Trim()
     try {
-        Invoke-Docker cp $archive "${helper}:/tmp/release.tar" | Out-Null
-        Invoke-Docker start -a $helper | Out-Null
+        Invoke-Docker -DockerArgs @("cp", $archive, "${helper}:/tmp/release.tar") | Out-Null
+        Invoke-Docker -DockerArgs @("start", "-a", $helper) | Out-Null
     } finally {
         & docker -H $DockerHost rm -f $helper 2>$null | Out-Null
     }
@@ -181,12 +189,16 @@ $agent = Get-AgentCredential
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $backupName = "pdca-before-$($Sha.Substring(0, 8))-$stamp.dump"
 $pgUrl = $secrets.PDCA_DATABASE_URL -replace '^postgresql\+psycopg2://', 'postgresql://'
-Invoke-Docker run --rm --entrypoint pg_dump `
-    -v "/opt/PDCA-agent/pdca-workbench/backups:/backups" `
-    $HelperImage $pgUrl --format=custom "--file=/backups/$backupName" | Out-Null
-Invoke-Docker run --rm --entrypoint sh `
-    -v "/opt/PDCA-agent/pdca-workbench/backups:/backups" `
-    $HelperImage -lc "chmod 600 '/backups/$backupName'" | Out-Null
+Invoke-Docker -DockerArgs @(
+    "run", "--rm", "--entrypoint", "pg_dump",
+    "-v", "/opt/PDCA-agent/pdca-workbench/backups:/backups",
+    $HelperImage, $pgUrl, "--format=custom", "--file=/backups/$backupName"
+) | Out-Null
+Invoke-Docker -DockerArgs @(
+    "run", "--rm", "--entrypoint", "sh",
+    "-v", "/opt/PDCA-agent/pdca-workbench/backups:/backups",
+    $HelperImage, "-lc", "chmod 600 '/backups/$backupName'"
+) | Out-Null
 
 $oldExists = (& docker -H $DockerHost ps -a --filter 'name=^/pdca-workbench$' `
     --format '{{.Names}}') -eq "pdca-workbench"
@@ -194,14 +206,14 @@ $oldImage = ""
 $oldRevision = "rollback"
 $oldRelease = "/opt/PDCA-agent"
 if ($oldExists) {
-    $oldImage = (Invoke-Docker inspect pdca-workbench --format '{{.Config.Image}}').Trim()
-    $candidateRevision = (& docker -H $DockerHost inspect pdca-workbench `
-        --format '{{index .Config.Labels "com.vertu.pdca.revision"}}' 2>$null)
+    $oldObject = ((Invoke-Docker -DockerArgs @("inspect", "pdca-workbench")) | ConvertFrom-Json)[0]
+    $oldImage = $oldObject.Config.Image
+    $candidateRevision = $oldObject.Config.Labels.'com.vertu.pdca.revision'
     if ($candidateRevision) { $oldRevision = $candidateRevision }
-    $candidateRelease = (Invoke-Docker inspect pdca-workbench `
-        --format '{{range .Mounts}}{{if eq .Destination "/repo"}}{{.Source}}{{end}}{{end}}').Trim()
+    $candidateRelease = ($oldObject.Mounts | Where-Object { $_.Destination -eq "/repo" } |
+        Select-Object -First 1).Source
     if ($candidateRelease) { $oldRelease = $candidateRelease }
-    Invoke-Docker rm -f pdca-workbench | Out-Null
+    Invoke-Docker -DockerArgs @("rm", "-f", "pdca-workbench") | Out-Null
 }
 
 try {
