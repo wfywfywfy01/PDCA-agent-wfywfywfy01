@@ -54,14 +54,21 @@ for key in PDCA_SECRET_KEY PDCA_DATABASE_URL VERTU_APP_KEY; do
   fi
 done
 
-echo "→ docker compose up -d --build …"
-docker compose up -d --build
+if [[ -n "${PDCA_DEPLOY_IMAGE:-}" ]]; then
+  export PDCA_IMAGE="$PDCA_DEPLOY_IMAGE"
+  echo "→ 使用已通过 CI 的镜像: $PDCA_IMAGE"
+  docker compose up -d --no-build pdca-app
+else
+  echo "→ docker compose up -d --build …"
+  docker compose up -d --build pdca-app
+fi
 
 echo
 echo "→ 等待健康检查…"
 ready=0
+host_port="${PDCA_HOST_PORT:-8768}"
 for i in $(seq 1 30); do
-  health="$(curl -fsS http://127.0.0.1:8767/health 2>/dev/null || true)"
+  health="$(curl -fsS "http://127.0.0.1:${host_port}/health" 2>/dev/null || true)"
   if printf '%s' "$health" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'; then
     echo "✅ 服务就绪: $health"
     ready=1

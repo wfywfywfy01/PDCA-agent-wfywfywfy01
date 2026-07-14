@@ -112,10 +112,8 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
-    """为页面、API 和错误响应统一补齐浏览器安全头。"""
-    response = await call_next(request)
+def _apply_security_headers(request: Request, response):
+    """为正常响应及中间件提前返回统一补齐浏览器安全头。"""
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -135,6 +133,13 @@ async def security_headers_middleware(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
     return response
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """为页面、API 和错误响应统一补齐浏览器安全头。"""
+    response = await call_next(request)
+    return _apply_security_headers(request, response)
 
 
 @app.middleware("http")
@@ -159,9 +164,13 @@ async def auth_redirect_middleware(request: Request, call_next):
     auth = request.headers.get("authorization", "")
     if not token and not auth.startswith("Bearer "):
         if path.startswith("/api/"):
-            return JSONResponse({"detail": "未登录"}, status_code=401)
+            return _apply_security_headers(
+                request, JSONResponse({"detail": "未登录"}, status_code=401)
+            )
         if not path.startswith(("/login",)):
-            return RedirectResponse(f"/login?next={path}")
+            return _apply_security_headers(
+                request, RedirectResponse(f"/login?next={path}")
+            )
     return await call_next(request)
 
 

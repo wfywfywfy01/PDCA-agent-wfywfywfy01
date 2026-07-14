@@ -11,10 +11,11 @@
 services:
   pdca-app:
     build: .
+    image: ${PDCA_IMAGE:-pdca-workbench:local}
     container_name: pdca-workbench
     ports:
       # 公网由宿主机 Caddy/Nginx 反代；不把 Uvicorn 直接暴露到外网。
-      - "127.0.0.1:8767:8767"
+      - "127.0.0.1:${PDCA_HOST_PORT:-8768}:8767"
     env_file:
       - path: env.docker
         required: true
