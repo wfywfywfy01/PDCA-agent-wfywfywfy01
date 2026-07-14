@@ -17,6 +17,9 @@ def inject_vue_shell(html: str) -> str:
     return html.replace("<body>", "<body>" + shell, 1)
 
 
+_NO_CACHE_HEADERS = {"Cache-Control": "no-store, no-cache, must-revalidate"}
+
+
 def html_page(content: str) -> HTMLResponse:
-    """返回注入顶栏后的 HTML 页面。"""
-    return HTMLResponse(inject_vue_shell(content))
+    """返回注入顶栏后的 HTML 页面，禁止浏览器缓存（页面内容会随部署更新）。"""
+    return HTMLResponse(inject_vue_shell(content), headers=_NO_CACHE_HEADERS)

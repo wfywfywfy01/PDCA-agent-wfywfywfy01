@@ -38,6 +38,14 @@ def _serve_asset(resolver, rel_path: str) -> FileResponse:
     return FileResponse(target, media_type=_guess_media(target))
 
 
+_NO_CACHE_HEADERS = {"Cache-Control": "no-store, no-cache, must-revalidate"}
+
+
+def _html_file(path: Path) -> FileResponse:
+    """返回 HTML 文件，禁止浏览器缓存（内容会随部署更新，避免手机端读到旧版本）。"""
+    return FileResponse(path, media_type="text/html; charset=utf-8", headers=_NO_CACHE_HEADERS)
+
+
 def _serve_skinned_html(path: Path, date_text: str, title: str, feature: str = "") -> HTMLResponse:
     if not path.is_file():
         logger.error("模块页面文件不存在: {}", path)
@@ -129,7 +137,7 @@ async def login_page():
     settings = get_settings()
     login = settings.frontend_dir / "login.html"
     if login.is_file():
-        return FileResponse(login, media_type="text/html; charset=utf-8")
+        return _html_file(login)
     return HTMLResponse("<p>login.html 缺失</p>")
 
 
@@ -529,7 +537,7 @@ async def admin_panel_page(
     html_path = settings.frontend_dir / "admin_panel.html"
     if not html_path.is_file():
         raise HTTPException(status_code=404)
-    return FileResponse(html_path, media_type="text/html; charset=utf-8")
+    return _html_file(html_path)
 
 
 @router.get("/dealer-sellin")
@@ -541,7 +549,7 @@ async def dealer_sellin_page(
     html_path = settings.frontend_dir / "dealer_sellin.html"
     if not html_path.is_file():
         raise HTTPException(status_code=404, detail="dealer_sellin.html 缺失")
-    return FileResponse(html_path, media_type="text/html; charset=utf-8")
+    return _html_file(html_path)
 
 
 
@@ -555,7 +563,7 @@ async def store_five_kit_page(
     html_path = settings.frontend_dir / "store_five_kit.html"
     if not html_path.is_file():
         raise HTTPException(status_code=404, detail="store_five_kit.html 缺失")
-    return FileResponse(html_path, media_type="text/html; charset=utf-8")
+    return _html_file(html_path)
 
 
 @router.get("/walkin-submit")
@@ -568,4 +576,4 @@ async def walkin_submit_page(
     html_path = settings.frontend_dir / "walkin_submit.html"
     if not html_path.is_file():
         raise HTTPException(status_code=404, detail="walkin_submit.html 缺失")
-    return FileResponse(html_path, media_type="text/html; charset=utf-8")
+    return _html_file(html_path)
