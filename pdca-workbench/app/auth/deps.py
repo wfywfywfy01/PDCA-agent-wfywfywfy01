@@ -62,7 +62,7 @@ _LOCALHOST_ADDRS = {"127.0.0.1", "::1"}
 
 
 async def _user_from_vps(session: Session, request: Request) -> User | None:
-    """通过 vertu odoo me 解析当前 VPS 登录用户（服务端会话）。
+    """通过 vertu-cli hr +me 解析当前 Vertu 登录用户（服务端会话）。
 
     这是"本机免登录"的便利兜底，本质是把跑这个进程的机器上的 vertu 会话
     当成请求方身份，和实际发请求的人没有任何绑定关系。只允许来自
@@ -114,7 +114,7 @@ async def get_current_user(
     解析当前用户，优先级：
     1. 反向代理 Header（多用户生产）
     2. JWT Cookie / Bearer（local / hybrid）
-    3. 服务端 vertu odoo me（vps / hybrid 兜底）
+    3. 服务端 vertu-cli hr +me（vps / hybrid 兜底）
     """
     settings = get_settings()
     mode = settings.auth_mode
@@ -149,7 +149,7 @@ async def get_current_user(
     if mode == "vps":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未检测到 VPS 登录，请先在 VPS/Odoo 完成登录（vertu login）",
+            detail="未检测到 Vertu 身份，请联系管理员检查 vertu-cli 服务凭据",
         )
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
 

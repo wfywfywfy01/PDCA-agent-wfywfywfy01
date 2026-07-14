@@ -19,26 +19,6 @@
     return t;
   }
 
-  /** @param {string} s */
-  function hashStr(s) {
-    var h = 0;
-    for (var i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-    return Math.abs(h);
-  }
-
-  /**
-   * VERTU 介绍客户业绩（mock，按门店+月份稳定随机）
-   * @param {string} nm
-   * @param {number} realSal
-   * @param {string} monthKey
-   */
-  function mockVertuSales(nm, realSal, monthKey) {
-    if (!realSal || realSal <= 0) return 0;
-    var h = hashStr(nm + '|' + monthKey);
-    var share = 0.06 + (h % 19) / 100;
-    return Math.round(realSal * share * 10) / 10;
-  }
-
   /** @param {string} rg @param {string} nm */
   function dealerRegionStoreLabel(rg, nm) {
     return (rg || '—') + ' · ' + (nm || '—');
@@ -207,47 +187,14 @@
     return html;
   }
 
-  function aggRegions(ml) {
-    var order = (ref && ref.regionOrder) || ['中东', '欧洲', '南亚', '东南亚', '中亚'];
-    var out = [];
-    for (var i = 0; i < order.length; i++) {
-      var rg = order[i];
-      var L = ml.filter(function (x) {
-        return x.rg === rg;
-      });
-      if (!L.length) continue;
-      var Ls = sum(L, function (x) {
-        return x.Ls;
-      });
-      var Ll = sum(L, function (x) {
-        return x.Ll;
-      });
-      var Lo = sum(L, function (x) {
-        return x.Lo;
-      });
-      out.push({ rg: rg, Ls: Ls, Ll: Ll, Lo: Lo, ld: Ls + Ll + Lo });
-    }
-    return out;
-  }
-
-  function customerOwnershipFromDealers(dealerStores) {
-    var own = 0;
-    var vertu = 0;
+  function customerTotalsFromDealers(dealerStores) {
+    var effective = 0;
+    var walkin = 0;
     (dealerStores || []).forEach(function (s) {
-      var eff = Number(s.effectiveCustomers) || 0;
-      var people = Number(s.walkinPeople) || 0;
-      own += eff;
-      vertu += Math.max(0, people - eff);
+      effective += Number(s.effectiveCustomers) || 0;
+      walkin += Number(s.walkinPeople) || 0;
     });
-    if (own <= 0 && vertu <= 0 && dealerStores && dealerStores.length) {
-      own = sum(dealerStores, function (x) {
-        return Number(x.wechatAddCount) || 0;
-      });
-      vertu = sum(dealerStores, function (x) {
-        return Math.max(0, (Number(x.walkinPeople) || 0) - (Number(x.wechatAddCount) || 0));
-      });
-    }
-    return { own: own, vertu: vertu };
+    return { effective: effective, walkin: walkin };
   }
 
   function barUnit(tag, val, mx, cls, unit) {
@@ -272,24 +219,16 @@
   }
 
   function renderOkrTable(ml, monthKey) {
-    var est = (ref && ref.estRatio) || 4;
     var tb = '';
     var sumOkr = 0;
     var sumSal = 0;
-    var sumVertu = 0;
     for (var i = 0; i < ml.length; i++) {
       var r = ml[i];
       var okr = okrMonthly(r.nm, monthKey);
       var realSal = r.sal;
-      var vertuSal = mockVertuSales(r.nm, realSal, monthKey);
       sumOkr += okr;
       sumSal += realSal;
-      sumVertu += vertuSal;
       var completion = okr > 0 ? Math.round((realSal / okr) * 1000) / 10 : null;
-      var vertuShare =
-        realSal > 0 ? Math.round((vertuSal / realSal) * 1000) / 10 : null;
-      var diff =
-        completion != null ? Math.round((completion - est) * 10) / 10 : null;
       tb +=
         '<tr><td>' +
         r.rg +
@@ -301,21 +240,9 @@
         fmtNum(realSal) +
         '</td><td class="num">' +
         (completion != null ? completion + '%' : '—') +
-        '</td><td class="num">' +
-        fmtNum(vertuSal) +
-        '</td><td class="num">' +
-        (vertuShare != null ? vertuShare + '%' : '—') +
-        '</td><td class="num">' +
-        est +
-        '%</td><td class="num ' +
-        (diff != null && diff >= 0 ? 'oi-delta-ok' : '') +
-        '">' +
-        (diff != null ? (diff >= 0 ? '+' : '') + diff + '%' : '—') +
         '</td></tr>';
     }
     var aggCompletion = sumOkr > 0 ? Math.round((sumSal / sumOkr) * 1000) / 10 : 0;
-    var aggVertuShare =
-      sumSal > 0 ? Math.round((sumVertu / sumSal) * 1000) / 10 : 0;
     var foot =
       ml.length +
       ' 家经销商·门店 · OKR 合计 ' +
@@ -324,10 +251,6 @@
       fmtNum(sumSal) +
       ' 万 · 加权完成率 ' +
       aggCompletion +
-      '% · VERTU 介绍业绩(mock) ' +
-      fmtNum(sumVertu) +
-      ' 万 · 占真实销售 ' +
-      aggVertuShare +
       '%';
     return { tbody: tb, foot: foot };
   }
@@ -372,158 +295,11 @@
     );
   }
 
-  function renderCustomerBars(own, vertu) {
-    var mx = Math.max(own, vertu, 1);
+  function renderCustomerBars(effective, walkin) {
+    var mx = Math.max(effective, walkin, 1);
     return (
-      barUnit('自有有效客户', own, mx, 'b', '人') + barUnit('VERTU 推送', vertu, mx, 'd', '人')
+      barUnit('有效客户', effective, mx, 'b', '人') + barUnit('进店人数', walkin, mx, 'd', '人')
     );
-  }
-
-  /**
-   * 区域汇总表：短视频/直播/线索/真实销售/完成率均 mock（按区域+月稳定）
-   * @param {string} rg
-   * @param {number} storeCount
-   * @param {string} monthKey
-   * @param {number} scale
-   */
-  function mockRegionMetrics(rg, storeCount, monthKey, scale) {
-    var h = hashStr(rg + '|' + monthKey);
-    var n = Math.max(1, storeCount);
-    var sv = Math.round(n * (68 + (h % 28)) * scale);
-    var lv = Math.round(n * (7 + ((h >> 4) % 7)) * scale);
-    var ld = Math.round(sv * (0.78 + (h % 15) / 100) + lv * 2.2);
-    var sal = Math.round(n * (48 + (h % 35)) * scale * 10) / 10;
-    var avgCompletion = Math.round((3.5 + (h % 9) / 10) * 10) / 10;
-    return { sv: sv, lv: lv, ld: ld, sal: sal, avgCompletion: avgCompletion };
-  }
-
-  /**
-   * @param {string} monthKey
-   * @param {object[]} dealerStores
-   */
-  function buildRegionSummaryRows(monthKey, dealerStores) {
-    var scale = scaleFactor(monthKey);
-    var rows = [];
-    var vnMonth =
-      vnRef && vnRef.months
-        ? vnRef.months[monthKey] || vnRef.months[Object.keys(vnRef.months).sort().pop()]
-        : null;
-    if (vnMonth && vnMonth.regions) {
-      for (var vi = 0; vi < vnMonth.regions.length; vi++) {
-        var vr = vnMonth.regions[vi];
-        var vm = mockRegionMetrics(vr.rg, vr.storeCount, monthKey, scale);
-        rows.push({
-          rg: vr.rg,
-          storeCount: vr.storeCount,
-          realRegion: true,
-          realStores: true,
-          storeNames: vr.storeNames || [],
-          sv: vm.sv,
-          lv: vm.lv,
-          ld: vm.ld,
-          sal: vm.sal,
-          avgCompletion: vm.avgCompletion,
-        });
-      }
-    }
-    var byRg = {};
-    (dealerStores || []).forEach(function (s) {
-      if (s.region === '越南区' && s.dataSource === 'vietnam_reference') return;
-      var rg = s.region || '其他';
-      byRg[rg] = (byRg[rg] || 0) + 1;
-    });
-    var order = (ref && ref.regionOrder) || ['中东', '欧洲', '南亚', '东南亚', '中亚', '其他'];
-    for (var oi = 0; oi < order.length; oi++) {
-      var rgName = order[oi];
-      if (!byRg[rgName] || rgName === '越南区') continue;
-      var dm = mockRegionMetrics(rgName, byRg[rgName], monthKey, scale);
-      rows.push({
-        rg: rgName,
-        storeCount: byRg[rgName],
-        realRegion: true,
-        realStores: true,
-        sv: dm.sv,
-        lv: dm.lv,
-        ld: dm.ld,
-        sal: dm.sal,
-        avgCompletion: dm.avgCompletion,
-      });
-    }
-    return rows;
-  }
-
-  function renderRegionSummaryTable(monthKey, dealerStores) {
-    var rows = buildRegionSummaryRows(monthKey, dealerStores);
-    if (!rows.length) {
-      return { tbody: '', foot: '暂无区域汇总数据' };
-    }
-    var tb = '';
-    for (var i = 0; i < rows.length; i++) {
-      var r = rows[i];
-      tb +=
-        '<tr><td>' +
-        r.rg +
-        '</td><td class="num">' +
-        r.storeCount +
-        '</td><td class="num">' +
-        r.sv +
-        '</td><td class="num">' +
-        r.lv +
-        '</td><td class="num">' +
-        r.ld +
-        '</td><td class="num">' +
-        fmtNum(r.sal) +
-        '</td><td class="num">' +
-        r.avgCompletion +
-        '%</td></tr>';
-    }
-    var vnNames =
-      rows[0] && rows[0].storeNames && rows[0].storeNames.length
-        ? ' · 越南店：' + rows[0].storeNames.join('、')
-        : '';
-    var foot =
-      '区域/门店数：越南区来自 Data collecet(5).xlsx（' +
-      (vnRef && vnRef.sourceFile ? vnRef.sourceFile : 'vn_data_collect_reference.json') +
-      '）；海外代理商大区来自当前数据包统计' +
-      vnNames +
-      ' · 短视频/直播/线索/真实销售/完成率均值为演示 mock。';
-    return { tbody: tb, foot: foot };
-  }
-
-  function renderStack(agg) {
-    var h = '';
-    for (var i = 0; i < agg.length; i++) {
-      var r = agg[i];
-      var t = r.ld || 1;
-      var hs = Math.max(8, Math.round((r.Ls / t) * 110));
-      var hl = Math.max(8, Math.round((r.Ll / t) * 110));
-      var ho = Math.max(8, 130 - hs - hl);
-      h +=
-        '<div class="oi-stack-one">' +
-        '<div class="oi-stack-v" style="height:130px">' +
-        '<div class="seg oi-seg-o" style="height:' +
-        ho +
-        'px">' +
-        r.Lo +
-        '</div>' +
-        '<div class="seg oi-seg-l" style="height:' +
-        hl +
-        'px">' +
-        r.Ll +
-        '</div>' +
-        '<div class="seg oi-seg-s" style="height:' +
-        hs +
-        'px">' +
-        r.Ls +
-        '</div></div>' +
-        '<div class="oi-stack-sum">合计 ' +
-        r.ld +
-        ' 条</div>' +
-        '<div class="oi-stack-rg">' +
-        r.rg +
-        '</div></div>';
-    }
-    return h;
   }
 
   /**
@@ -559,7 +335,7 @@
         });
     }
     loadPromise = Promise.all([
-      fetchJson(chUrl, { stores: [], okrByMonth: {}, estRatio: 4, regionOrder: [] }),
+      fetchJson(chUrl, { stores: [], okrByMonth: {}, regionOrder: [] }),
       fetchJson(vnUrl, { months: {}, stores: [] }),
     ]).then(function (pair) {
       ref = pair[0];
@@ -587,24 +363,19 @@
     if (!/^\d{4}-\d{2}$/.test(monthKey)) monthKey = '2026-05';
     var ml = hasChannel ? mainland(scaledStores(monthKey)) : [];
     var okr = hasChannel ? renderOkrTable(ml, monthKey) : { tbody: '', foot: '' };
-    var agg = hasChannel ? aggRegions(ml) : [];
-    var cust = customerOwnershipFromDealers(opts.dealerStores || []);
-    var regionTbl = renderRegionSummaryTable(monthKey, opts.dealerStores || []);
+    var cust = customerTotalsFromDealers(opts.dealerStores || []);
     var channelBlock = hasChannel
       ? '<div class="oi-card">' +
         '<h3>真实销售 ÷ 经销商 OKR（当月目标）</h3>' +
         '<p class="oi-note">全量 <strong>' +
         ((ref && ref.storeCount) || (ref && ref.stores && ref.stores.length) || 0) +
-        '</strong> 家门店（<code>config/dealers.json</code>）；大区含中东/欧洲/南亚/东南亚/中亚。<strong>真实销售</strong>来自 vertu <code>customer_summary</code>（万元）；<strong>OKR</strong>默认月目标 120 万（可按 level 配置）；<strong>VERTU 介绍业绩</strong>为演示 mock；<strong>预估占比</strong> 固定 ' +
-        ((ref && ref.estRatio) || 4) +
-        '%。</p>' +
+        '</strong> 家门店（<code>config/dealers.json</code>）；大区含中东/欧洲/南亚/东南亚/中亚。<strong>真实销售</strong>来自 <code>vertu-cli sales</code>（万元）；<strong>OKR</strong>来自门店等级配置。</p>' +
         (ref && ref.vpsFile
           ? '<p class="oi-note">VPS 文件：' + ref.vpsFile + (ref.checkDate ? ' · 检查日 ' + ref.checkDate : '') + '</p>'
           : '') +
         '<div class="oi-tbl-wrap"><table class="oi-grid oi-grid-wide"><thead><tr>' +
         '<th>区域</th><th>经销商·区域/门店</th><th class="num">OKR目标(万)</th><th class="num">真实销售(万)</th>' +
-        '<th class="num">完成率%</th><th class="num">VERTU介绍业绩(万)</th><th class="num">VERTU占业绩%</th>' +
-        '<th class="num">预估占比%</th><th class="num">与预估差异</th>' +
+        '<th class="num">完成率%</th>' +
         '</tr></thead><tbody>' +
         okr.tbody +
         '</tbody></table></div>' +
@@ -613,15 +384,10 @@
         '</p></div>' +
         renderDealerRegionHtml(ref && ref.dealerRegion) +
         '<div class="oi-card">' +
-        '<h3>客户来源（人）</h3>' +
-        '<p class="oi-note">替代原「四周线索趋势」：代理商 <strong>自有有效客户</strong> 与 <strong>VERTU 推送</strong>（进店人数扣除自有有效口径）。</p>' +
+        '<h3>客流与有效客户（人）</h3>' +
+        '<p class="oi-note">来自当前客流记录，不再根据人数差值推算客户来源。</p>' +
         '<div class="oi-bar-wrap">' +
-        renderCustomerBars(cust.own, cust.vertu) +
-        '</div></div>' +
-        '<div class="oi-card">' +
-        '<h3>区域线索堆叠（条）</h3>' +
-        '<div class="oi-stack-row">' +
-        renderStack(agg) +
+        renderCustomerBars(cust.effective, cust.walkin) +
         '</div></div>'
       : '';
     return (
@@ -630,22 +396,10 @@
       '<h2>经销商线上经营 · 并入客流分析</h2>' +
       '<p>统计月 <strong>' +
       monthKey +
-      '</strong> · 数据优先级：vertu CLI 经销商业绩 JSON → 静态参考 JSON。渠道线索为派生演示；客户来源为当前代理商汇总。</p>' +
+      '</strong> · 数据来源：vertu-cli 经销商业绩与当前客流记录；没有真实来源的指标不展示。</p>' +
       '</div>' +
       '<div class="oi-dark oi-panel">' +
       channelBlock +
-      '<div class="oi-card">' +
-      '<h3>区域汇总表（经销商·越南登记门店）</h3>' +
-      '<p class="oi-note"><strong>区域、门店数</strong>为真实（越南四店来自 Data collecet(5).xlsx；代理商大区来自当前页数据包）；<strong>短视频 / 直播 / 线索 / 真实销售 / 完成率均值</strong>为 mock。</p>' +
-      '<div class="oi-tbl-wrap"><table class="oi-grid oi-grid-wide"><thead><tr>' +
-      '<th>区域</th><th class="num">门店数</th><th class="num">短视频条数</th><th class="num">直播场次</th>' +
-      '<th class="num">线索</th><th class="num">真实销售(万)</th><th class="num">完成率均值%</th>' +
-      '</tr></thead><tbody>' +
-      regionTbl.tbody +
-      '</tbody></table></div>' +
-      '<p class="oi-foot">' +
-      regionTbl.foot +
-      '</p></div>' +
       '</div></div>'
     );
   }

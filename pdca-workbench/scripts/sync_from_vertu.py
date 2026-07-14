@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-每日从 vertu CLI 拉取经销商业绩 + 会议数据，写入云端 PostgreSQL。
+每日从 vertu-cli 拉取经销商业绩 + 会议数据，写入云端 PostgreSQL。
 
 用法：
     python scripts/sync_from_vertu.py
@@ -33,7 +33,6 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 WORKBENCH_ROOT = SCRIPT_DIR.parent           # pdca-workbench/
 REPO_ROOT = WORKBENCH_ROOT.parent            # 经销商PDCA/
-QUERY_FILE = REPO_ROOT / "data_platform" / "data_role_pdca_mvp" / "system_queries" / "pull_dealer_sales_odoo_sale.py"
 
 # 加入 pdca-workbench 到 sys.path，以便 import app.*
 if str(WORKBENCH_ROOT) not in sys.path:
@@ -59,23 +58,25 @@ from app.models.meeting import MeetingRecord                # noqa: E402
 from sqlmodel import Session, select                        # noqa: E402
 
 
-# ── vertu CLI 工具 ─────────────────────────────────────────────────────────────
+# ── vertu-cli 工具 ─────────────────────────────────────────────────────────────
 
 def _find_vertu() -> str:
     cmd = os.environ.get("VERTU_COMMAND", "")
     if cmd:
+        if Path(cmd).name.lower() in {"vertu", "vertu.cmd", "vertu.ps1"}:
+            cmd = "vertu-cli"
         if Path(cmd).exists():
             return cmd
         found = shutil.which(cmd)
         if found:
             return found
-    found = shutil.which("vertu")
+    found = shutil.which("vertu-cli")
     if found:
         return found
-    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu.cmd"
+    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
     if npm_cmd.exists():
         return str(npm_cmd)
-    return "vertu"
+    return "vertu-cli"
 
 
 def _run(cmd: list[str], timeout: int = 120) -> tuple[int, str, str]:
@@ -113,54 +114,13 @@ def _extract_json(text: str):
 def sync_sellin(vertu: str, run_date: str, start_date: str) -> dict:
     """拉经销商 Sell-In 并写入 dealer_sales 表。"""
     print(f"[sellin] 拉取 {start_date} ~ {run_date} 数据…")
-
-    if not QUERY_FILE.is_file():
-        return {"ok": False, "error": f"查询文件不存在: {QUERY_FILE}", "count": 0}
-
-    params_dict = {"run_date": run_date, "start_date": start_date}
-    params_json = json.dumps(params_dict, ensure_ascii=False)
-
-    # vertu 在 Windows 上需要 --params-file（内联 JSON 在 cmd.exe 下引号被吃掉）
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json",
-                                     delete=False, encoding="utf-8") as pf:
-        pf.write(params_json)
-        params_path = pf.name
-
-    cmd = [vertu, "odoo", "data", "sandbox",
-           "--code-file", str(QUERY_FILE),
-           "--params-file", params_path]
-    print(f"  > vertu odoo data sandbox --code-file <query> --params-file <{params_json}>")
     try:
-        rc, stdout, stderr = _run(cmd, timeout=180)
-    finally:
-        Path(params_path).unlink(missing_ok=True)
-    if rc != 0:
-        msg = (stderr or stdout).strip()[:400]
-        print(f"  [错误] vertu 退出码 {rc}: {msg}")
-        return {"ok": False, "error": msg, "count": 0}
-
-    try:
-        payload = _extract_json(stdout)
-    except ValueError as exc:
+        from app.vertu.sales import fetch_dealer_sales_orders_sync
+        result = fetch_dealer_sales_orders_sync(start_date, run_date)
+    except Exception as exc:
         print(f"  [错误] {exc}")
         return {"ok": False, "error": str(exc), "count": 0}
-
-    result = payload.get("execution", {}).get("result") or payload
-    if isinstance(result, dict) and result.get("error"):
-        err = result["error"]
-        if isinstance(err, dict):
-            err = err.get("message") or json.dumps(err, ensure_ascii=False)
-        print(f"  [错误] Odoo sandbox: {err}")
-        return {"ok": False, "error": str(err), "count": 0}
-
-    rows: list[dict] = []
-    if isinstance(result, dict):
-        rows = (result.get("customer_summary") or
-                result.get("salesperson_summary") or
-                result.get("rows") or [])
-    elif isinstance(result, list):
-        rows = result
+    rows: list[dict] = result.get("dealers") or []
 
     if not rows:
         print("  [warn] 本次返回 0 条经销商业绩")
@@ -169,13 +129,13 @@ def sync_sellin(vertu: str, run_date: str, start_date: str) -> dict:
     count = 0
     with Session(get_engine()) as session:
         for item in rows:
-            name = (item.get("partner_name") or item.get("salesperson") or
+            name = (item.get("dealer_name") or item.get("partner_name") or item.get("salesperson") or
                     item.get("dealer") or item.get("name") or "").strip()
             if not name:
                 continue
-            sell_in_yuan = float(item.get("performance") or 0)
+            sell_in_yuan = float(item.get("sell_out_yuan") or item.get("performance") or 0)
             sell_in_wan = round(sell_in_yuan / 10000, 4)
-            units = int(item.get("quantity") or 0)
+            units = int(item.get("qty") or item.get("quantity") or 0)
 
             existing = session.exec(
                 select(DealerSales).where(
@@ -217,50 +177,11 @@ _TEAM = [
 ]
 
 
-def _normalize_phone(phone: str) -> str:
-    return "".join(ch for ch in str(phone or "") if ch.isdigit())
-
-
-def _resolve_vemory_user_id(vertu: str, phone: str) -> int | None:
-    phone_key = _normalize_phone(phone)
-    if not phone_key:
-        return None
-    domain = f'["|","|",["login","ilike","{phone_key}"],["mobile","ilike","{phone_key}"],["phone","ilike","{phone_key}"]]'
-    cmd = [vertu, "odoo", "data", "search",
-           "--endpoint", "im",
-           "--model-name", "res.users",
-           "--domain", domain,
-           "--fields", "id,name,login,phone,mobile",
-           "--limit", "5"]
-    rc, stdout, _ = _run(cmd, timeout=30)
-    if rc != 0:
-        return None
-    try:
-        raw = _extract_json(stdout)
-        records = raw if isinstance(raw, list) else (raw.get("records") or raw.get("data") or [])
-        if isinstance(records, dict):
-            records = records.get("records") or records.get("data") or []
-        if records:
-            return int(records[0]["id"])
-    except (ValueError, KeyError, TypeError):
-        pass
-    return None
-
-
 def _pull_vemory_meetings(vertu: str, meeting_date: str, person: dict) -> list[dict]:
     name = person["name"]
-    phone = person["phone"]
-    user_id = _resolve_vemory_user_id(vertu, phone)
-    user_args = ["--user-id", str(user_id)] if user_id else []
-    if not user_id:
-        print(f"    [{name}] 未能解析 Vemory user_id，跳过")
-        return []
-
-    cmd = [vertu, "odoo", "vemory", "meetings",
+    cmd = [vertu, "vemory", "+meetings", "--scope", "team",
            "--start-date", meeting_date,
-           "--end-date", meeting_date,
-           "--max-meetings", "50",
-           *user_args]
+           "--end-date", meeting_date]
     rc, stdout, stderr = _run(cmd, timeout=60)
     if rc != 0:
         print(f"    [{name}] 会议拉取失败: {(stderr or stdout).strip()[:120]}")
@@ -271,7 +192,10 @@ def _pull_vemory_meetings(vertu: str, meeting_date: str, person: dict) -> list[d
         return []
     records = raw if isinstance(raw, list) else (
         raw.get("meetings") or raw.get("records") or raw.get("data") or [])
-    return [r for r in records if isinstance(r, dict)]
+    return [
+        r for r in records
+        if isinstance(r, dict) and name in str(r.get("owner_name") or "")
+    ]
 
 
 def _infer_bucket(meeting: dict) -> str:
@@ -339,7 +263,7 @@ def sync_meetings(vertu: str, meeting_date: str) -> dict:
 # ── 主入口 ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="每日从 vertu CLI 同步到云端 PostgreSQL")
+    parser = argparse.ArgumentParser(description="每日从 vertu-cli 同步到云端 PostgreSQL")
     parser.add_argument("--date", default=date.today().strftime("%Y-%m-%d"),
                         help="同步截止日期 (YYYY-MM-DD)，默认今天")
     parser.add_argument("--start-date", default="",

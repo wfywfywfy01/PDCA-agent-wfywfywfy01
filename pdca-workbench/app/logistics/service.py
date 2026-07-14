@@ -24,6 +24,20 @@ STATUS_GROUPS = {
     "delivered": set(),
 }
 
+_PLACEHOLDER_TRACKING_NUMBERS = {"1Z0000000000000000"}
+
+
+def _is_demo_record(row: dict) -> bool:
+    """识别明确的演示/占位运单，避免测试数据进入生产看板。"""
+    tracking = str(row.get("tracking_number") or "").strip().upper()
+    if tracking in _PLACEHOLDER_TRACKING_NUMBERS:
+        return True
+    labels = " ".join(
+        str(row.get(key) or "")
+        for key in ("customer", "note", "salesperson")
+    ).casefold()
+    return any(token in labels for token in ("演示", "测试客户", "demo", "mock"))
+
 
 def _read_csv(path: Path) -> list[dict]:
     if not path.is_file():
@@ -54,14 +68,24 @@ def _load_settings() -> dict:
         return {}
 
 
+def _status_is_delivered(status: str) -> bool:
+    value = (status or "").strip().lower()
+    if not value:
+        return False
+    return (
+        "delivered" in value
+        or "已签收" in value
+        or "签收完成" in value
+        or "已送达" in value
+    )
+
+
 def _is_delivered(row: dict) -> bool:
     """是否视为已签收。"""
     status = (row.get("current_status") or row.get("status") or "").lower()
     if row.get("progress_pct", 0) >= 100:
         return True
-    if "deliver" in status or "签收" in status or "送达" in status:
-        return True
-    return (row.get("expected_status") or "").lower() == "delivered" and bool(status)
+    return _status_is_delivered(status)
 
 
 def _days_since_ship(ship_date: str, ref_date: str) -> int | None:
@@ -82,22 +106,19 @@ def _judge_status(row: dict, settings: dict, date_text: str) -> tuple[str, str, 
     for keyword in logistics_cfg.get("abnormal_keywords", []):
         if keyword.lower() in status_lower:
             return "异常", f"状态包含异常关键词：{keyword}", 20
-    for keyword in logistics_cfg.get("normal_keywords", []):
-        if keyword.lower() in status_lower:
-            if "deliver" in status_lower or "签收" in status:
-                return "正常", f"状态包含正常关键词：{keyword}", 100
-            return "正常", f"状态包含正常关键词：{keyword}", 70
-    expected = (row.get("expected_status") or "").lower()
-    if expected == "delivered" or "deliver" in status_lower or "签收" in status:
+    if _status_is_delivered(status):
         return "正常", "已签收或送达", 100
     ship_date = (row.get("ship_date") or date_text or "")[:10]
     try:
         ship_dt = datetime.strptime(ship_date, "%Y-%m-%d")
         run_dt = datetime.strptime(date_text, "%Y-%m-%d")
-        if (run_dt - ship_dt).days >= 7 and "deliver" not in status_lower:
+        if (run_dt - ship_dt).days >= 7:
             return "待关注", "发货超过 7 天，且未标记签收", 45
     except ValueError:
         pass
+    for keyword in logistics_cfg.get("normal_keywords", []):
+        if keyword.lower() in status_lower:
+            return "正常", f"状态包含正常关键词：{keyword}", 70
     if status:
         return "运输中", "在途更新", 65
     return "待核查", "未填写当前状态", 30
@@ -254,7 +275,11 @@ def list_available_dates() -> list[str]:
     dates = []
     for csv_path in inputs_dir.glob("*_tracking.csv"):
         rows = _read_csv(csv_path)
-        if any((r.get("tracking_number") or "").strip() for r in rows):
+        if any(
+            (r.get("tracking_number") or "").strip()
+            and (get_settings().include_demo_data or not _is_demo_record(r))
+            for r in rows
+        ):
             dates.append(csv_path.stem.replace("_tracking", ""))
     return sorted(dates, reverse=True)
 
@@ -318,6 +343,8 @@ def load_shipments(
         for row in _read_csv(csv_path):
             tracking = (row.get("tracking_number") or "").strip()
             if not tracking:
+                continue
+            if not settings.include_demo_data and _is_demo_record(row):
                 continue
             enriched = dict(row)
             if tracking in results_by_tracking:

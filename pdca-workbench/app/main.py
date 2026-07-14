@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -26,7 +27,8 @@ from app.pages.router import router as pages_router
 from app.files.router import router as files_router
 from app.pdca.post_router import router as pdca_post_router
 from app.pdca.router import router as pdca_router
-from app.scheduler.jobs import backup_status, start_scheduler, stop_scheduler
+from app.scheduler.jobs import backup_database, backup_status, start_scheduler, stop_scheduler
+from app.vertu.client import vertu_health
 from app.signalseller.router import router as signalseller_router
 from app.export.router import router as export_router
 from app.walkin.router import router as walkin_router
@@ -36,9 +38,6 @@ PUBLIC_PATHS = {
     "/api/auth/login",
     "/api/auth/config",
     "/api/auth/vps-check",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
     "/health",
     "/dashboard-theme.css",
     "/workbench-cockpit-shell.css",
@@ -64,6 +63,16 @@ async def lifespan(app: FastAPI):
     seed_users()
     from app.models.store_seed import seed_stores
     seed_stores()
+    if settings.require_vertu:
+        vertu = await vertu_health(force=True)
+        if not vertu["ok"]:
+            raise RuntimeError(f"生产环境 vertu-cli 不可用: {vertu.get('detail') or '认证失败'}")
+    if settings.environment == "production":
+        backup = backup_status()
+        if not backup["ok"]:
+            path = await asyncio.to_thread(backup_database)
+            if not path:
+                logger.error("生产启动备份失败，/health 将保持 degraded")
     start_scheduler()
     logger.info(
         "PDCA 工作台已启动 {}:{} db_mode={} MVP={} auth_mode={}",
@@ -78,14 +87,19 @@ async def lifespan(app: FastAPI):
     logger.info("PDCA 工作台已关闭")
 
 
+_settings0 = get_settings()
+_production = _settings0.environment == "production"
+
 app = FastAPI(
     title="PDCA 工作台",
     description="经销商 PDCA 本地多角色生产环境（PostgreSQL）",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None if _production else "/docs",
+    redoc_url=None if _production else "/redoc",
+    openapi_url=None if _production else "/openapi.json",
 )
 
-_settings0 = get_settings()
 _cors_origins = _settings0.cors_origins or ["*"]
 # credentials + "*" 浏览器会拒；有显式白名单时才开 credentials
 _cors_credentials = bool(_settings0.cors_origins)
@@ -96,6 +110,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """为页面、API 和错误响应统一补齐浏览器安全头。"""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    )
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
+        "object-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
+        "font-src 'self' data:; connect-src 'self'; frame-src 'self'"
+    )
+    if _production:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    if request.url.path.startswith("/api/auth/") or "set-cookie" in response.headers:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.middleware("http")
@@ -187,12 +226,18 @@ async def health():
     mode = get_db_mode()
     db_ok = mode in ("postgresql", "sqlite", "sqlite-fallback")
     backup = backup_status()
+    settings = get_settings()
+    vertu = await vertu_health()
     # 本地开发不要求已有备份；生产环境必须把备份失败暴露给监控。
-    backup_required = get_settings().environment == "production"
-    return {
-        "status": "ok" if db_ok and (backup["ok"] or not backup_required) else "degraded",
+    backup_required = settings.environment == "production"
+    vertu_required = settings.require_vertu
+    ok = db_ok and (backup["ok"] or not backup_required) and (vertu["ok"] or not vertu_required)
+    payload = {
+        "status": "ok" if ok else "degraded",
         "service": "pdca-workbench",
         "database": mode,
         "database_connected": db_ok,
         "backup": backup,
+        "vertu_cli": vertu,
     }
+    return JSONResponse(payload, status_code=200 if ok else 503)

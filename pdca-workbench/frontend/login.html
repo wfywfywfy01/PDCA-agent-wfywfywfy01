@@ -165,7 +165,7 @@
       var oldPw = document.getElementById('cp_old').value;
       var newPw = document.getElementById('cp_new').value;
       var confirm = document.getElementById('cp_confirm').value;
-      if (!newPw || newPw.length < 8) { showCpErr('新密码至少 8 位'); return; }
+      if (!newPw || newPw.length < 12) { showCpErr('新密码至少 12 位'); return; }
       if (newPw !== confirm) { showCpErr('两次输入不一致'); return; }
       if (newPw === oldPw) { showCpErr('新密码不能与当前密码相同'); return; }
       btn.disabled = true; btn.textContent = '设置中…';

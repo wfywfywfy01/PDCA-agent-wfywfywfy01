@@ -2,12 +2,8 @@
 """Walk-in 与线上渠道 API，含门店五件套录入/查询。"""
 from __future__ import annotations
 
-import json
 import re
-import subprocess
-import tempfile
 import time
-from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -30,18 +26,6 @@ router = APIRouter(tags=["walkin"])
 # ── VPS dealer-sales 缓存（内存，TTL 10 分钟）──────────────────────────────────
 _vps_cache: dict[str, tuple[float, dict]] = {}
 _VPS_TTL = 600  # seconds
-_DEALER_SCRIPT = (
-    get_settings().repo_root
-    / "data_platform" / "data_role_pdca_mvp"
-    / "system_queries" / "dealer_monthly_overseas.py"
-)
-_ACTIVATION_SCRIPT = (
-    get_settings().repo_root
-    / "data_platform" / "data_role_pdca_mvp"
-    / "system_queries" / "dealer_activation_stats.py"
-)
-_vps_activation_cache: tuple[float, dict] | None = None
-_VPS_ACTIVATION_TTL = 1800  # 30 分钟（累计数据变化较慢）
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +88,8 @@ class WalkinMetricsSubmit(BaseModel):
     use_count: int = Field(0, ge=0)
     wechat_add_count: int = Field(0, ge=0)
     deal_count: int = Field(0, ge=0)                # Products Sold 成交台数
-    deal_amount_yuan: float = Field(0.0, ge=0.0)    # Revenue 成交金额
+    # 历史字段名保留兼容；录入页从一开始使用 $，实际口径为 USD。
+    deal_amount_yuan: float = Field(0.0, ge=0.0)    # Revenue (USD)
     notes: str = ""
 
 
@@ -140,6 +125,12 @@ async def submit_walkin_metrics(
     session: Annotated[Session, Depends(get_session)],
 ):
     """提交门店五件套日报（dealer及以上权限）。dealer/sales角色只能提交自己名下的门店。"""
+    max_revenue = get_settings().max_reported_revenue_usd
+    if body.deal_amount_yuan > max_revenue:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Revenue must be entered in USD and cannot exceed ${max_revenue:,.0f}; check the currency/unit.",
+        )
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.report_date):
         raise HTTPException(status_code=422, detail="report_date 格式应为 YYYY-MM-DD")
     if not body.dealer_id.strip():
@@ -200,7 +191,7 @@ async def submit_walkin_metrics(
     session.commit()
     log_action(user.username, "submit_five_kit",
                resource=f"{body.dealer_id}:{body.report_date}",
-               detail={"dealer": body.dealer_name, "deal_yuan": body.deal_amount_yuan})
+               detail={"dealer": body.dealer_name, "revenue_usd": body.deal_amount_yuan})
     return {"ok": True, "message": "五件套数据已保存"}
 
 
@@ -275,6 +266,8 @@ async def list_walkin_metrics(
                     "wechat_add_count": r.wechat_add_count,
                     "deal_count": r.deal_count,
                     "deal_amount_yuan": r.deal_amount_yuan,
+                    "deal_amount_usd": r.deal_amount_yuan,
+                    "amount_requires_review": r.deal_amount_yuan > get_settings().max_reported_revenue_usd,
                 },
                 "notes": r.notes,
                 "submitted_by": r.submitted_by,
@@ -320,12 +313,15 @@ async def walkin_metrics_summary(
             "month": month,
             "record_count": 0,
             "five_kit": {"walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0, "total": 0},
-            "funnel": {"total_visits": 0, "touch_count": 0, "use_count": 0, "wechat_add_count": 0, "deal_count": 0, "deal_amount_yuan": 0.0},
+            "funnel": {"total_visits": 0, "touch_count": 0, "use_count": 0, "wechat_add_count": 0, "deal_count": 0, "deal_amount_yuan": 0.0, "deal_amount_usd": 0.0},
             "by_dealer": [],
+            "data_quality": {"excluded_record_count": 0, "reason": ""},
         }
 
     agg = dict(walkin=0, cross=0, online=0, recruit=0, existing=0,
                total_visits=0, touch=0, use=0, wechat=0, deal_count=0, deal_amount=0.0)
+    max_revenue = get_settings().max_reported_revenue_usd
+    excluded_amount_count = 0
 
     dealer_map: dict[str, dict] = {}
 
@@ -341,12 +337,17 @@ async def walkin_metrics_summary(
         agg["use"] += r.use_count
         agg["wechat"] += r.wechat_add_count
         agg["deal_count"] += r.deal_count
-        agg["deal_amount"] += r.deal_amount_yuan
+        amount_valid = r.deal_amount_yuan <= max_revenue
+        if amount_valid:
+            agg["deal_amount"] += r.deal_amount_yuan
+        else:
+            excluded_amount_count += 1
 
         dm = dealer_map.setdefault(r.dealer_id, {
             "dealer_id": r.dealer_id, "dealer_name": r.dealer_name,
             "walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0,
             "total_visits": 0, "deal_count": 0, "deal_amount_yuan": 0.0,
+            "deal_amount_usd": 0.0, "amount_requires_review": False,
         })
         dm["walkin"] += r.walkin_visits
         dm["cross"] += r.cross_visits
@@ -355,7 +356,11 @@ async def walkin_metrics_summary(
         dm["existing"] += r.existing_visits
         dm["total_visits"] += tv
         dm["deal_count"] += r.deal_count
-        dm["deal_amount_yuan"] += r.deal_amount_yuan
+        if amount_valid:
+            dm["deal_amount_yuan"] += r.deal_amount_yuan
+            dm["deal_amount_usd"] += r.deal_amount_yuan
+        else:
+            dm["amount_requires_review"] = True
 
     total_src = agg["walkin"] + agg["cross"] + agg["online"] + agg["recruit"] + agg["existing"]
 
@@ -386,10 +391,16 @@ async def walkin_metrics_summary(
             "use_count": agg["use"],
             "wechat_add_count": agg["wechat"],
             "deal_count": agg["deal_count"],
+            # deal_amount_yuan 为旧客户端兼容字段，金额口径实际为 USD。
             "deal_amount_yuan": round(agg["deal_amount"], 2),
-            "deal_amount_wan": round(agg["deal_amount"] / 10000, 2),
+            "deal_amount_usd": round(agg["deal_amount"], 2),
         },
         "by_dealer": sorted(dealer_map.values(), key=lambda x: -x["deal_amount_yuan"]),
+        "data_quality": {
+            "excluded_record_count": excluded_amount_count,
+            "reason": "Revenue exceeds the USD validation limit; verify the original currency."
+            if excluded_amount_count else "",
+        },
     }
 
 
@@ -426,7 +437,8 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
         d["use"] += r.use_count
         d["wechat"] += r.wechat_add_count
         d["deal_count"] += r.deal_count
-        d["deal_amount_yuan"] += r.deal_amount_yuan
+        if r.deal_amount_yuan <= get_settings().max_reported_revenue_usd:
+            d["deal_amount_yuan"] += r.deal_amount_yuan
 
     stores = payload.get("stores", [])
     for store in stores:
@@ -442,10 +454,9 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
                 "existing": d["existing"],
                 "total": d["total_visits"],
             }
-            # 用真实 deal_amount_yuan 覆盖估算的 totalSalesAmount（如果大于 0）
-            if d["deal_amount_yuan"] > 0:
-                store["totalSalesAmount"] = d["deal_amount_yuan"]
-                store["sellOutReal"] = True
+            # 五件套录入金额为 USD；不得覆盖以人民币计价的销售主指标。
+            if 0 < d["deal_amount_yuan"] <= get_settings().max_reported_revenue_usd:
+                store["reportedSellOutUsd"] = d["deal_amount_yuan"]
             if d["total_visits"] > 0:
                 store["totalVisitGroups"] = d["total_visits"]
             if d["touch"] > 0:
@@ -465,10 +476,10 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
 # ---------------------------------------------------------------------------
 
 def _run_dealer_vps_query(run_date: str, *, start_date: str = "", end_date: str = "") -> dict:
-    """调用 vertu odoo data sandbox 拉海外经销商 Sell-out，带内存缓存。
+    """调用 vertu-cli 销售订单快捷命令，按客户聚合经销商数据并缓存。
     缓存 key = start_date:end_date，精确区间各自独立缓存。
     """
-    import shutil, sys as _sys
+    from app.vertu.sales import fetch_dealer_sales_orders_sync
 
     if not start_date:
         start_date = run_date[:8] + "01"
@@ -480,44 +491,7 @@ def _run_dealer_vps_query(run_date: str, *, start_date: str = "", end_date: str 
     if cached and time.time() - cached[0] < _VPS_TTL:
         return cached[1]
 
-    if not _DEALER_SCRIPT.is_file():
-        raise FileNotFoundError(f"查询脚本不存在: {_DEALER_SCRIPT}")
-
-    vertu_cmd = (
-        bridge.vertu_command() if hasattr(bridge, "vertu_command")
-        else shutil.which("vertu.cmd") or shutil.which("vertu") or "vertu"
-    )
-    use_shell = _sys.platform == "win32" and vertu_cmd.endswith(".cmd")
-
-    params_payload = {"run_date": end_date, "start_date": start_date, "end_date": end_date}
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json",
-                                     delete=False, encoding="utf-8") as pf:
-        json.dump(params_payload, pf)
-        params_path = pf.name
-
-    try:
-        completed = subprocess.run(
-            [vertu_cmd, "odoo", "data", "sandbox",
-             "--code-file", str(_DEALER_SCRIPT),
-             "--params-file", params_path],
-            capture_output=True, text=True, encoding="utf-8", timeout=30,
-            shell=use_shell,
-        )
-    finally:
-        Path(params_path).unlink(missing_ok=True)
-
-    raw = (completed.stdout or "").strip()
-    if not raw:
-        raise RuntimeError(f"vertu 无输出: {completed.stderr[:200]}")
-
-    outer = json.loads(raw)
-    result = (
-        outer.get("result", {}).get("execution", {}).get("result")
-        or outer.get("execution", {}).get("result")
-        or outer
-    )
-    if not isinstance(result, dict):
-        raise RuntimeError(f"意外的返回结构: {str(outer)[:200]}")
+    result = fetch_dealer_sales_orders_sync(start_date, end_date)
 
     _vps_cache[cache_key] = (time.time(), result)
     return result
@@ -531,7 +505,7 @@ async def vps_dealer_sales(
     start: str = Query(""),
     end:   str = Query(""),
 ):
-    """从 VPS odoo_sale 拉海外经销商真实 Sell-out。
+    """从 vertu-cli 拉取海外经销商订单汇总。
     优先使用 start/end 精确区间；否则按 month 推算月初到月末（或今日）。
     返回 {start_date, end_date, month, total, dealers:[{dealer_name, sell_out_yuan, qty}]}
     """
@@ -570,69 +544,28 @@ async def vps_dealer_sales(
             )
         return data
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"VPS 查询失败: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Vertu 查询失败: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
 # VPS 激活数据（累计，不依赖月份）
 # ---------------------------------------------------------------------------
 
-def _run_vps_no_params(script_path: Path) -> dict:
-    """运行无参数 VPS sandbox 脚本，带单点内存缓存（由调用方管理 TTL）。"""
-    import shutil, sys as _sys
-
-    vertu_cmd = (
-        bridge.vertu_command() if hasattr(bridge, "vertu_command")
-        else shutil.which("vertu.cmd") or shutil.which("vertu") or "vertu"
-    )
-    use_shell = _sys.platform == "win32" and vertu_cmd.endswith(".cmd")
-
-    completed = subprocess.run(
-        [vertu_cmd, "odoo", "data", "sandbox", "--code-file", str(script_path)],
-        capture_output=True, text=True, encoding="utf-8", timeout=60,
-        shell=use_shell,
-    )
-    raw = (completed.stdout or "").strip()
-    if not raw:
-        raise RuntimeError(f"vertu 无输出: {completed.stderr[:200]}")
-
-    outer = json.loads(raw)
-    result = (
-        outer.get("result", {}).get("execution", {}).get("result")
-        or outer.get("execution", {}).get("result")
-        or outer
-    )
-    if not isinstance(result, dict):
-        raise RuntimeError(f"意外返回结构: {str(outer)[:200]}")
-    return result
-
-
 @router.get("/api/vps/dealer-activation")
 async def vps_dealer_activation(
     user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
 ):
-    """从 VPS 拉取海外经销商累计激活数据（serial_mark）。
-    返回 {dealers:[{dealer_name, shipped_vsn, activated, not_activated}], total_overseas_stock}
-    """
-    global _vps_activation_cache
-
-    if _vps_activation_cache:
-        ts, data = _vps_activation_cache
-        if time.time() - ts < _VPS_ACTIVATION_TTL:
-            names = visible_dealer_names(user, session)
-            return _scope_activation_payload(data, names)
-
-    if not _ACTIVATION_SCRIPT.is_file():
-        raise HTTPException(status_code=500, detail="激活查询脚本不存在")
-
-    try:
-        data = _run_vps_no_params(_ACTIVATION_SCRIPT)
-        _vps_activation_cache = (time.time(), data)
-        names = visible_dealer_names(user, session)
-        return _scope_activation_payload(data, names)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"VPS 激活查询失败: {exc}") from exc
+    """vertu-cli 2.x 暂无激活数据快捷命令，返回明确的不可用状态而非 5xx。"""
+    del user, session
+    return {
+        "ok": False,
+        "available": False,
+        "detail": "vertu-cli 当前未提供激活数据快捷命令",
+        "dealers": [],
+        "products": [],
+        "total_overseas_stock": 0,
+    }
 
 
 def _scope_activation_payload(data: dict, names: list[str] | None) -> dict:

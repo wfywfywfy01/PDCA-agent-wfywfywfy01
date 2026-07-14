@@ -36,14 +36,11 @@
 
 职责：
 
-- 使用 vps-cli 从 VPS/Odoo 拉正式业绩数据。
-- 使用 skill：
-  - `odoo-data-query-assistant`
-  - `odoo-sandbox-script-guide`
+- 使用 `vertu-cli` 2.x 从 Vertu 业务快捷命令拉正式业绩数据。
 - 使用命令：
-  - `vertu odoo data sandbox`
-- 使用数据源：
-  - `sale_order_line_report`
+  - `vertu-cli sales +orders`
+  - `vertu-cli sales +headline-kpi`
+- 不再使用旧 `vps-cli` 或任意 Odoo sandbox。
 
 禁止：
 

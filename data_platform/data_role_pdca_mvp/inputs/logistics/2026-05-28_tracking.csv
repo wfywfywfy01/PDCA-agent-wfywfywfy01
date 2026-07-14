@@ -1,3 +1,0 @@
-tracking_number,carrier,customer,salesperson,ship_date,expected_status,current_status,note
-1Z0000000000000000,UPS,演示客户A,何海文,2026-05-26,in_transit,in transit,演示单号
-123456789012,FedEx,演示客户B,杨晶晶,2026-05-25,delivered,delivered,演示单号

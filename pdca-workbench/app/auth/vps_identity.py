@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""VPS / vertu odoo me / 反向代理 Header 身份解析与本地用户映射。"""
+"""Vertu / vertu-cli hr +me / 反向代理 Header 身份解析与本地用户映射。"""
 from __future__ import annotations
 
+import json
 import os
 import secrets
+import subprocess
 import time
 from typing import Any
 
@@ -12,7 +14,8 @@ from sqlmodel import Session, select
 
 from app.auth.models import User
 from app.auth.security import hash_password
-from app.legacy import bridge
+from app.config import get_settings
+from app.vertu.client import resolve_vertu_command
 
 _VPS_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None, "key": ""}
 _CACHE_SECONDS = 30
@@ -20,7 +23,7 @@ _CACHE_SECONDS = 30
 
 def fetch_vps_me_payload() -> dict | None:
     """
-    读取 vertu `odoo me` 当前登录用户（服务端会话）。
+    读取 `vertu-cli hr +me` 当前登录用户（服务端会话或 App Key）。
 
     注意：多用户共享同一 PDCA 进程时，此身份为服务器 vertu 登录态，
     生产多用户应优先使用反向代理注入的 Header（见 identity_from_headers）。
@@ -32,14 +35,24 @@ def fetch_vps_me_payload() -> dict | None:
     if cached and now - float(_VPS_CACHE.get("ts") or 0) < _CACHE_SECONDS:
         return cached
     try:
-        result = bridge.wb().fetch_vps_identity()
-        if result.get("ok") and result.get("user"):
+        completed = subprocess.run(
+            [resolve_vertu_command(), "hr", "+me"],
+            cwd=str(get_settings().repo_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            check=False,
+        )
+        result = json.loads(completed.stdout.strip()) if completed.returncode == 0 else None
+        if isinstance(result, dict) and result.get("user_id"):
             _VPS_CACHE["ts"] = now
-            _VPS_CACHE["payload"] = result["user"]
-            _VPS_CACHE["key"] = "vertu-me"
-            return result["user"]
+            _VPS_CACHE["payload"] = result
+            _VPS_CACHE["key"] = "vertu-cli-hr-me"
+            return result
     except Exception as exc:
-        logger.warning("VPS odoo me 失败: {}", exc)
+        logger.warning("vertu-cli hr +me 失败: {}", exc)
     return None
 
 
@@ -194,5 +207,5 @@ def vps_profile(vps: dict) -> dict:
         "job_title": job,
         "vps_user_id": vps.get("user_id") or vps.get("id"),
         "login": vps.get("login"),
-        "source": vps.get("_source") or "vertu-me",
+        "source": vps.get("_source") or "vertu-cli-hr-me",
     }

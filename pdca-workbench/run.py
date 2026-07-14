@@ -16,6 +16,7 @@ def main() -> None:
         workers=1,
         reload=False,
         log_level=settings.log_level.lower(),
+        server_header=False,
     )
 
 

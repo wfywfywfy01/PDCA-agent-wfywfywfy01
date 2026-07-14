@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-工作台数据解析：VPS(vertu CLI) > Excel 固化 JSON > mock。
+工作台数据解析：vertu-cli > Excel 固化 JSON。
 
 供 pdca_workbench /api/walkin 与 sync_workbench_data 使用。
 """
@@ -91,6 +91,11 @@ def vps_performance_wan(date_text: str) -> tuple[float | None, str]:
     teams = result.get("team_summary") or []
     total = sum(float(t.get("performance") or 0) for t in teams)
     if total <= 0:
+        total = sum(
+            float(item.get("performance") or 0)
+            for item in result.get("customer_summary") or []
+        )
+    if total <= 0:
         return None, label
     return round(total / 10000, 2), label
 
@@ -136,11 +141,37 @@ def format_source_detail(sources: list[str], month: str, date_text: str, vps_fil
         parts.append("Excel 固化（越南门店数据 + Data collecet(5)）")
     if "walkin_json" in sources:
         parts.append(f"客流包 walkin-{month}.json")
-    if "mock" in sources:
-        parts.append("部分指标 mock")
     if not parts:
-        parts.append("演示 mock")
-    return "数据优先级：vertu CLI → Excel 参考 JSON → mock · " + " · ".join(parts) + f" · 检查日 {date_text}"
+        parts.append("暂无可用业务数据")
+    return "数据来源：vertu-cli → Excel 参考 JSON → 门店实报 · " + " · ".join(parts) + f" · 检查日 {date_text}"
+
+
+def _strip_simulated_walkin_metrics(bundle: dict) -> None:
+    """生产默认移除构建脚本随机生成的客流、销售和导购指标。"""
+    if os.environ.get("PDCA_INCLUDE_DEMO_DATA", "0") == "1":
+        return
+    stripped = 0
+    for store in bundle.get("stores") or []:
+        if store.get("dataSource") != "dealer_distribution":
+            continue
+        stripped += 1
+        store.update(
+            {
+                "totalVisitGroups": 0,
+                "avgAddRate": 0,
+                "totalSalesAmount": 0,
+                "anomalies": [],
+                "avgTouchRate": 0,
+                "avgUseRate": 0,
+            }
+        )
+    # build_walkin_bundle.py 中的 staff 全部由随机数生成，生产环境不展示。
+    if bundle.get("staff"):
+        bundle["staff"] = []
+    if stripped:
+        meta = bundle.setdefault("meta", {})
+        meta["simulatedMetricsRemoved"] = True
+        meta["simulatedStoreCount"] = stripped
 
 
 def build_walkin_api_payload(month: str, date_text: str) -> dict:
@@ -160,10 +191,11 @@ def build_walkin_api_payload(month: str, date_text: str) -> dict:
         sources.insert(0, "vps")
 
     if bundle:
+        _strip_simulated_walkin_metrics(bundle)
         if "walkin_json" not in sources:
             sources.append("walkin_json")
     else:
-        sources.append("mock")
+        sources.append("unavailable")
         bundle = {
             "meta": {"month": month, "periodLabel": month, "storeCount": 0},
             "stores": [],
@@ -172,7 +204,7 @@ def build_walkin_api_payload(month: str, date_text: str) -> dict:
 
     meta = bundle.setdefault("meta", {})
     meta["dataSources"] = sources
-    meta["dataSourcePriority"] = ["vps", "excel_vietnam_store", "excel_data_collect", "walkin_json", "mock"]
+    meta["dataSourcePriority"] = ["vps", "excel_vietnam_store", "excel_data_collect", "walkin_json"]
     meta["dataSourceDetail"] = format_source_detail(sources, month, date_text, vps_file)
     if vps_wan is not None:
         meta["vpsMonthPerformanceWan"] = vps_wan
@@ -320,18 +352,6 @@ def load_vietnam_channel_leads(month: str) -> dict | None:
     return None
 
 
-def _mock_channel_leads(sal_wan: float, seed: str) -> tuple[int, int, int]:
-    """渠道线索条数：VPS 无渠道明细时用销售额稳定派生（演示）。"""
-    sal_wan = max(0.0, float(sal_wan or 0))
-    if sal_wan <= 0:
-        return 0, 0, 0
-    h = abs(hash(seed)) % 10000
-    ls = max(0, int(sal_wan * (6 + h % 5)))
-    ll = max(0, int(sal_wan * (2 + (h >> 3) % 4)))
-    lo = max(0, int(sal_wan * (1 + (h >> 5) % 3)))
-    return ls, ll, lo
-
-
 def build_online_channel_payload(date_text: str) -> dict:
     """
     全量门店来自 config/dealers.json；真实销售/件数来自 vertu 经销商业绩 customer_summary。
@@ -350,16 +370,15 @@ def build_online_channel_payload(date_text: str) -> dict:
         qty = int(float(row.get("quantity") or 0))
         nm = dealer_display_label(dealer)
         rg = dealer.get("region") or "其他"
-        ls, ll, lo = _mock_channel_leads(sal_wan, f"{dealer.get('name')}|{month}")
         stores.append(
             {
                 "rg": rg,
                 "nm": nm,
                 "mgr": dealer.get("salesperson") or "",
                 "hk": 0,
-                "Ls": ls,
-                "Ll": ll,
-                "Lo": lo,
+                "Ls": 0,
+                "Ll": 0,
+                "Lo": 0,
                 "sal": sal_wan,
                 "qty": qty,
                 "partner": dealer.get("name") or "",
@@ -382,12 +401,11 @@ def build_online_channel_payload(date_text: str) -> dict:
     channel_leads = load_vietnam_channel_leads(month)
 
     return {
-        "note": "门店清单=config/dealers.json；真实销售/提货件数=vertu odoo data sandbox customer_summary。",
-        "source": "vps",
+        "note": "门店清单=config/dealers.json；真实销售/提货件数=vertu-cli sales。",
+        "source": "vertu-cli",
         "vpsFile": vps_file,
         "checkDate": date_text,
         "storeCount": len(stores),
-        "estRatio": 4,
         "channelLabels": (channel_leads or {}).get("labels") or ["短视频", "直播", "其他"],
         "channelLeads": channel_leads,
         "regionOrder": region_order,

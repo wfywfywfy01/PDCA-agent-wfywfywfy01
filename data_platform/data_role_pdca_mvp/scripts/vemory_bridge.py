@@ -266,41 +266,33 @@ def todo_assignments(meeting: dict) -> list[dict]:
     return rows
 
 
-def call_vemory_cli(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu", end_date: str = "", timeout: int = 45) -> dict:
+def call_vemory_cli(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu-cli", end_date: str = "", timeout: int = 45) -> dict:
     end = end_date or meeting_date
     vertu = shutil.which(vertu_cmd) or vertu_cmd
     if not shutil.which(vertu_cmd) and not Path(vertu_cmd).exists():
         cached = load_cache(meeting_date, person_phone, end)
         if cached:
-            cached["warning"] = "vps-cli 未安装，当前展示缓存。"
+            cached["warning"] = "vertu-cli 未安装，当前展示缓存。"
             return cached
         return {
             "ok": False,
-            "error": "vps-cli 未安装，未找到 vertu 命令。",
+            "error": "vertu-cli 未安装，未找到命令。",
             "date": meeting_date,
             "summary": {"total": 0, "internal": 0, "external": 0, "duration_minutes": 0, "todo_count": 0},
             "meetings": [],
         }
 
-    user_args = []
-    if person_phone:
-        resolved_user_id, resolve_error = resolve_vemory_user_id(vertu, person_phone, person_name, timeout)
-        if resolved_user_id:
-            user_args = ["--user-id", str(resolved_user_id)]
-        else:
-            return {
-                "ok": False,
-                "error": resolve_error or "未解析到 Vemory user_id。",
-                "date": meeting_date,
-                "person": {"name": person_name, "phone": person_phone},
-                "summary": {"total": 0, "internal": 0, "external": 0, "duration_minutes": 0, "todo_count": 0},
-                "meetings": [],
-            }
-
-    candidates = [
-        [vertu, "odoo", "vemory", "meetings", "--start-date", meeting_date, "--end-date", end, "--max-meetings", "200", *user_args],
-        [vertu, "odoo", "vemory", "meetings", meeting_date, "--end-date", end, "--max-meetings", "200", *user_args],
-    ]
+    candidates = [[
+        vertu,
+        "vemory",
+        "+meetings",
+        "--scope",
+        "team",
+        "--start-date",
+        meeting_date,
+        "--end-date",
+        end,
+    ]]
     errors = []
     for cmd in candidates:
         proc = subprocess.run(cmd, cwd=str(WORKSPACE), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
@@ -312,6 +304,13 @@ def call_vemory_cli(meeting_date: str, person_phone: str = "", person_name: str 
         except ValueError:
             errors.append("Vemory 返回不是 JSON。")
             continue
+        if person_name and isinstance(raw, dict):
+            requested = person_name.casefold()
+            raw = dict(raw)
+            raw["meetings"] = [
+                item for item in raw.get("meetings") or []
+                if requested in str(item.get("owner_name") or "").casefold()
+            ]
         normalized = normalize_vemory_payload(raw, meeting_date)
         normalized["date_end"] = end
         normalized["person"] = {"name": person_name, "phone": person_phone}
@@ -379,7 +378,7 @@ def resolve_vemory_user_id(vertu: str, phone: str, person_name: str = "", timeou
     return None, "未能通过手机号解析 Vemory user_id；" + "；".join(errors[-2:])
 
 
-def fetch_vemory_meetings(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu", end_date: str = "") -> dict:
+def fetch_vemory_meetings(meeting_date: str, person_phone: str = "", person_name: str = "", vertu_cmd: str = "vertu-cli", end_date: str = "") -> dict:
     proxied = proxy_customer_vemory(meeting_date, person_phone, person_name, end_date)
     if proxied:
         return proxied

@@ -187,8 +187,8 @@ async def create_user(
 
     if body.role not in ROLE_LEVELS:
         raise HTTPException(status_code=400, detail=f"无效角色，可选：{list(ROLE_LEVELS)}")
-    if len(body.password) < 8:
-        raise HTTPException(status_code=400, detail="密码至少 8 位")
+    if len(body.password) < 12:
+        raise HTTPException(status_code=400, detail="密码至少 12 位")
     if session.exec(select(User).where(User.username == body.username)).first():
         raise HTTPException(status_code=409, detail="用户名已存在")
     new_user = User(
@@ -245,8 +245,8 @@ async def reset_password(
 ):
     from app.auth.security import hash_password as hp
 
-    if len(body.new_password) < 8:
-        raise HTTPException(status_code=400, detail="密码至少 8 位")
+    if len(body.new_password) < 12:
+        raise HTTPException(status_code=400, detail="密码至少 12 位")
     target = session.exec(select(User).where(User.username == username)).first()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -257,6 +257,24 @@ async def reset_password(
     session.commit()
     log_action(current_user.username, "reset_password", resource=username)
     return {"ok": True, "message": f"用户 {username} 密码已重置，下次登录须改密"}
+
+
+@router.post("/users/{username}/require-password-change")
+async def require_password_change(
+    username: str,
+    current_user: Annotated[User, Depends(require_role("admin"))],
+    session: Annotated[Session, Depends(get_session)],
+):
+    """将已知或疑似泄露的账号标记为下次登录强制改密。"""
+    target = session.exec(select(User).where(User.username == username)).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    target.must_change_password = True
+    target.pwd_version = (getattr(target, "pwd_version", 0) or 0) + 1
+    session.add(target)
+    session.commit()
+    log_action(current_user.username, "require_password_change", resource=username)
+    return {"ok": True, "message": f"用户 {username} 下次登录必须修改密码"}
 
 
 @router.delete("/users/{username}")

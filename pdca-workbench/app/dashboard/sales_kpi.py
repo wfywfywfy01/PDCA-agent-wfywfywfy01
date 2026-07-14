@@ -6,13 +6,12 @@ Between refreshes, cached data is served. force=True bypasses cache.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, time
 from typing import Any
 
 from loguru import logger
 
-from app.vertu.client import run_vertu
+from app.vertu.client import run_vertu_json
 
 _REFRESH_TIMES = [time(9, 0), time(12, 0), time(21, 0)]
 
@@ -58,20 +57,15 @@ async def get_sales_kpi(period: str = "day", force: bool = False) -> dict:
 
 async def _fetch(period: str) -> dict:
     vertu_period = PERIOD_TO_VERTU.get(period, "today")
-    params_json = json.dumps({"period": vertu_period})
-    code, stdout, stderr = await run_vertu(
-        ["skill", "run", "odoo-daily-sales-report",
-         "--script-key", "headline_kpi",
-         "--params", params_json],
+    raw = await run_vertu_json(
+        ["sales", "+headline-kpi", "--period", vertu_period],
         timeout=60.0,
     )
-    if code != 0:
-        logger.warning("sales_kpi vertu failed code={} period={} err={}", code, period, stderr[:200])
+    if not isinstance(raw, dict):
+        logger.warning("sales_kpi vertu-cli returned no JSON period={}", period)
         return _empty(period)
     try:
-        raw = json.loads(stdout.strip())
-        result = (raw.get("execution") or {}).get("result") or {}
-        return _parse(result, period)
+        return _parse(raw, period)
     except Exception as exc:
         logger.warning("sales_kpi parse error period={}: {}", period, exc)
         return _empty(period)

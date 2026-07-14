@@ -43,6 +43,14 @@ class Settings:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.database_url = self._resolve_database_url()
         self.vertu_command = self._resolve_vertu_command()
+        self.require_vertu = os.environ.get(
+            "PDCA_REQUIRE_VERTU",
+            "1" if os.environ.get("PDCA_ENV", "development").strip().lower() == "production" else "0",
+        ) == "1"
+        self.include_demo_data = os.environ.get("PDCA_INCLUDE_DEMO_DATA", "0") == "1"
+        self.max_reported_revenue_usd = float(
+            os.environ.get("PDCA_MAX_REPORTED_REVENUE_USD", "5000000")
+        )
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
@@ -78,15 +86,17 @@ class Settings:
         ).strip()
 
     def _resolve_vertu_command(self) -> str:
-        """解析 vertu 可执行文件完整路径（Windows 需 .cmd 绝对路径）。"""
-        configured = os.environ.get("VERTU_COMMAND", "vertu").strip()
+        """解析 vertu-cli 可执行文件完整路径（Windows 需 .cmd 绝对路径）。"""
+        configured = os.environ.get("VERTU_COMMAND", "vertu-cli").strip()
+        if Path(configured).name.lower() in {"vertu", "vertu.cmd", "vertu.ps1"}:
+            configured = "vertu-cli"
         configured_path = Path(configured)
         if configured_path.exists():
             return str(configured_path.resolve())
         discovered = shutil.which(configured)
         if discovered:
             return discovered
-        npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu.cmd"
+        npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
         if npm_cmd.exists():
             return str(npm_cmd)
         return configured

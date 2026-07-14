@@ -67,7 +67,7 @@
     <div class="mc-toolbar">
       <div>
         <h1>会议中心</h1>
-        <p>Vemory 会议记录分析 · 待办提取 · 任务分配（VPS 待办）</p>
+        <p>Vemory 会议记录分析 · 待办提取 · 通过 vertu-cli 分配任务</p>
       </div>
       <div class="mc-controls">
         <input type="date" id="mcDate" />
@@ -105,7 +105,7 @@
         <div class="mc-section" id="modalTodosWrap" style="display:none;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <h4 style="margin:0;">会议 Todo · 任务分配</h4>
-            <button type="button" class="mc-btn cyan" id="mcDispatch">写入 VPS 待办</button>
+            <button type="button" class="mc-btn cyan" id="mcDispatch">写入 Vertu 待办</button>
           </div>
           <div id="modalTodos"></div>
         </div>
@@ -177,7 +177,7 @@
       const res = await fetch('/api/meeting-center/people');
       const data = await res.json();
       const sel = document.getElementById('mcPerson');
-      sel.innerHTML = '<option value="">本人（当前 VPS 账号）</option>';
+      sel.innerHTML = '<option value="">本人（当前 vertu-cli 身份）</option>';
       (data.people || []).forEach(function (p) {
         const opt = document.createElement('option');
         opt.value = p.phone_key || '';
@@ -247,7 +247,7 @@
       const list = document.getElementById('mcList');
       const rows = filteredMeetings();
       if (!rows.length) {
-        list.innerHTML = '<div class="mc-empty">暂无会议。请确认 vertu 已登录，或稍后重试；也可启动客户管理 8787 服务复用其 Vemory 缓存。</div>';
+        list.innerHTML = '<div class="mc-empty">暂无可见会议，请稍后重试或联系管理员检查会议数据同步。</div>';
         return;
       }
       list.innerHTML = rows.map(function (m) {
@@ -336,7 +336,7 @@
           })
         });
         const payload = await res.json();
-        alert(payload.message || (payload.ok ? '已写入 VPS 待办' : (payload.error || '写入失败')));
+        alert(payload.message || (payload.ok ? '已写入 Vertu 待办' : (payload.error || '写入失败')));
       } finally {
         btn.disabled = false;
         btn.textContent = originalText;

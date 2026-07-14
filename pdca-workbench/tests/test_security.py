@@ -5,19 +5,25 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.auth.models import User
 from app.auth.scope import visible_dealer_names, visible_store_ids
 from app.config import Settings
-from app.main import app
+from app.main import app, health
 from app.models.dealer_store import DealerStore
+from app.models.walkin_daily_report import WalkinDailyReport
+from app.logistics.service import _is_delivered, _is_demo_record, _judge_status
+from app.vertu.sales import fetch_dealer_sales_orders_sync
 from app.pages.router import _serve_module, view_path, walkin_assets
 from app.pdca.post_router import post_questionnaire
 from app.validation import require_iso_date, resolve_file_under
+from app.walkin.router import walkin_metrics_summary
 
 
 class InputValidationTests(unittest.TestCase):
@@ -145,6 +151,161 @@ class RouteRegistrationTests(unittest.TestCase):
             "/api/signalseller/customers",
         }
         self.assertFalse(expected - paths)
+
+
+class ProductionHardeningTests(unittest.TestCase):
+    def test_degraded_health_returns_service_unavailable(self):
+        settings = SimpleNamespace(environment="production", require_vertu=True)
+        with (
+            patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.backup_status", return_value={"ok": False}),
+            patch("app.main.get_settings", return_value=settings),
+            patch("app.main.vertu_health", new=AsyncMock(return_value={"ok": True})),
+        ):
+            response = asyncio.run(health())
+        self.assertEqual(response.status_code, 503)
+        self.assertIn(b'"status":"degraded"', response.body)
+
+    def test_security_headers_cover_pages_redirects_and_auth_api(self):
+        client = TestClient(app)
+        for path in ("/login", "/admin-panel"):
+            with self.subTest(path=path):
+                response = client.get(path, follow_redirects=False)
+                self.assertEqual(response.headers["x-content-type-options"], "nosniff")
+                self.assertEqual(response.headers["x-frame-options"], "SAMEORIGIN")
+                self.assertIn("frame-ancestors 'self'", response.headers["content-security-policy"])
+        auth_response = client.get("/api/auth/config")
+        self.assertEqual(auth_response.headers["cache-control"], "no-store, max-age=0")
+        self.assertEqual(auth_response.headers["pragma"], "no-cache")
+
+    def test_demo_logistics_records_are_detected(self):
+        self.assertTrue(
+            _is_demo_record(
+                {
+                    "tracking_number": "1Z0000000000000000",
+                    "customer": "演示客户A",
+                    "note": "演示单号",
+                }
+            )
+        )
+        self.assertFalse(
+            _is_demo_record(
+                {
+                    "tracking_number": "1Z999AA10123456784",
+                    "customer": "真实客户",
+                    "note": "等待清关",
+                }
+            )
+        )
+
+    def test_stale_in_transit_shipment_requires_attention(self):
+        row = {
+            "ship_date": "2026-06-16",
+            "current_status": "In Transit - On the Way",
+            "expected_status": "in_transit",
+        }
+        settings = {
+            "logistics": {
+                "abnormal_keywords": ["exception", "delay"],
+                "normal_keywords": ["in transit", "delivered"],
+            }
+        }
+        judgement, reason, _ = _judge_status(row, settings, "2026-07-14")
+        self.assertEqual(judgement, "待关注")
+        self.assertIn("超过 7 天", reason)
+        self.assertFalse(_is_delivered({"status": "Out For Delivery"}))
+        self.assertTrue(_is_delivered({"status": "Delivered"}))
+
+    def test_walkin_page_uses_dynamic_month_and_no_visible_mock_metrics(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "data_platform"
+            / "data_role_pdca_mvp"
+            / "modules"
+            / "walkin_cockpit"
+            / "index.html"
+        )
+        source = path.read_text(encoding="utf-8")
+        self.assertIn("var INITIAL_MONTH = initialMonthKey();", source)
+        self.assertNotIn("selectedMonth: '2026-06'", source)
+        self.assertNotIn("2.4 天（mock）", source)
+        self.assertNotIn("92%（mock）", source)
+        self.assertNotIn("客户管理 8787", source)
+
+        merged_source = (path.parent / "online-merged-insights.js").read_text(encoding="utf-8")
+        self.assertNotIn("mockVertuSales", merged_source)
+        self.assertNotIn("mockRegionMetrics", merged_source)
+        self.assertNotIn("预估占比", merged_source)
+        self.assertNotIn("VERTU 推送", merged_source)
+
+    def test_walkin_revenue_is_labeled_usd(self):
+        root = Path(__file__).resolve().parents[1]
+        form = (root / "frontend" / "walkin_submit.html").read_text(encoding="utf-8")
+        self.assertIn("Revenue (USD $)", form)
+        self.assertIn("Do not enter VND", form)
+
+    def test_walkin_summary_excludes_currency_outlier(self):
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+        SQLModel.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    WalkinDailyReport(
+                        report_date="2026-07-05",
+                        dealer_id="store-a",
+                        dealer_name="Dealer A",
+                        deal_count=1,
+                        deal_amount_yuan=5618,
+                    ),
+                    WalkinDailyReport(
+                        report_date="2026-07-09",
+                        dealer_id="store-b",
+                        dealer_name="Dealer B",
+                        deal_count=1,
+                        deal_amount_yuan=215_900_000,
+                    ),
+                ]
+            )
+            session.commit()
+            with patch(
+                "app.walkin.router.get_settings",
+                return_value=SimpleNamespace(max_reported_revenue_usd=5_000_000),
+            ):
+                result = asyncio.run(
+                    walkin_metrics_summary(
+                        user=User(role="manager"),
+                        session=session,
+                        month="2026-07",
+                        start="",
+                        end="",
+                    )
+                )
+            self.assertEqual(result["funnel"]["deal_amount_usd"], 5618)
+            self.assertEqual(result["data_quality"]["excluded_record_count"], 1)
+        engine.dispose()
+
+    def test_vertu_cli_order_rows_are_aggregated_by_customer(self):
+        payload = {
+            "columns": ["客户名称", "金额", "数量"],
+            "rows": [
+                ["Dealer A", 12000, 2],
+                ["Dealer A", 3000, 1],
+                ["Dealer B", 8000, 1],
+            ],
+        }
+        with patch("app.vertu.sales.run_vertu_sync_json", return_value=payload):
+            result = fetch_dealer_sales_orders_sync("2026-07-01", "2026-07-14")
+        self.assertEqual(result["total"], 23000)
+        self.assertEqual(result["dealers"][0]["dealer_name"], "Dealer A")
+        self.assertEqual(result["dealers"][0]["qty"], 3)
+
+    def test_dependency_lock_and_dockerignore_exist(self):
+        root = Path(__file__).resolve().parents[1]
+        lock = (root / "requirements.lock").read_text(encoding="utf-8")
+        dockerignore = (root / ".dockerignore").read_text(encoding="utf-8")
+        self.assertIn("fastapi==", lock)
+        self.assertIn("uvicorn==", lock)
+        self.assertIn(".env", dockerignore.splitlines())
 
 
 if __name__ == "__main__":

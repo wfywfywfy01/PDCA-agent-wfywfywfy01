@@ -13,7 +13,8 @@ services:
     build: .
     container_name: pdca-workbench
     ports:
-      - "8767:8767"
+      # 公网由宿主机 Caddy/Nginx 反代；不把 Uvicorn 直接暴露到外网。
+      - "127.0.0.1:8767:8767"
     env_file:
       - path: env.docker
         required: true
@@ -30,12 +31,17 @@ services:
       PDCA_REPO_ROOT: /repo
       PDCA_AUTH_MODE: ${PDCA_AUTH_MODE:-hybrid}
       PDCA_SECURE_COOKIES: ${PDCA_SECURE_COOKIES:-1}
+      PDCA_REQUIRE_VERTU: "1"
+      VERTU_COMMAND: vertu-cli
+      VERTU_VPS_SERVICE_URL: ${VERTU_VPS_SERVICE_URL:-https://vps-service.vertu.cn}
+      VERTU_APP_ID: ${VERTU_APP_ID:-pdca-workbench}
+      VERTU_APP_KEY: ${VERTU_APP_KEY:?请在未跟踪的 .env 中设置 VERTU_APP_KEY}
     volumes:
       - ./data:/app/data
       - ../data_platform/data_role_pdca_mvp:/mvp
       - ../:/repo:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8767/health"]
+      test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8767/health'))['status'] == 'ok'"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -47,6 +53,8 @@ services:
   nginx:
     image: nginx:alpine
     container_name: pdca-nginx
+    # 线上已有 Caddy 时不启动；仅无宿主机反代时显式加 --profile bundled-proxy。
+    profiles: ["bundled-proxy"]
     ports:
       - "80:80"
       - "443:443"

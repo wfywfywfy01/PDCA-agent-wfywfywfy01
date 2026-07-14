@@ -233,9 +233,9 @@
 
       <!-- Sell-out -->
       <div class="sellout-box">
-        <label>Revenue （$）</label>
-        <input type="number" id="deal_amount_yuan" min="0" value="" placeholder="0" step="100" />
-        <div class="sellout-note">Actual sell-out amount; replaces system estimate after submission</div>
+        <label>Revenue (USD $)</label>
+        <input type="number" id="deal_amount_yuan" min="0" max="5000000" value="" placeholder="0" step="100" />
+        <div class="sellout-note">Enter USD only. Do not enter VND, THB, CNY or another local currency.</div>
       </div>
     </div>
 
@@ -477,8 +477,10 @@ function loadHistory(){
     rows.forEach(function(r){
       var fk = r.five_kit||{}; var fn = r.funnel||{};
       var tv  = fk.total||0;
-      var amt = fn.deal_amount_yuan||0;
-      totVisit+=tv; totShown+=fn.touch_count||0; totSold+=fn.deal_count||0; totAmt+=amt;
+      var amt = fn.deal_amount_usd != null ? fn.deal_amount_usd : (fn.deal_amount_yuan||0);
+      var amountNeedsReview = !!fn.amount_requires_review;
+      totVisit+=tv; totShown+=fn.touch_count||0; totSold+=fn.deal_count||0;
+      if (!amountNeedsReview) totAmt+=amt;
       function n(v){ return (v||0)===0 ? '<span class="num-zero">0</span>' : v; }
       html+='<tr>'
         +'<td class="left">'+r.report_date+'</td>'
@@ -492,7 +494,9 @@ function loadHistory(){
         +'<td><strong>'+tv+'</strong></td>'
         +'<td>'+n(fn.touch_count)+'</td>'
         +'<td>'+n(fn.deal_count)+'</td>'
-        +'<td>'+(fmtAmt(amt)
+        +'<td>'+(amountNeedsReview
+          ? '<span style="color:#b45309;font-weight:700">Check currency</span>'
+          : fmtAmt(amt)
           ? '<span class="tag-green">'+fmtAmt(amt)+'</span>'
           : '<span class="num-zero">—</span>')+'</td>'
         +'<td style="color:var(--s400);font-size:.72rem">'+(r.submitted_by||'—')+'</td>'

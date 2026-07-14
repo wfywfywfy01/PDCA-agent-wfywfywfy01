@@ -730,19 +730,21 @@ AGENT_CORE_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "MEMORY.md", "USER.md
 def vertu_command():
     configured = os.environ.get("VERTU_COMMAND")
     if configured:
+        if Path(configured).name.lower() in {"vertu", "vertu.cmd", "vertu.ps1"}:
+            configured = "vertu-cli"
         configured_path = Path(configured)
         if configured_path.exists():
             return str(configured_path)
         discovered = shutil.which(configured)
         if discovered:
             return discovered
-    discovered = shutil.which("vertu")
+    discovered = shutil.which("vertu-cli")
     if discovered:
         return discovered
-    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu.cmd"
+    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
     if npm_cmd.exists():
         return str(npm_cmd)
-    return "vertu"
+    return "vertu-cli"
 
 QUESTION_TITLES = [
     "1. 今天完成了什么？",
@@ -1613,12 +1615,90 @@ def extract_json_payload(text):
     raise ValueError("VPS 返回内容不是 JSON")
 
 
+def _flag_value(args, flag, default=""):
+    try:
+        return args[args.index(flag) + 1]
+    except (ValueError, IndexError):
+        return default
+
+
+def translate_vertu_cli_args(args):
+    """把工作台仍在使用的旧 Odoo 参数映射为 vertu-cli 2.x 快捷命令。"""
+    if args[:2] == ["odoo", "me"]:
+        return ["hr", "+me"]
+    if args[:3] == ["odoo", "daily-report", "user-summary"]:
+        mapped = ["report", "+user-summary"]
+        for flag in ("--user-id", "--start-time", "--end-time"):
+            value = _flag_value(args, flag)
+            if value:
+                mapped.extend([flag, value])
+        return mapped
+    if args[:4] == ["odoo", "project", "todo", "list"]:
+        return ["task", "+tc-todos", "--limit", _flag_value(args, "--limit", "100")]
+    if args[:4] == ["odoo", "project", "todo", "create"]:
+        mapped = ["task", "+tc-todo-create"]
+        for flag in ("--title", "--remark", "--deadline"):
+            value = _flag_value(args, flag)
+            if value:
+                mapped.extend([flag, value])
+        return mapped
+    if args[:4] == ["odoo", "project", "todo", "update"]:
+        mapped = ["task", "+tc-todo-update"]
+        for flag in ("--todo-id", "--remark", "--deadline"):
+            value = _flag_value(args, flag)
+            if value:
+                mapped.extend([flag, value])
+        status = _flag_value(args, "--status")
+        if status:
+            mapped.extend(["--status", "done" if status in ("已完成", "completed") else status])
+        return mapped
+    if args[:4] == ["odoo", "project", "todo", "complete"]:
+        return ["task", "+tc-todo-update", "--todo-id", _flag_value(args, "--todo-id"), "--status", "done"]
+    if args[:3] == ["odoo", "im", "channels"]:
+        return ["im", "+channels", "--limit", _flag_value(args, "--limit", "20")]
+    if args[:3] == ["odoo", "im", "search"]:
+        return [
+            "im",
+            "+history",
+            "--channel-id",
+            _flag_value(args, "--channel-id"),
+            "--limit",
+            _flag_value(args, "--limit", "20"),
+        ]
+    return args
+
+
+def normalize_vertu_cli_payload(cache_key, payload):
+    """为旧页面保留 items/results 等字段，底层数据来自 vertu-cli 2.x。"""
+    if not isinstance(payload, dict):
+        return payload
+    result = dict(payload)
+    if cache_key.startswith("im_") and "channels" in result:
+        result.setdefault("items", result.get("channels") or [])
+        result.setdefault("total", result.get("count") or len(result["items"]))
+    if cache_key.startswith("im_latest_") and "messages" in result:
+        result.setdefault("items", result.get("messages") or [])
+    if "todos" in result:
+        result.setdefault("items", result.get("todos") or [])
+        result.setdefault("results", result.get("todos") or [])
+    return result
+
+
+def vertu_process_command(args):
+    """构造可跨平台执行的 vertu-cli 命令；Windows 的 .cmd 需经 cmd /c。"""
+    executable = vertu_command()
+    command = [executable, *translate_vertu_cli_args(args)]
+    if os.name == "nt" and executable.lower().endswith((".cmd", ".bat")):
+        return ["cmd", "/c", *command]
+    return command
+
+
 def run_vertu_json(cache_key, args, timeout=8):
     now = datetime.now().timestamp()
     cached = _VPS_CACHE.get(cache_key)
     if cached and now - cached["time"] < VPS_CACHE_SECONDS:
         return cached["payload"], ""
-    command = [vertu_command(), *args]
+    command = vertu_process_command(args)
     try:
         completed = subprocess.run(
             command,
@@ -1637,9 +1717,9 @@ def run_vertu_json(cache_key, args, timeout=8):
     if completed.returncode != 0:
         if cached:
             return cached["payload"], output
-        raise RuntimeError(output.strip() or f"vertu 命令失败：{completed.returncode}")
+        raise RuntimeError(output.strip() or f"vertu-cli 命令失败：{completed.returncode}")
     try:
-        payload = extract_json_payload(output)
+        payload = normalize_vertu_cli_payload(cache_key, extract_json_payload(output))
     except ValueError:
         if cached:
             return cached["payload"], output
@@ -1649,7 +1729,7 @@ def run_vertu_json(cache_key, args, timeout=8):
 
 
 def run_vertu_write_json(args, timeout=60):
-    command = [vertu_command(), *args]
+    command = vertu_process_command(args)
     completed = subprocess.run(
         command,
         cwd=str(WORKSPACE),
@@ -1661,7 +1741,7 @@ def run_vertu_write_json(args, timeout=60):
     )
     output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
     if completed.returncode != 0:
-        raise RuntimeError(output.strip() or f"vertu 写入失败：{completed.returncode}")
+        raise RuntimeError(output.strip() or f"vertu-cli 写入失败：{completed.returncode}")
     _VPS_CACHE.clear()
     return extract_json_payload(output), output
 

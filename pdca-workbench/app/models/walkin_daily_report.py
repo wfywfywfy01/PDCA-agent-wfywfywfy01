@@ -38,7 +38,8 @@ class WalkinDailyReport(SQLModel, table=True):
     use_count: int = Field(default=0)              # 试用体验（人次）
     wechat_add_count: int = Field(default=0)      # 微信添加数
     deal_count: int = Field(default=0)            # 成交组数
-    deal_amount_yuan: float = Field(default=0.0)  # 成交金额（元，即 sell-out）
+    # 历史字段名保留兼容；前端一直按 $ 录入，实际口径为 USD。
+    deal_amount_yuan: float = Field(default=0.0)  # Revenue (USD)
 
     notes: str = Field(default="", max_length=1024)
     submitted_by: str = Field(default="", max_length=64)

@@ -1,4 +1,4 @@
-# 注册每日 06:30 自动同步任务（vertu CLI → 云端 PostgreSQL）
+# 注册每日 06:30 自动同步任务（vertu-cli → 云端 PostgreSQL）
 # 以管理员权限运行：
 #   powershell -ExecutionPolicy Bypass -File setup_daily_sync_task.ps1
 

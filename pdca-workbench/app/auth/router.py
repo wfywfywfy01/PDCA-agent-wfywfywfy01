@@ -118,10 +118,10 @@ async def vps_check(request: Request):
 
     vps = await asyncio.to_thread(fetch_vps_me_payload)
     if not vps:
-        return {"ok": False, "detail": "未检测到 VPS 登录，请先 vertu login / 登录 Odoo"}
+        return {"ok": False, "detail": "未检测到 Vertu 身份，请联系管理员检查 vertu-cli 服务凭据"}
     return {
         "ok": True,
-        "source": "vertu-me",
+        "source": "vertu-cli-hr-me",
         "profile": {"display_name": vps_display_name(vps)},
     }
 
@@ -245,8 +245,8 @@ async def change_password(
     """修改密码：验旧密 → 更新 + 递增 pwd_version + 签发新 token。"""
     if not verify_password(body.old_password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="原密码不正确")
-    if len(body.new_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码至少 8 位")
+    if len(body.new_password) < 12:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码至少 12 位")
     if body.old_password == body.new_password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能与原密码相同")
 

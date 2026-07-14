@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>客流接待台</title>
   <link rel="stylesheet" href="vertu-reskin.css" />
-  <link rel="stylesheet" href="online-merged-insights.css" />
-  <script src="online-merged-insights.js"></script>
+  <link rel="stylesheet" href="online-merged-insights.css?v=20260714" />
+  <script src="online-merged-insights.js?v=20260714"></script>
   <style>
     :root {
       --brand-primary: #0f172a;
@@ -418,7 +418,43 @@
     return 'data/walkin-' + ym + '.json';
   }
 
+  function initialMonthKey() {
+    var params = new URLSearchParams(location.search);
+    var requested = String(params.get('month') || params.get('date') || '').slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(requested)) return requested;
+    var now = new Date();
+    return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  }
+
+  function monthDateRange(monthKey) {
+    var year = Number(monthKey.slice(0, 4));
+    var month = Number(monthKey.slice(5, 7));
+    var days = new Date(year, month, 0).getDate();
+    return { start: monthKey + '-01', end: monthKey + '-' + String(days).padStart(2, '0') };
+  }
+
+  function renderMonthOptions() {
+    var base = /^\d{4}-\d{2}$/.test(state.selectedMonth) ? state.selectedMonth : initialMonthKey();
+    var year = Number(base.slice(0, 4));
+    var month = Number(base.slice(5, 7));
+    var options = [];
+    for (var offset = 0; offset < 12; offset++) {
+      var date = new Date(year, month - 1 - offset, 1);
+      var key = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+      options.push(
+        '<option value="' + key + '"' +
+        (!state.isCustomDate && state.selectedMonth === key ? ' selected' : '') +
+        '>' + date.getFullYear() + '年' + (date.getMonth() + 1) + '月</option>'
+      );
+    }
+    options.push('<option value="custom"' + (state.isCustomDate ? ' selected' : '') + '>自定义区间</option>');
+    return options.join('');
+  }
+
   var walkinPollTimer = null;
+
+  var INITIAL_MONTH = initialMonthKey();
+  var INITIAL_RANGE = monthDateRange(INITIAL_MONTH);
 
   const state = {
     activeTab: 'dashboard',
@@ -428,13 +464,13 @@
     staffFilterId: 'All',
     storeTypeFilter: 'All',
     anomalyOnly: false,
-    selectedMonth: '2026-06',
-    dateRange: { start: '2026-06-01', end: '2026-06-30' },
+    selectedMonth: INITIAL_MONTH,
+    dateRange: INITIAL_RANGE,
     isCustomDate: false,
     periodKey: 'month',
     modal: { open: false, title: '', loading: false, content: '' },
     dataSource: 'loading',
-    dataSourceDetail: '正在尝试读取 data/walkin-dashboard.json …',
+    dataSourceDetail: '正在加载 ' + INITIAL_MONTH + ' 的客流数据…',
     walkinBasics: null,
     fiveKit: null,
     realActivation: null,
@@ -489,48 +525,7 @@
       addW += pn(s.totalVisitGroups) * pn(s.avgAddRate);
     }
     var addedGrp = Math.round(addW);
-    var totalSalesAmt = stores.reduce(function (x, s) {
-      return x + pn(s.totalSalesAmount);
-    }, 0);
     var estParts = [];
-    if (walkinPeople <= 0 && walkinGroups > 0) {
-      walkinPeople = Math.round(walkinGroups * 1.66);
-      estParts.push('进店人数按约1.66人/组估算（缺画像字段时）');
-    }
-    if (wechatAdd <= 0 && walkinGroups > 0) {
-      if (addedGrp > 0) {
-        wechatAdd = addedGrp;
-        estParts.push('微信添加按各店组×组添加率聚合估算');
-      } else if (walkinPeople > 0) {
-        wechatAdd = Math.round(walkinPeople * 0.3);
-        estParts.push('微信添加按进店人数比例粗估');
-      }
-    }
-    if (dealGroups <= 0 && totalSalesAmt > 0 && walkinGroups > 0) {
-      var aovSum = 0;
-      var aovN = 0;
-      for (var ai = 0; ai < staff.length; ai++) {
-        var stf = staff[ai];
-        var ms = pn(stf.monthlySales);
-        if (ms > 0) {
-          aovSum += ms;
-          aovN++;
-        }
-      }
-      var aov = aovN > 0 ? aovSum / aovN : 42000;
-      if (aov < 15000) aov = 15000;
-      if (aov > 200000) aov = 200000;
-      dealGroups = Math.min(walkinGroups, Math.max(0, Math.round(totalSalesAmt / aov)));
-      if (dealGroups > 0) estParts.push('成交组数按销额÷导购件均粗估（缺画像字段时）');
-    }
-    if (effC <= 0 && walkinPeople > 0) {
-      effC = Math.round(walkinPeople * 0.41);
-      estParts.push('有效客户按进店人数约41%估算');
-    }
-    if (effA <= 0 && effC > 0) {
-      effA = Math.round(effC * 0.79);
-      estParts.push('已添加有效按有效客户约79%估算');
-    }
     // 激活数 / 异地激活数不再用公式估算（此前 8.5%/6.2% 是纯拍脑袋的假数据）；
     // 改由 renderWalkinBasicsBlock 直接读取 state.realActivation（/api/vps/dealer-activation
     // 真实数据，来自 mobile.activation.report），此处两个字段仅作占位。
@@ -783,6 +778,7 @@
   }
 
   function mockAiAnalysis(title, data) {
+    return '智能分析服务暂不可用。当前页面不会生成演示结论，请以已加载的真实指标为准。';
     if (title.indexOf('个案') !== -1 || title.indexOf('诊断') !== -1) {
       var name = title.replace(/个案诊断|个案深度分析|诊断/g, '').trim();
       var staff = mockStaff.find(function (s) { return name.indexOf(s.name) !== -1; });
@@ -1149,7 +1145,7 @@
   function renderOnlineMergedBlock() {
     if (typeof WalkinOnlineMerged === 'undefined') return '';
     var mk = state.isCustomDate ? String(state.dateRange.start || '').slice(0, 7) : state.selectedMonth;
-    if (!/^\d{4}-\d{2}$/.test(mk)) mk = '2026-06';
+    if (!/^\d{4}-\d{2}$/.test(mk)) mk = initialMonthKey();
     return WalkinOnlineMerged.renderHtml({ monthKey: mk, dealerStores: mockStores });
   }
 
@@ -1184,7 +1180,12 @@
     var fn = d.funnel || {};
     var pct = fk.pct || {};
     var total = fk.total || 1;
-    var dealWan = fn.deal_amount_wan || (fn.deal_amount_yuan ? (fn.deal_amount_yuan / 10000) : 0);
+    var dealUsd = Number(fn.deal_amount_usd != null ? fn.deal_amount_usd : fn.deal_amount_yuan) || 0;
+    var quality = d.data_quality || {};
+    var qualityWarning = quality.excluded_record_count
+      ? '<div style="margin-bottom:1rem;padding:.7rem .9rem;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:8px;font-size:.78rem">' +
+        quality.excluded_record_count + ' 条金额因币种或单位异常已从合计中排除，请在录入页核验。</div>'
+      : '';
 
     function srcBar(label, icon, count, color) {
       var p = total > 0 ? ((count / total) * 100) : 0;
@@ -1217,6 +1218,7 @@
       '<p class="text-xs text-slate-500 mt-0.5">' + escapeHtml(fiveKitScopeLabel()) + ' ' + d.record_count + ' 条实录 · 进店来源分类 + 真实成交金额</p></div>' +
       entryBtn + '</div>' +
 
+      qualityWarning +
       // Source bars
       '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid #f1f5f9">' +
       srcBar('Walkin直接进店', '🏪', fk.walkin || 0, '#475569') +
@@ -1246,9 +1248,9 @@
       '<div style="background:linear-gradient(135deg,#ecfdf5,#f0fdf4);border:1.5px solid #6ee7b7;border-radius:10px;' +
       'padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:' +
       (d.by_dealer && d.by_dealer.length > 1 ? '1.25rem' : '0') + '">' +
-      '<div><div style="font-size:0.72rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.06em">实录 Sell-out（成交金额）</div>' +
-      '<div style="font-size:2rem;font-weight:900;color:#047857;line-height:1.1;margin-top:4px">' + dealWan.toFixed(2) + ' 万</div>' +
-      '<div style="font-size:0.72rem;color:#6ee7b7;margin-top:2px">数据来自门店五件套实录（非估算）</div></div>' +
+      '<div><div style="font-size:0.72rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.06em">实录 Sell-out（USD）</div>' +
+      '<div style="font-size:2rem;font-weight:900;color:#047857;line-height:1.1;margin-top:4px">$' + dealUsd.toLocaleString('en-US', {maximumFractionDigits: 2}) + '</div>' +
+      '<div style="font-size:0.72rem;color:#6ee7b7;margin-top:2px">数据来自门店五件套 USD 实录（非估算）</div></div>' +
       '<div style="text-align:right"><div style="font-size:0.72rem;color:#059669">成交率</div>' +
       '<div style="font-size:1.5rem;font-weight:800;color:#059669">' +
       (totalVisits > 0 ? (((fn.deal_count || 0) / totalVisits) * 100).toFixed(1) + '%' : '—') +
@@ -1259,14 +1261,15 @@
         var rows = d.by_dealer.map(function (s) {
           var tv = s.total_visits || 0;
           var cr = tv > 0 ? ((s.deal_count || 0) / tv * 100).toFixed(0) + '%' : '—';
-          var amtWan = s.deal_amount_yuan ? (s.deal_amount_yuan / 10000).toFixed(2) : '—';
+          var amountUsd = Number(s.deal_amount_usd != null ? s.deal_amount_usd : s.deal_amount_yuan) || 0;
+          var amountText = s.amount_requires_review ? '待核验' : (amountUsd ? '$' + amountUsd.toLocaleString('en-US', {maximumFractionDigits: 2}) : '—');
           return (
             '<tr style="border-bottom:1px solid #f1f5f9">' +
             '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;font-weight:600;color:#334155;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(s.dealer_name || s.dealer_id) + '</td>' +
             '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:center;color:#64748b">' + tv + '</td>' +
             '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:center;color:#64748b">' + (s.deal_count || 0) + '</td>' +
             '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:center;color:#059669;font-weight:700">' + cr + '</td>' +
-            '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:right;font-weight:700;color:#047857">' + (amtWan !== '—' ? '¥' + amtWan + '万' : '—') + '</td>' +
+            '<td style="padding:0.45rem 0.5rem;font-size:0.78rem;text-align:right;font-weight:700;color:#047857">' + amountText + '</td>' +
             '</tr>'
           );
         }).join('');
@@ -1307,14 +1310,8 @@
       renderAiAlertBlock() +
       '</div>' +
       '<div class="glass-card p-6 flex flex-col">' +
-      '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-slate-800 tracking-tight">客户触达健康度</h3><span class="text-amber-600 text-xs font-bold">演示 mock · 暂无真实触达数据源</span></div>' +
-      '<div class="h-180">' +
-      renderDonut() +
-      '</div>' +
-      '<div class="mt-2 space-y-2 text-xs font-bold text-slate-500">' +
-      '<div class="flex justify-between"><span>平均转化周期</span><span class="text-brand-accent">2.4 天（mock）</span></div>' +
-      '<div class="flex justify-between"><span>CRM 1-3-7-14 执行率</span><span class="text-emerald-500">92%（mock）</span></div></div>' +
-      '<button type="button" class="data-ai-crm w-full mt-4 py-1 border text-xs font-bold rounded-lg transition hover-bg-slate-50" style="border-color:var(--slate-100);color:var(--slate-600);cursor:pointer;background:#fff">转化诊断</button>' +
+      '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-slate-800 tracking-tight">客户触达健康度</h3><span class="text-slate-400 text-xs font-bold">等待真实 CRM 数据</span></div>' +
+      '<div class="h-180 flex items-center justify-center text-sm text-slate-400 text-center px-8">尚未接入真实触达与转化周期数据，本区域不展示推测值。</div>' +
       '</div></div>' +
       '</div>'
     );
@@ -1834,24 +1831,7 @@
       '<div class="flex items-center gap-2 flex-wrap">' +
       '<span class="text-xs font-bold text-slate-500">统计月</span>' +
       '<select class="filter-month text-xs font-bold text-slate-700 cursor-pointer border rounded-lg px-2 py-1" style="border-color:var(--slate-200);background:#fff">' +
-      '<option value="2026-06"' +
-      (!state.isCustomDate && state.selectedMonth === '2026-06' ? ' selected' : '') +
-      '>2026年6月</option>' +
-      '<option value="2026-05"' +
-      (!state.isCustomDate && state.selectedMonth === '2026-05' ? ' selected' : '') +
-      '>2026年5月</option>' +
-      '<option value="2026-04"' +
-      (!state.isCustomDate && state.selectedMonth === '2026-04' ? ' selected' : '') +
-      '>2026年4月</option>' +
-      '<option value="2026-03"' +
-      (!state.isCustomDate && state.selectedMonth === '2026-03' ? ' selected' : '') +
-      '>2026年3月</option>' +
-      '<option value="2026-Q1"' +
-      (!state.isCustomDate && state.selectedMonth === '2026-Q1' ? ' selected' : '') +
-      '>2026 Q1</option>' +
-      '<option value="custom"' +
-      (state.isCustomDate ? ' selected' : '') +
-      '>自定义区间</option></select>' +
+      renderMonthOptions() + '</select>' +
       customDate +
       '</div>' +
       '<div class="text-xs font-bold text-slate-500 ml-auto">海外零售 PDCA</div>' +
@@ -1934,10 +1914,6 @@
         state.selectedMonth = fm.value;
         if (/^\d{4}-\d{2}$/.test(fm.value)) {
           loadWalkinMonth(fm.value, false);
-          return;
-        }
-        if (fm.value === '2026-Q1') {
-          loadWalkinBundleUrl('data/walkin-2026-Q1.json', '2026-Q1', { start: '2026-01-01', end: '2026-03-31' });
           return;
         }
         render();
@@ -2070,12 +2046,13 @@
   }
 
   function applyWalkinBundle(j, source) {
-    if (!(j.stores && j.stores.length && j.staff && j.staff.length)) {
-      state.dataSource = 'demo';
-      state.dataSourceDetail = 'JSON 无有效 stores/staff。';
+    if (!(j.stores && j.stores.length)) {
+      state.dataSource = 'unavailable';
+      state.dataSourceDetail = 'JSON 中没有有效门店数据。';
       state.walkinBasics = null;
       return false;
     }
+    if (!Array.isArray(j.staff)) j.staff = [];
     var teamCfg = { hanTeamUserIds: [], liuTeamUserIds: [] };
     try {
       var xhr = new XMLHttpRequest();
@@ -2110,6 +2087,7 @@
     var pl = (j.meta && j.meta.periodLabel) || '';
     var tail = mockStores.length + ' 店 / ' + mockStaff.length + ' 人（所选月 Walk-in）';
     if (source === 'api' && j.meta && j.meta.dataSourceDetail) {
+      state.dataSource = 'live';
       state.dataSourceDetail = String(j.meta.dataSourceDetail);
     } else if (source === 'file') {
       state.dataSource = 'file';
@@ -2121,7 +2099,7 @@
     } else {
       state.dataSource = 'live';
       state.dataSourceDetail =
-        '静态文件 · ' + (ym ? '自然月 ' + ym + ' · ' : pl ? pl + ' · ' : '') + tail + '（未连实时接口时可 npm run walkin:api）';
+        '静态数据包 · ' + (ym ? '自然月 ' + ym + ' · ' : pl ? pl + ' · ' : '') + tail;
     }
     return true;
   }
@@ -2160,12 +2138,11 @@
       })
       .catch(function () {
         if (!ctx.fromApi) {
-          state.dataSource = 'demo';
+          state.dataSource = 'unavailable';
           state.walkinBasics = computeWalkinBasicsHtml(mockStores, mockStaff);
-          state.dataSourceDetail =
-            '无法加载「' +
-            ym +
-            '」。请先在本机运行 npm run walkin:api（实时刷新，无需导入 JSON），再用浏览器打开 http://127.0.0.1:3780/ 下的本页；若用 file:// 打开，请在地址后加 ?api=http://127.0.0.1:3780 。也可 npm run data:walkin 生成 data 文件作离线兜底。';
+          state.dataSourceDetail = location.protocol === 'file:'
+            ? '无法加载「' + ym + '」。离线查看请通过 ?api= 指定已启动的 API 地址，或导入真实 JSON 数据包。'
+            : '暂时无法加载「' + ym + '」的客流数据，请稍后重试或联系管理员检查数据同步。';
         }
       })
       .finally(function () {

@@ -1,7 +1,7 @@
 ﻿# PDCA 经销商经营工作台
 
 海外经销商团队的 **Plan-Do-Check-Act** 数据中台与 Web 工作台。  
-基于 **FastAPI + PostgreSQL + vertu CLI（VPS/Odoo）**，由 Cursor 编辑业务数据，Git 做版本管理。
+基于 **FastAPI + PostgreSQL + vertu-cli 2.x**，由 Cursor 编辑业务数据，Git 做版本管理。
 
 ---
 
@@ -24,7 +24,7 @@
 ### 1. 对内完整工作台（海外中台）
 
 - **入口**：`https://域名/`
-- **认证**：`PDCA_AUTH_MODE=vps`（VPS / Odoo 单点登录，依赖 `vertu odoo me`）
+- **认证**：`PDCA_AUTH_MODE=vps`（Vertu 单点登录，依赖 `vertu-cli hr +me`）
 - **必挂**：`PDCA_MVP_ROOT` + `PDCA_REPO_ROOT` + 服务器安装 vertu
 - **说明**：桌面/运维文档《PDCA对内工作台-运维部署执行文档.md》
 
@@ -52,7 +52,7 @@ python run.py
 
 访问 http://127.0.0.1:8767/
 
-本地已 `vertu login` 时，可在 `.env` 设 `PDCA_AUTH_MODE=hybrid`（VPS 与本地账号并存）。
+本地已完成 `vertu-cli auth login` 时，可在 `.env` 设 `PDCA_AUTH_MODE=hybrid`（VERTU 与本地账号并存）；生产环境应使用 `VERTU_APP_ID` / `VERTU_APP_KEY` 应用凭证。
 
 ---
 
@@ -73,7 +73,7 @@ python run.py
 ## 技术栈
 
 - **后端**：Python 3.12、FastAPI、SQLModel、PostgreSQL
-- **数据**：vertu CLI → Odoo / Vemory；CSV + Git 作业务数据中台
+- **数据**：vertu-cli 业务快捷命令 → Sales / Vemory；CSV + Git 作业务数据中台
 - **调度**：Hermes（日检脚本、Agent 分派，见 `AGENTS.md`）
 
 ---
