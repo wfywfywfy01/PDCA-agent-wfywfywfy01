@@ -141,6 +141,9 @@ class UserCreateBody(BaseModel):
     display_name: str = ""
     sales_name: str = ""
     dealer_id: str = ""       # dealer角色专用：绑定的门店store_id
+    owner_key: str = ""
+    team_key: str = ""
+    data_scope: str = ""
 
 
 class UserUpdateBody(BaseModel):
@@ -149,10 +152,47 @@ class UserUpdateBody(BaseModel):
     role: str | None = None
     is_active: bool | None = None
     dealer_id: str | None = None  # dealer角色绑定门店
+    owner_key: str | None = None
+    team_key: str | None = None
+    data_scope: str | None = None
 
 
 class ResetPasswordBody(BaseModel):
     new_password: str
+
+
+_ROLE_SCOPE_DEFAULTS = {"viewer": "none", "dealer": "self", "sales": "self", "manager": "team", "admin": "all"}
+
+
+def _validate_identity_binding(session: Session, role: str, dealer_id: str, owner_key: str, team_key: str) -> None:
+    if role == "dealer":
+        store = session.exec(select(DealerStore).where(DealerStore.store_id == dealer_id.strip())).first()
+        if not store or not store.is_active:
+            raise HTTPException(status_code=422, detail="经销商账号必须绑定一个有效门店")
+    if role == "sales" and not owner_key.strip():
+        raise HTTPException(status_code=422, detail="销售账号必须配置负责人标识 owner_key")
+    if role == "manager" and not team_key.strip():
+        raise HTTPException(status_code=422, detail="主管账号必须配置团队标识 team_key")
+
+
+def _ensure_unique_scope_mapping(
+    session: Session,
+    *,
+    owner_key: str = "",
+    sales_name: str = "",
+    exclude_username: str = "",
+) -> None:
+    owner_norm = owner_key.strip().casefold()
+    sales_norm = sales_name.strip().casefold()
+    if not owner_norm and not sales_norm:
+        return
+    for row in session.exec(select(User).where(User.is_active == True)).all():  # noqa: E712
+        if row.username == exclude_username:
+            continue
+        if owner_norm and (getattr(row, "owner_key", "") or "").strip().casefold() == owner_norm:
+            raise HTTPException(status_code=409, detail="负责人标识已绑定其他账号")
+        if sales_norm and (getattr(row, "sales_name", "") or "").strip().casefold() == sales_norm:
+            raise HTTPException(status_code=409, detail="销售数据名称已绑定其他账号")
 
 
 @router.get("/users")
@@ -169,6 +209,9 @@ async def list_users(
             "display_name": u.display_name,
             "sales_name": u.sales_name,
             "dealer_id": getattr(u, "dealer_id", "") or "",
+            "owner_key": getattr(u, "owner_key", "") or "",
+            "team_key": getattr(u, "team_key", "") or "",
+            "data_scope": getattr(u, "data_scope", "") or "",
             "is_active": u.is_active,
             "must_change_password": getattr(u, "must_change_password", False),
             "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -187,10 +230,20 @@ async def create_user(
 
     if body.role not in ROLE_LEVELS:
         raise HTTPException(status_code=400, detail=f"无效角色，可选：{list(ROLE_LEVELS)}")
+    if body.data_scope and body.data_scope not in {"none", "self", "team", "all"}:
+        raise HTTPException(status_code=400, detail="无效数据范围")
+    if body.data_scope == "all" and body.role != "admin":
+        raise HTTPException(status_code=400, detail="仅管理员可使用全局数据范围")
     if len(body.password) < 12:
         raise HTTPException(status_code=400, detail="密码至少 12 位")
     if session.exec(select(User).where(User.username == body.username)).first():
         raise HTTPException(status_code=409, detail="用户名已存在")
+    _validate_identity_binding(session, body.role, body.dealer_id, body.owner_key, body.team_key)
+    _ensure_unique_scope_mapping(
+        session,
+        owner_key=body.owner_key,
+        sales_name=body.sales_name,
+    )
     new_user = User(
         username=body.username.strip(),
         hashed_password=hp(body.password),
@@ -198,12 +251,19 @@ async def create_user(
         display_name=body.display_name.strip(),
         sales_name=body.sales_name.strip(),
         dealer_id=body.dealer_id.strip(),
+        owner_key=body.owner_key.strip(),
+        team_key=body.team_key.strip(),
+        data_scope=body.data_scope.strip() or _ROLE_SCOPE_DEFAULTS[body.role],
         must_change_password=True,
         pwd_version=0,
     )
     session.add(new_user)
     session.commit()
     session.refresh(new_user)
+    if new_user.role == "sales":
+        from app.auth.scope import sync_user_dealer_assignments
+        sync_user_dealer_assignments(new_user, session)
+        session.commit()
     log_action(current_user.username, "create_user", resource=body.username)
     return {"ok": True, "id": new_user.id, "username": new_user.username}
 
@@ -218,10 +278,23 @@ async def update_user(
     target = session.exec(select(User).where(User.username == username)).first()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
+    next_role = body.role if body.role is not None else target.role
+    next_dealer_id = body.dealer_id if body.dealer_id is not None else target.dealer_id
+    next_owner_key = body.owner_key if body.owner_key is not None else getattr(target, "owner_key", "")
+    next_team_key = body.team_key if body.team_key is not None else getattr(target, "team_key", "")
+    _validate_identity_binding(session, next_role, next_dealer_id, next_owner_key, next_team_key)
+    _ensure_unique_scope_mapping(
+        session,
+        owner_key=body.owner_key if body.owner_key is not None else getattr(target, "owner_key", ""),
+        sales_name=body.sales_name if body.sales_name is not None else target.sales_name,
+        exclude_username=target.username,
+    )
     if body.role is not None:
         if body.role not in ROLE_LEVELS:
             raise HTTPException(status_code=400, detail=f"无效角色")
         target.role = body.role
+        if body.data_scope is None:
+            target.data_scope = _ROLE_SCOPE_DEFAULTS[body.role]
     if body.display_name is not None:
         target.display_name = body.display_name.strip()
     if body.sales_name is not None:
@@ -230,8 +303,23 @@ async def update_user(
         target.is_active = body.is_active
     if body.dealer_id is not None:
         target.dealer_id = body.dealer_id.strip()
+    if body.owner_key is not None:
+        target.owner_key = body.owner_key.strip()
+    if body.team_key is not None:
+        target.team_key = body.team_key.strip()
+    if body.data_scope is not None:
+        value = body.data_scope.strip()
+        if value and value not in {"none", "self", "team", "all"}:
+            raise HTTPException(status_code=400, detail="无效数据范围")
+        if value == "all" and target.role != "admin":
+            raise HTTPException(status_code=400, detail="仅管理员可使用全局数据范围")
+        target.data_scope = value
     session.add(target)
     session.commit()
+    if target.role == "sales":
+        from app.auth.scope import sync_user_dealer_assignments
+        sync_user_dealer_assignments(target, session)
+        session.commit()
     log_action(current_user.username, "update_user", resource=username, detail=body.model_dump(exclude_none=True))
     return {"ok": True}
 
@@ -304,6 +392,7 @@ class StoreCreateBody(BaseModel):
     country: str = ""
     dealer_level: str = "L1"
     sales_owner: str = ""
+    team_key: str = "overseas"
 
 
 class StoreUpdateBody(BaseModel):
@@ -312,18 +401,28 @@ class StoreUpdateBody(BaseModel):
     country: str | None = None
     dealer_level: str | None = None
     sales_owner: str | None = None
+    team_key: str | None = None
     is_active: bool | None = None
     sort_order: int | None = None
 
 
+STORE_REGIONS = {"中东", "欧洲", "南亚", "东南亚", "中亚", "其他"}
+
+
 @router.get("/stores")
 async def list_stores(
-    _user: Annotated[User, Depends(require_role("manager"))],
+    user: Annotated[User, Depends(require_role("manager"))],
     session: Annotated[Session, Depends(get_session)],
     include_inactive: bool = Query(False),
 ):
     """列出所有门店（manager 及以上，含 sales_owner 等完整字段）。"""
     stmt = select(DealerStore).order_by(DealerStore.region, DealerStore.sort_order, DealerStore.store_id)
+    from app.auth.scope import visible_store_ids
+    allowed = visible_store_ids(user, session)
+    if allowed is not None:
+        if not allowed:
+            return []
+        stmt = stmt.where(DealerStore.store_id.in_(allowed))
     if not include_inactive:
         stmt = stmt.where(DealerStore.is_active == True)
     stores = session.exec(stmt).all()
@@ -335,6 +434,7 @@ async def list_stores(
             "country": s.country,
             "dealer_level": getattr(s, "dealer_level", "L1") or "L1",
             "sales_owner": getattr(s, "sales_owner", "") or "",
+            "team_key": getattr(s, "team_key", "") or "",
             "is_active": s.is_active,
             "sort_order": s.sort_order,
         }
@@ -352,6 +452,13 @@ async def create_store(
         raise HTTPException(status_code=422, detail="store_id 不能为空")
     if session.exec(select(DealerStore).where(DealerStore.store_id == body.store_id)).first():
         raise HTTPException(status_code=409, detail="门店 ID 已存在")
+    if body.region.strip() not in STORE_REGIONS:
+        raise HTTPException(status_code=422, detail=f"大区必须为：{sorted(STORE_REGIONS)}")
+    from app.auth.scope import effective_team_key, resolve_data_scope
+    scope = resolve_data_scope(current_user, session)
+    requested_team = body.team_key.strip() or "overseas"
+    if not scope.unrestricted and requested_team != effective_team_key(current_user):
+        raise HTTPException(status_code=403, detail="只能在当前团队内创建门店")
     session.add(DealerStore(
         store_id=body.store_id.strip(),
         name=body.name.strip(),
@@ -359,8 +466,11 @@ async def create_store(
         country=body.country.strip(),
         dealer_level=body.dealer_level.strip() or "L1",
         sales_owner=body.sales_owner.strip(),
+        team_key=requested_team,
     ))
     session.commit()
+    from app.auth.scope import rebuild_all_dealer_assignments
+    rebuild_all_dealer_assignments(session)
     log_action(current_user.username, "create_store", resource=body.store_id)
     return {"ok": True}
 
@@ -375,9 +485,15 @@ async def update_store(
     store = session.exec(select(DealerStore).where(DealerStore.store_id == store_id)).first()
     if not store:
         raise HTTPException(status_code=404, detail="门店不存在")
+    from app.auth.scope import effective_team_key, resolve_data_scope, visible_store_ids
+    allowed = visible_store_ids(current_user, session)
+    if allowed is not None and store_id not in allowed:
+        raise HTTPException(status_code=403, detail="该门店不在当前团队权限范围内")
     if body.name is not None:
         store.name = body.name.strip()
     if body.region is not None:
+        if body.region.strip() not in STORE_REGIONS:
+            raise HTTPException(status_code=422, detail=f"大区必须为：{sorted(STORE_REGIONS)}")
         store.region = body.region.strip()
     if body.country is not None:
         store.country = body.country.strip()
@@ -385,12 +501,21 @@ async def update_store(
         store.dealer_level = body.dealer_level.strip()
     if body.sales_owner is not None:
         store.sales_owner = body.sales_owner.strip()
+    if body.team_key is not None:
+        requested_team = body.team_key.strip()
+        if not requested_team:
+            raise HTTPException(status_code=422, detail="团队标识不能为空")
+        if not resolve_data_scope(current_user, session).unrestricted and requested_team != effective_team_key(current_user):
+            raise HTTPException(status_code=403, detail="只能在当前团队内更新门店")
+        store.team_key = requested_team
     if body.is_active is not None:
         store.is_active = body.is_active
     if body.sort_order is not None:
         store.sort_order = body.sort_order
     session.add(store)
     session.commit()
+    from app.auth.scope import rebuild_all_dealer_assignments
+    rebuild_all_dealer_assignments(session)
     log_action(current_user.username, "update_store", resource=store_id,
                detail=body.model_dump(exclude_none=True))
     return {"ok": True}
@@ -409,11 +534,17 @@ class TargetUpsertBody(BaseModel):
 
 @router.get("/targets")
 async def list_targets(
-    _user: Annotated[User, Depends(require_role("viewer"))],
+    user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
     month: str = Query(""),
 ):
     stmt = select(MonthlyTarget)
+    from app.auth.scope import visible_store_ids
+    allowed = visible_store_ids(user, session)
+    if allowed is not None:
+        if not allowed:
+            return []
+        stmt = stmt.where(MonthlyTarget.dealer_id.in_(allowed))
     if month:
         stmt = stmt.where(MonthlyTarget.month == month)
     rows = session.exec(stmt.order_by(MonthlyTarget.month.desc())).all()
@@ -441,6 +572,10 @@ async def upsert_target(
 ):
     if not re.fullmatch(r"\d{4}-\d{2}", body.month):
         raise HTTPException(status_code=422, detail="month 格式应为 YYYY-MM")
+    from app.auth.scope import visible_store_ids
+    allowed = visible_store_ids(current_user, session)
+    if allowed is not None and (not body.dealer_id or body.dealer_id not in allowed):
+        raise HTTPException(status_code=403, detail="只能设置当前团队门店的目标，不能设置全局目标")
     existing = session.exec(
         select(MonthlyTarget).where(
             MonthlyTarget.month == body.month,

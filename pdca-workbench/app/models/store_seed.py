@@ -24,9 +24,9 @@ _STORES: list[tuple[str, str, str, str, str, str]] = [
     ("me011", "Safiran Hamrah",                           "中东", "伊朗",         "L1", "viki"),
     ("me012", "TIVALI Commercial Broker LLC",             "中东", "伊朗",         "L1", "DEHDEHDAHOUMAIMA"),
     ("me013", "Veysel Sevis Ltd",                         "中东", "土耳其",       "L1", "DEHDEHDAHOUMAIMA"),
-    ("me014", "Bestcom",                                  "中东", "乌克兰",       "L1", "DEHDEHDAHOUMAIMA"),
-    ("me015", "FRONTANA GIDA DIS TICARET LIMITED",        "中东", "乌克兰",       "L1", "DEHDEHDAHOUMAIMA"),
-    ("me016", "IQ-QUEST SP. Z O.O.",                      "中东", "德国",         "L1", "DEHDEHDAHOUMAIMA"),
+    ("me014", "Bestcom",                                  "欧洲", "乌克兰",       "L1", "DEHDEHDAHOUMAIMA"),
+    ("me015", "FRONTANA GIDA DIS TICARET LIMITED",        "欧洲", "乌克兰",       "L1", "DEHDEHDAHOUMAIMA"),
+    ("me016", "IQ-QUEST SP. Z O.O.",                      "欧洲", "德国",         "L1", "DEHDEHDAHOUMAIMA"),
     # ── 欧洲 ──────────────────────────────────────────────────────────────────
     ("eu001", "Optimizers d.o.o.",                        "欧洲", "斯洛文尼亚",   "L1", "DEHDEHDAHOUMAIMA"),
     ("eu002", "Robo Trading Ltd",                         "欧洲", "保加利亚",     "L1", "DEHDEHDAHOUMAIMA"),
@@ -88,6 +88,20 @@ def seed_stores() -> None:
             else:
                 # 已有真实数据，只做 upsert（补充缺失条目）
                 existing_ids = {s.store_id for s in existing}
+                canonical = {row[0]: row for row in _STORES}
+                corrected = 0
+                for store in existing:
+                    row = canonical.get(store.store_id)
+                    if not row:
+                        continue
+                    if (store.region, store.country) != (row[2], row[3]):
+                        store.region = row[2]
+                        store.country = row[3]
+                        session.add(store)
+                        corrected += 1
+                    if not getattr(store, "team_key", ""):
+                        store.team_key = "overseas"
+                        session.add(store)
                 added = 0
                 for i, row in enumerate(_STORES):
                     sid = row[0]
@@ -98,9 +112,9 @@ def seed_stores() -> None:
                             sales_owner=row[5], sort_order=i,
                         ))
                         added += 1
-                if added:
+                if added or corrected:
                     session.commit()
-                    logger.info("门店主数据补充 {} 条", added)
+                    logger.info("门店主数据补充 {} 条，纠正区域 {} 条", added, corrected)
                 return
 
         for i, row in enumerate(_STORES):

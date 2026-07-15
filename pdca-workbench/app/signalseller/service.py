@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +24,14 @@ def _methodology() -> dict:
 
 
 def team_customers_path(team: str = DEFAULT_TEAM) -> Path:
-    return get_settings().repo_root / "teams" / team / "customers.csv"
+    slug = str(team or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", slug):
+        raise ValueError("invalid team slug")
+    teams_root = (get_settings().repo_root / "teams").resolve()
+    path = (teams_root / slug / "customers.csv").resolve()
+    if teams_root not in path.parents:
+        raise ValueError("team path escapes repository teams directory")
+    return path
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -74,14 +82,10 @@ def score_customer(row: dict, ref_date: str | None = None) -> dict:
     silent = _silent_days(row.get("last_followup_date", ""), ref)
     status = (row.get("status") or "").lower()
 
-    value_score = int(row.get("value_score") or 0)
-    intent_score = int(row.get("intent_score") or 0)
-    if not value_score:
-        value_score = 40 if abcd in ("A", "B") else 25
-    if not intent_score:
-        intent_score = 40 if abcd in ("A", "C") else 28
-        if silent is not None and silent > 14:
-            intent_score = max(10, intent_score - 15)
+    value_raw = str(row.get("value_score") or "").strip()
+    intent_raw = str(row.get("intent_score") or "").strip()
+    value_score = int(value_raw) if value_raw.isdigit() else None
+    intent_score = int(intent_raw) if intent_raw.isdigit() else None
 
     overdue_days = 7 if abcd == "A" else 14 if abcd in ("B", "C") else 30
     is_overdue = silent is not None and silent > overdue_days and status == "active"
@@ -160,6 +164,24 @@ def load_customers(
         r.get("abcd_grade", "Z"),
     ))
     return rows
+
+
+def filter_customers_by_scope(
+    rows: list[dict],
+    *,
+    owner_keys: list[str] | tuple[str, ...] | None = None,
+    dealer_names: list[str] | tuple[str, ...] | None = None,
+) -> list[dict]:
+    """Filter canonical customer rows with explicit server-side assignments."""
+    owners = {str(value).strip().casefold() for value in (owner_keys or []) if str(value).strip()}
+    dealers = {str(value).strip().casefold() for value in (dealer_names or []) if str(value).strip()}
+    if not owners and not dealers:
+        return []
+    return [
+        row for row in rows
+        if str(row.get("owner") or "").strip().casefold() in owners
+        or str(row.get("dealer_name") or "").strip().casefold() in dealers
+    ]
 
 
 def build_summary(customers: list[dict]) -> dict:

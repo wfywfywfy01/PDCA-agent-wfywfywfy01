@@ -144,7 +144,7 @@
     const _range = _periodRange(_anchorParam, _periodParam);
 
     function workDate() {
-      return _anchorParam;
+      return document.getElementById('mcDate').value || _anchorParam;
     }
     function withDate(path) {
       const sep = path.indexOf('?') >= 0 ? '&' : '?';
@@ -177,7 +177,7 @@
       const res = await fetch('/api/meeting-center/people');
       const data = await res.json();
       const sel = document.getElementById('mcPerson');
-      sel.innerHTML = '<option value="">本人（当前 vertu-cli 身份）</option>';
+      sel.innerHTML = '<option value="">当前账号的数据范围</option>';
       (data.people || []).forEach(function (p) {
         const opt = document.createElement('option');
         opt.value = p.phone_key || '';
@@ -193,11 +193,12 @@
       status.textContent = '正在读取 Vemory…';
       status.className = 'mc-status';
       const date = document.getElementById('mcDate').value || workDate();
+      const selectedRange = _periodRange(date, _periodParam);
       const person = document.getElementById('mcPerson');
       const opt = person.selectedOptions[0];
       // 当 period 不是日时，传 start/end 区间
       const qs = _periodParam !== 'day'
-        ? new URLSearchParams({ date: _range.start, end_date: _range.end })
+        ? new URLSearchParams({ date: selectedRange.start, end_date: selectedRange.end })
         : new URLSearchParams({ date: date });
       if (opt && opt.value) {
         qs.set('phone', opt.dataset.phone || '');
@@ -344,6 +345,8 @@
     }
 
     document.getElementById('mcRefresh').addEventListener('click', loadMeetings);
+    document.getElementById('mcDate').addEventListener('change', loadMeetings);
+    document.getElementById('mcPerson').addEventListener('change', loadMeetings);
     document.getElementById('mcPdca').addEventListener('click', function () { location.href = withDate('/pdca-vps'); });
     document.getElementById('mcClose').addEventListener('click', function () { document.getElementById('mcModal').classList.remove('open'); });
     document.getElementById('mcModal').addEventListener('click', function (e) { if (e.target.id === 'mcModal') document.getElementById('mcModal').classList.remove('open'); });

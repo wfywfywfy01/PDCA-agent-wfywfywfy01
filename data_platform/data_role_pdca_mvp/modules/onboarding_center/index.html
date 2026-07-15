@@ -91,7 +91,9 @@
       document.getElementById('days').innerHTML = (data.tracks || []).map(function (day) {
         var mods = (day.modules || []).map(function (m) {
           var done = completed.has(m.id);
-          var link = m.links && m.links[0] ? ' · <a href="' + esc(m.links[0]) + '">打开</a>' : '';
+          var link = (m.links || []).map(function (href, index) {
+            return ' · <a href="' + esc(href) + '">' + (index ? '入口 ' + (index + 1) : '打开') + '</a>';
+          }).join('');
           return '<div class="mod' + (done ? ' done' : '') + '">' +
             '<div class="t"><b>' + esc(m.title) + '</b> ' + (done ? '✓' : '') + '<br>' +
             '<span class="chip">' + esc(m.format) + '</span>' +

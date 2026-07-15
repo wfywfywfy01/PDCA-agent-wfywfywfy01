@@ -81,6 +81,8 @@ def identity_from_headers(headers: dict[str, str]) -> dict | None:
     job = (headers.get("x-vps-job-title") or "").strip()
     dept = (headers.get("x-vps-department") or "").strip()
     role_hint = (headers.get("x-vps-user-role") or "").strip().lower()
+    owner_key = (headers.get("x-vps-owner-key") or "").strip()
+    team_key = (headers.get("x-vps-team-key") or "").strip()
     return {
         "login": login,
         "name": name or login,
@@ -89,6 +91,8 @@ def identity_from_headers(headers: dict[str, str]) -> dict | None:
         "job_title": job,
         "department_name": dept,
         "role_hint": role_hint,
+        "owner_key": owner_key,
+        "team_key": team_key,
         "_source": "proxy-header",
     }
 
@@ -168,6 +172,15 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
     name = vps_display_name(vps)
     role = infer_pdca_role(vps)
     sales_name = name if role == "sales" else ""
+    owner_key = _nested(vps, "owner_key") if role == "sales" else ""
+    team_key = (_nested(vps, "team_key") or "overseas") if role == "manager" else ""
+    data_scope = {
+        "admin": "all",
+        "manager": "team",
+        "sales": "self",
+        "dealer": "self",
+        "viewer": "none",
+    }.get(role, "none")
 
     user = session.exec(select(User).where(User.username == username)).first()
     if not user:
@@ -177,6 +190,9 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
             role=role,
             display_name=name,
             sales_name=sales_name,
+            owner_key=owner_key,
+            team_key=team_key,
+            data_scope=data_scope,
             must_change_password=False,
             is_active=True,
         )
@@ -186,11 +202,21 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
             user.role = role
         if role == "sales" and not (getattr(user, "sales_name", "") or ""):
             user.sales_name = sales_name
+        if role == "sales" and not (getattr(user, "owner_key", "") or ""):
+            user.owner_key = owner_key
+        if role == "manager" and not (getattr(user, "team_key", "") or ""):
+            user.team_key = team_key
+        if not (getattr(user, "data_scope", "") or ""):
+            user.data_scope = data_scope
         user.is_active = True
 
     session.add(user)
     session.commit()
     session.refresh(user)
+    if user.role == "sales" and (getattr(user, "owner_key", "") or "").strip():
+        from app.auth.scope import sync_user_dealer_assignments
+        sync_user_dealer_assignments(user, session)
+        session.commit()
     return user
 
 
@@ -203,6 +229,9 @@ def vps_profile(vps: dict) -> dict:
         "username": vps_username(vps),
         "display_name": name,
         "sales_name": name if role == "sales" else "",
+        "owner_key": _nested(vps, "owner_key") if role == "sales" else "",
+        "team_key": (_nested(vps, "team_key") or "overseas") if role == "manager" else "",
+        "data_scope": {"admin": "all", "manager": "team", "sales": "self", "dealer": "self", "viewer": "none"}.get(role, "none"),
         "role": role,
         "job_title": job,
         "vps_user_id": vps.get("user_id") or vps.get("id"),

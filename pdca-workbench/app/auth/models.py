@@ -20,6 +20,23 @@ class User(SQLModel, table=True):
     display_name: str = Field(default="", max_length=128)
     sales_name: str = Field(default="", max_length=128, description="对应物流 CSV 中的 salesperson")
     dealer_id: str = Field(default="", max_length=64, description="dealer角色绑定的门店store_id")
+    owner_key: str = Field(
+        default="",
+        max_length=128,
+        index=True,
+        description="稳定的数据负责人标识；用于关联门店、客户、物流等业务数据",
+    )
+    team_key: str = Field(
+        default="",
+        max_length=64,
+        index=True,
+        description="团队数据范围标识；主管仅可查看相同 team_key 的数据",
+    )
+    data_scope: str = Field(
+        default="",
+        max_length=16,
+        description="none/self/team/all；为空时按角色采用最小权限默认值",
+    )
     is_active: bool = Field(default=True)
     must_change_password: bool = Field(default=True)
     pwd_version: int = Field(default=0)

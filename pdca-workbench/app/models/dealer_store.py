@@ -17,7 +17,8 @@ class DealerStore(SQLModel, table=True):
     region: str = Field(default="", max_length=64)      # 中东 / 欧洲 / 南亚 / 东南亚 / 中亚
     country: str = Field(default="", max_length=64)
     dealer_level: str = Field(default="L1", max_length=8)   # L1 / L2
-    sales_owner: str = Field(default="", max_length=64, index=True)  # 负责该经销商的内部销售 username
+    sales_owner: str = Field(default="", max_length=128, index=True)  # 稳定负责人 owner_key
+    team_key: str = Field(default="overseas", max_length=64, index=True)
     is_active: bool = Field(default=True)
     sort_order: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)

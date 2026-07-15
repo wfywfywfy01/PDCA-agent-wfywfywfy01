@@ -127,7 +127,7 @@ docker exec "$CONTAINER_NAME" test -s "/mvp/inputs/questionnaires/${SMOKE_DATE}_
 
 docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
   -H 'Content-Type: application/json' \
-  --data '{"store_id":"smoke-store","name":"Smoke Store","region":"Test","country":"Test","dealer_level":"L1"}' \
+  --data '{"store_id":"smoke-store","name":"Smoke Store","region":"其他","country":"Test","dealer_level":"L1","team_key":"overseas"}' \
   http://127.0.0.1:8767/api/admin/stores >/dev/null
 docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
   -H 'Content-Type: application/json' \
@@ -142,6 +142,17 @@ assert payload["meta"]["storeCount"] >= 1
 assert "unavailable" not in payload["meta"].get("dataSources", [])
 smoke_store = next(item for item in payload["stores"] if item["id"] == "smoke-store")
 assert smoke_store["fiveKit"]["total"] == 3
+PY
+
+today_json="$(docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
+  "http://127.0.0.1:8767/api/workbench/today?date=$SMOKE_DATE")"
+docker exec -i --env PAYLOAD="$today_json" "$CONTAINER_NAME" python - <<'PY'
+import json, os
+payload = json.loads(os.environ["PAYLOAD"])
+assert payload["scope"]["mode"] == "all"
+assert payload["facts"]["walkin_reported"]["state"] == "available"
+assert payload["facts"]["walkin_reported"]["value"] >= 1
+assert isinstance(payload["actions"], list)
 PY
 
 cli_version="$(docker exec "$CONTAINER_NAME" vertu-cli --version)"

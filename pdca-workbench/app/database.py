@@ -129,6 +129,7 @@ def init_db() -> None:
     from app.models.pdca_task import PdcaTask  # noqa: F401
     from app.models.walkin_daily_report import WalkinDailyReport  # noqa: F401
     from app.models.dealer_store import DealerStore  # noqa: F401
+    from app.models.dealer_assignment import DealerAssignment  # noqa: F401
     from app.models.monthly_target import MonthlyTarget  # noqa: F401
     from app.models.audit_log import AuditLog  # noqa: F401
     from app.models.tracking_status import TrackingAutoStatus  # noqa: F401
@@ -147,8 +148,13 @@ def _migrate_schema() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT TRUE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS pwd_version INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS dealer_id VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS owner_key VARCHAR(128) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS team_key VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS data_scope VARCHAR(16) DEFAULT ''",
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS sales_owner VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE dealer_stores ALTER COLUMN sales_owner TYPE VARCHAR(128)",
+        "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS team_key VARCHAR(64) DEFAULT 'overseas'",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS walkin_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS cross_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS recruit_visits INTEGER DEFAULT 0",
@@ -167,8 +173,12 @@ def _migrate_schema() -> None:
         "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 1",
         "ALTER TABLE users ADD COLUMN pwd_version INTEGER DEFAULT 0",
         "ALTER TABLE users ADD COLUMN dealer_id VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN owner_key VARCHAR(128) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN team_key VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN data_scope VARCHAR(16) DEFAULT ''",
         "ALTER TABLE dealer_stores ADD COLUMN dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN sales_owner VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE dealer_stores ADD COLUMN team_key VARCHAR(64) DEFAULT 'overseas'",
         "ALTER TABLE walkin_daily_reports ADD COLUMN walkin_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN cross_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN recruit_visits INTEGER DEFAULT 0",

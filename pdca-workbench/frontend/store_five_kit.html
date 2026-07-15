@@ -281,6 +281,7 @@ function getPeriodRange(anchor,period){
 
 // ── 初始化 ──────────────────────────────────────────────────────────────────
 var _qs = new URLSearchParams(location.search);
+currentFilter = ['all','reported','norep','vps'].indexOf(_qs.get('filter'))>=0?_qs.get('filter'):'all';
 var currentPeriod = _qs.get('period') || (typeof sessionStorage!=='undefined'&&sessionStorage.getItem('pdca_period')) || 'month';
 var currentAnchor = _qs.get('date') || new Date().toISOString().slice(0,10);
 
@@ -288,6 +289,9 @@ var currentAnchor = _qs.get('date') || new Date().toISOString().slice(0,10);
   document.getElementById('anchorPicker').value = currentAnchor;
   document.querySelectorAll('.period-btn').forEach(function(btn){
     btn.classList.toggle('active', btn.dataset.p === currentPeriod);
+  });
+  document.querySelectorAll('.filter-btn').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.f === currentFilter);
   });
 })();
 
@@ -362,6 +366,7 @@ function lookup(name,map){
 // ── 渲染全部 ────────────────────────────────────────────────────────────────
 function renderAll(range){
   var d=summaryData,vps=vpsData,act=activationData;
+  window._activeRange=range||null;
   var actUsable=act&&act.available!==false;
 
   // KPI 数字
@@ -373,7 +378,7 @@ function renderAll(range){
   var reported=d&&d.by_dealer?d.by_dealer.length:0;
 
   document.getElementById('kpiBar').style.display='';
-  document.getElementById('k-sellout').textContent=(vpsTotal/10000).toFixed(1)+' 万';
+  document.getElementById('k-sellout').textContent=vps&&vps.dealers?(vpsTotal/10000).toFixed(1)+' 万':'—';
   document.getElementById('k-activated').textContent=actUsable?totAct:'—';
   document.getElementById('k-notact').textContent=actUsable?totNot:'—';
   document.getElementById('k-stock').textContent=stock==null?'—':stock;
@@ -458,7 +463,7 @@ function renderCards(){
   var filtered=allStores.filter(function(store){
     var sd=dealerMap[store.store_id]||null;
     var vd=lookup(store.name,vpsMap);
-    var hasKit=sd&&sd.total_visits>0;
+    var hasKit=!!sd;
     var hasVps=vd&&(vd.sell_out_yuan>0||vd.qty>0);
     if(currentFilter==='reported')return hasKit;
     if(currentFilter==='norep')return !hasKit;
@@ -481,7 +486,7 @@ function renderCards(){
 
 // ── 单张卡片 ────────────────────────────────────────────────────────────────
 function renderCard(store,sd,vd,ad){
-  var hasKit=sd&&sd.total_visits>0;
+  var hasKit=!!sd;
   var hasVps=vd&&(vd.sell_out_yuan>0||vd.qty>0);
   var hasAct=ad&&(ad.activated>0||ad.not_activated>0);
   var hasSome=hasKit||hasVps||hasAct;
@@ -510,7 +515,7 @@ function renderCard(store,sd,vd,ad){
     +'<div class="metric"><div class="metric-lab">激活 / 率</div>'
     +'<div class="metric-val v-blue">'+esc(String(actVal))+'</div>'
     +'<div class="metric-sub">'+esc(String(actRate))+'</div></div>'
-    +'<div class="metric"><div class="metric-lab">本月进店</div>'
+    +'<div class="metric"><div class="metric-lab">'+esc((window._activeRange&&window._activeRange.label)||'所选期间')+'进店</div>'
     +'<div class="metric-val v-ink">'+esc(String(visitsVal))+'</div>'
     +(dealSub?'<div class="metric-sub">'+esc(dealSub)+'</div>':'')+'</div>'
     +'</div>';
@@ -563,7 +568,7 @@ function renderCard(store,sd,vd,ad){
   // 无数据态
   var noData='';
   if(!hasSome){
-    noData='<div class="no-entry">本月暂无数据<br><strong>点击录入开始填报</strong></div>';
+    noData='<div class="no-entry">'+esc((window._activeRange&&window._activeRange.label)||'所选期间')+'暂无数据<br><strong>点击录入开始填报</strong></div>';
   }
 
   var footTxt=hasVps

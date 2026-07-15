@@ -45,6 +45,13 @@
     .progress{margin-top:8px;height:6px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;width:100%}
     .progress span{display:block;height:100%;background:#4e9ef5;border-radius:999px}
     .empty-hint{color:#475569;font-size:13px;padding:8px 0}
+    .today-grid{display:grid;grid-template-columns:1.1fr 1.4fr .8fr;gap:16px;margin-bottom:16px}
+    .today-panel{padding:20px}.today-title{font-size:17px;font-weight:800;margin-bottom:12px}
+    .truth-row,.action-row{padding:10px 0;border-top:1px solid rgba(255,255,255,.06)}
+    .truth-row:first-child,.action-row:first-child{border-top:0}.truth-name{color:#94a3b8;font-size:13px}.truth-value{float:right;font-weight:800}
+    .truth-source{display:block;color:#475569;font-size:11px;margin-top:4px}.state-missing{color:#f59e0b}
+    .action-row{display:block;color:#e2e8f0;text-decoration:none}.action-row strong{display:block;font-size:14px}.action-row span{color:#64748b;font-size:12px}
+    .closure-value{font-size:36px;font-weight:900;color:#4e9ef5}.closure-note{font-size:12px;color:#64748b;margin-top:8px}
     #dataUpdateHint{font-size:12px;color:#475569}
     /* 模块入口卡片 */
     .module-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
@@ -58,7 +65,7 @@
     .module-card-desc{font-size:13px;color:#475569}
     .module-card-arrow{font-size:20px;color:#4e9ef5;opacity:.55;flex-shrink:0;margin-left:12px}
     @media(max-width:1000px){
-      .top-stats,.module-cards{grid-template-columns:1fr}
+      .top-stats,.module-cards,.today-grid{grid-template-columns:1fr}
       .customer-grid{grid-template-columns:repeat(2,1fr)}
     }
   </style>
@@ -74,6 +81,22 @@
         <button type="button" class="btn" id="btnRebuild" onclick="rebuildDashboard()" title="重新运行 bridge 脚本生成最新数据（约1-3分钟）" style="background:rgba(78,158,245,.12);color:#4e9ef5;border-color:rgba(78,158,245,.3)">重建数据</button>
         <span id="rebuildStatus" style="font-size:12px;color:#f59e0b;display:none"></span>
       </div>
+    </div>
+
+    <div class="today-grid">
+      <section class="card today-panel">
+        <div class="today-title">今天发生了什么</div>
+        <div id="todayFacts"><div class="empty-hint">正在读取当前账号范围内的真实数据…</div></div>
+      </section>
+      <section class="card today-panel">
+        <div class="today-title">现在做什么</div>
+        <div id="todayActions"><div class="empty-hint">正在识别异常和缺口…</div></div>
+      </section>
+      <section class="card today-panel">
+        <div class="today-title">今日闭环</div>
+        <div class="closure-value" id="closureValue">—</div>
+        <div class="closure-note" id="closureNote">只按真实上报计算</div>
+      </section>
     </div>
 
     <div class="top-stats">
@@ -159,6 +182,7 @@
       sellIn: '/api/dashboard/sell-in',
       sellOut: '/api/dashboard/sell-out',
       customerCenter: '/api/customer-center/summary',
+      today: '/api/workbench/today',
     };
 
     const _qs0 = new URLSearchParams(location.search);
@@ -257,7 +281,7 @@
       if (wan != null && wan !== '') {
         amountEl.innerHTML = formatWanHtml(wan);
       } else {
-        amountEl.innerHTML = '<span class="amount-num">' + escapeHtml(amountText || '¥ 0') + '</span>';
+        amountEl.innerHTML = '<span class="amount-num">' + escapeHtml(amountText || '—') + '</span>';
       }
       if (footEl) footEl.textContent = note || '';
     }
@@ -265,6 +289,10 @@
     async function refreshDashboard() {
       const params = { managerId: 'default' };
       let overview = null;
+
+      await loadSection('today', async function () {
+        renderToday(await request(API.today, {}));
+      });
 
       await loadSection('overview', async function () {
         overview = await request(API.dashboard, params);
@@ -314,19 +342,39 @@
       });
     }
 
+    function renderToday(data) {
+      const labels = {walkin_visits:'今日进店',walkin_reported:'已上报门店',walkin_missing:'未上报门店',logistics_attention:'物流异常/待核查'};
+      const keys = ['walkin_visits','walkin_reported','walkin_missing','logistics_attention'];
+      todayFacts.innerHTML = keys.map(function (key) {
+        const fact = (data.facts||{})[key] || {};
+        const missing = fact.state !== 'available';
+        return '<div class="truth-row"><span class="truth-name">'+escapeHtml(labels[key])+'</span>'+
+          '<span class="truth-value '+(missing?'state-missing':'')+'">'+escapeHtml(missing?'未同步':String(fact.value))+'</span>'+
+          '<span class="truth-source">来源：'+escapeHtml(fact.source||'未知')+(fact.message?' · '+escapeHtml(fact.message):'')+'</span></div>';
+      }).join('');
+      todayActions.innerHTML = (data.actions||[]).map(function (item) {
+        const tag = item.href ? 'a' : 'div';
+        return '<'+tag+' class="action-row"'+(item.href?' href="'+escapeHtml(item.href)+'"':'')+'><strong>'+escapeHtml(item.title)+'</strong><span>'+escapeHtml(item.message)+'</span></'+tag+'>';
+      }).join('') || '<div class="empty-hint">暂无可识别行动</div>';
+      const closure = data.closure||{};
+      closureValue.textContent = closure.expected ? (closure.reported+'/'+closure.expected) : '—';
+      closureNote.textContent = closure.expected ? (closure.complete?'今日门店上报已闭环':'仍有 '+(closure.expected-closure.reported)+' 家待上报') : '账号未绑定可见门店';
+    }
+
     function renderCustomers(data) {
       if (!data || !data.length) {
         customerCenter.innerHTML = '<div class="empty-hint">暂无客户分层数据</div>';
         return;
       }
       customerCenter.innerHTML = data.map(function (item) {
-        const width = item.target > 0 ? Math.min(item.touched / item.target * 100, 100) : 0;
+        const touchedKnown = item.touched != null;
+        const width = touchedKnown && item.target > 0 ? Math.min(item.touched / item.target * 100, 100) : 0;
         return (
           '<div class="card metric-card metric-link" onclick="location.href=\'/customer-mgmt\'">' +
           '<div class="metric-body">' +
           '<div class="metric-label">' + escapeHtml(item.level) + ' 类客户</div>' +
           '<div class="metric-value"><span class="amount-num">' + item.total + '<span class="amount-unit">家</span></span></div>' +
-          '<div class="metric-foot">触达 ' + item.touched + '/' + item.target + '</div>' +
+          '<div class="metric-foot">触达 ' + (touchedKnown?item.touched:'未同步') + '/' + item.target + '</div>' +
           '<div class="progress"><span style="width:' + width + '%"></span></div>' +
           '</div></div>'
         );

@@ -181,13 +181,23 @@ def serve_dashboard_html(handler, dashboard_path, date_text):
 
 
 def filter_dealers_for_user(dealers, session_user):
-    """sales 角色只看自己名下代理（salesPerson 匹配 sales_name），其余角色看全公司。"""
-    if not session_user or session_user.get("role") != "sales":
+    """Apply the server-resolved dealer scope; restricted users fail closed."""
+    if not session_user:
         return dealers
-    sales_name = str(session_user.get("sales_name") or "").strip()
-    if not sales_name:
+    mode = str(session_user.get("data_scope") or "none").strip().lower()
+    if mode == "all":
         return dealers
-    return [d for d in dealers if str(d.get("salesPerson") or "").strip() == sales_name]
+    allowed_names = {
+        str(value or "").strip().casefold()
+        for value in (session_user.get("allowed_dealer_names") or [])
+        if str(value or "").strip()
+    }
+    if not allowed_names:
+        return []
+    return [
+        d for d in dealers
+        if str(d.get("dealerName") or d.get("name") or "").strip().casefold() in allowed_names
+    ]
 
 
 def load_dealer_reference():
@@ -201,19 +211,21 @@ def load_dealer_reference():
 
 
 def fmt_cny(amount):
+    if amount is None:
+        return "—"
     value = int(round(float(amount or 0)))
     return f"¥ {value:,}"
 
 
 def dealer_sell_out_total(dealers):
-    total = sum(float(d.get("sellOutAmount") or 0) for d in dealers)
-    if total > 0:
-        return total, "代理商终销汇总"
-    estimate = 0.0
-    for dealer in dealers:
-        ctype = (dealer.get("customerType") or "S").upper()[:1]
-        estimate += TIER_ESTIMATE_SELL_OUT.get(ctype, 420000)
-    return estimate, "代理商终销汇总"
+    values = [
+        d.get("sellOutAmount")
+        for d in dealers
+        if d.get("sellOutAmount") not in (None, "")
+    ]
+    if not values:
+        return None, "未同步终销数据"
+    return sum(float(value or 0) for value in values), "代理商终销汇总"
 
 
 def load_chart_data(date_text):
@@ -265,8 +277,8 @@ def api_dashboard_overview(date_text, period, session_user=None):
         role = nested_value(user, "job_title", "role") or "PDCA 工作台"
     dealers = filter_dealers_for_user(load_dealer_reference(), session_user)
     sell_out, sell_out_sub = dealer_sell_out_total(dealers)
-    sell_in_sub = ""
-    sell_in_wan = 0.0
+    sell_in_sub = "未同步业绩数据"
+    sell_in_wan = None
     scope_sales_name = ""
     if session_user and session_user.get("role") == "sales":
         scope_sales_name = str(session_user.get("sales_name") or "").strip()
@@ -274,35 +286,41 @@ def api_dashboard_overview(date_text, period, session_user=None):
     if chart_sell_in:
         sell_in, sell_in_wan, sell_in_sub = chart_sell_in
     else:
-        sell_in = sell_out * 1.28 if sell_out else 0
-        sell_in_sub = "待更新业绩数据"
-        sell_in_wan = round(sell_in / 10000, 2) if sell_in else 0
-    im_unread = fetch_vps_im_unread(with_latest=False)
-    pdca_plan = fetch_pdca_today_plan(date_text)
+        sell_in = None
+    unrestricted = not session_user or session_user.get("data_scope") == "all"
+    im_unread = fetch_vps_im_unread(with_latest=False) if unrestricted else {"ok": False, "unread_count": 0}
+    pdca_plan = fetch_pdca_today_plan(date_text) if unrestricted else {
+        "ok": False,
+        "rows": [],
+        "yesterday": previous_date_text(date_text),
+        "warning": "共享 IM 日报未纳入当前账号的数据范围",
+    }
     out = output_dir(date_text)
     pdca_path = out / "pdca_daily_check.md"
-    score = 88
-    comment = "昨日客户触达与待办推进正常，请关注 IM 未读与高优先级待办。"
-    if pdca_path.is_file():
+    score = None
+    comment = "评分未接入可验证证据，暂不计算。"
+    if unrestricted and pdca_path.is_file():
         text = pdca_path.read_text(encoding="utf-8", errors="ignore")[:800]
         if "风险" in text or "高风险" in text:
-            score = 76
+            score = None
             comment = "PDCA 日结提示存在风险项，请优先处理检查报告中的异常。"
         elif text.strip():
             comment = "已读取今日 PDCA 检查摘要，建议结合数据看板核对 Sell out 与过程指标。"
-    if not pdca_plan["ok"]:
-        score = max(70, score - 6)
+    if not unrestricted:
+        comment += " 当前账号只展示已明确归属的数据，未读取服务器共享 IM/日报。"
+    elif not pdca_plan["ok"]:
+        score = None
         comment += f" 昨日日报拉取异常：{pdca_plan['warning'][:60]}"
     elif not pdca_plan["rows"]:
-        score = max(74, score - 4)
+        score = None
         comment += f" 昨日（{pdca_plan['yesterday']}）日报未写入明日计划，请补交或打开 PDCA 日结。"
     elif len(pdca_plan["rows"]) > 8:
-        score = max(72, score - 4)
+        score = None
         comment += f" 今日计划 {len(pdca_plan['rows'])} 项（来自昨日日报明日计划），建议按优先级闭环。"
     else:
         comment += f" 今日计划 {len(pdca_plan['rows'])} 项来自昨日日报明日计划。"
     if im_unread["ok"] and im_unread["unread_count"] > 0:
-        score = max(68, score - 5)
+        score = None
         comment += f" IM 未读 {im_unread['unread_count']} 条待处理。"
     period_note = {"day": "日", "week": "周", "month": "月", "quarter": "季"}.get(period, "日")
     return {
@@ -311,11 +329,16 @@ def api_dashboard_overview(date_text, period, session_user=None):
         "sellInAmount": fmt_cny(sell_in),
         "sellInWan": sell_in_wan,
         "sellOutAmount": fmt_cny(sell_out),
-        "sellOutWan": round(sell_out / 10000, 2) if sell_out else 0,
+        "sellOutWan": round(sell_out / 10000, 2) if sell_out is not None else None,
         "sellInSub": sell_in_sub,
         "sellOutSub": sell_out_sub,
         "agentScore": score,
         "scoreComment": comment,
+        "dataState": {
+            "sellIn": "live" if sell_in is not None else "missing",
+            "sellOut": "live" if sell_out is not None else "missing",
+            "agentScore": "missing",
+        },
     }
 
 
@@ -413,11 +436,8 @@ def api_customer_center_summary(session_user=None):
     for level in ("S", "A", "B", "C"):
         rows = buckets[level]
         target = CUSTOMER_TIER_TARGETS[level]
-        touched = min(target, len(rows))
+        touched = None
         result.append({"level": level, "total": len(rows), "touched": touched, "target": target})
-    if not dealers:
-        for level, target in CUSTOMER_TIER_TARGETS.items():
-            result.append({"level": level, "total": 0, "touched": 0, "target": target})
     return result
 
 
@@ -2321,8 +2341,8 @@ def todo_id_value(row):
 
 
 def is_done_status(value):
-    text = str(value or "").lower()
-    return any(token in text for token in ["完成", "已完成", "done", "completed", "closed", "close"])
+    text = " ".join(str(value or "").strip().lower().split())
+    return text in {"完成", "已完成", "done", "completed", "closed", "close"}
 
 
 def find_matching_task(title, rows):
@@ -2333,7 +2353,11 @@ def find_matching_task(title, rows):
         candidate = normalized_task_text(task_title(row))
         if not candidate:
             continue
-        if needle in candidate or candidate in needle:
+        # A partial title match can mark an unrelated task as delivered (and
+        # even turns "未完成" into completion in combination with fuzzy status
+        # parsing).  Only exact normalized titles are acceptable when no
+        # stable todo_id is present.
+        if needle == candidate:
             return row
     return None
 
@@ -4075,7 +4099,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         self.send_bytes(asset.read_bytes(), guessed or "application/octet-stream")
 
     def send_walkin_api(self, query, date_text):
-        """Walk-in 数据：VPS > Excel 参考 JSON > mock。"""
+        """Walk-in 数据：数据库/VPS/已核验参考源；缺失时明确返回不可用。"""
         month = (query.get("month", [""])[0] or "").strip()
         if not re.fullmatch(r"\d{4}-\d{2}", month):
             month = (date_text or today_text())[:7]

@@ -1,34 +1,63 @@
 # -*- coding: utf-8 -*-
-"""物流板块 API。"""
+"""Logistics APIs with mandatory row-level scope."""
 from __future__ import annotations
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlmodel import Session
 
 from app.auth.deps import require_role
 from app.auth.models import User
+from app.auth.scope import normalize_scope_key, resolve_data_scope
+from app.database import get_session
 from app.logistics import service
 
 router = APIRouter(prefix="/api/logistics", tags=["logistics"])
 
 
-def _sales_filter_from_user(user: User, salesperson: str) -> str | None:
-    return service.resolve_sales_filter(
-        user.role,
-        getattr(user, "sales_name", "") or "",
-        user.display_name,
-        user.username,
-        salesperson,
-    )
+def _scoped_shipments(rows: list[dict], user: User, session: Session) -> tuple[list[dict], str]:
+    scope = resolve_data_scope(user, session)
+    if scope.unrestricted:
+        return rows, "全部"
+    owners = {normalize_scope_key(value) for value in scope.owner_keys if normalize_scope_key(value)}
+    dealers = {normalize_scope_key(value) for value in scope.dealer_names if normalize_scope_key(value)}
+    filtered = [
+        row for row in rows
+        if normalize_scope_key(row.get("salesperson")) in owners
+        or (user.role == "dealer" and normalize_scope_key(row.get("customer")) in dealers)
+    ]
+    return filtered, "当前权限范围"
+
+
+def _load_scoped(
+    date: str | None,
+    salesperson: str,
+    status: str,
+    q: str,
+    open_only: bool,
+    user: User,
+    session: Session,
+) -> tuple[list[dict], str, str]:
+    date_key = date or "all"
+    rows = service.load_shipments(date_key, None, status, q, open_only)
+    rows, label = _scoped_shipments(rows, user, session)
+    scope = resolve_data_scope(user, session)
+    if salesperson.strip() and scope.unrestricted:
+        requested = service.canonical_sales_name(salesperson)
+        rows = [row for row in rows if service.canonical_sales_name(row.get("salesperson", "")) == requested]
+        label = requested
+    return rows, label, date_key
 
 
 @router.get("/dates")
 async def logistics_dates(
     user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
-    """有物流数据的录入日期。"""
-    return {"items": service.list_available_dates()}
+    rows, _label = _scoped_shipments(service.load_shipments("all"), user, session)
+    dates = sorted({str(row.get("record_date") or "") for row in rows if row.get("record_date")}, reverse=True)
+    return {"items": dates}
 
 
 @router.get("/summary")
@@ -39,18 +68,10 @@ async def logistics_summary(
     q: str = Query(""),
     open_only: bool = Query(False),
     user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
-    """当前用户可见的物流进展汇总。"""
-    sales_filter = _sales_filter_from_user(user, salesperson)
-    date_key = date or "all"
-    shipments = service.load_shipments(date_key, sales_filter, status, q, open_only)
-    summary = service.build_summary(shipments)
-    return {
-        "date": date_key,
-        "salesperson": sales_filter or "全部",
-        "role": user.role,
-        **summary,
-    }
+    shipments, label, date_key = _load_scoped(date, salesperson, status, q, open_only, user, session)
+    return {"date": date_key, "salesperson": label, "role": user.role, **service.build_summary(shipments)}
 
 
 @router.get("/shipments")
@@ -61,31 +82,25 @@ async def logistics_shipments(
     q: str = Query(""),
     open_only: bool = Query(False),
     user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
-    """运单列表（销售角色仅看自己）。"""
-    sales_filter = _sales_filter_from_user(user, salesperson)
-    date_key = date or "all"
-    rows = service.load_shipments(date_key, sales_filter, status, q, open_only)
-    return {
-        "date": date_key,
-        "salesperson": sales_filter or "全部",
-        "count": len(rows),
-        "items": rows,
-    }
+    rows, label, date_key = _load_scoped(date, salesperson, status, q, open_only, user, session)
+    return {"date": date_key, "salesperson": label, "count": len(rows), "items": rows}
 
 
 @router.get("/salespeople")
 async def logistics_salespeople(
     user: Annotated[User, Depends(require_role("manager"))],
+    session: Annotated[Session, Depends(get_session)],
 ):
-    """主管可选的销售名单。"""
-    return {"items": service.list_salespeople()}
+    rows, _label = _scoped_shipments(service.load_shipments("all"), user, session)
+    names = sorted({service.canonical_sales_name(row.get("salesperson", "")) for row in rows if row.get("salesperson")})
+    return {"items": names}
 
 
 @router.post("/refresh-tracking")
 async def refresh_tracking(
-    user: Annotated[User, Depends(require_role("manager"))],
+    _user: Annotated[User, Depends(require_role("admin"))],
 ):
-    """从 UPS/FedEx/DHL 官网抓取在途运单最新状态（SF 顺丰需图形验证码，跳过）。"""
-    result = await service.refresh_tracking_statuses()
-    return result
+    """Global carrier sync is an admin-only operation."""
+    return await service.refresh_tracking_statuses()

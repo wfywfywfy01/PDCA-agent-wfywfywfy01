@@ -49,14 +49,15 @@ def generate_fabe(customer: dict, product: str = PRODUCT_DEFAULT) -> dict:
     feature = f"{product} 提供门店数字化与客户全周期管理"
     advantage = "相比传统 Excel 台账，可实时看漏斗、跟进提醒与团队过程指标"
     benefit = f"当 {company} 拓展 {country} 市场时，你不需要反复手工汇总日报，系统自动 Check 超期客户"
-    evidence = "已有经销商团队通过 PDCA 工作台将 A 类客户跟进及时率提升至 100%"
+    evidence = str(customer.get("evidence") or customer.get("verified_evidence") or "").strip()
 
     body = (
         f"{contact}，关注到 {company} 在 {pain} 上的投入。\n\n"
         f"【功能】{feature}。\n"
         f"【优势】{advantage}。\n"
         f"【利益】{benefit}。\n"
-        f"【证据】{evidence}。\n\n"
+        + (f"【已核验证据】{evidence}。\n" if evidence else "")
+        + "\n"
         f"若方便，我可以发一份 1 页案例摘要供参考，无需回复也没关系。"
     )
 
@@ -64,7 +65,7 @@ def generate_fabe(customer: dict, product: str = PRODUCT_DEFAULT) -> dict:
         "template_type": "fabe_email",
         "contact": contact,
         "company": company,
-        "fabe": {"F": feature, "A": advantage, "B": benefit, "E": evidence},
+        "fabe": {"F": feature, "A": advantage, "B": benefit, "E": evidence or None},
         "content": body,
         "constraints": _methodology().get("hard_constraints", []),
     }

@@ -17,6 +17,7 @@ from app.database import get_session
 from app.main import app
 from app.models.daily_report import DailyReport
 from app.models.dealer_store import DealerStore
+from app.models.dealer_assignment import DealerAssignment
 from app.models.logistics import LogisticsShipment
 from app.models.walkin_daily_report import WalkinDailyReport
 
@@ -85,6 +86,14 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             session.add_all(
                 [
                     User(
+                        username="admin",
+                        hashed_password=password,
+                        role="admin",
+                        display_name="Admin",
+                        data_scope="all",
+                        must_change_password=False,
+                    ),
+                    User(
                         username="forced-admin",
                         hashed_password=password,
                         role="admin",
@@ -104,6 +113,8 @@ class AuthAndWriteFlowTests(unittest.TestCase):
                         role="sales",
                         display_name="Sales",
                         sales_name="Alice Sales",
+                        owner_key="alice-owner",
+                        data_scope="self",
                         must_change_password=False,
                     ),
                     User(
@@ -114,14 +125,39 @@ class AuthAndWriteFlowTests(unittest.TestCase):
                         dealer_id="store-a",
                         must_change_password=False,
                     ),
+                    User(
+                        username="sales-bob",
+                        hashed_password=password,
+                        role="sales",
+                        display_name="Bob",
+                        sales_name="Bob Sales",
+                        owner_key="bob-owner",
+                        data_scope="self",
+                        must_change_password=False,
+                    ),
                     DealerStore(
                         store_id="store-a",
                         name="Dealer A",
-                        sales_owner="sales",
+                        sales_owner="alice-owner",
+                        team_key="overseas",
+                        is_active=True,
+                    ),
+                    DealerStore(
+                        store_id="store-b",
+                        name="Dealer B",
+                        sales_owner="bob-owner",
+                        team_key="overseas",
                         is_active=True,
                     ),
                 ]
             )
+            session.commit()
+            sales = session.exec(select(User).where(User.username == "sales")).one()
+            bob = session.exec(select(User).where(User.username == "sales-bob")).one()
+            session.add_all([
+                DealerAssignment(user_id=sales.id, store_id="store-a"),
+                DealerAssignment(user_id=bob.id, store_id="store-b"),
+            ])
             session.commit()
 
     def _login(self, username: str, password: str = "Correct-password-123"):
@@ -191,7 +227,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         self.assertEqual(write_forbidden.status_code, 403)
 
     def test_questionnaire_write_saves_file_and_database_mirror(self):
-        self.assertEqual(self._login("sales").status_code, 200)
+        self.assertEqual(self._login("admin").status_code, 200)
         questionnaire_path = Path(self.temp_dir.name) / "2024-01-02_questionnaire.md"
 
         def save_questionnaire(date_text: str, form: dict[str, list[str]]):
@@ -305,6 +341,39 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             self.assertEqual(row.deal_count, 2)
             self.assertEqual(row.deal_amount_yuan, 1280.5)
 
+    def test_sales_accounts_cannot_read_or_write_each_others_stores(self):
+        with Session(self.engine) as session:
+            session.add(WalkinDailyReport(
+                report_date="2024-01-02", dealer_id="store-b", dealer_name="Dealer B",
+                walkin_visits=9, submitted_by="sales-bob",
+            ))
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        stores = self.client.get("/api/my-stores")
+        self.assertEqual([row["store_id"] for row in stores.json()], ["store-a"])
+        denied_read = self.client.get("/api/walkin-metrics?month=2024-01&dealer_id=store-b")
+        self.assertEqual(denied_read.status_code, 403)
+        denied_write = self.client.post("/api/walkin-metrics", json={
+            "report_date": "2024-01-02", "dealer_id": "store-b", "dealer_name": "Dealer B",
+        })
+        self.assertEqual(denied_write.status_code, 403)
+
+    def test_today_workbench_reports_only_current_scope_and_truth_state(self):
+        with Session(self.engine) as session:
+            session.add_all([
+                WalkinDailyReport(report_date="2024-01-02", dealer_id="store-a", dealer_name="Dealer A", walkin_visits=0),
+                WalkinDailyReport(report_date="2024-01-02", dealer_id="store-b", dealer_name="Dealer B", walkin_visits=12),
+            ])
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        response = self.client.get("/api/workbench/today?date=2024-01-02")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["scope"]["store_ids"], ["store-a"])
+        self.assertEqual(payload["facts"]["walkin_reported"]["value"], 1)
+        self.assertEqual(payload["facts"]["walkin_visits"]["value"], 0)
+        self.assertTrue(payload["closure"]["complete"])
+
     def test_walkin_get_rebuilds_payload_from_database_without_monthly_json(self):
         with Session(self.engine) as session:
             session.add(
@@ -351,7 +420,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             patch.object(workbench_data, "VN_COLLECT", empty_data / "missing-collect.json"),
         ):
             self.assertFalse(missing_bundle.exists())
-            self.assertEqual(self._login("viewer").status_code, 200)
+            self.assertEqual(self._login("dealer").status_code, 200)
             response = self.client.get(
                 "/api/walkin?month=2024-01&date=2024-01-31"
             )

@@ -72,6 +72,9 @@ class UserOut(BaseModel):
     role: str
     display_name: str
     sales_name: str = ""
+    owner_key: str = ""
+    team_key: str = ""
+    data_scope: str = ""
     must_change_password: bool = False
 
 
@@ -158,6 +161,9 @@ async def vps_bootstrap(
             role=user.role,
             display_name=user.display_name,
             sales_name=getattr(user, "sales_name", "") or "",
+            owner_key=getattr(user, "owner_key", "") or "",
+            team_key=getattr(user, "team_key", "") or "",
+            data_scope=getattr(user, "data_scope", "") or "",
             must_change_password=False,
         ),
     }
@@ -212,6 +218,9 @@ async def login(
             role=user.role,
             display_name=user.display_name,
             sales_name=getattr(user, "sales_name", "") or "",
+            owner_key=getattr(user, "owner_key", "") or "",
+            team_key=getattr(user, "team_key", "") or "",
+            data_scope=getattr(user, "data_scope", "") or "",
             must_change_password=must_change,
         ),
     }
@@ -230,6 +239,9 @@ async def me(user: Annotated[User, Depends(get_current_user)]):
         role=user.role,
         display_name=user.display_name,
         sales_name=getattr(user, "sales_name", "") or "",
+        owner_key=getattr(user, "owner_key", "") or "",
+        team_key=getattr(user, "team_key", "") or "",
+        data_scope=getattr(user, "data_scope", "") or "",
         must_change_password=getattr(user, "must_change_password", False),
     )
 

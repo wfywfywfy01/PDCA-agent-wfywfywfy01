@@ -17,6 +17,7 @@ from app.auth.scope import visible_dealer_names, visible_store_ids
 from app.config import Settings
 from app.main import app, health
 from app.models.dealer_store import DealerStore
+from app.models.dealer_assignment import DealerAssignment
 from app.models.walkin_daily_report import WalkinDailyReport
 from app.logistics.service import _is_delivered, _is_demo_record, _judge_status
 from app.vertu.sales import fetch_dealer_sales_orders_sync
@@ -133,11 +134,38 @@ class DataScopeTests(unittest.TestCase):
         self.assertEqual(visible_dealer_names(user, self.session), ["Dealer A"])
 
     def test_sales_scope_uses_store_owner(self):
-        user = User(role="sales", username="alice")
+        user = User(role="sales", username="alice", hashed_password="test", owner_key="alice", data_scope="self")
+        self.session.add(user)
+        self.session.commit()
+        self.session.refresh(user)
+        self.session.add(DealerAssignment(user_id=user.id, store_id="store-a"))
+        self.session.commit()
         self.assertEqual(visible_store_ids(user, self.session), ["store-a"])
 
-    def test_manager_scope_is_unrestricted(self):
-        self.assertIsNone(visible_store_ids(User(role="manager"), self.session))
+    def test_manager_scope_is_limited_to_team(self):
+        self.assertEqual(visible_store_ids(User(role="manager"), self.session), ["store-a", "store-b"])
+
+    def test_unconfigured_sales_fails_closed(self):
+        user = User(role="sales", username="alice", hashed_password="test")
+        self.session.add(user)
+        self.session.commit()
+        self.assertEqual(visible_store_ids(user, self.session), [])
+
+    def test_admin_scope_is_unrestricted(self):
+        self.assertIsNone(visible_store_ids(User(role="admin"), self.session))
+
+    def test_meeting_counts_are_recomputed_after_scope_filter(self):
+        from app.meeting.router import _apply_meeting_scope
+        user = User(role="sales", username="alice-meeting", hashed_password="test", owner_key="alice", sales_name="Alice Sales", data_scope="self")
+        self.session.add(user); self.session.commit(); self.session.refresh(user)
+        self.session.add(DealerAssignment(user_id=user.id, store_id="store-a")); self.session.commit()
+        payload = {"counts": {"total": 2, "customer": 2}, "meetings": [
+            {"id": "a", "bucket": "customer", "participants": [{"name": "Alice Sales"}]},
+            {"id": "b", "bucket": "customer", "participants": [{"name": "Bob Sales"}]},
+        ]}
+        scoped = _apply_meeting_scope(payload, user, self.session)
+        self.assertEqual([row["id"] for row in scoped["meetings"]], ["a"])
+        self.assertEqual(scoped["counts"], {"total": 1, "interview": 0, "report": 0, "customer": 1})
 
 
 class RouteRegistrationTests(unittest.TestCase):
@@ -154,6 +182,21 @@ class RouteRegistrationTests(unittest.TestCase):
 
 
 class ProductionHardeningTests(unittest.TestCase):
+    def test_pdca_completion_requires_exact_status_and_title(self):
+        from app.legacy import bridge
+        legacy = bridge.wb()
+        self.assertFalse(legacy.is_done_status("未完成"))
+        self.assertTrue(legacy.is_done_status("已完成"))
+        rows = [{"title": "跟进印度客户报价补充", "status": "已完成"}]
+        self.assertIsNone(legacy.find_matching_task("跟进印度客户报价", rows))
+        self.assertIsNotNone(legacy.find_matching_task("跟进印度客户报价补充", rows))
+
+    def test_empty_customer_scope_returns_one_row_per_grade(self):
+        from app.legacy import bridge
+        rows = bridge.wb().api_customer_center_summary({"data_scope": "self", "allowed_dealer_names": []})
+        self.assertEqual([row["level"] for row in rows], ["S", "A", "B", "C"])
+        self.assertTrue(all(row["total"] == 0 and row["touched"] is None for row in rows))
+
     def test_degraded_health_returns_service_unavailable(self):
         settings = SimpleNamespace(environment="production", require_vertu=True)
         with (
@@ -273,7 +316,7 @@ class ProductionHardeningTests(unittest.TestCase):
             ):
                 result = asyncio.run(
                     walkin_metrics_summary(
-                        user=User(role="manager"),
+                        user=User(role="admin"),
                         session=session,
                         month="2026-07",
                         start="",

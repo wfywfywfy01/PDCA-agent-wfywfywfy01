@@ -16,7 +16,7 @@
       "subtitle": "红桃 · 从推销到销售",
       "modules": [
         { "id": "brand_story", "title": "品牌与产品认知", "duration_min": 90, "format": "视频+问答", "owner": "team_lead" },
-        { "id": "pdca_workbench", "title": "PDCA 工作台与客户管理入口", "duration_min": 60, "format": "实操", "links": ["/login", "/customer-mgmt", "/logistics-center/"] },
+        { "id": "pdca_workbench", "title": "PDCA 工作台与客户管理入口", "duration_min": 60, "format": "实操", "links": ["/", "/customer-mgmt", "/logistics-center/"] },
         { "id": "signalseller_intro", "title": "SignalSeller 五 Agent 与四花色方法论", "duration_min": 45, "format": "讲义", "ref": "docs/SIGNALSELLER_PDCA_INTEGRATION.md" },
         { "id": "fab_spin_basics", "title": "FABE 与 SPIN 入门", "duration_min": 60, "format": "案例演练", "agent": "OutreachCrafter" }
       ],

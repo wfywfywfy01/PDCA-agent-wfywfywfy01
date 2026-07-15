@@ -292,6 +292,7 @@
 var API = '';
 var storeMap = {};
 var _role = '';
+function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
 
 function fmtAmt(v) {
   if (!v || v <= 0) return null;
@@ -330,10 +331,10 @@ fetch('/api/auth/me', {credentials:'include'})
         stores.forEach(function(s){
           storeMap[s.store_id] = s.name;
           var lbl = s.name + ' (' + s.country + ' · ' + (s.dealer_level||'L1') + ')';
-          sel.insertAdjacentHTML('beforeend',
-            '<option value="'+s.store_id+'" data-name="'+s.name+'">'+lbl+'</option>');
-          hSel.insertAdjacentHTML('beforeend',
-            '<option value="'+s.store_id+'">'+s.name+'</option>');
+          var entry=document.createElement('option');
+          entry.value=s.store_id; entry.dataset.name=s.name; entry.textContent=lbl; sel.appendChild(entry);
+          var historyEntry=document.createElement('option');
+          historyEntry.value=s.store_id; historyEntry.textContent=s.name; hSel.appendChild(historyEntry);
         });
         // dealer role: hide store filter in history
         if (_role === 'dealer') {
@@ -458,7 +459,8 @@ function loadHistory(){
   var month  = document.getElementById('hist_month').value;
   var dealer = document.getElementById('hist_dealer').value;
   document.getElementById('exportBtn').href =
-    API+'/api/export/walkin-metrics?month='+encodeURIComponent(month);
+    API+'/api/export/walkin-metrics?month='+encodeURIComponent(month)
+      +'&dealer_id='+encodeURIComponent(dealer);
   var url = API+'/api/walkin-metrics?month='+encodeURIComponent(month)
                 +'&dealer_id='+encodeURIComponent(dealer);
   document.getElementById('histBody').innerHTML =
@@ -483,9 +485,9 @@ function loadHistory(){
       if (!amountNeedsReview) totAmt+=amt;
       function n(v){ return (v||0)===0 ? '<span class="num-zero">0</span>' : v; }
       html+='<tr>'
-        +'<td class="left">'+r.report_date+'</td>'
+        +'<td class="left">'+esc(r.report_date)+'</td>'
         +'<td class="left" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">'
-          +(storeMap[r.dealer_id]||r.dealer_id)+'</td>'
+          +esc(storeMap[r.dealer_id]||r.dealer_id)+'</td>'
         +'<td>'+n(fk.walkin)+'</td>'
         +'<td>'+n(fk.cross)+'</td>'
         +'<td>'+n(fk.online)+'</td>'
@@ -499,7 +501,7 @@ function loadHistory(){
           : fmtAmt(amt)
           ? '<span class="tag-green">'+fmtAmt(amt)+'</span>'
           : '<span class="num-zero">—</span>')+'</td>'
-        +'<td style="color:var(--s400);font-size:.72rem">'+(r.submitted_by||'—')+'</td>'
+        +'<td style="color:var(--s400);font-size:.72rem">'+esc(r.submitted_by||'—')+'</td>'
         +'</tr>';
     });
     document.getElementById('histBody').innerHTML = html;
@@ -512,6 +514,8 @@ function loadHistory(){
       '<tr><td colspan="12" class="empty">Failed to load</td></tr>';
   });
 }
+document.getElementById('hist_month').addEventListener('change',loadHistory);
+document.getElementById('hist_dealer').addEventListener('change',loadHistory);
 </script>
 </body>
 </html>

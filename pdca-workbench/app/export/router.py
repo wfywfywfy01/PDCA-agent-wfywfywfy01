@@ -15,9 +15,8 @@ from sqlmodel import Session, select
 
 from app.auth.deps import require_role
 from app.auth.models import User
-from app.auth.scope import visible_dealer_names
+from app.auth.scope import visible_dealer_names, visible_store_ids
 from app.database import get_session
-from app.models.dealer_store import DealerStore
 from app.models.dealer_sales import DealerSales
 from app.models.walkin_daily_report import WalkinDailyReport
 
@@ -59,24 +58,23 @@ async def export_walkin_metrics(
     user: Annotated[User, Depends(require_role("dealer"))],
     session: Annotated[Session, Depends(get_session)],
     month: str = Query(""),
+    dealer_id: str = Query(""),
 ):
-    """导出门店五件套日报 Excel（按月）。dealer 角色只能导出自己门店数据。"""
+    """导出当前账号可见范围内的门店五件套日报 Excel。"""
     stmt = select(WalkinDailyReport).order_by(
         WalkinDailyReport.report_date, WalkinDailyReport.dealer_id
     )
     if month and re.fullmatch(r"\d{4}-\d{2}", month):
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
-    # 按角色过滤可见门店
-    if user.role == "dealer":
-        allowed = [user.dealer_id] if user.dealer_id else []
+    allowed = visible_store_ids(user, session)
+    if dealer_id and allowed is not None and dealer_id not in allowed:
+        raise HTTPException(status_code=403, detail="该门店不在当前账号的数据权限范围内")
+    if allowed is not None:
         if not allowed:
-            raise HTTPException(status_code=403, detail="账号未绑定门店")
+            raise HTTPException(status_code=403, detail="账号未绑定可导出的门店")
         stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
-    elif user.role == "sales":
-        owned = session.exec(
-            select(DealerStore.store_id).where(DealerStore.sales_owner == user.username)
-        ).all()
-        stmt = stmt.where(WalkinDailyReport.dealer_id.in_(list(owned)))
+    if dealer_id:
+        stmt = stmt.where(WalkinDailyReport.dealer_id == dealer_id)
     rows = session.exec(stmt).all()
 
     wb = openpyxl.Workbook()
@@ -87,7 +85,7 @@ async def export_walkin_metrics(
         "日期", "门店ID", "门店名称",
         "walkin直接进店", "异业介绍", "线上", "招聘自带", "存量老客户", "合计进店",
         "触摸产品", "试用体验", "微信添加", "成交组数",
-        "成交金额(元)", "成交金额(万)",
+        "成交金额(USD)",
         "提交人", "提交时间",
     ]
     ws.append(headers)
@@ -100,7 +98,7 @@ async def export_walkin_metrics(
             r.walkin_visits, r.cross_visits, r.online_visits,
             r.recruit_visits, r.existing_visits, total,
             r.touch_count, r.use_count, r.wechat_add_count, r.deal_count,
-            r.deal_amount_yuan, round(r.deal_amount_yuan / 10000, 4),
+            r.deal_amount_yuan,
             r.submitted_by,
             r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
         ])

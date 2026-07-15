@@ -11,9 +11,12 @@ from urllib.parse import quote, urlencode
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from loguru import logger
+from sqlmodel import Session
 
 from app.auth.deps import get_current_user, require_role
 from app.auth.models import User
+from app.auth.scope import effective_data_scope, resolve_data_scope
+from app.database import get_session
 from app.config import get_settings
 from app.legacy import bridge
 from app.pages.helpers import html_page, inject_vue_shell
@@ -156,6 +159,8 @@ async def pdca_vps(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
+    if effective_data_scope(user) != "all":
+        raise HTTPException(status_code=403, detail="旧版 PDCA 页面包含全局文件，范围账号请使用首页今日任务")
     return _safe_bridge_page(
         bridge.render_pdca_vps,
         _date_or_today(date),
@@ -169,6 +174,8 @@ async def legacy_dashboard(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
+    if effective_data_scope(user) != "all":
+        raise HTTPException(status_code=403, detail="历史静态看板无法安全分割，范围账号请使用经营首页")
     """只展示已有日看板；GET 请求不隐式运行数据流水线。"""
     date_text = _date_or_today(date)
     try:
@@ -187,6 +194,8 @@ async def questionnaire(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
+    if effective_data_scope(user) != "all":
+        raise HTTPException(status_code=403, detail="旧版共享问卷尚未按账号分库，已对范围账号关闭")
     return _safe_bridge_page(bridge.render_questionnaire, _date_or_today(date), message, feature="问卷")
 
 
@@ -196,6 +205,8 @@ async def todos_page(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
+    if effective_data_scope(user) != "all":
+        raise HTTPException(status_code=403, detail="旧版共享待办尚未按账号分库，已对范围账号关闭")
     return _safe_bridge_page(bridge.render_todos, _date_or_today(date), message, feature="待办中心")
 
 
@@ -205,8 +216,22 @@ async def logistics(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
+    if user.role not in {"sales", "admin"}:
+        raise HTTPException(status_code=403, detail="仅销售或管理员可录入物流单号")
     try:
         date_text = _date_or_today(date)
+        if effective_data_scope(user) != "all":
+            sales_label = getattr(user, "sales_name", "") or user.display_name or user.username
+            action = f"/logistics?date={quote(date_text)}"
+            return html_page(f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>录入物流单号</title>
+<style>body{{font-family:system-ui,sans-serif;background:#f4f7fb;color:#172033;margin:0}}main{{max-width:820px;margin:32px auto;padding:24px}}section{{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:24px}}.grid{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}label{{display:grid;gap:6px;color:#475569}}input,select{{padding:10px;border:1px solid #cbd5e1;border-radius:8px}}button,a{{display:inline-block;margin-top:18px;padding:10px 16px;border-radius:8px;border:0;background:#2563eb;color:white;text-decoration:none}}a{{background:#64748b;margin-left:8px}}small{{color:#64748b}}@media(max-width:700px){{.grid{{grid-template-columns:1fr}}}}</style></head>
+<body><main><section><h1>录入物流单号</h1><p><small>销售身份由服务器锁定为 {html_lib.escape(sales_label)}；历史运单请到物流中心查看当前账号范围。</small></p>
+<form method="post" action="{action}"><div class="grid">
+<label>物流单号<input name="tracking_number" required></label><label>承运商<select name="carrier"><option>UPS</option><option>FedEx</option><option>DHL</option><option>SF</option></select></label>
+<label>客户<input name="customer"></label><label>发货日期<input type="date" name="ship_date" value="{date_text}"></label>
+<label>当前状态<input name="current_status" placeholder="不知道可留空"></label><label>预期状态<input name="expected_status"></label>
+<label>备注<input name="note"></label></div><button type="submit">保存</button><a href="/logistics-center/?date={date_text}">查看物流进展</a></form>
+</section></main></body></html>""")
         html = bridge.render_logistics(date_text, message)
         html = html.replace(
             "录入物流单号</h2>",
@@ -233,6 +258,8 @@ async def im_unread(
     message: str = Query(""),
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
+    if effective_data_scope(user) != "all":
+        raise HTTPException(status_code=403, detail="服务器共享 IM 会话不代表当前登录用户，已对范围账号关闭")
     return _safe_bridge_page(bridge.render_im_unread, _date_or_today(date), message, feature="IM 未读")
 
 
@@ -240,6 +267,7 @@ async def im_unread(
 async def customer_mgmt(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
     try:
         date_text = _date_or_today(date)
@@ -251,6 +279,7 @@ async def customer_mgmt(
                 "sales_name": getattr(user, "sales_name", "") or "",
                 "role": user.role,
             }
+            session_user.update(resolve_data_scope(user, session).as_session_user_fields())
             rows = bridge.api_customer_center_summary(session_user=session_user)
             return _customer_summary_page(rows if isinstance(rows, list) else [], date_text)
         err = bridge.ensure_customer_server()
@@ -287,7 +316,7 @@ async def view_path(
     path: str = Query(""),
     date: str | None = None,
     from_url: str = Query("", alias="from"),
-    user: Annotated[User, Depends(get_current_user)] = None,
+    user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     from app.files.router import _resolve_safe
 
@@ -305,7 +334,7 @@ async def view_path(
 async def open_target(
     target: str = Query(""),
     date: str | None = None,
-    user: Annotated[User, Depends(get_current_user)] = None,
+    user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     date_text = _date_or_today(date)
     file_path = bridge.latest_output_file(date_text, target)
@@ -318,7 +347,7 @@ async def open_target(
 async def open_path_route(
     path: str = Query(""),
     date: str | None = None,
-    user: Annotated[User, Depends(get_current_user)] = None,
+    user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     """打开一个文件（跳转到受控下载）。
 
@@ -342,7 +371,7 @@ async def open_path_route(
 async def open_im_channel(
     channel_id: str = Query(""),
     date: str | None = None,
-    user: Annotated[User, Depends(require_role("manager"))] = None,
+    user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     date_text = _date_or_today(date)
     msg = bridge.open_im_channel(channel_id)

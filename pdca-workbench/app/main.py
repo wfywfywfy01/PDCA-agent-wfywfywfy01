@@ -63,6 +63,11 @@ async def lifespan(app: FastAPI):
     seed_users()
     from app.models.store_seed import seed_stores
     seed_stores()
+    from app.auth.scope import rebuild_all_dealer_assignments
+    from app.database import get_engine
+    from sqlmodel import Session
+    with Session(get_engine()) as session:
+        rebuild_all_dealer_assignments(session)
     if settings.require_vertu:
         vertu = await vertu_health(force=True)
         if not vertu["ok"]:
@@ -188,6 +193,13 @@ _500_HTML = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
 h1{font-size:48px;margin:0;color:#dc2626}p{color:#64748b}a{color:#2563eb}</style>
 </head><body><div class="box"><h1>500</h1><p>服务内部错误，请稍后重试或联系管理员。</p><a href="/">返回首页</a></div></body></html>"""
 
+_403_HTML = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
+<title>无数据权限 · PDCA 工作台</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0b0d13;color:#e2e8f0}
+.box{text-align:center;max-width:520px;padding:48px;background:#13182a;border:1px solid rgba(255,255,255,.08);border-radius:14px}
+h1{font-size:28px;margin:0 0 16px}p{color:#94a3b8;line-height:1.7}a{color:#4e9ef5}</style>
+</head><body><div class="box"><h1>当前账号没有此数据范围</h1><p>系统已按最小权限阻止跨门店、跨销售或跨团队访问。若工作职责需要，请由管理员在“用户与权限”中配置负责人、门店或团队。</p><a href="/">返回今日工作台</a></div></body></html>"""
+
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -195,9 +207,11 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     if exc.status_code == 404:
         return HTMLResponse(_404_HTML, status_code=404)
-    if exc.status_code in (401, 403):
+    if exc.status_code == 401:
         next_path = request.url.path
         return RedirectResponse(f"/login?next={next_path}")
+    if exc.status_code == 403:
+        return HTMLResponse(_403_HTML, status_code=403)
     return HTMLResponse(_500_HTML, status_code=exc.status_code)
 
 

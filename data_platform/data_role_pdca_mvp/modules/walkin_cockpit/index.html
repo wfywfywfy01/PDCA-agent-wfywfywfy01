@@ -526,6 +526,9 @@
     }
     var addedGrp = Math.round(addW);
     var estParts = [];
+    if (walkinGroups > 0 && addW > 0) {
+      estParts.push('添加组数由各门店真实组添加率加权计算');
+    }
     // 激活数 / 异地激活数不再用公式估算（此前 8.5%/6.2% 是纯拍脑袋的假数据）；
     // 改由 renderWalkinBasicsBlock 直接读取 state.realActivation（/api/vps/dealer-activation
     // 真实数据，来自 mobile.activation.report），此处两个字段仅作占位。
@@ -539,6 +542,7 @@
         tw += pn(st.totalVisitGroups) * pn(st.avgTouchRate);
       }
       touchRatePct = Math.round((1000 * tw) / walkinGroups) / 10;
+      estParts.push('触摸率缺少原始计数，按门店已上报平均率加权计算');
     }
     if (useCnt <= 0 && walkinGroups > 0) {
       var uw = 0;
@@ -547,6 +551,7 @@
         uw += pn(su.totalVisitGroups) * pn(su.avgUseRate);
       }
       useRatePct = Math.round((1000 * uw) / walkinGroups) / 10;
+      estParts.push('试用率缺少原始计数，按门店已上报平均率加权计算');
     }
     return {
       walkinGroups: walkinGroups,

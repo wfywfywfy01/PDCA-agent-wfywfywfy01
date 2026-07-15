@@ -41,7 +41,7 @@ def _resolve_safe(path_text: str) -> Path:
 @router.get("/download")
 async def download_file(
     path: str = Query(...),
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
+    _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     """下载/打开允许目录内的文件。"""
     target = _resolve_safe(path)
@@ -52,7 +52,7 @@ async def download_file(
 async def download_output(
     date: str = Query(...),
     target: str = Query("dashboard"),
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
+    _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     """下载当日 PDCA 输出文件。"""
     date = require_iso_date(date)

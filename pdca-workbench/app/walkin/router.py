@@ -65,8 +65,14 @@ async def walkin_api(
 @router.get("/api/online-channel")
 async def online_channel(
     date: str | None = None,
-    _user: Annotated[User, Depends(require_role("viewer"))] = None,
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
+    if visible_store_ids(user, session) is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="线上渠道数据尚未具备可靠的门店归属字段，已对范围账号关闭以防止跨范围展示",
+        )
     try:
         return bridge.build_online_channel_payload(require_iso_date(date or bridge.today_text()))
     except Exception as exc:
@@ -100,12 +106,13 @@ async def get_my_stores(
     user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
 ):
-    """返回当前用户可见的门店列表（dealer=自己门店，sales=名下门店，manager/admin=全部）。"""
+    """返回统一数据范围内的门店列表。"""
     stmt = select(DealerStore).where(DealerStore.is_active == True)
-    if user.role == "dealer":
-        stmt = stmt.where(DealerStore.store_id == (user.dealer_id or "__none__"))
-    elif user.role == "sales":
-        stmt = stmt.where(DealerStore.sales_owner == user.username)
+    allowed = visible_store_ids(user, session)
+    if allowed is not None:
+        if not allowed:
+            return []
+        stmt = stmt.where(DealerStore.store_id.in_(allowed))
     stores = session.exec(stmt.order_by(DealerStore.region, DealerStore.sort_order)).all()
     return [
         {
@@ -115,6 +122,7 @@ async def get_my_stores(
             "country": s.country,
             "dealer_level": s.dealer_level,
             "sales_owner": s.sales_owner,
+            "team_key": getattr(s, "team_key", "") or "",
         }
         for s in stores
     ]
@@ -146,16 +154,9 @@ async def submit_walkin_metrics(
     if not dealer_store:
         raise HTTPException(status_code=422, detail="dealer_id 不存在，请从门店列表选择")
 
-    # dealer角色强制锁定自己的门店
-    if user.role == "dealer":
-        if not user.dealer_id:
-            raise HTTPException(status_code=403, detail="账号未绑定门店，请联系管理员")
-        if body.dealer_id != user.dealer_id:
-            raise HTTPException(status_code=403, detail="只能提交自己门店的数据")
-    # sales角色只能提交自己名下门店的数据
-    elif user.role == "sales":
-        if dealer_store.sales_owner != user.username:
-            raise HTTPException(status_code=403, detail="只能提交自己名下门店的数据")
+    allowed = visible_store_ids(user, session)
+    if allowed is not None and body.dealer_id not in allowed:
+        raise HTTPException(status_code=403, detail="该门店不在当前账号的数据权限范围内")
 
     # 同一门店同一天只保留最新一条（upsert）
     existing = session.exec(
@@ -203,17 +204,11 @@ def _dealer_ids_for_user(user: User, session) -> list[str] | None:
 
 
 def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
-    """按角色过滤 walkin payload 里的 stores 和 staff。
-    sales 角色只看自己名下门店；dealer 角色只看自己绑定的门店；其余角色（manager/admin/viewer）全量可见。
-    """
-    if user.role == "sales":
-        allowed_set = set(session.exec(
-            select(DealerStore.store_id).where(DealerStore.sales_owner == user.username)
-        ).all())
-    elif user.role == "dealer":
-        allowed_set = {user.dealer_id} if user.dealer_id else set()
-    else:
+    """按统一权限范围过滤 walkin payload 里的 stores 和 staff。"""
+    allowed = visible_store_ids(user, session)
+    if allowed is None:
         return payload
+    allowed_set = set(allowed)
 
     if not allowed_set:
         payload["stores"] = []
@@ -240,11 +235,13 @@ async def list_walkin_metrics(
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
     # 权限过滤
     allowed = _dealer_ids_for_user(user, session)
+    if dealer_id and allowed is not None and dealer_id not in allowed:
+        raise HTTPException(status_code=403, detail="该门店不在当前账号的数据权限范围内")
     if allowed is not None:
         if not allowed:
             return {"count": 0, "items": []}
         stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
-    if dealer_id and (allowed is None or dealer_id in allowed):
+    if dealer_id:
         stmt = stmt.where(WalkinDailyReport.dealer_id == dealer_id)
     rows = session.exec(stmt.order_by(WalkinDailyReport.report_date.desc())).all()
     return {
@@ -615,7 +612,9 @@ async def vps_dealer_activation(
             "detail": "激活设备数据暂时不可用",
             "dealers": [],
             "products": [],
-            "total_overseas_stock": 0,
+            "total_overseas_stock": None,
+            "state": "missing",
+            "source": "legacy-vertu:mobile.activation.report",
         }
     return _scope_activation_payload(data, visible_dealer_names(user, session))
 

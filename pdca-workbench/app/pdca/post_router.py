@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.deps import require_role
@@ -33,7 +33,7 @@ def _redirect(path: str, date_text: str, message: str = "") -> RedirectResponse:
 async def post_questionnaire(
     request: Request,
     date: str | None = None,
-    _user: Annotated[User, Depends(require_role("sales"))] = None,
+    _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
@@ -54,7 +54,7 @@ async def post_questionnaire(
 async def post_todos(
     request: Request,
     date: str | None = None,
-    _user: Annotated[User, Depends(require_role("sales"))] = None,
+    _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
@@ -78,8 +78,12 @@ async def post_logistics(
 ):
     date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
-    if user.role == "sales" and not (form.get("salesperson", [""])[0] or "").strip():
-        sales_label = getattr(user, "sales_name", "") or user.display_name or user.username
+    if user.role not in ("sales", "admin"):
+        raise HTTPException(status_code=403, detail="仅销售本人或管理员可录入物流")
+    if user.role == "sales":
+        sales_label = (getattr(user, "sales_name", "") or "").strip()
+        if not sales_label:
+            raise HTTPException(status_code=403, detail="账号未配置销售数据名称，请联系管理员")
         form["salesperson"] = [sales_label]
     bridge.append_logistics(date_text, form)
     from app.logistics.service import canonical_sales_name
@@ -95,7 +99,7 @@ async def post_logistics(
 @router.post("/run")
 async def post_run(
     date: str | None = None,
-    _user: Annotated[User, Depends(require_role("manager"))] = None,
+    _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     date_text = _date_or_today(date)
     code, stdout, stderr = bridge.run_pdca(date_text, push=False)
@@ -109,7 +113,7 @@ async def post_run(
 async def post_pdca_task(
     request: Request,
     date: str | None = None,
-    _user: Annotated[User, Depends(require_role("sales"))] = None,
+    _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     form = form_to_legacy(await request.form())
     task_date = require_iso_date(
@@ -133,7 +137,7 @@ async def post_pdca_task(
 async def post_hermes_chat(
     request: Request,
     date: str | None = None,
-    _user: Annotated[User, Depends(require_role("manager"))] = None,
+    _user: Annotated[User, Depends(require_role("admin"))] = None,
 ):
     date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
