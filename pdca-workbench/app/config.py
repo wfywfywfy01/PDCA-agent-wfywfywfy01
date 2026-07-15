@@ -69,6 +69,9 @@ class Settings:
         self.trust_proxy_headers = os.environ.get("PDCA_TRUST_PROXY_HEADERS", "0") == "1"
         # 每次 VPS 同步是否覆盖本地 role（默认 0，保留手工调权）
         self.vps_sync_role = os.environ.get("PDCA_VPS_SYNC_ROLE", "0") == "1"
+        # 精简部署（如五件套录入独立容器）没有经营首页数据时，把 "/" 重定向到指定路径，
+        # 而不是显示"功能不可用"兜底页。留空则保持原有的经营首页行为。
+        self.home_redirect = os.environ.get("PDCA_HOME_REDIRECT", "").strip()
         cors = os.environ.get("PDCA_CORS_ORIGINS", "").strip()
         self.cors_origins = [o.strip() for o in cors.split(",") if o.strip()] if cors else []
         self.ssl_cert = os.environ.get("PDCA_SSL_CERT", "")

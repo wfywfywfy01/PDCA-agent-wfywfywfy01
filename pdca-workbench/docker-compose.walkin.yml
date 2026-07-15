@@ -34,6 +34,7 @@ services:
       PDCA_SECURE_COOKIES: ${PDCA_SECURE_COOKIES:-1}
       PDCA_REQUIRE_VERTU: "0"
       PDCA_SCHEDULER_ENABLED: "0"
+      PDCA_HOME_REDIRECT: /walkin-submit
     volumes:
       # 独立数据目录，不与主服务的 ./data 混用
       - ./data-walkin:/app/data

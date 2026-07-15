@@ -128,6 +128,8 @@ async def home(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
     settings = get_settings()
+    if settings.home_redirect:
+        return RedirectResponse(settings.home_redirect)
     index = settings.home_dashboard_dir / "index.html"
     if not index.is_file():
         # MVP 目录未部署，降级到录入页

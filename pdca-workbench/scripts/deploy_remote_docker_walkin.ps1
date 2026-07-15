@@ -246,6 +246,7 @@ function Start-PdcaWalkinContainer {
         "-e", "PDCA_INCLUDE_DEMO_DATA=0",
         "-e", "PDCA_MAX_REPORTED_REVENUE_USD=5000000",
         "-e", "PDCA_SCHEDULER_ENABLED=0",
+        "-e", "PDCA_HOME_REDIRECT=/walkin-submit",
         "-e", "PDCA_LOG_LEVEL=INFO",
         $Image
     )
