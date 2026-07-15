@@ -2520,7 +2520,15 @@ def ensure_questionnaire(date_text):
 
 
 def parse_questionnaire(date_text):
-    text = read_text(ensure_questionnaire(date_text))
+    # Rendering a GET page must stay read-only.  Production mounts the release
+    # tree read-only and overlays only the runtime input directories as writable.
+    # Use the template in memory until the first explicit save creates the file.
+    path = questionnaire_path(date_text)
+    text = (
+        read_text(path)
+        if path.exists()
+        else read_text(QUESTION_TEMPLATE).replace("YYYY-MM-DD", date_text)
+    )
     result = {title: "" for title in QUESTION_TITLES}
     current = None
     buffer = []

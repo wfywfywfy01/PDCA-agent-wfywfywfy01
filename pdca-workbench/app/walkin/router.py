@@ -216,10 +216,12 @@ def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
     if not allowed_set:
         payload["stores"] = []
         payload["staff"] = []
+        payload.setdefault("meta", {})["storeCount"] = 0
         return payload
 
     payload["stores"] = [s for s in payload.get("stores", []) if s.get("id") in allowed_set]
     payload["staff"] = [s for s in payload.get("staff", []) if s.get("storeId") in allowed_set]
+    payload.setdefault("meta", {})["storeCount"] = len(payload["stores"])
     return payload
 
 
@@ -409,15 +411,22 @@ async def walkin_metrics_summary(
 # ---------------------------------------------------------------------------
 
 def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dict:
-    """从 DB 查出当月五件套汇总，按 dealer_id 注入 stores 列表的相应节点。"""
+    """用门店主数据建立稳定骨架，再注入当月五件套汇总。
+
+    生产发布包不携带运行时生成的 ``walkin-YYYY-MM.json``。即使该文件
+    缺失，数据库中的门店和实报也必须能够独立驱动客流驾驶舱。
+    """
     if not session:
         return payload
+    master_stores = session.exec(
+        select(DealerStore)
+        .where(DealerStore.is_active == True)
+        .order_by(DealerStore.sort_order, DealerStore.store_id)
+    ).all()
     stmt = select(WalkinDailyReport).where(
         WalkinDailyReport.report_date.startswith(month_text)
     )
     rows = session.exec(stmt).all()
-    if not rows:
-        return payload
 
     # 按 dealer_id 聚合
     dealer_agg: dict[str, dict] = {}
@@ -440,7 +449,28 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
         if r.deal_amount_yuan <= get_settings().max_reported_revenue_usd:
             d["deal_amount_yuan"] += r.deal_amount_yuan
 
-    stores = payload.get("stores", [])
+    stores = payload.setdefault("stores", [])
+    existing_ids = {str(store.get("id") or "") for store in stores}
+    for master in master_stores:
+        if master.store_id in existing_ids:
+            continue
+        stores.append({
+            "id": master.store_id,
+            "name": master.name,
+            "city": master.country,
+            "region": master.region,
+            "class": "Class 1" if master.dealer_level == "L1" else "Class 2",
+            "totalVisitGroups": 0,
+            "avgAddRate": 0,
+            "totalSalesAmount": 0,
+            "anomalies": [],
+            "avgTouchRate": 0,
+            "avgUseRate": 0,
+            "dealerTeam": master.sales_owner,
+            "customerType": "",
+            "dataSource": "dealer_store_db",
+        })
+
     for store in stores:
         sid = store.get("id", "")
         if sid in dealer_agg:
@@ -459,6 +489,10 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
                 store["reportedSellOutUsd"] = d["deal_amount_yuan"]
             if d["total_visits"] > 0:
                 store["totalVisitGroups"] = d["total_visits"]
+                store["walkinPeople"] = d["total_visits"]
+                store["avgAddRate"] = min(1.0, round(d["wechat"] / d["total_visits"], 4))
+                store["avgTouchRate"] = min(1.0, round(d["touch"] / d["total_visits"], 4))
+                store["avgUseRate"] = min(1.0, round(d["use"] / d["total_visits"], 4))
             if d["touch"] > 0:
                 store["touchCount"] = d["touch"]
             if d["use"] > 0:
@@ -467,6 +501,18 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
                 store["wechatAddCount"] = d["wechat"]
             if d["deal_count"] > 0:
                 store["dealGroups"] = d["deal_count"]
+
+    meta = payload.setdefault("meta", {})
+    meta["storeCount"] = len(stores)
+    sources = meta.setdefault("dataSources", [])
+    if master_stores and "dealer_store_db" not in sources:
+        sources.append("dealer_store_db")
+    if rows and "five_kit_db" not in sources:
+        sources.append("five_kit_db")
+    if stores and "unavailable" in sources:
+        sources.remove("unavailable")
+    if master_stores:
+        meta["dataSourceDetail"] = "数据来源：门店主数据 + 门店五件套实报"
 
     return payload
 

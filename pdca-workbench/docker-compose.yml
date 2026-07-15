@@ -40,7 +40,10 @@ services:
       VERTU_USER_LOGIN: ${VERTU_USER_LOGIN:?请在未跟踪的 .env 中设置 VERTU_USER_LOGIN}
     volumes:
       - ./data:/app/data
-      - ../data_platform/data_role_pdca_mvp:/mvp
+      - ../data_platform/data_role_pdca_mvp:/mvp:ro
+      - ./data/runtime/inputs:/mvp/inputs
+      - ./data/runtime/outputs:/mvp/outputs
+      - ./data/runtime/outbox:/mvp/outbox
       - ../:/repo:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8767/health'))['status'] == 'ok'"]

@@ -1,0 +1,388 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+import sys
+from contextlib import ExitStack
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, create_engine, select
+
+from app.auth.models import User
+from app.auth.security import hash_password, verify_password
+from app.database import get_session
+from app.main import app
+from app.models.daily_report import DailyReport
+from app.models.dealer_store import DealerStore
+from app.models.logistics import LogisticsShipment
+from app.models.walkin_daily_report import WalkinDailyReport
+
+
+class AuthAndWriteFlowTests(unittest.TestCase):
+    """Exercise real auth and representative writes without external services."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        repo_root = Path(__file__).resolve().parents[2]
+        database_path = Path(self.temp_dir.name) / "pdca-test.sqlite"
+        self.engine = create_engine(
+            f"sqlite:///{database_path.as_posix()}",
+            connect_args={"check_same_thread": False},
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+        self.settings = SimpleNamespace(
+            auth_mode="local",
+            trust_proxy_headers=False,
+            secure_cookies=False,
+            access_token_expire_minutes=60,
+            secret_key="test-secret-key-that-is-long-enough-for-jwt",
+            algorithm="HS256",
+            vps_login_url="https://example.invalid",
+            max_reported_revenue_usd=5_000_000,
+            repo_root=repo_root,
+            scripts_dir=(
+                repo_root
+                / "data_platform"
+                / "data_role_pdca_mvp"
+                / "scripts"
+            ),
+        )
+        self.patches = ExitStack()
+        for target in (
+            "app.main.get_settings",
+            "app.auth.deps.get_settings",
+            "app.auth.router.get_settings",
+            "app.auth.security.get_settings",
+            "app.legacy.bridge.get_settings",
+        ):
+            self.patches.enter_context(patch(target, return_value=self.settings))
+        # Audit logs and legacy-form DB mirrors must use the same temporary DB.
+        self.patches.enter_context(patch("app.audit.get_engine", return_value=self.engine))
+        self.patches.enter_context(patch("app.models.writes.get_engine", return_value=self.engine))
+
+        def override_session():
+            with Session(self.engine) as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_session
+        self.client = TestClient(app)
+        self._seed_data()
+
+    def tearDown(self):
+        self.client.close()
+        app.dependency_overrides.clear()
+        self.patches.close()
+        self.engine.dispose()
+        self.temp_dir.cleanup()
+
+    def _seed_data(self):
+        password = hash_password("Correct-password-123")
+        with Session(self.engine) as session:
+            session.add_all(
+                [
+                    User(
+                        username="forced-admin",
+                        hashed_password=password,
+                        role="admin",
+                        display_name="Forced Admin",
+                        must_change_password=True,
+                    ),
+                    User(
+                        username="viewer",
+                        hashed_password=password,
+                        role="viewer",
+                        display_name="Viewer",
+                        must_change_password=False,
+                    ),
+                    User(
+                        username="sales",
+                        hashed_password=password,
+                        role="sales",
+                        display_name="Sales",
+                        sales_name="Alice Sales",
+                        must_change_password=False,
+                    ),
+                    User(
+                        username="dealer",
+                        hashed_password=password,
+                        role="dealer",
+                        display_name="Dealer",
+                        dealer_id="store-a",
+                        must_change_password=False,
+                    ),
+                    DealerStore(
+                        store_id="store-a",
+                        name="Dealer A",
+                        sales_owner="sales",
+                        is_active=True,
+                    ),
+                ]
+            )
+            session.commit()
+
+    def _login(self, username: str, password: str = "Correct-password-123"):
+        return self.client.post(
+            "/api/auth/login",
+            json={"username": username, "password": password},
+        )
+
+    def test_login_success_and_failure(self):
+        failed = self._login("viewer", "wrong-password")
+        self.assertEqual(failed.status_code, 401)
+        self.assertNotIn("pdca_token", failed.cookies)
+
+        success = self._login("viewer")
+        self.assertEqual(success.status_code, 200)
+        self.assertEqual(success.json()["user"]["username"], "viewer")
+        self.assertFalse(success.json()["must_change_password"])
+        self.assertTrue(success.cookies.get("pdca_token"))
+
+        me = self.client.get("/api/auth/me")
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.json()["role"], "viewer")
+
+    def test_forced_password_change_blocks_business_api_then_rotates_token(self):
+        login = self._login("forced-admin")
+        self.assertEqual(login.status_code, 200)
+        self.assertTrue(login.json()["must_change_password"])
+
+        blocked = self.client.get("/api/admin/diagnostics")
+        self.assertEqual(blocked.status_code, 403)
+
+        changed = self.client.post(
+            "/api/auth/change-password",
+            json={
+                "old_password": "Correct-password-123",
+                "new_password": "Changed-password-456",
+            },
+        )
+        self.assertEqual(changed.status_code, 200)
+        self.assertTrue(changed.json()["ok"])
+
+        me = self.client.get("/api/auth/me")
+        self.assertEqual(me.status_code, 200)
+        self.assertFalse(me.json()["must_change_password"])
+        with Session(self.engine) as session:
+            user = session.exec(select(User).where(User.username == "forced-admin")).one()
+            self.assertEqual(user.pwd_version, 1)
+            self.assertFalse(user.must_change_password)
+            self.assertTrue(verify_password("Changed-password-456", user.hashed_password))
+
+    def test_representative_role_guards_return_401_and_403(self):
+        anonymous = self.client.get("/api/admin/diagnostics")
+        self.assertEqual(anonymous.status_code, 401)
+
+        self.assertEqual(self._login("viewer").status_code, 200)
+        forbidden = self.client.get("/api/admin/diagnostics")
+        self.assertEqual(forbidden.status_code, 403)
+
+        write_forbidden = self.client.post(
+            "/api/walkin-metrics",
+            json={
+                "report_date": "2024-01-02",
+                "dealer_id": "store-a",
+                "dealer_name": "Dealer A",
+            },
+        )
+        self.assertEqual(write_forbidden.status_code, 403)
+
+    def test_questionnaire_write_saves_file_and_database_mirror(self):
+        self.assertEqual(self._login("sales").status_code, 200)
+        questionnaire_path = Path(self.temp_dir.name) / "2024-01-02_questionnaire.md"
+
+        def save_questionnaire(date_text: str, form: dict[str, list[str]]):
+            answer = (form.get("answer", [""])[0] or "").strip()
+            questionnaire_path.write_text(
+                f"# Questionnaire {date_text}\n\n{answer}\n",
+                encoding="utf-8",
+            )
+
+        with (
+            patch(
+                "app.pdca.post_router.bridge.save_questionnaire",
+                side_effect=save_questionnaire,
+            ),
+            patch(
+                "app.pdca.post_router.bridge.questionnaire_path",
+                return_value=questionnaire_path,
+            ),
+        ):
+            response = self.client.post(
+                "/questionnaire?date=2024-01-02",
+                data={"answer": "Customer follow-up completed"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertTrue(questionnaire_path.is_file())
+        self.assertIn("Customer follow-up completed", questionnaire_path.read_text(encoding="utf-8"))
+        with Session(self.engine) as session:
+            row = session.exec(
+                select(DailyReport).where(
+                    DailyReport.report_date == "2024-01-02",
+                    DailyReport.report_type == "questionnaire",
+                )
+            ).one()
+            self.assertIn("Customer follow-up completed", row.content)
+            self.assertEqual(row.file_path, str(questionnaire_path))
+
+    def test_logistics_write_saves_file_and_database_record(self):
+        self.assertEqual(self._login("sales").status_code, 200)
+        logistics_path = Path(self.temp_dir.name) / "logistics.csv"
+
+        def append_logistics(date_text: str, form: dict[str, list[str]]):
+            fields = [
+                date_text,
+                (form.get("tracking_number", [""])[0] or "").strip(),
+                (form.get("salesperson", [""])[0] or "").strip(),
+            ]
+            logistics_path.write_text(",".join(fields) + "\n", encoding="utf-8")
+
+        with patch(
+            "app.pdca.post_router.bridge.append_logistics",
+            side_effect=append_logistics,
+        ):
+            response = self.client.post(
+                "/logistics?date=2024-01-02",
+                data={
+                    "tracking_number": "TRACK-TEST-001",
+                    "carrier": "DHL",
+                    "customer": "Customer A",
+                    "ship_date": "2024-01-02",
+                    "expected_status": "in_transit",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("Alice Sales", logistics_path.read_text(encoding="utf-8"))
+        with Session(self.engine) as session:
+            row = session.exec(
+                select(LogisticsShipment).where(
+                    LogisticsShipment.tracking_number == "TRACK-TEST-001"
+                )
+            ).one()
+            self.assertEqual(row.salesperson, "Alice Sales")
+            self.assertEqual(row.customer, "Customer A")
+
+    def test_walkin_write_persists_daily_metrics(self):
+        self.assertEqual(self._login("dealer").status_code, 200)
+        response = self.client.post(
+            "/api/walkin-metrics",
+            json={
+                "report_date": "2024-01-02",
+                "dealer_id": "store-a",
+                "dealer_name": "Dealer A",
+                "walkin_visits": 7,
+                "cross_visits": 2,
+                "online_visits": 3,
+                "recruit_visits": 1,
+                "existing_visits": 4,
+                "touch_count": 9,
+                "use_count": 5,
+                "wechat_add_count": 6,
+                "deal_count": 2,
+                "deal_amount_yuan": 1280.5,
+                "notes": "test-only submission",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        with Session(self.engine) as session:
+            row = session.exec(
+                select(WalkinDailyReport).where(
+                    WalkinDailyReport.report_date == "2024-01-02",
+                    WalkinDailyReport.dealer_id == "store-a",
+                )
+            ).one()
+            self.assertEqual(row.submitted_by, "dealer")
+            self.assertEqual(row.total_visits, 17)
+            self.assertEqual(row.deal_count, 2)
+            self.assertEqual(row.deal_amount_yuan, 1280.5)
+
+    def test_walkin_get_rebuilds_payload_from_database_without_monthly_json(self):
+        with Session(self.engine) as session:
+            session.add(
+                WalkinDailyReport(
+                    report_date="2024-01-02",
+                    dealer_id="store-a",
+                    dealer_name="Dealer A",
+                    walkin_visits=7,
+                    cross_visits=2,
+                    online_visits=3,
+                    recruit_visits=1,
+                    existing_visits=4,
+                    touch_count=9,
+                    use_count=5,
+                    wechat_add_count=6,
+                    deal_count=2,
+                    deal_amount_yuan=1280.5,
+                    submitted_by="dealer",
+                )
+            )
+            session.commit()
+
+        # Exercise the real legacy no-bundle response, but point every source
+        # path at an empty temporary tree so the test cannot read repo data or
+        # generate a walkin-YYYY-MM.json file.
+        from app.legacy import bridge
+
+        legacy = bridge.wb()
+        builder = legacy.build_walkin_api_payload
+        self.assertIsNotNone(builder)
+        workbench_data = sys.modules[builder.__module__]
+        empty_data = Path(self.temp_dir.name) / "walkin-data"
+        empty_raw = Path(self.temp_dir.name) / "data-raw"
+        empty_data.mkdir()
+        empty_raw.mkdir()
+        missing_bundle = empty_data / "walkin-2024-01.json"
+
+        with (
+            patch.object(workbench_data, "WALKIN_DATA", empty_data),
+            patch.object(workbench_data, "BUILD_WALKIN", Path(self.temp_dir.name) / "missing-builder.py"),
+            patch.object(workbench_data, "DATA_RAW", empty_raw),
+            patch.object(workbench_data, "DATA_SOURCES", Path(self.temp_dir.name) / "missing-sources.json"),
+            patch.object(workbench_data, "VN_METRICS", empty_data / "missing-vietnam.json"),
+            patch.object(workbench_data, "VN_COLLECT", empty_data / "missing-collect.json"),
+        ):
+            self.assertFalse(missing_bundle.exists())
+            self.assertEqual(self._login("viewer").status_code, 200)
+            response = self.client.get(
+                "/api/walkin?month=2024-01&date=2024-01-31"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(missing_bundle.exists())
+        payload = response.json()
+        self.assertEqual(payload["meta"]["storeCount"], 1)
+        self.assertNotIn("unavailable", payload["meta"]["dataSources"])
+        self.assertIn("dealer_store_db", payload["meta"]["dataSources"])
+        self.assertIn("five_kit_db", payload["meta"]["dataSources"])
+
+        self.assertEqual(len(payload["stores"]), 1)
+        store = payload["stores"][0]
+        self.assertEqual(store["id"], "store-a")
+        self.assertEqual(
+            store["fiveKit"],
+            {
+                "walkin": 7,
+                "cross": 2,
+                "online": 3,
+                "recruit": 1,
+                "existing": 4,
+                "total": 17,
+            },
+        )
+        self.assertEqual(store["walkinPeople"], 17)
+        self.assertAlmostEqual(store["avgAddRate"], 6 / 17, places=4)
+        self.assertAlmostEqual(store["avgTouchRate"], 9 / 17, places=4)
+        self.assertAlmostEqual(store["avgUseRate"], 5 / 17, places=4)
+
+
+if __name__ == "__main__":
+    unittest.main()

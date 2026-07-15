@@ -75,6 +75,33 @@ bash pdca-workbench/scripts/docker_smoke_test.sh pdca-workbench:local-smoke
 powershell -ExecutionPolicy Bypass -File .\pdca-workbench\scripts\deploy_remote_docker.ps1
 ```
 
+### 内网定时部署诊断
+
+部署脚本为所有远程 Docker 命令设置超时：普通命令默认 120 秒，镜像拉取默认
+900 秒。可在手工排障时覆盖，但定时任务应保留合理上限，避免任务永久卡住：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\pdca-workbench\scripts\deploy_remote_docker.ps1 `
+  -DockerCommandTimeoutSeconds 120 -DockerPullTimeoutSeconds 900
+```
+
+每次运行都会在 `%LOCALAPPDATA%\PDCA\deploy-logs\` 写入独立 transcript，并更新
+`last-run.json`。计划任务只显示退出码 `1` 时，先查看 `last-run.json` 的
+`message` 和 `log_path`，再打开对应日志。也可以用 `-LogDirectory` 指向计划任务
+账号确定有写权限的持久目录。
+
+发布前脚本会通过一次性 helper 容器创建以下宿主目录，并把它们分别以可写方式
+覆盖到仍然整体只读的 `/mvp` 内：
+
+- `/opt/PDCA-agent/pdca-workbench/data/runtime/inputs` → `/mvp/inputs`
+- `/opt/PDCA-agent/pdca-workbench/data/runtime/outputs` → `/mvp/outputs`
+- `/opt/PDCA-agent/pdca-workbench/data/runtime/outbox` → `/mvp/outbox`
+
+这样问卷输入、生成输出和待发送文件可以跨版本保留；`/mvp` 的其余发布内容继续
+来自只读 release，不允许运行时修改。运行时目录第一次为空时，helper 会先复制
+release 中已有的对应文件，避免嵌套挂载遮住版本库内的初始化数据；之后不会覆盖
+已经持久化的运行时内容。
+
 脚本只选择最新的成功 `main` 流水线，拉取已通过容器冒烟的精确 SHA，
 上传对应 Git 发布目录，执行 PostgreSQL 备份，启动新容器，然后验证容器和公网健康状态。
 若健康检查失败，会恢复上一个镜像和 release 目录。SSH 发布仅保留为手工
