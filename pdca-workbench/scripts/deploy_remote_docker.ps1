@@ -179,6 +179,21 @@ function Read-DotEnvValue {
     return $value
 }
 
+function Read-OptionalDotEnvValue {
+    param([string]$Name)
+    $line = Get-Content -LiteralPath $EnvFile |
+        Where-Object { $_ -match "^$([regex]::Escape($Name))=" } |
+        Select-Object -Last 1
+    if (-not $line) { return "" }
+    $value = $line.Substring($Name.Length + 1).Trim()
+    if ($value.Length -ge 2 -and
+        (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+         ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    return $value
+}
+
 function Get-AgentCredential {
     $lines = & vertu-cli agent env --app-id cursor --shell powershell 2>&1
     if ($LASTEXITCODE -ne 0) { throw "vertu-cli agent env failed" }
@@ -215,6 +230,26 @@ function Wait-ContainerHealthy {
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $deadline)
     throw "pdca-workbench did not become healthy within $TimeoutSeconds seconds"
+}
+
+function Test-ActivationSource {
+    $raw = Invoke-Docker -DockerArgs @(
+        "exec", "pdca-workbench", "vertu", "odoo", "data", "sandbox",
+        "--code-file", "/mvp/system_queries/dealer_activation_stats.py"
+    ) -TimeoutSeconds 90
+    try {
+        $payload = $raw | ConvertFrom-Json
+    } catch {
+        throw "Activation source smoke test returned invalid JSON"
+    }
+    if ($payload.validation.ok -ne $true -or -not $payload.execution.result) {
+        throw "Activation source smoke test failed validation or execution"
+    }
+    $dealerCount = @($payload.execution.result.dealers).Count
+    if ($dealerCount -lt 1) {
+        throw "Activation source smoke test returned no dealers"
+    }
+    Write-Output "Activation source healthy: $dealerCount dealers"
 }
 
 function Start-PdcaContainer {
@@ -255,12 +290,16 @@ function Start-PdcaContainer {
         "-e", "PDCA_SYNC_CRON=0 6 * * *",
         "-e", "PDCA_LOG_LEVEL=INFO",
         "-e", "VERTU_COMMAND=vertu-cli",
+        "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
         "-e", "VERTU_APP_ID=cursor",
         "-e", "VERTU_APP_KEY=$($Agent.VERTU_APP_KEY)",
-        "-e", "VERTU_USER_LOGIN=$($Agent.VERTU_USER_LOGIN)",
-        $Image
+        "-e", "VERTU_USER_LOGIN=$($Agent.VERTU_USER_LOGIN)"
     )
+    if ($Secrets.VERTU_BOT_INBOUND_KEY) {
+        $dockerArgs += @("-e", "VERTU_BOT_INBOUND_KEY=$($Secrets.VERTU_BOT_INBOUND_KEY)")
+    }
+    $dockerArgs += $Image
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
 }
 
@@ -362,12 +401,17 @@ $releasePath = "/opt/PDCA-releases/$Sha"
 $secrets = @{
     PDCA_SECRET_KEY = Read-DotEnvValue "PDCA_SECRET_KEY"
     PDCA_DATABASE_URL = Read-DotEnvValue "PDCA_DATABASE_URL"
+    VERTU_BOT_INBOUND_KEY = Read-OptionalDotEnvValue "VERTU_BOT_INBOUND_KEY"
+}
+if (-not $secrets.VERTU_BOT_INBOUND_KEY) {
+    throw "Missing VERTU_BOT_INBOUND_KEY in $EnvFile; activation data cannot be validated"
 }
 $agent = Get-AgentCredential
 $script:SensitiveValues = @(
     $secrets.PDCA_SECRET_KEY,
     $secrets.PDCA_DATABASE_URL,
-    $agent.VERTU_APP_KEY
+    $agent.VERTU_APP_KEY,
+    $secrets.VERTU_BOT_INBOUND_KEY
 )
 
 Write-Output "Ensuring writable PDCA runtime directories"
@@ -416,6 +460,8 @@ try {
     Start-PdcaContainer $image $releasePath $Sha $secrets $agent
     Write-Output "Waiting for container health"
     Wait-ContainerHealthy
+    Write-Output "Validating activation source through the legacy fallback"
+    Test-ActivationSource
     Write-Output "Running public health and login smoke checks"
     $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 25
     if ($health.status -ne "ok" -or -not $health.database_connected -or -not $health.vertu_cli.ok) {

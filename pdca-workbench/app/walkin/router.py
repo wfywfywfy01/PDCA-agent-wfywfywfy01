@@ -8,6 +8,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from loguru import logger
 from sqlmodel import Session, select
 
 from app.audit import log_action
@@ -20,6 +21,7 @@ from app.legacy import bridge
 from app.models.dealer_store import DealerStore
 from app.models.walkin_daily_report import WalkinDailyReport
 from app.validation import require_iso_date
+from app.vertu.activation import ActivationQueryError, fetch_dealer_activation
 
 router = APIRouter(tags=["walkin"])
 
@@ -602,16 +604,20 @@ async def vps_dealer_activation(
     user: Annotated[User, Depends(require_role("viewer"))],
     session: Annotated[Session, Depends(get_session)],
 ):
-    """vertu-cli 2.x 暂无激活数据快捷命令，返回明确的不可用状态而非 5xx。"""
-    del user, session
-    return {
-        "ok": False,
-        "available": False,
-        "detail": "vertu-cli 当前未提供激活数据快捷命令",
-        "dealers": [],
-        "products": [],
-        "total_overseas_stock": 0,
-    }
+    """Read activation data from the legacy CLI only when the new CLI lacks it."""
+    try:
+        data = await fetch_dealer_activation()
+    except ActivationQueryError as exc:
+        logger.warning("Dealer activation data is unavailable: {}", exc)
+        return {
+            "ok": False,
+            "available": False,
+            "detail": "激活设备数据暂时不可用",
+            "dealers": [],
+            "products": [],
+            "total_overseas_stock": 0,
+        }
+    return _scope_activation_payload(data, visible_dealer_names(user, session))
 
 
 def _scope_activation_payload(data: dict, names: list[str] | None) -> dict:
@@ -628,15 +634,18 @@ def _scope_activation_payload(data: dict, names: list[str] | None) -> dict:
     activated = sum(int(row.get("activated") or 0) for row in dealers)
     local_activated = sum(int(row.get("local_activated") or 0) for row in dealers)
     remote_activated = sum(int(row.get("remote_activated") or 0) for row in dealers)
+    classified = local_activated + remote_activated
     scoped.update({
         "dealers": dealers,
         "products": [],
-        "total_overseas_stock": sum(int(row.get("not_activated") or 0) for row in dealers),
+        # mv_inventory only exposes a global stock total, so do not relabel scoped
+        # dealers' unactivated devices as physical overseas inventory.
+        "total_overseas_stock": None,
         "total_shipped": shipped,
         "total_activated": activated,
         "total_local_activated": local_activated,
         "total_remote_activated": remote_activated,
         "overall_activation_rate": round(activated / shipped * 100, 1) if shipped else 0,
-        "overall_local_rate": round(local_activated / activated * 100, 1) if activated else 0,
+        "overall_local_rate": round(local_activated / classified * 100, 1) if classified else 0,
     })
     return scoped

@@ -50,7 +50,7 @@ _COUNTRY_ALIASES = {
 
 records = env['mobile.activation.report'].search_read(
     [('department_id', 'child_of', [DEALER_DEPT_ID])],
-    ['partner_name', 'product_name', 'activation_state', 'activation_country', 'private_country_id'],
+    ['partner_name', 'product_name', 'activation_state', 'activation_country', 'private_country_id', 'vsn'],
 )
 
 
@@ -71,7 +71,25 @@ total_activated = 0
 total_local = 0
 total_remote = 0
 
+# mobile.activation.report 可能包含同一设备的重复报表行；与月度正式口径一致，
+# 按“经销商 + VSN”去重。重复行中优先保留已激活且激活国家完整的记录。
+deduped_records = {}
 for r in records:
+    dealer = r.get('partner_name') or '(未知经销商)'
+    vsn = r.get('vsn')
+    if not vsn:
+        continue
+    key = (dealer, vsn)
+    current = deduped_records.get(key)
+    if current is None:
+        deduped_records[key] = r
+    elif current.get('activation_state') != 'activated' and r.get('activation_state') == 'activated':
+        deduped_records[key] = r
+    elif (r.get('activation_state') == 'activated'
+          and not current.get('activation_country') and r.get('activation_country')):
+        deduped_records[key] = r
+
+for r in deduped_records.values():
     dealer = r.get('partner_name') or '(未知经销商)'
     d = dealers.setdefault(dealer, {
         'dealer_name': dealer, 'shipped': 0, 'activated': 0, 'not_activated': 0,

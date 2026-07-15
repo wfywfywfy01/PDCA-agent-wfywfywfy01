@@ -145,4 +145,5 @@ assert smoke_store["fiveKit"]["total"] == 3
 PY
 
 cli_version="$(docker exec "$CONTAINER_NAME" vertu-cli --version)"
-echo "Docker 冒烟测试通过: image=$IMAGE cli=$cli_version health=$health_body"
+legacy_cli_version="$(docker exec "$CONTAINER_NAME" vertu --version)"
+echo "Docker 冒烟测试通过: image=$IMAGE cli=$cli_version legacy_cli=$legacy_cli_version health=$health_body"

@@ -38,6 +38,7 @@ ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
 - 仓库位于 `/opt/PDCA-agent`，部署账号对该目录有写权限。
 - 已安装 Git、Docker Compose、Python 3、curl、flock。
 - `pdca-workbench/.env` 已配置且权限为 `600`，至少包含 `PDCA_SECRET_KEY`、`PDCA_DATABASE_URL`、`VERTU_APP_KEY`。
+- 激活设备表目前仍需旧 CLI 查询能力；完整生产部署须在同一 `.env` 中配置 `VERTU_BOT_INBOUND_KEY`，部署脚本会执行真实激活数据冒烟。主业务仍使用 `vertu-cli`，旧 `vertu` 只作为该只读查询的限时、缓存回退。
 - 部署账号可运行 Docker，但不应开放交互式 root 密码登录。
 - Caddy 反代 `127.0.0.1:8768`；容器内仍监听 8767。
 

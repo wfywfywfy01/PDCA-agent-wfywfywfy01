@@ -1,4 +1,5 @@
-FROM node:22-bookworm-slim AS node-runtime
+ARG NODE_RUNTIME_IMAGE=node:22-bookworm-slim
+FROM ${NODE_RUNTIME_IMAGE} AS node-runtime
 
 FROM python:3.12-slim
 
@@ -20,8 +21,9 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
-    && npm install -g vertu-cli@2.1.10 --omit=optional \
-    && vertu-cli --version
+    && npm install -g vertu-cli@2.1.10 @vertu-tech/vps-cli@0.1.12 --omit=optional \
+    && vertu-cli --version \
+    && vertu --version
 
 COPY requirements.txt requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock

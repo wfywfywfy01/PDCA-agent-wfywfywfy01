@@ -362,31 +362,35 @@ function lookup(name,map){
 // ── 渲染全部 ────────────────────────────────────────────────────────────────
 function renderAll(range){
   var d=summaryData,vps=vpsData,act=activationData;
+  var actUsable=act&&act.available!==false;
 
   // KPI 数字
   var vpsTotal=0;
   if(vps&&vps.dealers)vps.dealers.forEach(function(x){vpsTotal+=x.sell_out_yuan||0});
   var totAct=0,totNot=0;
-  if(act&&act.dealers)act.dealers.forEach(function(x){totAct+=x.activated||0;totNot+=x.not_activated||0});
-  var stock=(act&&act.total_overseas_stock)||0;
+  if(actUsable&&act.dealers)act.dealers.forEach(function(x){totAct+=x.activated||0;totNot+=x.not_activated||0});
+  var stock=actUsable&&act.total_overseas_stock!=null?act.total_overseas_stock:null;
   var reported=d&&d.by_dealer?d.by_dealer.length:0;
 
   document.getElementById('kpiBar').style.display='';
   document.getElementById('k-sellout').textContent=(vpsTotal/10000).toFixed(1)+' 万';
-  document.getElementById('k-activated').textContent=totAct;
-  document.getElementById('k-notact').textContent=totNot;
-  document.getElementById('k-stock').textContent=stock;
+  document.getElementById('k-activated').textContent=actUsable?totAct:'—';
+  document.getElementById('k-notact').textContent=actUsable?totNot:'—';
+  document.getElementById('k-stock').textContent=stock==null?'—':stock;
   document.getElementById('k-reported').textContent=reported;
   document.getElementById('k-total-sub').textContent='共 '+storeList.length+' 家';
-  if(act&&act.total_activated){
+  document.getElementById('k-activated-sub').textContent='台 · 全部历史';
+  if(actUsable&&act.total_activated){
     document.getElementById('k-activated-sub').textContent=
       '本地 '+(act.total_local_activated||0)+'('+(act.overall_local_rate||0)+'%) · 异地 '+(act.total_remote_activated||0);
+  }else if(act&&act.available===false){
+    document.getElementById('k-activated-sub').textContent=act.detail||'激活设备数据暂时不可用';
   }
 
-  if(vps||act){
+  if(vps||actUsable){
     var badge=document.getElementById('vpsBadge');
     badge.style.display='';
-    badge.textContent=(range?range.label:'')+' · VPS 数据';
+    badge.textContent=(range?range.label:'')+(act&&act.stale?' · 激活数据为缓存':' · VPS 数据');
   }
 
   // VPS 排行条

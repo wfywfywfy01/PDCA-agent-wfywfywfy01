@@ -38,6 +38,8 @@ services:
       VERTU_APP_ID: ${VERTU_APP_ID:-cursor}
       VERTU_APP_KEY: ${VERTU_APP_KEY:?请在未跟踪的 .env 中设置 VERTU_APP_KEY}
       VERTU_USER_LOGIN: ${VERTU_USER_LOGIN:?请在未跟踪的 .env 中设置 VERTU_USER_LOGIN}
+      VERTU_LEGACY_COMMAND: ${VERTU_LEGACY_COMMAND:-vertu}
+      VERTU_BOT_INBOUND_KEY: ${VERTU_BOT_INBOUND_KEY:-}
     volumes:
       - ./data:/app/data
       - ../data_platform/data_role_pdca_mvp:/mvp:ro
