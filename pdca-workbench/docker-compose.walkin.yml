@@ -1,0 +1,52 @@
+# 门店五件套录入（/walkin-submit）· 独立 Docker Compose
+#
+# 与 docker-compose.yml（PDCA 内部工作台，pdca-workbench 容器）完全独立的部署单元：
+# 独立容器名、独立端口、独立数据目录、独立 env 文件。目的是让内部工作台的部署/重启
+# 永远不会影响到经销商使用的对外五件套录入入口。两者共用同一份代码镜像和同一个
+# 生产 Postgres 库（already 有 users/dealer_stores/walkin_daily_reports 表和经销商账号），
+# 但作为两个完全独立的进程运行。
+#
+# 用法（在完整仓库内）：
+#   cd /opt/PDCA-agent/pdca-workbench
+#   docker compose -f docker-compose.walkin.yml up -d --build
+
+services:
+  pdca-walkin-app:
+    build: .
+    image: ${PDCA_IMAGE:-pdca-workbench:local}
+    container_name: pdca-walkin-portal
+    ports:
+      # 公网由宿主机 Caddy 反代到这个端口；不把 Uvicorn 直接暴露到外网。
+      - "127.0.0.1:${PDCA_WALKIN_HOST_PORT:-8769}:8767"
+    env_file:
+      - path: walkin.env.docker
+        required: true
+      - path: .env.walkin
+        required: false
+    environment:
+      PDCA_ENV: production
+      PDCA_SECRET_KEY: ${PDCA_WALKIN_SECRET_KEY:?请在未跟踪的 .env.walkin 中设置 PDCA_WALKIN_SECRET_KEY}
+      PDCA_DATABASE_URL: ${PDCA_DATABASE_URL:?请在未跟踪的 .env.walkin 中设置 PDCA_DATABASE_URL（可与主服务共用同一个库）}
+      PDCA_HOST: "0.0.0.0"
+      PDCA_WORKBENCH_PORT: "8767"
+      # 独立容器不需要经营首页/MVP 数据，不强制要求 PDCA_MVP_ROOT/PDCA_REPO_ROOT
+      PDCA_AUTH_MODE: local
+      PDCA_SECURE_COOKIES: ${PDCA_SECURE_COOKIES:-1}
+      PDCA_REQUIRE_VERTU: "0"
+      PDCA_SCHEDULER_ENABLED: "0"
+    volumes:
+      # 独立数据目录，不与主服务的 ./data 混用
+      - ./data-walkin:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8767/health'))['status'] == 'ok'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - pdca-walkin-net
+
+networks:
+  pdca-walkin-net:
+    driver: bridge

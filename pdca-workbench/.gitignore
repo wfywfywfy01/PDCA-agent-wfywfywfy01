@@ -1,5 +1,7 @@
 .env
+.env.walkin
 data/
+data-walkin/
 __pycache__/
 *.pyc
 .venv/

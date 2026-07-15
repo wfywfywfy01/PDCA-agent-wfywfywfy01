@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.walkin.example
 *.log
 *.tmp
 .DS_Store
