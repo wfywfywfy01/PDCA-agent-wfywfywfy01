@@ -21,7 +21,7 @@ from app.models.dealer_assignment import DealerAssignment
 from app.models.walkin_daily_report import WalkinDailyReport
 from app.logistics.service import _is_delivered, _is_demo_record, _judge_status
 from app.vertu.sales import fetch_dealer_sales_orders_sync
-from app.pages.router import _serve_module, view_path, walkin_assets
+from app.pages.router import _serve_module, view_path, walkin_assets, walkin_portal
 from app.pdca.post_router import post_questionnaire
 from app.validation import require_iso_date, resolve_file_under
 from app.walkin.router import walkin_metrics_summary
@@ -64,6 +64,11 @@ class InputValidationTests(unittest.TestCase):
                     user=User(),
                 )
             )
+
+    def test_legacy_walkin_portal_redirects_to_supported_entry(self):
+        response = asyncio.run(walkin_portal())
+        self.assertEqual(response.status_code, 307)
+        self.assertEqual(response.headers["location"], "/walkin-submit/")
 
     def test_write_route_rejects_invalid_date_before_reading_form(self):
         with self.assertRaises(HTTPException):

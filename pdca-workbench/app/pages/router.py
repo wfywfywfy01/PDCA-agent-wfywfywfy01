@@ -431,6 +431,13 @@ async def walkin_index(
     )
 
 
+@router.get("/walkin-portal")
+@router.get("/walkin-portal/")
+async def walkin_portal() -> RedirectResponse:
+    """Keep historical walk-in portal bookmarks on the supported entry page."""
+    return RedirectResponse("/walkin-submit/", status_code=307)
+
+
 @router.get("/walkin-cockpit/{rel_path:path}")
 async def walkin_assets(
     rel_path: str,
