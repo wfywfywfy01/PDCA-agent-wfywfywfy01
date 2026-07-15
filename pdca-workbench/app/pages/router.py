@@ -140,7 +140,8 @@ async def home(
 @router.get("/login")
 async def login_page():
     settings = get_settings()
-    login = settings.frontend_dir / "login.html"
+    login_name = "login_en.html" if settings.home_redirect == "/walkin-submit" else "login.html"
+    login = settings.frontend_dir / login_name
     if login.is_file():
         return _html_file(login)
     return HTMLResponse("<p>login.html 缺失</p>")

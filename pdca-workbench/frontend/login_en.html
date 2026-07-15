@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VERTU Distributor Portal · Login</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+         background:#0b0d13;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .login-card{width:100%;max-width:420px;background:#13182a;border:1px solid rgba(255,255,255,.08);
+                border-radius:16px;padding:44px 40px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    .logo{display:flex;align-items:center;gap:12px;margin-bottom:30px}
+    .logo-icon{width:42px;height:42px;background:rgba(78,158,245,.2);border:1px solid rgba(78,158,245,.3);
+               border-radius:10px;display:flex;align-items:center;justify-content:center;color:#4e9ef5;font-size:21px;font-weight:700}
+    h1{margin:0;font-size:20px;color:#e2e8f0;font-weight:700}
+    .sub{color:#475569;font-size:13px;margin:2px 0 0}
+    label{display:block;font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:6px}
+    input[type=text],input[type=password]{
+      width:100%;padding:10px 12px;border:1.5px solid rgba(255,255,255,.1);
+      border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:16px;outline:none;
+      transition:border-color .2s;font-family:inherit;
+      background:rgba(255,255,255,.05);color:#e2e8f0}
+    input::placeholder{color:#475569}
+    input:focus{border-color:#4e9ef5}
+    button{width:100%;padding:11px;background:rgba(78,158,245,.2);border:1px solid rgba(78,158,245,.3);
+           color:#4e9ef5;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:background .2s}
+    button:hover{background:rgba(78,158,245,.3)}
+    button:disabled{opacity:.5;cursor:default}
+    button.secondary{background:transparent;border-color:rgba(255,255,255,.15);color:#94a3b8;margin-top:8px}
+    .msg-box{font-size:13px;min-height:20px;padding:9px 12px;border-radius:7px;margin-bottom:12px;display:none}
+    .msg-box.err{display:block;color:#f43f5e;background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.3)}
+    .msg-box.warn{display:block;color:#f59e0b;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3)}
+    .msg-box.ok{display:block;color:#10b981;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3)}
+    .vps-box{margin-bottom:16px;padding:14px 16px;border-radius:10px;background:rgba(78,158,245,.08);
+             border:1px solid rgba(78,158,245,.25);display:none}
+    .vps-box p{margin:0 0 10px;font-size:13px;color:#93c5fd;line-height:1.5}
+    .divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:#475569;font-size:12px}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
+    .hint{margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,.06);
+          font-size:12px;color:#334155;text-align:center;line-height:1.6}
+    .hint a{color:#4e9ef5;text-decoration:none}
+    .change-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:50;display:none;align-items:center;justify-content:center}
+    .change-overlay.open{display:flex}
+    .change-card{background:#13182a;border:1px solid rgba(255,255,255,.1);border-radius:14px;
+                 width:100%;max-width:400px;padding:2rem;margin:1rem;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    .change-card h2{font-size:1rem;font-weight:700;margin-bottom:.5rem;color:#e2e8f0}
+    .change-card p{font-size:.82rem;color:#94a3b8;margin-bottom:1.25rem;line-height:1.6}
+    .change-card .field{margin-bottom:.85rem}
+    .change-card label{display:block;font-size:.78rem;font-weight:600;color:#94a3b8;margin-bottom:.3rem}
+    .change-card input{width:100%;padding:.5rem .75rem;border:1.5px solid rgba(255,255,255,.1);
+                       border-radius:8px;font-size:.9rem;font-family:inherit;
+                       background:rgba(255,255,255,.05);color:#e2e8f0}
+    .change-card input:focus{outline:none;border-color:#4e9ef5}
+    .change-card .err{font-size:.78rem;color:#f43f5e;margin-top:.3rem;display:none}
+    .change-card .err.show{display:block}
+    .change-card button{margin-top:.75rem}
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="logo">
+      <div class="logo-icon">V</div>
+      <div>
+        <h1>VERTU Distributor Portal</h1>
+        <div class="sub" id="subText">Please sign in</div>
+      </div>
+    </div>
+    <div class="msg-box" id="msgBox"></div>
+    <div id="vpsBox" class="vps-box"></div>
+    <form id="loginForm">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" placeholder="Enter username" required />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter password" required />
+      <button type="submit" id="submitBtn">Sign In</button>
+    </form>
+    <div class="hint" id="hintText">For assistance, contact your system administrator</div>
+  </div>
+
+  <div class="change-overlay" id="changeOverlay">
+    <div class="change-card">
+      <h2>Set New Password</h2>
+      <p>For account security, you must set a new password on first login. Minimum 8 characters, and it cannot match your initial password.</p>
+      <div class="field">
+        <label>Current Password</label>
+        <input type="password" id="cp_old" placeholder="Current password" />
+      </div>
+      <div class="field">
+        <label>New Password (min 8 chars)</label>
+        <input type="password" id="cp_new" placeholder="New password" />
+      </div>
+      <div class="field">
+        <label>Confirm New Password</label>
+        <input type="password" id="cp_confirm" placeholder="Confirm password" />
+      </div>
+      <div class="err" id="cp_err"></div>
+      <button id="cp_btn" onclick="submitChangePassword()">Set Password &amp; Enter</button>
+    </div>
+  </div>
+
+  <script>
+    var _accessToken = '';
+    var _nextUrl = '/';
+    var _authMode = 'local';
+
+    function safeNextUrl(raw) {
+      try {
+        var parsed = new URL(raw || '/', location.origin);
+        if (parsed.origin !== location.origin) return '/';
+        return parsed.pathname + parsed.search + parsed.hash;
+      } catch (_) {
+        return '/';
+      }
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var msgBox = document.getElementById('msgBox');
+      var btn = document.getElementById('submitBtn');
+      msgBox.className = 'msg-box';
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      var username = document.getElementById('username').value.trim();
+      var password = document.getElementById('password').value;
+      try {
+        var res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ username: username, password: password })
+        });
+        var data = {};
+        try { data = await res.json(); } catch (_) {}
+        if (!res.ok) {
+          var detail = data.detail || (res.status === 429 ? 'Too many failed attempts, please try again later'
+            : res.status >= 500 ? 'Server error, please try again later' : 'Incorrect username or password');
+          msgBox.textContent = detail;
+          msgBox.className = 'msg-box err';
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+          return;
+        }
+        var params = new URLSearchParams(location.search);
+        _nextUrl = safeNextUrl(params.get('next'));
+        _accessToken = data.access_token || '';
+        if (data.must_change_password) {
+          document.getElementById('cp_old').value = password;
+          document.getElementById('changeOverlay').classList.add('open');
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+          return;
+        }
+        location.href = _nextUrl;
+      } catch (ex) {
+        msgBox.textContent = 'Cannot connect to server, please confirm the service is running';
+        msgBox.className = 'msg-box err';
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    });
+
+    async function submitChangePassword() {
+      var btn = document.getElementById('cp_btn');
+      var oldPw = document.getElementById('cp_old').value;
+      var newPw = document.getElementById('cp_new').value;
+      var confirm = document.getElementById('cp_confirm').value;
+      if (!newPw || newPw.length < 12) { showCpErr('New password must be at least 12 characters'); return; }
+      if (newPw !== confirm) { showCpErr('Passwords do not match'); return; }
+      if (newPw === oldPw) { showCpErr('New password must differ from current password'); return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        var res = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': _accessToken ? 'Bearer ' + _accessToken : ''
+          },
+          credentials: 'include',
+          body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+        });
+        var data = {};
+        try { data = await res.json(); } catch (_) {}
+        if (!res.ok) {
+          showCpErr(data.detail || 'Failed, please retry');
+          btn.disabled = false;
+          btn.textContent = 'Set Password & Enter';
+          return;
+        }
+        location.href = _nextUrl;
+      } catch (ex) {
+        showCpErr('Network error, please retry');
+        btn.disabled = false;
+        btn.textContent = 'Set Password & Enter';
+      }
+    }
+
+    function showCpErr(msg) {
+      var el = document.getElementById('cp_err');
+      el.textContent = msg;
+      el.className = 'err show';
+    }
+
+    async function enterWorkbench() {
+      try {
+        await fetch('/api/auth/vps-bootstrap', { method: 'POST', credentials: 'include' });
+      } catch (_) {}
+      sessionStorage.removeItem('pdca_login_loop_ts');
+      location.href = _nextUrl;
+    }
+
+    (async function bootstrapAuth() {
+      var params = new URLSearchParams(location.search);
+      _nextUrl = safeNextUrl(params.get('next'));
+      if (params.get('manual') === '1' || params.get('local') === '1') return;
+
+      var cfg = {};
+      try {
+        cfg = await fetch('/api/auth/config', { credentials: 'include' }).then(function (r) { return r.json(); });
+      } catch (_) { return; }
+
+      _authMode = cfg.auth_mode || 'local';
+      if (_authMode !== 'vps' && _authMode !== 'hybrid') return;
+
+      var sub = document.getElementById('subText');
+      var form = document.getElementById('loginForm');
+      var hint = document.getElementById('hintText');
+      var msgBox = document.getElementById('msgBox');
+      var vpsBox = document.getElementById('vpsBox');
+
+      var loopTs = Number(sessionStorage.getItem('pdca_login_loop_ts') || '0');
+      if (loopTs && Date.now() - loopTs < 5000) {
+        sessionStorage.removeItem('pdca_login_loop_ts');
+        msgBox.textContent = 'Automatic sign-in did not complete — use the form below, or click "Enter with VPS"';
+        msgBox.className = 'msg-box warn';
+        if (form) form.style.display = '';
+      }
+
+      var check = null;
+      try {
+        check = await fetch('/api/auth/vps-check', { credentials: 'include' }).then(function (r) { return r.json(); });
+      } catch (_) {}
+
+      if (_authMode === 'hybrid') {
+        if (check && check.ok) {
+          var name = (check.profile && check.profile.display_name) || 'VPS user';
+          vpsBox.style.display = 'block';
+          vpsBox.innerHTML =
+            '<p>VPS login detected: <strong>' + name + '</strong></p>' +
+            '<button type="button" id="vpsEnterBtn">Enter with VPS</button>';
+          document.getElementById('vpsEnterBtn').addEventListener('click', function () {
+            enterWorkbench();
+          });
+          var div = document.createElement('div');
+          div.className = 'divider';
+          div.textContent = 'or use a local account';
+          form.parentNode.insertBefore(div, form);
+        }
+        return;
+      }
+
+      // vps mode
+      if (sub) sub.textContent = 'Verifying VPS login…';
+      if (form) form.style.display = 'none';
+      if (check && check.ok) {
+        sessionStorage.setItem('pdca_login_loop_ts', String(Date.now()));
+        await enterWorkbench();
+        return;
+      }
+      msgBox.textContent = 'No VPS login detected — please sign in on VPS / Odoo first, then reopen this page';
+      msgBox.className = 'msg-box warn';
+      if (hint && cfg.vps_login_url) {
+        hint.innerHTML = '<a href="' + cfg.vps_login_url + '" target="_blank" rel="noopener">Go to VPS login</a>' +
+          ' · <a href="/login?manual=1">Force local form</a>';
+      }
+    })();
+  </script>
+</body>
+</html>
