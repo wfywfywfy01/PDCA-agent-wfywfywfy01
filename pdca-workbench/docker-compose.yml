@@ -42,6 +42,8 @@ services:
       VERTU_BOT_INBOUND_KEY: ${VERTU_BOT_INBOUND_KEY:-}
     volumes:
       - ./data:/app/data
+      # Persist legacy `vertu login` sessions when Bot Key authentication is not used.
+      - pdca-vertu-session:/root/.vertu
       - ../data_platform/data_role_pdca_mvp:/mvp:ro
       - ./data/runtime/inputs:/mvp/inputs
       - ./data/runtime/outputs:/mvp/outputs
@@ -79,3 +81,6 @@ services:
 networks:
   pdca-net:
     driver: bridge
+
+volumes:
+  pdca-vertu-session:

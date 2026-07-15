@@ -265,6 +265,7 @@ function Start-PdcaContainer {
         "--restart", "unless-stopped",
         "--label", "com.vertu.pdca.revision=$Revision",
         "-p", "127.0.0.1:8768:8767",
+        "--mount", "type=volume,src=pdca-vertu-session,dst=/root/.vertu",
         "-v", "/opt/PDCA-agent/pdca-workbench/data:/app/data",
         "-v", "$ReleasePath/data_platform/data_role_pdca_mvp:/mvp:ro",
         "-v", "${RuntimeDataRoot}/inputs:/mvp/inputs",
@@ -404,7 +405,7 @@ $secrets = @{
     VERTU_BOT_INBOUND_KEY = Read-OptionalDotEnvValue "VERTU_BOT_INBOUND_KEY"
 }
 if (-not $secrets.VERTU_BOT_INBOUND_KEY) {
-    throw "Missing VERTU_BOT_INBOUND_KEY in $EnvFile; activation data cannot be validated"
+    Write-Output "VERTU_BOT_INBOUND_KEY is not set; using the persisted pdca-vertu-session login"
 }
 $agent = Get-AgentCredential
 $script:SensitiveValues = @(
