@@ -55,8 +55,7 @@
     /* ── Source Grid ── */
     .source-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:.5rem}
     .src-item{text-align:center}
-    .src-en{font-size:.65rem;font-weight:700;color:var(--t3);letter-spacing:.03em;margin-bottom:.2rem}
-    .src-sub{font-size:.62rem;color:var(--t4,#334155);margin-bottom:.3rem}
+    .src-en{font-size:.65rem;font-weight:700;color:var(--t3);letter-spacing:.03em;margin-bottom:.3rem}
     .src-item input{text-align:center;font-size:1.05rem;font-weight:700;padding:.45rem .15rem;border-radius:8px}
     .src-item.walkin input{border-color:rgba(168,85,247,.35);background:rgba(168,85,247,.07)}
     .src-item.walkin input:focus{border-color:#a855f7}
@@ -181,27 +180,22 @@
       <div class="source-grid">
         <div class="src-item walkin">
           <div class="src-en">Walk-in</div>
-          <div class="src-sub">直接进店</div>
           <input type="number" id="walkin_visits" min="0" value="0" />
         </div>
         <div class="src-item referral">
           <div class="src-en">Cross-industry</div>
-          <div class="src-sub">异业：同业其他奢侈品员工介绍</div>
           <input type="number" id="cross_visits" min="0" value="0" />
         </div>
         <div class="src-item online">
           <div class="src-en">Online</div>
-          <div class="src-sub">线上：各种社媒渠道</div>
           <input type="number" id="online_visits" min="0" value="0" />
         </div>
         <div class="src-item appt">
           <div class="src-en">Recruit</div>
-          <div class="src-sub">招聘：新员工自带客户</div>
           <input type="number" id="recruit_visits" min="0" value="0" />
         </div>
         <div class="src-item">
           <div class="src-en">Existing</div>
-          <div class="src-sub">存量：老客户</div>
           <input type="number" id="existing_visits" min="0" value="0" />
         </div>
       </div>
