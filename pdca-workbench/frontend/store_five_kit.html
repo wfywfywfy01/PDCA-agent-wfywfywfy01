@@ -265,6 +265,7 @@ var storeList = [];
 var summaryData = null;
 var vpsData = null;
 var activationData = null;
+var loadSeq = 0;
 var currentFilter = 'all';
 
 // ── 期间工具 ────────────────────────────────────────────────────────────────
@@ -323,6 +324,7 @@ fetch('/api/auth/me',{credentials:'include'})
 
 // ── 数据加载 ────────────────────────────────────────────────────────────────
 function load(){
+  var requestSeq=++loadSeq;
   var range=getPeriodRange(currentAnchor,currentPeriod);
   var qs='start='+encodeURIComponent(range.start)+'&end='+encodeURIComponent(range.end);
   document.getElementById('cardGrid').innerHTML='<div class="state-box"><div class="spin"></div><span>加载中…</span></div>';
@@ -339,9 +341,15 @@ function load(){
   var p3=fetch('/api/vps/dealer-activation',{credentials:'include',cache:'no-store'})
     .then(function(r){return r.ok?r.json():null}).catch(function(){return null});
 
-  Promise.all([p1,p2,p3]).then(function(res){
-    summaryData=res[0];vpsData=res[1];activationData=res[2];
+  Promise.all([p1,p2]).then(function(res){
+    if(requestSeq!==loadSeq)return;
+    summaryData=res[0];vpsData=res[1];activationData=null;
     renderAll(range);
+  });
+  p3.then(function(result){
+    if(requestSeq!==loadSeq)return;
+    activationData=result;
+    if(summaryData!==null||vpsData!==null)renderAll(range);
   });
 }
 

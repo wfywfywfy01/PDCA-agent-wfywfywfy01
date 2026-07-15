@@ -8,7 +8,8 @@ param(
     [ValidateRange(1, 86400)]
     [int]$DockerPullTimeoutSeconds = 900,
     [string]$LogDirectory = "",
-    [switch]$SkipCiCheck
+    [switch]$SkipCiCheck,
+    [switch]$SkipImagePull
 )
 
 $ErrorActionPreference = "Stop"
@@ -235,8 +236,9 @@ function Wait-ContainerHealthy {
 function Test-ActivationSource {
     $raw = Invoke-Docker -DockerArgs @(
         "exec", "pdca-workbench", "vertu", "odoo", "data", "sandbox",
-        "--code-file", "/mvp/system_queries/dealer_activation_stats.py"
-    ) -TimeoutSeconds 90
+        "--code-file", "/mvp/system_queries/dealer_activation_stats.py",
+        "--timeout", "300000"
+    ) -TimeoutSeconds 330
     try {
         $payload = $raw | ConvertFrom-Json
     } catch {
@@ -286,6 +288,8 @@ function Start-PdcaContainer {
         "-e", "PDCA_CORS_ORIGINS=https://pdca-workbench-teams.vertu.cn",
         "-e", "PDCA_REQUIRE_VERTU=1",
         "-e", "PDCA_INCLUDE_DEMO_DATA=0",
+        "-e", "PDCA_BOOTSTRAP_ADMIN_USERNAME=",
+        "-e", "PDCA_BOOTSTRAP_ADMIN_PASSWORD=",
         "-e", "PDCA_MAX_REPORTED_REVENUE_USD=5000000",
         "-e", "PDCA_SCHEDULER_ENABLED=1",
         "-e", "PDCA_SYNC_CRON=0 6 * * *",
@@ -366,8 +370,21 @@ if ($currentRevision -eq $Sha) {
     }
 }
 
-Write-Output "Pulling tested image $image"
-Invoke-Docker -DockerArgs @("pull", $image) -TimeoutSeconds $DockerPullTimeoutSeconds | Out-Null
+if ($SkipImagePull) {
+    Write-Output "Using preloaded tested image $image"
+    $imageInspectResult = Invoke-DockerProcess -DockerArgs @("image", "inspect", $image)
+    if ($imageInspectResult.ExitCode -ne 0 -or -not $imageInspectResult.StdOut) {
+        throw "Preloaded image is missing: $image"
+    }
+    $imageObject = ($imageInspectResult.StdOut | ConvertFrom-Json)[0]
+    $sourceRevision = $imageObject.Config.Labels.'com.vertu.pdca.source_revision'
+    if ($sourceRevision -ne $Sha) {
+        throw "Preloaded image revision mismatch: expected $Sha"
+    }
+} else {
+    Write-Output "Pulling tested image $image"
+    Invoke-Docker -DockerArgs @("pull", $image) -TimeoutSeconds $DockerPullTimeoutSeconds | Out-Null
+}
 
 Write-Output "Preparing immutable release directory for $Sha"
 & git -C $RepoRoot fetch --no-tags origin $Sha

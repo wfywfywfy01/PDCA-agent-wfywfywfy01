@@ -20,7 +20,7 @@
         { "id": "signalseller_intro", "title": "SignalSeller 五 Agent 与四花色方法论", "duration_min": 45, "format": "讲义", "ref": "docs/SIGNALSELLER_PDCA_INTEGRATION.md" },
         { "id": "fab_spin_basics", "title": "FABE 与 SPIN 入门", "duration_min": 60, "format": "案例演练", "agent": "OutreachCrafter" }
       ],
-      "homework": ["完成首日日报", "登录工作台并录入 1 条测试线索", "背诵 FABE 四层含义"]
+      "homework": ["完成首日日报", "在培训练习表完成 1 条模拟线索（禁止写入正式客户台账）", "背诵 FABE 四层含义"]
     },
     {
       "day": 2,
@@ -32,7 +32,7 @@
         { "id": "funnel_tour", "title": "客户漏斗 / 台账 / 今日任务", "duration_min": 90, "format": "Shadow", "links": ["/customer-mgmt"] },
         { "id": "effort_allocation", "title": "A60% B20% C15% D5% 精力分配", "duration_min": 30, "format": "讨论" }
       ],
-      "homework": ["为 3 个真实/模拟客户打 ABCD 分", "更新 customers.csv 中 1 条 last_followup_date"]
+      "homework": ["为 3 个真实客户或培训样例打 ABCD 分（培训样例不写入正式台账）", "仅对已发生真实跟进的客户更新 last_followup_date"]
     },
     {
       "day": 3,
