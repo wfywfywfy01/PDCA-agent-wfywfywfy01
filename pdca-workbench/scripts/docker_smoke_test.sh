@@ -31,6 +31,7 @@ mkdir -p "$RUNTIME_ROOT/inputs" "$RUNTIME_ROOT/outputs" "$RUNTIME_ROOT/outbox"
 docker run --detach \
   --name "$CONTAINER_NAME" \
   --env PDCA_ENV=development \
+  --env TZ=Asia/Shanghai \
   --env PDCA_HOST=0.0.0.0 \
   --env PDCA_WORKBENCH_PORT=8767 \
   --env PDCA_SECRET_KEY=ci-smoke-secret-key-at-least-32-characters \

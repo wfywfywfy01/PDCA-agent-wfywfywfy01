@@ -119,6 +119,15 @@ async def vps_check(request: Request):
                 "profile": {"display_name": vps_display_name(identity)},
             }
 
+    # A server-side vertu-cli session identifies the host, not the remote
+    # browser. Public multi-user SSO must use trusted proxy headers.
+    client_host = request.client.host if request.client else None
+    if client_host not in {"127.0.0.1", "::1"}:
+        return {
+            "ok": False,
+            "detail": "未检测到与当前访问者绑定的 VPS 身份，请使用本地账号或由管理员配置单点登录",
+        }
+
     vps = await asyncio.to_thread(fetch_vps_me_payload)
     if not vps:
         return {"ok": False, "detail": "未检测到 Vertu 身份，请联系管理员检查 vertu-cli 服务凭据"}

@@ -147,8 +147,10 @@ class DataScopeTests(unittest.TestCase):
         self.session.commit()
         self.assertEqual(visible_store_ids(user, self.session), ["store-a"])
 
-    def test_manager_scope_is_limited_to_team(self):
-        self.assertEqual(visible_store_ids(User(role="manager"), self.session), ["store-a", "store-b"])
+    def test_manager_scope_is_limited_to_explicit_team(self):
+        self.assertEqual(visible_store_ids(User(role="manager"), self.session), [])
+        manager = User(role="manager", team_key="overseas", data_scope="team")
+        self.assertEqual(visible_store_ids(manager, self.session), ["store-a", "store-b"])
 
     def test_unconfigured_sales_fails_closed(self):
         user = User(role="sales", username="alice", hashed_password="test")
@@ -291,6 +293,19 @@ class ProductionHardeningTests(unittest.TestCase):
         form = (root / "frontend" / "walkin_submit.html").read_text(encoding="utf-8")
         self.assertIn("Revenue (USD $)", form)
         self.assertIn("Do not enter VND", form)
+        self.assertNotIn("toISOString().slice(0,10)", form)
+
+    def test_deployment_sets_business_timezone(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertIn("TZ=Asia/Shanghai", (root / "scripts" / "deploy_remote_docker.ps1").read_text(encoding="utf-8"))
+        self.assertIn("TZ: Asia/Shanghai", (root / "docker-compose.yml").read_text(encoding="utf-8"))
+
+    def test_login_copy_matches_password_policy_and_escapes_vps_identity(self):
+        root = Path(__file__).resolve().parents[1]
+        for name in ("login.html", "login_en.html"):
+            source = (root / "frontend" / name).read_text(encoding="utf-8")
+            self.assertIn("12", source)
+            self.assertNotIn("vpsBox.innerHTML", source)
 
     def test_walkin_summary_excludes_currency_outlier(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
@@ -298,6 +313,8 @@ class ProductionHardeningTests(unittest.TestCase):
         with Session(engine) as session:
             session.add_all(
                 [
+                    DealerStore(store_id="store-a", name="Dealer A", is_active=True),
+                    DealerStore(store_id="store-b", name="Dealer B", is_active=True),
                     WalkinDailyReport(
                         report_date="2026-07-05",
                         dealer_id="store-a",
@@ -312,12 +329,22 @@ class ProductionHardeningTests(unittest.TestCase):
                         deal_count=1,
                         deal_amount_yuan=215_900_000,
                     ),
+                    WalkinDailyReport(
+                        report_date="2026-07-10",
+                        dealer_id="store-a",
+                        dealer_name="Dealer A",
+                        deal_count=3,
+                        deal_amount_yuan=2_170_622,
+                    ),
                 ]
             )
             session.commit()
             with patch(
                 "app.walkin.router.get_settings",
-                return_value=SimpleNamespace(max_reported_revenue_usd=5_000_000),
+                return_value=SimpleNamespace(
+                    max_reported_revenue_usd=5_000_000,
+                    revenue_review_threshold_usd=1_000_000,
+                ),
             ):
                 result = asyncio.run(
                     walkin_metrics_summary(
@@ -329,7 +356,7 @@ class ProductionHardeningTests(unittest.TestCase):
                     )
                 )
             self.assertEqual(result["funnel"]["deal_amount_usd"], 5618)
-            self.assertEqual(result["data_quality"]["excluded_record_count"], 1)
+            self.assertEqual(result["data_quality"]["excluded_record_count"], 2)
         engine.dispose()
 
     def test_vertu_cli_order_rows_are_aggregated_by_customer(self):

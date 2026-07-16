@@ -112,14 +112,11 @@ async def workbench_today(
         store_ids = set(scope.store_ids)
 
     report_stmt = select(WalkinDailyReport).where(WalkinDailyReport.report_date == date_text)
-    if not scope.unrestricted:
-        if store_ids:
-            report_stmt = report_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))
-            reports = list(session.exec(report_stmt).all())
-        else:
-            reports = []
-    else:
+    if store_ids:
+        report_stmt = report_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))
         reports = list(session.exec(report_stmt).all())
+    else:
+        reports = []
     reported_ids = {row.dealer_id for row in reports if row.dealer_id in store_ids}
     expected = len(store_ids)
     missing = max(expected - len(reported_ids), 0)

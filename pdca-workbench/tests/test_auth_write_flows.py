@@ -44,6 +44,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             algorithm="HS256",
             vps_login_url="https://example.invalid",
             max_reported_revenue_usd=5_000_000,
+            revenue_review_threshold_usd=1_000_000,
             repo_root=repo_root,
             scripts_dir=(
                 repo_root
@@ -180,6 +181,13 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         me = self.client.get("/api/auth/me")
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.json()["role"], "viewer")
+
+    def test_public_vps_probe_does_not_expose_server_session(self):
+        with patch("app.auth.vps_identity.fetch_vps_me_payload") as fetch_vps:
+            response = self.client.get("/api/auth/vps-check")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["ok"])
+        fetch_vps.assert_not_called()
 
     def test_forced_password_change_blocks_business_api_then_rotates_token(self):
         login = self._login("forced-admin")
@@ -341,6 +349,54 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             self.assertEqual(row.deal_count, 2)
             self.assertEqual(row.deal_amount_yuan, 1280.5)
 
+    def test_walkin_write_uses_canonical_active_store_and_valid_date(self):
+        self.assertEqual(self._login("dealer").status_code, 200)
+        response = self.client.post(
+            "/api/walkin-metrics",
+            json={
+                "report_date": "2024-01-03",
+                "dealer_id": "store-a",
+                "dealer_name": "Forged Dealer Name",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        with Session(self.engine) as session:
+            row = session.exec(
+                select(WalkinDailyReport).where(
+                    WalkinDailyReport.report_date == "2024-01-03",
+                    WalkinDailyReport.dealer_id == "store-a",
+                )
+            ).one()
+            self.assertEqual(row.dealer_name, "Dealer A")
+            store = session.exec(select(DealerStore).where(DealerStore.store_id == "store-a")).one()
+            store.is_active = False
+            session.add(store)
+            session.commit()
+
+        inactive = self.client.post(
+            "/api/walkin-metrics",
+            json={"report_date": "2024-01-04", "dealer_id": "store-a", "dealer_name": "Dealer A"},
+        )
+        self.assertEqual(inactive.status_code, 422)
+        invalid_date = self.client.post(
+            "/api/walkin-metrics",
+            json={"report_date": "2024-99-99", "dealer_id": "store-a", "dealer_name": "Dealer A"},
+        )
+        self.assertEqual(invalid_date.status_code, 422)
+
+    def test_admin_can_deactivate_dealer_after_store_is_disabled(self):
+        with Session(self.engine) as session:
+            store = session.exec(select(DealerStore).where(DealerStore.store_id == "store-a")).one()
+            store.is_active = False
+            session.add(store)
+            session.commit()
+        self.assertEqual(self._login("admin").status_code, 200)
+        response = self.client.patch("/api/admin/users/dealer", json={"is_active": False})
+        self.assertEqual(response.status_code, 200)
+        with Session(self.engine) as session:
+            dealer = session.exec(select(User).where(User.username == "dealer")).one()
+            self.assertFalse(dealer.is_active)
+
     def test_sales_accounts_cannot_read_or_write_each_others_stores(self):
         with Session(self.engine) as session:
             session.add(WalkinDailyReport(
@@ -373,6 +429,34 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         self.assertEqual(payload["facts"]["walkin_reported"]["value"], 1)
         self.assertEqual(payload["facts"]["walkin_visits"]["value"], 0)
         self.assertTrue(payload["closure"]["complete"])
+
+    def test_inactive_store_history_is_kept_but_excluded_from_current_reporting(self):
+        with Session(self.engine) as session:
+            session.add(DealerStore(
+                store_id="inactive-store",
+                name="Inactive Store",
+                team_key="overseas",
+                is_active=False,
+            ))
+            session.add(WalkinDailyReport(
+                report_date="2024-01-05",
+                dealer_id="inactive-store",
+                dealer_name="Inactive Store",
+                walkin_visits=99,
+                deal_amount_yuan=9999,
+            ))
+            session.commit()
+
+        self.assertEqual(self._login("admin").status_code, 200)
+        listed = self.client.get("/api/walkin-metrics?month=2024-01")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["count"], 0)
+        summary = self.client.get("/api/walkin-metrics/summary?month=2024-01")
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.json()["record_count"], 0)
+        today = self.client.get("/api/workbench/today?date=2024-01-05")
+        self.assertEqual(today.status_code, 200)
+        self.assertEqual(today.json()["facts"]["walkin_visits"]["value"], 0)
 
     def test_walkin_get_rebuilds_payload_from_database_without_monthly_json(self):
         with Session(self.engine) as session:

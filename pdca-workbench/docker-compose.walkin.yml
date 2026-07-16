@@ -24,6 +24,7 @@ services:
       - path: .env.walkin
         required: false
     environment:
+      TZ: Asia/Shanghai
       PDCA_ENV: production
       PDCA_SECRET_KEY: ${PDCA_WALKIN_SECRET_KEY:?请在未跟踪的 .env.walkin 中设置 PDCA_WALKIN_SECRET_KEY}
       PDCA_DATABASE_URL: ${PDCA_DATABASE_URL:?请在未跟踪的 .env.walkin 中设置 PDCA_DATABASE_URL（可与主服务共用同一个库）}

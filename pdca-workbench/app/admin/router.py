@@ -282,7 +282,11 @@ async def update_user(
     next_dealer_id = body.dealer_id if body.dealer_id is not None else target.dealer_id
     next_owner_key = body.owner_key if body.owner_key is not None else getattr(target, "owner_key", "")
     next_team_key = body.team_key if body.team_key is not None else getattr(target, "team_key", "")
-    _validate_identity_binding(session, next_role, next_dealer_id, next_owner_key, next_team_key)
+    next_is_active = body.is_active if body.is_active is not None else target.is_active
+    # Deactivation is a containment action and must still work when the old
+    # store/team binding has already been disabled.
+    if next_is_active:
+        _validate_identity_binding(session, next_role, next_dealer_id, next_owner_key, next_team_key)
     _ensure_unique_scope_mapping(
         session,
         owner_key=body.owner_key if body.owner_key is not None else getattr(target, "owner_key", ""),

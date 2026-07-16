@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 from app.audit import log_action
 from app.auth.deps import get_current_user, require_role
 from app.auth.models import User
-from app.auth.scope import visible_dealer_names, visible_store_ids
+from app.auth.scope import scoped_active_store_ids, visible_dealer_names, visible_store_ids
 from app.config import get_settings
 from app.database import get_session
 from app.legacy import bridge
@@ -28,6 +28,15 @@ router = APIRouter(tags=["walkin"])
 # ── VPS dealer-sales 缓存（内存，TTL 10 分钟）──────────────────────────────────
 _vps_cache: dict[str, tuple[float, dict]] = {}
 _VPS_TTL = 600  # seconds
+
+
+def _revenue_requires_review(amount: float) -> bool:
+    settings = get_settings()
+    threshold = min(
+        settings.max_reported_revenue_usd,
+        getattr(settings, "revenue_review_threshold_usd", settings.max_reported_revenue_usd),
+    )
+    return amount > threshold
 
 
 # ---------------------------------------------------------------------------
@@ -141,15 +150,17 @@ async def submit_walkin_metrics(
             status_code=422,
             detail=f"Revenue must be entered in USD and cannot exceed ${max_revenue:,.0f}; check the currency/unit.",
         )
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.report_date):
-        raise HTTPException(status_code=422, detail="report_date 格式应为 YYYY-MM-DD")
+    require_iso_date(body.report_date, field="report_date")
     if not body.dealer_id.strip():
         raise HTTPException(status_code=422, detail="dealer_id 不能为空")
     if body.report_date > bridge.today_text():
         raise HTTPException(status_code=422, detail="report_date 不能是未来日期")
 
     dealer_store = session.exec(
-        select(DealerStore).where(DealerStore.store_id == body.dealer_id)
+        select(DealerStore).where(
+            DealerStore.store_id == body.dealer_id,
+            DealerStore.is_active == True,  # noqa: E712
+        )
     ).first()
     if not dealer_store:
         raise HTTPException(status_code=422, detail="dealer_id 不存在，请从门店列表选择")
@@ -169,7 +180,8 @@ async def submit_walkin_metrics(
     data = dict(
         report_date=body.report_date,
         dealer_id=body.dealer_id,
-        dealer_name=body.dealer_name,
+        # The canonical store table is the source of truth.
+        dealer_name=dealer_store.name,
         walkin_visits=body.walkin_visits,
         cross_visits=body.cross_visits,
         online_visits=body.online_visits,
@@ -199,8 +211,8 @@ async def submit_walkin_metrics(
 
 
 def _dealer_ids_for_user(user: User, session) -> list[str] | None:
-    """返回当前用户可见的 dealer_id 列表；None 表示不限制（manager/admin）。"""
-    return visible_store_ids(user, session)
+    """返回当前用户可见且启用的 dealer_id 列表。"""
+    return scoped_active_store_ids(user, session)
 
 
 def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
@@ -235,12 +247,11 @@ async def list_walkin_metrics(
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
     # 权限过滤
     allowed = _dealer_ids_for_user(user, session)
-    if dealer_id and allowed is not None and dealer_id not in allowed:
+    if dealer_id and dealer_id not in allowed:
         raise HTTPException(status_code=403, detail="该门店不在当前账号的数据权限范围内")
-    if allowed is not None:
-        if not allowed:
-            return {"count": 0, "items": []}
-        stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
+    if not allowed:
+        return {"count": 0, "items": []}
+    stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
     if dealer_id:
         stmt = stmt.where(WalkinDailyReport.dealer_id == dealer_id)
     rows = session.exec(stmt.order_by(WalkinDailyReport.report_date.desc())).all()
@@ -268,7 +279,7 @@ async def list_walkin_metrics(
                     "deal_count": r.deal_count,
                     "deal_amount_yuan": r.deal_amount_yuan,
                     "deal_amount_usd": r.deal_amount_yuan,
-                    "amount_requires_review": r.deal_amount_yuan > get_settings().max_reported_revenue_usd,
+                    "amount_requires_review": _revenue_requires_review(r.deal_amount_yuan),
                 },
                 "notes": r.notes,
                 "submitted_by": r.submitted_by,
@@ -300,13 +311,10 @@ async def walkin_metrics_summary(
     elif month and re.fullmatch(r"\d{4}-\d{2}", month):
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
     allowed = _dealer_ids_for_user(user, session)
-    if allowed is not None:
-        if not allowed:
-            rows = []
-        else:
-            stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
-            rows = session.exec(stmt).all()
+    if not allowed:
+        rows = []
     else:
+        stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
         rows = session.exec(stmt).all()
 
     if not rows:
@@ -321,7 +329,6 @@ async def walkin_metrics_summary(
 
     agg = dict(walkin=0, cross=0, online=0, recruit=0, existing=0,
                total_visits=0, touch=0, use=0, wechat=0, deal_count=0, deal_amount=0.0)
-    max_revenue = get_settings().max_reported_revenue_usd
     excluded_amount_count = 0
 
     dealer_map: dict[str, dict] = {}
@@ -338,7 +345,7 @@ async def walkin_metrics_summary(
         agg["use"] += r.use_count
         agg["wechat"] += r.wechat_add_count
         agg["deal_count"] += r.deal_count
-        amount_valid = r.deal_amount_yuan <= max_revenue
+        amount_valid = not _revenue_requires_review(r.deal_amount_yuan)
         if amount_valid:
             agg["deal_amount"] += r.deal_amount_yuan
         else:
@@ -399,7 +406,7 @@ async def walkin_metrics_summary(
         "by_dealer": sorted(dealer_map.values(), key=lambda x: -x["deal_amount_yuan"]),
         "data_quality": {
             "excluded_record_count": excluded_amount_count,
-            "reason": "Revenue exceeds the USD validation limit; verify the original currency."
+            "reason": "Revenue exceeds the USD review threshold; verify the original currency before including it in totals."
             if excluded_amount_count else "",
         },
     }
@@ -422,8 +429,10 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
         .where(DealerStore.is_active == True)
         .order_by(DealerStore.sort_order, DealerStore.store_id)
     ).all()
+    active_ids = {row.store_id for row in master_stores}
     stmt = select(WalkinDailyReport).where(
-        WalkinDailyReport.report_date.startswith(month_text)
+        WalkinDailyReport.report_date.startswith(month_text),
+        WalkinDailyReport.dealer_id.in_(active_ids),
     )
     rows = session.exec(stmt).all()
 
@@ -445,10 +454,14 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
         d["use"] += r.use_count
         d["wechat"] += r.wechat_add_count
         d["deal_count"] += r.deal_count
-        if r.deal_amount_yuan <= get_settings().max_reported_revenue_usd:
+        if not _revenue_requires_review(r.deal_amount_yuan):
             d["deal_amount_yuan"] += r.deal_amount_yuan
 
-    stores = payload.setdefault("stores", [])
+    stores = [
+        store for store in payload.setdefault("stores", [])
+        if str(store.get("id") or "") in active_ids
+    ]
+    payload["stores"] = stores
     existing_ids = {str(store.get("id") or "") for store in stores}
     for master in master_stores:
         if master.store_id in existing_ids:

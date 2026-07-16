@@ -161,11 +161,11 @@
       <div class="card-label"><span class="dot" style="background:#3b82f6"></span>Basic Info</div>
       <div class="grid-2">
         <div class="field">
-          <label>Date<span class="req">*</span></label>
+          <label for="report_date">Date<span class="req">*</span></label>
           <input type="date" id="report_date" required />
         </div>
         <div class="field" id="dealer_field">
-          <label>Store / Distributor<span class="req">*</span></label>
+          <label for="dealer_id">Store / Distributor<span class="req">*</span></label>
           <select id="dealer_id" required>
             <option value="">— Loading… —</option>
           </select>
@@ -179,23 +179,23 @@
       <div class="card-label"><span class="dot" style="background:#8b5cf6"></span>Traffic Sources (visitors)</div>
       <div class="source-grid">
         <div class="src-item walkin">
-          <div class="src-en">Walk-in</div>
+          <label class="src-en" for="walkin_visits">Walk-in</label>
           <input type="number" id="walkin_visits" min="0" value="0" />
         </div>
         <div class="src-item referral">
-          <div class="src-en">Cross-industry</div>
+          <label class="src-en" for="cross_visits">Cross-industry</label>
           <input type="number" id="cross_visits" min="0" value="0" />
         </div>
         <div class="src-item online">
-          <div class="src-en">Online</div>
+          <label class="src-en" for="online_visits">Online</label>
           <input type="number" id="online_visits" min="0" value="0" />
         </div>
         <div class="src-item appt">
-          <div class="src-en">Recruit</div>
+          <label class="src-en" for="recruit_visits">Recruit</label>
           <input type="number" id="recruit_visits" min="0" value="0" />
         </div>
         <div class="src-item">
-          <div class="src-en">Existing</div>
+          <label class="src-en" for="existing_visits">Existing</label>
           <input type="number" id="existing_visits" min="0" value="0" />
         </div>
       </div>
@@ -210,11 +210,11 @@
       <div class="card-label"><span class="dot" style="background:#f59e0b"></span>Product Interaction</div>
       <div class="product-grid">
         <div class="big-input">
-          <label>Products Shown (times)</label>
+          <label for="touch_count">Products Shown (times)</label>
           <input type="number" id="touch_count" min="0" value="0" />
         </div>
         <div class="big-input">
-          <label>Products Sold (units)</label>
+          <label for="deal_count">Products Sold (units)</label>
           <input type="number" id="deal_count" min="0" value="0" />
         </div>
       </div>
@@ -227,7 +227,7 @@
 
       <!-- Sell-out -->
       <div class="sellout-box">
-        <label>Revenue (USD $)</label>
+        <label for="deal_amount_yuan">Revenue (USD $)</label>
         <input type="number" id="deal_amount_yuan" min="0" max="5000000" value="" placeholder="0" step="100" />
         <div class="sellout-note">Enter USD only. Do not enter VND, THB, CNY or another local currency.</div>
       </div>
@@ -235,7 +235,7 @@
 
     <!-- Notes -->
     <div class="card">
-      <div class="card-label"><span class="dot" style="background:#64748b"></span>Notes (optional)</div>
+      <label class="card-label" for="notes"><span class="dot" style="background:#64748b"></span>Notes (optional)</label>
       <textarea id="notes" placeholder="Activities, exceptions, etc."></textarea>
     </div>
 
@@ -298,7 +298,7 @@ function fmtAmt(v) {
 // Initialize date
 (function(){
   var d = new Date();
-  var today = d.toISOString().slice(0,10);
+  var today = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   var ym    = today.slice(0,7);
   document.getElementById('report_date').value = today;
   document.getElementById('hist_month').value  = ym;

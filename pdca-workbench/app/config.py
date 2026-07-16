@@ -51,6 +51,9 @@ class Settings:
         self.max_reported_revenue_usd = float(
             os.environ.get("PDCA_MAX_REPORTED_REVENUE_USD", "5000000")
         )
+        self.revenue_review_threshold_usd = float(
+            os.environ.get("PDCA_REVENUE_REVIEW_THRESHOLD_USD", "1000000")
+        )
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")

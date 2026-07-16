@@ -1797,11 +1797,11 @@
     var customDate =
       state.isCustomDate
         ? '<span class="text-slate-400">—</span>' +
-          '<input type="date" class="filter-date-start text-xs font-bold text-slate-600 outline-none border rounded-lg px-2 py-1" style="border-color:var(--slate-200)" value="' +
+          '<input type="date" aria-label="开始日期" class="filter-date-start text-xs font-bold text-slate-600 outline-none border rounded-lg px-2 py-1" style="border-color:var(--slate-200)" value="' +
           state.dateRange.start +
           '"/>' +
           '<span class="text-slate-400">至</span>' +
-          '<input type="date" class="filter-date-end text-xs font-bold text-slate-600 outline-none border rounded-lg px-2 py-1" style="border-color:var(--slate-200)" value="' +
+          '<input type="date" aria-label="结束日期" class="filter-date-end text-xs font-bold text-slate-600 outline-none border rounded-lg px-2 py-1" style="border-color:var(--slate-200)" value="' +
           state.dateRange.end +
           '"/>'
         : '';
@@ -1824,7 +1824,7 @@
       '<div class="vertu-toolbar">' +
       '<div class="global-search-wrap">' +
       '<span class="text-slate-500 text-xs font-bold">搜索</span>' +
-      '<input type="text" class="global-search" placeholder="' +
+      '<input type="text" aria-label="搜索代理商或人员" class="global-search" placeholder="' +
       escapeHtml(searchPlaceholder()) +
       '" value="' +
       escapeHtml(state.globalSearch) +
@@ -1835,7 +1835,7 @@
       '</div>' +
       '<div class="flex items-center gap-2 flex-wrap">' +
       '<span class="text-xs font-bold text-slate-500">统计月</span>' +
-      '<select class="filter-month text-xs font-bold text-slate-700 cursor-pointer border rounded-lg px-2 py-1" style="border-color:var(--slate-200);background:#fff">' +
+      '<select aria-label="统计月" class="filter-month text-xs font-bold text-slate-700 cursor-pointer border rounded-lg px-2 py-1" style="border-color:var(--slate-200);background:#fff">' +
       renderMonthOptions() + '</select>' +
       customDate +
       '</div>' +

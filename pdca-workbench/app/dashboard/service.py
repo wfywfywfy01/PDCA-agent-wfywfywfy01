@@ -2,6 +2,7 @@
 """Dashboard 业务服务（委托遗留实现）。"""
 from __future__ import annotations
 
+from app.config import get_settings
 from app.legacy import bridge
 
 
@@ -44,21 +45,18 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
     from sqlmodel import select
     from app.models.dealer_sales import DealerSales
     from app.models.walkin_daily_report import WalkinDailyReport
-    from app.auth.scope import visible_dealer_names, visible_store_ids
+    from app.auth.scope import scoped_active_dealer_names, scoped_active_store_ids
 
     month = date_text[:7]
 
     # ── 1. dealer_sales 表（sync_from_vertu 写入的 Odoo 数据，最高优先）─────────────
     dealer_stmt = select(DealerSales).where(DealerSales.check_date.startswith(month))
-    names = visible_dealer_names(user, session) if user is not None else None
-    store_ids = visible_store_ids(user, session) if user is not None else None
-    if names is not None:
-        db_rows = (
-            session.exec(dealer_stmt.where(DealerSales.dealer_name.in_(names))).all()
-            if names else []
-        )
-    else:
-        db_rows = session.exec(dealer_stmt).all()
+    names = scoped_active_dealer_names(user, session) if user is not None else []
+    store_ids = scoped_active_store_ids(user, session) if user is not None else []
+    db_rows = (
+        session.exec(dealer_stmt.where(DealerSales.dealer_name.in_(names))).all()
+        if names else []
+    )
 
     if db_rows:
         total_in_wan  = sum(r.sell_in_wan  for r in db_rows)
@@ -80,19 +78,23 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
     walkin_stmt = select(WalkinDailyReport).where(
         WalkinDailyReport.report_date.startswith(month)
     )
-    if store_ids is not None:
-        walkin_rows = (
-            session.exec(walkin_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))).all()
-            if store_ids else []
-        )
-    else:
-        walkin_rows = session.exec(walkin_stmt).all()
+    walkin_rows = (
+        session.exec(walkin_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))).all()
+        if store_ids else []
+    )
     if walkin_rows:
         total_walkin = sum(r.total_visits for r in walkin_rows)
         data["realWalkinTotal"] = total_walkin
         data["realWalkinStores"] = len({r.dealer_id for r in walkin_rows})
         # Five-kit revenue is reported in USD.  It must never overwrite the
         # CNY Sell-out KPI merely because the legacy field name contains yuan.
-        data["reportedRevenueUsd"] = round(sum(r.deal_amount_yuan for r in walkin_rows), 2)
+        settings = get_settings()
+        review_threshold = min(
+            settings.max_reported_revenue_usd,
+            getattr(settings, "revenue_review_threshold_usd", settings.max_reported_revenue_usd),
+        )
+        valid_revenue = [r.deal_amount_yuan for r in walkin_rows if r.deal_amount_yuan <= review_threshold]
+        data["reportedRevenueUsd"] = round(sum(valid_revenue), 2)
+        data["reportedRevenueReviewCount"] = len(walkin_rows) - len(valid_revenue)
 
     return data
