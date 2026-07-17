@@ -228,6 +228,21 @@ class ProductionHardeningTests(unittest.TestCase):
         self.assertEqual(auth_response.headers["cache-control"], "no-store, max-age=0")
         self.assertEqual(auth_response.headers["pragma"], "no-cache")
 
+    def test_shared_shell_dependency_is_allowed_by_content_security_policy(self):
+        root = Path(__file__).resolve().parents[1]
+        shell = (root / "frontend" / "shared" / "shell.js").read_text(encoding="utf-8")
+        response = TestClient(app).get("/login")
+        policy = response.headers["content-security-policy"]
+        self.assertIn("https://cdn.jsdelivr.net/npm/vue@3.5.13/", shell)
+        self.assertNotIn("https://unpkg.com/", shell)
+        self.assertIn("https://cdn.jsdelivr.net", policy)
+
+    def test_walkin_history_filters_have_accessible_names(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "frontend" / "walkin_submit.html").read_text(encoding="utf-8")
+        self.assertIn('id="hist_month" aria-label="History month"', source)
+        self.assertIn('id="hist_dealer" aria-label="History store"', source)
+
     def test_demo_logistics_records_are_detected(self):
         self.assertTrue(
             _is_demo_record(

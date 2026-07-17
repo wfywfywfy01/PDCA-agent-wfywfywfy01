@@ -2,7 +2,7 @@
  * PDCA 工作台公共顶栏（Vue 3 CDN）
  * 支持日 / 周 / 月 / 季度 全局切换，通过 URL ?period=X&date=Y 传递给所有页面。
  */
-import { createApp, ref, computed, onMounted } from 'https://unpkg.com/vue@3.5.13/dist/vue.esm-browser.js';
+import { createApp, ref, computed, onMounted } from 'https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.esm-browser.js';
 
 export function mountPdcaShell(mountId) {
   createApp({
