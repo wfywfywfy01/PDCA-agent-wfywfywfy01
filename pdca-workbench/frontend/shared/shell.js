@@ -1,199 +1,267 @@
 /**
- * PDCA 工作台公共顶栏（Vue 3 CDN）
- * 支持日 / 周 / 月 / 季度 全局切换，通过 URL ?period=X&date=Y 传递给所有页面。
+ * PDCA 工作台公共顶栏。
+ * 使用原生 DOM API，避免生产 CSP 为运行时模板编译器开放 unsafe-eval。
  */
-import { createApp, ref, computed, onMounted } from 'https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.esm-browser.js';
 
-export function mountPdcaShell(mountId) {
-  createApp({
-    setup() {
-      const user        = ref(null);
-      const showProfile = ref(false);
-      const pwForm      = ref({ old: '', newPw: '', confirm: '', msg: '', err: '' });
+const ROLE_LABELS = {
+  admin: '管理员',
+  manager: '主管',
+  sales: '销售',
+  viewer: '只读',
+  dealer: '经销商',
+};
 
-      // ── 时间参数（从 URL 读取，sessionStorage 兜底）──
-      function _todayText() {
-        const d = new Date();
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      }
-      const _qs      = new URLSearchParams(location.search);
-      // date 必须始终有值：否则 setPeriod() 切换期间时不会带上 date 参数，
-      // 各页面的 period 联动逻辑（普遍要求 date 存在才计算区间）会静默失效。
-      const date     = ref(_qs.get('date')   || _todayText());
-      const period   = ref(
-        _qs.get('period') ||
-        (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pdca_period')) ||
-        'month'
-      );
+const PERIOD_LABELS = {
+  day: '日',
+  week: '周',
+  month: '月',
+  quarter: '季',
+};
 
-      onMounted(async () => {
-        try {
-          const res = await fetch('/api/auth/me', { credentials: 'include' });
-          if (res.ok) user.value = await res.json();
-        } catch (_) {}
-        // 确保 sessionStorage 与 URL 同步
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem('pdca_period', period.value);
-        }
-      });
-
-      /** 生成带 date + period 参数的导航 URL */
-      function href(path) {
-        const p = new URLSearchParams();
-        if (date.value) p.set('date', date.value);
-        p.set('period', period.value);
-        return path + '?' + p.toString();
-      }
-
-      /** 切换期间：写 sessionStorage，刷新当前页以触发数据更新 */
-      function setPeriod(p) {
-        if (period.value === p) return;
-        period.value = p;
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem('pdca_period', p);
-        }
-        const params = new URLSearchParams(location.search);
-        params.set('period', p);
-        params.set('date', date.value); // 确保 date 始终随 period 一起下发，否则各页面区间计算会拿不到锚点日期
-        location.search = params.toString(); // 触发页面重载
-      }
-
-      async function logout() {
-        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-        location.href = '/login';
-      }
-
-      async function changePassword() {
-        pwForm.value.msg = '';
-        pwForm.value.err = '';
-        if (pwForm.value.newPw !== pwForm.value.confirm) {
-          pwForm.value.err = '两次输入的新密码不一致'; return;
-        }
-        if (pwForm.value.newPw.length < 8) {
-          pwForm.value.err = '新密码至少 8 位'; return;
-        }
-        try {
-          const res = await fetch('/api/auth/change-password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ old_password: pwForm.value.old, new_password: pwForm.value.newPw }),
-          });
-          const data = await res.json();
-          if (!res.ok) { pwForm.value.err = data.detail || '修改失败'; return; }
-          pwForm.value.msg = '密码已修改，即将重新登录…';
-          setTimeout(() => logout(), 1500);
-        } catch (_) {
-          pwForm.value.err = '请求失败，请重试';
-        }
-      }
-
-      const ROLE_LABELS  = { admin: '管理员', manager: '主管', sales: '销售', viewer: '只读', dealer: '经销商' };
-      const PERIOD_LABELS = { day: '日', week: '周', month: '月', quarter: '季' };
-
-      // 当前路径（去掉尾部斜杠，方便匹配）
-      const _curPath = location.pathname.replace(/\/$/, '') || '/';
-      function isActive(path) {
-        const p = path.replace(/\/$/, '') || '/';
-        return p === '/' ? _curPath === '/' : _curPath.startsWith(p);
-      }
-
-      return { user, href, logout, showProfile, pwForm, changePassword,
-               ROLE_LABELS, PERIOD_LABELS, period, setPeriod, isActive };
-    },
-
-    template: `
-      <nav class="pdca-shell-bar" v-if="user">
-
-        <!-- 期间切换器 -->
-        <span class="pdca-period-group">
-          <button v-for="(label, key) in PERIOD_LABELS" :key="key"
-            :class="['pdca-period-btn', { active: period === key }]"
-            @click="setPeriod(key)">{{ label }}</button>
-        </span>
-
-        <span class="pdca-shell-sep"></span>
-
-        <!-- 导航链接：仅保留首页入口，其余模块已在首页做成卡片 -->
-        <a :href="href('/')" :class="{ 'pdca-nav-active': isActive('/') }">经营首页</a>
-
-        <!-- 用户菜单 -->
-        <span class="pdca-shell-user" style="cursor:pointer;position:relative" @click="showProfile=!showProfile">
-          {{ user.display_name || user.username }}
-          <span class="pdca-shell-role">{{ ROLE_LABELS[user.role] || user.role }}</span>
-          <span style="font-size:10px;margin-left:2px">▾</span>
-          <div v-if="showProfile" @click.stop class="pdca-profile-dropdown">
-            <div class="pdca-profile-header">{{ user.display_name || user.username }}</div>
-            <div class="pdca-profile-sub">{{ user.username }} · {{ ROLE_LABELS[user.role] || user.role }}</div>
-            <hr style="border:none;border-top:1px solid #e2e8f0;margin:10px 0"/>
-            <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:8px">修改密码</div>
-            <input v-model="pwForm.old"    type="password" placeholder="原密码"        class="pdca-profile-input" />
-            <input v-model="pwForm.newPw"  type="password" placeholder="新密码（至少 8 位）" class="pdca-profile-input" />
-            <input v-model="pwForm.confirm" type="password" placeholder="确认新密码"    class="pdca-profile-input" />
-            <div v-if="pwForm.err" style="color:#dc2626;font-size:12px;margin-bottom:6px">{{ pwForm.err }}</div>
-            <div v-if="pwForm.msg" style="color:#16a34a;font-size:12px;margin-bottom:6px">{{ pwForm.msg }}</div>
-            <button class="pdca-profile-btn" @click="changePassword">确认修改</button>
-            <hr style="border:none;border-top:1px solid #e2e8f0;margin:10px 0"/>
-            <a href="#" @click.prevent="logout" style="color:#dc2626;font-size:13px;text-decoration:none">退出登录</a>
-          </div>
-        </span>
-      </nav>
-    `
-  }).mount('#' + mountId);
+function localToday() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
-// ── 全局样式（注入一次）──────────────────────────────────────────────────────
+function appendTextElement(parent, tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  element.textContent = text;
+  parent.appendChild(element);
+  return element;
+}
+
+function divider() {
+  const line = document.createElement('hr');
+  line.style.cssText = 'border:none;border-top:1px solid #e2e8f0;margin:10px 0';
+  return line;
+}
+
+export async function mountPdcaShell(mountId) {
+  const root = document.getElementById(mountId);
+  if (!root || root.dataset.mounted === 'true') return;
+
+  let user;
+  try {
+    const response = await fetch('/api/auth/me', { credentials: 'include' });
+    if (!response.ok) return;
+    user = await response.json();
+  } catch (_) {
+    return;
+  }
+
+  root.dataset.mounted = 'true';
+  const query = new URLSearchParams(location.search);
+  const date = query.get('date') || localToday();
+  const storedPeriod = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('pdca_period') : '';
+  const period = query.get('period') || storedPeriod || 'month';
+  if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('pdca_period', period);
+
+  function href(path) {
+    const params = new URLSearchParams({ date, period });
+    return path + '?' + params.toString();
+  }
+
+  function setPeriod(nextPeriod) {
+    if (nextPeriod === period) return;
+    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('pdca_period', nextPeriod);
+    const params = new URLSearchParams(location.search);
+    params.set('period', nextPeriod);
+    params.set('date', date);
+    location.search = params.toString();
+  }
+
+  async function logout() {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } finally {
+      location.href = '/login';
+    }
+  }
+
+  const nav = document.createElement('nav');
+  nav.className = 'pdca-shell-bar';
+  nav.setAttribute('aria-label', 'PDCA 工作台导航');
+
+  const periodGroup = document.createElement('span');
+  periodGroup.className = 'pdca-period-group';
+  periodGroup.setAttribute('aria-label', '统计周期');
+  Object.entries(PERIOD_LABELS).forEach(function ([key, label]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pdca-period-btn' + (period === key ? ' active' : '');
+    button.textContent = label;
+    button.setAttribute('aria-pressed', period === key ? 'true' : 'false');
+    button.addEventListener('click', function () { setPeriod(key); });
+    periodGroup.appendChild(button);
+  });
+  nav.appendChild(periodGroup);
+
+  const separator = document.createElement('span');
+  separator.className = 'pdca-shell-sep';
+  separator.setAttribute('aria-hidden', 'true');
+  nav.appendChild(separator);
+
+  const home = document.createElement('a');
+  home.href = href('/');
+  home.textContent = '经营首页';
+  const currentPath = location.pathname.replace(/\/$/, '') || '/';
+  if (currentPath === '/') home.className = 'pdca-nav-active';
+  nav.appendChild(home);
+
+  const userWrap = document.createElement('span');
+  userWrap.className = 'pdca-shell-user';
+  userWrap.style.position = 'relative';
+
+  const profileToggle = document.createElement('button');
+  profileToggle.type = 'button';
+  profileToggle.className = 'pdca-shell-user-toggle';
+  profileToggle.setAttribute('aria-haspopup', 'dialog');
+  profileToggle.setAttribute('aria-expanded', 'false');
+  profileToggle.setAttribute('aria-label', '打开用户菜单');
+  appendTextElement(profileToggle, 'span', '', user.display_name || user.username);
+  appendTextElement(profileToggle, 'span', 'pdca-shell-role', ROLE_LABELS[user.role] || user.role);
+  appendTextElement(profileToggle, 'span', 'pdca-shell-arrow', '▾');
+  userWrap.appendChild(profileToggle);
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'pdca-profile-dropdown';
+  dropdown.hidden = true;
+  dropdown.setAttribute('role', 'dialog');
+  dropdown.setAttribute('aria-label', '用户资料与密码设置');
+  dropdown.addEventListener('click', function (event) { event.stopPropagation(); });
+
+  appendTextElement(dropdown, 'div', 'pdca-profile-header', user.display_name || user.username);
+  appendTextElement(dropdown, 'div', 'pdca-profile-sub', user.username + ' · ' + (ROLE_LABELS[user.role] || user.role));
+  dropdown.appendChild(divider());
+  appendTextElement(dropdown, 'div', 'pdca-profile-section-title', '修改密码');
+
+  const oldPassword = document.createElement('input');
+  oldPassword.type = 'password';
+  oldPassword.className = 'pdca-profile-input';
+  oldPassword.placeholder = '原密码';
+  oldPassword.autocomplete = 'current-password';
+  oldPassword.setAttribute('aria-label', '原密码');
+  dropdown.appendChild(oldPassword);
+
+  const newPassword = document.createElement('input');
+  newPassword.type = 'password';
+  newPassword.className = 'pdca-profile-input';
+  newPassword.placeholder = '新密码（至少 12 位）';
+  newPassword.autocomplete = 'new-password';
+  newPassword.setAttribute('aria-label', '新密码');
+  dropdown.appendChild(newPassword);
+
+  const confirmPassword = document.createElement('input');
+  confirmPassword.type = 'password';
+  confirmPassword.className = 'pdca-profile-input';
+  confirmPassword.placeholder = '确认新密码';
+  confirmPassword.autocomplete = 'new-password';
+  confirmPassword.setAttribute('aria-label', '确认新密码');
+  dropdown.appendChild(confirmPassword);
+
+  const errorMessage = appendTextElement(dropdown, 'div', 'pdca-profile-message pdca-profile-error', '');
+  errorMessage.hidden = true;
+  const successMessage = appendTextElement(dropdown, 'div', 'pdca-profile-message pdca-profile-success', '');
+  successMessage.hidden = true;
+
+  function showMessage(element, message) {
+    errorMessage.hidden = true;
+    successMessage.hidden = true;
+    element.textContent = message;
+    element.hidden = false;
+  }
+
+  const changeButton = appendTextElement(dropdown, 'button', 'pdca-profile-btn', '确认修改');
+  changeButton.type = 'button';
+  changeButton.addEventListener('click', async function () {
+    if (newPassword.value !== confirmPassword.value) {
+      showMessage(errorMessage, '两次输入的新密码不一致');
+      return;
+    }
+    if (newPassword.value.length < 12) {
+      showMessage(errorMessage, '新密码至少 12 位');
+      return;
+    }
+    changeButton.disabled = true;
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ old_password: oldPassword.value, new_password: newPassword.value }),
+      });
+      const payload = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        showMessage(errorMessage, payload.detail || '修改失败');
+        return;
+      }
+      showMessage(successMessage, '密码已修改，即将重新登录…');
+      setTimeout(logout, 1500);
+    } catch (_) {
+      showMessage(errorMessage, '请求失败，请重试');
+    } finally {
+      changeButton.disabled = false;
+    }
+  });
+
+  dropdown.appendChild(divider());
+  const logoutLink = document.createElement('a');
+  logoutLink.href = '/login';
+  logoutLink.className = 'pdca-profile-logout';
+  logoutLink.textContent = '退出登录';
+  logoutLink.addEventListener('click', function (event) {
+    event.preventDefault();
+    logout();
+  });
+  dropdown.appendChild(logoutLink);
+  userWrap.appendChild(dropdown);
+
+  function setProfileOpen(open) {
+    dropdown.hidden = !open;
+    profileToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  profileToggle.addEventListener('click', function (event) {
+    event.stopPropagation();
+    setProfileOpen(dropdown.hidden);
+  });
+  document.addEventListener('click', function () { setProfileOpen(false); });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+      setProfileOpen(false);
+      profileToggle.focus();
+    }
+  });
+
+  nav.appendChild(userWrap);
+  root.replaceChildren(nav);
+}
+
 if (typeof document !== 'undefined') {
   if (!document.getElementById('pdca-shell-period-style')) {
     const style = document.createElement('style');
     style.id = 'pdca-shell-period-style';
     style.textContent = `
-      .pdca-period-group {
-        display: inline-flex;
-        align-items: center;
-        background: rgba(255,255,255,.08);
-        border: 1px solid rgba(255,255,255,.14);
-        border-radius: 7px;
-        padding: 2px;
-        gap: 1px;
-        flex-shrink: 0;
-      }
-      .pdca-period-btn {
-        background: transparent;
-        border: none;
-        color: rgba(255,255,255,.55);
-        font-size: 12px;
-        font-weight: 700;
-        padding: 3px 9px;
-        border-radius: 5px;
-        cursor: pointer;
-        line-height: 1.4;
-        transition: background .15s, color .15s;
-        font-family: inherit;
-      }
-      .pdca-period-btn:hover { color: rgba(255,255,255,.85); }
-      .pdca-period-btn.active {
-        background: rgba(255,255,255,.18);
-        color: #fff;
-      }
-      .pdca-shell-sep {
-        width: 1px;
-        height: 18px;
-        background: rgba(255,255,255,.15);
-        margin: 0 2px;
-        flex-shrink: 0;
-      }
-      .pdca-nav-active {
-        background: rgba(255,255,255,.15) !important;
-        color: #fff !important;
-        border-radius: 5px;
-      }
+      .pdca-period-group { display:inline-flex;align-items:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:2px;gap:1px;flex-shrink:0 }
+      .pdca-period-btn { background:transparent;border:none;color:rgba(255,255,255,.55);font-size:12px;font-weight:700;padding:3px 9px;min-width:32px;min-height:32px;border-radius:5px;cursor:pointer;line-height:1.4;transition:background .15s,color .15s;font-family:inherit }
+      .pdca-period-btn:hover { color:rgba(255,255,255,.85) }
+      .pdca-period-btn.active { background:rgba(255,255,255,.18);color:#fff }
+      .pdca-shell-sep { width:1px;height:18px;background:rgba(255,255,255,.15);margin:0 2px;flex-shrink:0 }
+      .pdca-nav-active { background:rgba(255,255,255,.15)!important;color:#fff!important;border-radius:5px }
+      .pdca-shell-user-toggle { all:unset;display:flex;align-items:center;gap:6px;cursor:pointer }
+      .pdca-shell-user-toggle:focus-visible { outline:2px solid #4e9ef5;outline-offset:4px;border-radius:4px }
+      .pdca-shell-arrow { font-size:10px;margin-left:2px }
+      .pdca-profile-section-title { font-size:13px;font-weight:600;color:#cbd5e1;margin-bottom:8px }
+      .pdca-profile-message { font-size:12px;margin-bottom:6px }
+      .pdca-profile-error { color:#f87171 }
+      .pdca-profile-success { color:#4ade80 }
+      .pdca-profile-logout { color:#f87171!important;font-size:13px;text-decoration:none;padding:0!important }
+      [hidden] { display:none!important }
     `;
     document.head.appendChild(style);
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    var el = document.getElementById('pdca-shell-root');
-    if (el) mountPdcaShell('pdca-shell-root');
+    if (document.getElementById('pdca-shell-root')) mountPdcaShell('pdca-shell-root');
   });
 }

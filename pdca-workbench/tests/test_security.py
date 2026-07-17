@@ -22,12 +22,20 @@ from app.models.walkin_daily_report import WalkinDailyReport
 from app.logistics.service import _is_delivered, _is_demo_record, _judge_status
 from app.vertu.sales import fetch_dealer_sales_orders_sync
 from app.pages.router import _serve_module, view_path, walkin_assets, walkin_portal
+from app.pages.helpers import inject_vue_shell
 from app.pdca.post_router import post_questionnaire
 from app.validation import require_iso_date, resolve_file_under
 from app.walkin.router import walkin_metrics_summary
 
 
 class InputValidationTests(unittest.TestCase):
+    def test_shared_shell_injection_supports_body_attributes(self):
+        source = '<!doctype html><html><body class="dashboard">content</body></html>'
+        result = inject_vue_shell(source)
+        self.assertIn('<body class="dashboard"><div id="pdca-shell-root"></div>', result)
+        self.assertIn('/shared/shell.js?v=3', result)
+        self.assertEqual(inject_vue_shell(result).count('pdca-shell-root'), 1)
+
     def test_require_iso_date_accepts_real_date(self):
         self.assertEqual(require_iso_date("2026-07-13"), "2026-07-13")
 
@@ -228,14 +236,15 @@ class ProductionHardeningTests(unittest.TestCase):
         self.assertEqual(auth_response.headers["cache-control"], "no-store, max-age=0")
         self.assertEqual(auth_response.headers["pragma"], "no-cache")
 
-    def test_shared_shell_dependency_is_allowed_by_content_security_policy(self):
+    def test_shared_shell_does_not_require_unsafe_eval(self):
         root = Path(__file__).resolve().parents[1]
         shell = (root / "frontend" / "shared" / "shell.js").read_text(encoding="utf-8")
         response = TestClient(app).get("/login")
         policy = response.headers["content-security-policy"]
-        self.assertIn("https://cdn.jsdelivr.net/npm/vue@3.5.13/", shell)
-        self.assertNotIn("https://unpkg.com/", shell)
-        self.assertIn("https://cdn.jsdelivr.net", policy)
+        self.assertNotIn("createApp", shell)
+        self.assertNotIn("https://", shell)
+        self.assertNotIn("unsafe-eval", policy)
+        self.assertIn("newPassword.value.length < 12", shell)
 
     def test_walkin_history_filters_have_accessible_names(self):
         root = Path(__file__).resolve().parents[1]
