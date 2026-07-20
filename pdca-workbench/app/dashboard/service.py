@@ -10,6 +10,61 @@ def overview(date_text: str, period: str = "day", session_user: dict | None = No
     return bridge.api_dashboard_overview(date_text, period, session_user=session_user)
 
 
+def workbench_overview(
+    date_text: str,
+    period: str = "day",
+    session_user: dict | None = None,
+) -> dict:
+    """Build the initial workbench payload without remote identity/IM calls.
+
+    The authenticated session is the authority for the visible user identity.
+    Sales facts are merged from the scoped database by ``merge_db_sales`` and
+    the dedicated live Sell-in endpoint refreshes the unrestricted KPI.
+    """
+    user = session_user or {}
+    role = str(user.get("role") or "viewer").strip().lower()
+    role_labels = {
+        "admin": "系统管理员",
+        "manager": "海外中台主管",
+        "sales": "经销商销售",
+        "dealer": "经销商门店",
+        "viewer": "只读访客",
+    }
+    period_labels = {
+        "day": "日",
+        "week": "周",
+        "month": "月",
+        "quarter": "季",
+    }
+    name = str(
+        user.get("display_name")
+        or user.get("sales_name")
+        or user.get("username")
+        or "工作台用户"
+    ).strip()
+    return {
+        "managerName": name,
+        "managerRole": f"{role_labels.get(role, role or '工作台用户')} · {period_labels.get(period, '日')}视图 · {date_text}",
+        "sellInAmount": "—",
+        "sellInWan": None,
+        "sellOutAmount": "—",
+        "sellOutWan": None,
+        "sellInSub": "尚未同步业绩数据",
+        "sellOutSub": "尚未同步终销数据",
+        "agentScore": None,
+        "scoreComment": "",
+        "dataState": {
+            "sellIn": "missing",
+            "sellOut": "missing",
+            "agentScore": "missing",
+        },
+        "dataSource": {
+            "sellIn": "missing",
+            "sellOut": "missing",
+        },
+    }
+
+
 def sell_in(date_text: str, period: str = "day") -> dict:
     data = overview(date_text, period)
     return {
@@ -62,15 +117,19 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
         total_in_wan  = sum(r.sell_in_wan  for r in db_rows)
         total_out_wan = sum(r.sell_out_wan for r in db_rows)
         dealer_count  = len({r.dealer_name for r in db_rows})
+        batch_date = max((r.check_date for r in db_rows if r.check_date), default=month)
+        synced_at = max((r.synced_at for r in db_rows if r.synced_at), default=None)
+        if synced_at is not None:
+            data["dataAsOf"] = synced_at.isoformat(timespec="seconds")
 
         # A successful source row whose value is zero is a real zero, not a
         # missing value.  Always override legacy/derived values when rows exist.
         data["sellInWan"] = round(total_in_wan, 2)
         data["sellInAmount"] = _fmt_cny(total_in_wan * 10000)
-        data["sellInSub"] = f"Odoo同步 · {month} · {dealer_count}家经销商"
+        data["sellInSub"] = f"Odoo同步 · 批次 {batch_date} · {dealer_count}家经销商"
         data["sellOutWan"] = round(total_out_wan, 2)
         data["sellOutAmount"] = _fmt_cny(total_out_wan * 10000)
-        data["sellOutSub"] = f"Odoo同步 · {month} · {dealer_count}家经销商"
+        data["sellOutSub"] = f"Odoo同步 · 批次 {batch_date} · {dealer_count}家经销商"
         data.setdefault("dataState", {}).update({"sellIn": "live", "sellOut": "live"})
         data.setdefault("dataSource", {}).update({"sellIn": "dealer_sales_db", "sellOut": "dealer_sales_db"})
 

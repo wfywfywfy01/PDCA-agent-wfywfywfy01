@@ -94,6 +94,19 @@ def _fact(value, state: str, source: str, as_of: str, scope: str, message: str =
     }
 
 
+def _sales_payload(data: dict, prefix: str) -> dict:
+    wan = data.get(f"{prefix}Wan")
+    amount = round(float(wan) * 10000, 2) if wan is not None else None
+    return {
+        "amount": amount,
+        "wan": wan,
+        "note": data.get(f"{prefix}Sub") or "数据尚未同步",
+        "as_of": data.get("dataAsOf"),
+        "source": (data.get("dataSource") or {}).get(prefix),
+        "cached": bool(data.get("dataAsOf")),
+    }
+
+
 @router.get("/api/workbench/today")
 async def workbench_today(
     date: str | None = None,
@@ -219,7 +232,7 @@ async def overview(
 ):
     session_user = _session_user(user, session)
     date_text = _date_or_today(date)
-    data = _bridge_call(service.overview, date_text, period, session_user, default={})
+    data = service.workbench_overview(date_text, period, session_user)
     # 附上 chart_data.json 最后修改时间，供前端显示"上次更新"
     try:
         chart_path = bridge.output_dir(date_text) / "chart_data.json"
@@ -265,14 +278,16 @@ async def sell_in(
     from app.vertu.sales import fetch_sell_in
     date_text = _date_or_today(date)
     if not resolve_data_scope(user, session).unrestricted:
-        data = service.overview(date_text, period, _session_user(user, session))
+        data = service.workbench_overview(date_text, period, _session_user(user, session))
         data = service.merge_db_sales(data, date_text, session, user)
-        return {"amount": data["sellInAmount"], "wan": data["sellInWan"], "note": data["sellInSub"]}
+        return _sales_payload(data, "sellIn")
     try:
         return await fetch_sell_in(date_text, period)
     except Exception as exc:
-        logger.warning("vertu sell-in 失败，回退 bridge: {}", exc)
-        return _bridge_call(service.sell_in, date_text, period, default={})
+        logger.warning("vertu sell-in 失败，回退数据库快照: {}", exc)
+        data = service.workbench_overview(date_text, period, _session_user(user, session))
+        data = service.merge_db_sales(data, date_text, session, user)
+        return _sales_payload(data, "sellIn")
 
 
 @router.get("/api/dashboard/sell-out")
@@ -282,17 +297,13 @@ async def sell_out(
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    from app.vertu.sales import fetch_sell_out
     date_text = _date_or_today(date)
-    if not resolve_data_scope(user, session).unrestricted:
-        data = service.overview(date_text, period, _session_user(user, session))
-        data = service.merge_db_sales(data, date_text, session, user)
-        return {"amount": data["sellOutAmount"], "wan": data["sellOutWan"], "note": data["sellOutSub"]}
-    try:
-        return await fetch_sell_out(date_text, period)
-    except Exception as exc:
-        logger.warning("vertu sell-out 失败，回退 bridge: {}", exc)
-        return _bridge_call(service.sell_out, date_text, period, default={})
+    # vertu-cli 2.x does not provide a dealer Sell-out shortcut. The scoped
+    # database snapshot is the authoritative source and avoids a guaranteed
+    # failing remote call on every homepage visit.
+    data = service.workbench_overview(date_text, period, _session_user(user, session))
+    data = service.merge_db_sales(data, date_text, session, user)
+    return _sales_payload(data, "sellOut")
 
 
 @router.get("/api/customer-center/summary")
