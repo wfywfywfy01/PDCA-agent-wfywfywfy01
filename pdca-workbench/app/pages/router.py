@@ -21,6 +21,7 @@ from app.config import get_settings
 from app.legacy import bridge
 from app.pages.helpers import html_page, inject_vue_shell
 from app.validation import require_iso_date, resolve_file_under
+from app.acquisition.service import issue_login_ticket
 
 router = APIRouter(tags=["pages"])
 
@@ -119,6 +120,27 @@ def _customer_summary_page(rows: list[dict], date_text: str) -> HTMLResponse:
     <section class="grid">{cards or '<article><span>暂无客户分层数据</span></article>'}</section>
     <nav><a href="/dealer-sellin/">查看经销商进货</a><a class="alt" href="/walkin-cockpit/">查看客流与终销</a></nav>
     </main></body></html>"""
+    return html_page(content)
+
+
+def _customer_acquisition_page(frame_url: str, date_text: str) -> HTMLResponse:
+    safe_url = html_lib.escape(frame_url, quote=True)
+    content = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>自动化获客 · PDCA 工作台</title><style>
+    *{{box-sizing:border-box}}body{{margin:0;background:#0b0d13;color:#e2e8f0;font-family:system-ui,sans-serif}}
+    .module-head{{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 20px;background:#111827;border-bottom:1px solid #253047}}
+    .module-head h1{{font-size:18px;margin:0}}.module-head p{{font-size:13px;color:#94a3b8;margin:3px 0 0}}
+    .actions{{display:flex;gap:8px;flex-wrap:wrap}}.actions a{{color:#bfdbfe;text-decoration:none;border:1px solid #334155;border-radius:8px;padding:8px 12px;font-size:13px}}
+    iframe{{display:block;width:100%;height:calc(100vh - 118px);min-height:620px;border:0;background:#fff}}
+    @media(max-width:640px){{.module-head{{align-items:flex-start;padding:10px 12px}}.module-head p{{display:none}}iframe{{height:calc(100vh - 104px);min-height:540px}}}}
+    </style></head><body>
+    <header class="module-head"><div><h1>自动化获客与客户管理</h1><p>{html_lib.escape(date_text)} · 线索、客户、触达、跟进和 PDCA 漏斗</p></div>
+    <nav class="actions"><a href="/signalseller-center/">SignalSeller</a><a href="/customer-mgmt?legacy=1">旧版概览</a></nav></header>
+    <iframe title="自动化获客与客户管理" src="{safe_url}" referrerpolicy="no-referrer"
+      sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts allow-downloads"
+      allow="clipboard-write"></iframe>
+    </body></html>"""
     return html_page(content)
 
 
@@ -269,12 +291,22 @@ async def im_unread(
 @router.get("/customer-mgmt")
 async def customer_mgmt(
     date: str | None = None,
+    legacy: bool = Query(False),
     user: Annotated[User, Depends(get_current_user)] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     try:
         date_text = _date_or_today(date)
         settings = get_settings()
+        if (
+            settings.acquisition_enabled
+            and not legacy
+            and user.role in {"admin", "manager", "sales"}
+        ):
+            scope = resolve_data_scope(user, session)
+            code = issue_login_ticket(user, scope, session)
+            frame_url = f"{settings.acquisition_url}/?{urlencode({'pdca_code': code})}#dashboard"
+            return _customer_acquisition_page(frame_url, date_text)
         if settings.environment == "production":
             session_user = {
                 "username": user.username,

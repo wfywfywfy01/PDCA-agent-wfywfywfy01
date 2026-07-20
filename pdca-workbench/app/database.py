@@ -133,6 +133,7 @@ def init_db() -> None:
     from app.models.monthly_target import MonthlyTarget  # noqa: F401
     from app.models.audit_log import AuditLog  # noqa: F401
     from app.models.tracking_status import TrackingAutoStatus  # noqa: F401
+    from app.models.acquisition_login_ticket import AcquisitionLoginTicket  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     _migrate_schema()

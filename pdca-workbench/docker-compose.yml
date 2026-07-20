@@ -33,6 +33,8 @@ services:
       PDCA_REPO_ROOT: /repo
       PDCA_AUTH_MODE: ${PDCA_AUTH_MODE:-hybrid}
       PDCA_SECURE_COOKIES: ${PDCA_SECURE_COOKIES:-1}
+      PDCA_ACQUISITION_ENABLED: ${PDCA_ACQUISITION_ENABLED:-1}
+      PDCA_ACQUISITION_URL: ${PDCA_ACQUISITION_URL:-https://global-autoleads.vertu.cn}
       PDCA_REQUIRE_VERTU: "1"
       VERTU_COMMAND: vertu-cli
       VERTU_VPS_SERVICE_URL: ${VERTU_VPS_SERVICE_URL:-https://vps-service.vertu.cn}

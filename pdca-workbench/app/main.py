@@ -32,6 +32,7 @@ from app.vertu.client import vertu_health
 from app.signalseller.router import router as signalseller_router
 from app.export.router import router as export_router
 from app.walkin.router import router as walkin_router
+from app.acquisition.router import router as acquisition_router
 
 PUBLIC_PATHS = {
     "/login",
@@ -125,12 +126,14 @@ def _apply_security_headers(request: Request, response):
     response.headers["Permissions-Policy"] = (
         "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     )
+    acquisition_origin = getattr(get_settings(), "acquisition_frame_origin", "")
+    frame_sources = "'self'" + (f" {acquisition_origin}" if acquisition_origin else "")
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
         "object-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
-        "font-src 'self' data:; connect-src 'self'; frame-src 'self'"
+        f"font-src 'self' data:; connect-src 'self'; frame-src {frame_sources}"
     )
     if _production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -229,6 +232,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(auth_router)
+app.include_router(acquisition_router)
 app.include_router(dashboard_router)
 app.include_router(walkin_router)
 app.include_router(logistics_router)

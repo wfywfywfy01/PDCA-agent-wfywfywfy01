@@ -58,6 +58,24 @@ class Settings:
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
+        acquisition_url = os.environ.get(
+            "PDCA_ACQUISITION_URL",
+            "https://global-autoleads.vertu.cn",
+        ).strip().rstrip("/")
+        parsed_acquisition = urlparse(acquisition_url)
+        valid_acquisition_url = bool(
+            parsed_acquisition.scheme in ({"https"} if self.environment == "production" else {"http", "https"})
+            and parsed_acquisition.netloc
+        )
+        self.acquisition_url = acquisition_url if valid_acquisition_url else ""
+        self.acquisition_enabled = (
+            os.environ.get("PDCA_ACQUISITION_ENABLED", "1").strip() == "1"
+            and bool(self.acquisition_url)
+        )
+        self.acquisition_frame_origin = (
+            f"{parsed_acquisition.scheme}://{parsed_acquisition.netloc}"
+            if valid_acquisition_url else ""
+        )
         self.workers = int(os.environ.get("PDCA_WORKERS", "2"))
         self.secure_cookies = os.environ.get("PDCA_SECURE_COOKIES", "0") == "1"
         raw_mode = os.environ.get("PDCA_AUTH_MODE", "local").strip().lower()
