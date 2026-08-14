@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
-"""页面 HTML 辅助：Vue 顶栏注入。"""
+"""页面 HTML 辅助：共享顶栏注入。"""
 from __future__ import annotations
+
+import re
 
 from fastapi.responses import HTMLResponse
 
 
 def inject_vue_shell(html: str) -> str:
-    """注入 Vue 3 公共顶栏。"""
+    """将公共顶栏注入任意合法的 body 起始标签之后。"""
     if "pdca-shell-root" in html:
         return html
     shell = (
         '<div id="pdca-shell-root"></div>'
         '<link rel="stylesheet" href="/shared/shell.css" />'
-        '<script type="module" src="/shared/shell.js?v=2"></script>'
+        '<script type="module" src="/shared/shell.js?v=3"></script>'
     )
-    return html.replace("<body>", "<body>" + shell, 1)
+    return re.sub(r"(<body\b[^>]*>)", lambda match: match.group(1) + shell, html, count=1, flags=re.IGNORECASE)
 
 
 _NO_CACHE_HEADERS = {"Cache-Control": "no-store, no-cache, must-revalidate"}

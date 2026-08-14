@@ -114,7 +114,10 @@ async def trigger_vps_sellout_sync(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    """手动触发 VPS 手机 Sell-out + 激活率同步。"""
+    """手动触发 VPS 经销商进货（Sell-in）+ 激活率同步。
+
+    端点名 sync-vps-sellout 为历史遗留，实际写入的是 dealer_sales.sell_in_wan。
+    """
     date_text = require_iso_date(date or bridge.today_text())
     count = sync_dealer_sales_from_vps(date_text)
     return {"ok": True, "date": date_text, "synced": count}
@@ -282,7 +285,11 @@ async def update_user(
     next_dealer_id = body.dealer_id if body.dealer_id is not None else target.dealer_id
     next_owner_key = body.owner_key if body.owner_key is not None else getattr(target, "owner_key", "")
     next_team_key = body.team_key if body.team_key is not None else getattr(target, "team_key", "")
-    _validate_identity_binding(session, next_role, next_dealer_id, next_owner_key, next_team_key)
+    next_is_active = body.is_active if body.is_active is not None else target.is_active
+    # Deactivation is a containment action and must still work when the old
+    # store/team binding has already been disabled.
+    if next_is_active:
+        _validate_identity_binding(session, next_role, next_dealer_id, next_owner_key, next_team_key)
     _ensure_unique_scope_mapping(
         session,
         owner_key=body.owner_key if body.owner_key is not None else getattr(target, "owner_key", ""),

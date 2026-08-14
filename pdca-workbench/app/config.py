@@ -51,16 +51,40 @@ class Settings:
         self.max_reported_revenue_usd = float(
             os.environ.get("PDCA_MAX_REPORTED_REVENUE_USD", "5000000")
         )
+        self.revenue_review_threshold_usd = float(
+            os.environ.get("PDCA_REVENUE_REVIEW_THRESHOLD_USD", "1000000")
+        )
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
+        acquisition_url = os.environ.get(
+            "PDCA_ACQUISITION_URL",
+            "https://global-autoleads.vertu.cn",
+        ).strip().rstrip("/")
+        parsed_acquisition = urlparse(acquisition_url)
+        valid_acquisition_url = bool(
+            parsed_acquisition.scheme in ({"https"} if self.environment == "production" else {"http", "https"})
+            and parsed_acquisition.netloc
+        )
+        self.acquisition_url = acquisition_url if valid_acquisition_url else ""
+        self.acquisition_enabled = (
+            os.environ.get("PDCA_ACQUISITION_ENABLED", "1").strip() == "1"
+            and bool(self.acquisition_url)
+        )
+        self.acquisition_frame_origin = (
+            f"{parsed_acquisition.scheme}://{parsed_acquisition.netloc}"
+            if valid_acquisition_url else ""
+        )
         self.workers = int(os.environ.get("PDCA_WORKERS", "2"))
         self.secure_cookies = os.environ.get("PDCA_SECURE_COOKIES", "0") == "1"
         raw_mode = os.environ.get("PDCA_AUTH_MODE", "local").strip().lower()
         if raw_mode not in ("local", "vps", "hybrid"):
             raw_mode = "local"
         self.auth_mode = raw_mode
+        # 部署形态：workbench（内部工作台，dealer 禁止登录）/ walkin（门店五件套门户）
+        raw_portal = os.environ.get("PDCA_PORTAL_MODE", "workbench").strip().lower()
+        self.portal_mode = raw_portal if raw_portal in ("workbench", "walkin") else "workbench"
         self.vps_login_url = os.environ.get(
             "PDCA_VPS_LOGIN_URL",
             "https://vps.vertu.cn",

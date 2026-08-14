@@ -222,7 +222,7 @@ def start_scheduler() -> BackgroundScheduler | None:
             max_instances=1,
         )
 
-    # 20:00 — VPS Sell-out 日内补充同步（当日 MTD 最新数据）
+    # 20:00 — VPS Sell-in（经销商进货）日内补充同步（当日 MTD 最新数据）
     _scheduler.add_job(
         lambda: sync_dealer_sales_from_vps(bridge.today_text()),
         trigger="cron",

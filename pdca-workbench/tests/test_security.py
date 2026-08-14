@@ -22,12 +22,20 @@ from app.models.walkin_daily_report import WalkinDailyReport
 from app.logistics.service import _is_delivered, _is_demo_record, _judge_status
 from app.vertu.sales import fetch_dealer_sales_orders_sync
 from app.pages.router import _serve_module, view_path, walkin_assets, walkin_portal
+from app.pages.helpers import inject_vue_shell
 from app.pdca.post_router import post_questionnaire
 from app.validation import require_iso_date, resolve_file_under
 from app.walkin.router import walkin_metrics_summary
 
 
 class InputValidationTests(unittest.TestCase):
+    def test_shared_shell_injection_supports_body_attributes(self):
+        source = '<!doctype html><html><body class="dashboard">content</body></html>'
+        result = inject_vue_shell(source)
+        self.assertIn('<body class="dashboard"><div id="pdca-shell-root"></div>', result)
+        self.assertIn('/shared/shell.js?v=3', result)
+        self.assertEqual(inject_vue_shell(result).count('pdca-shell-root'), 1)
+
     def test_require_iso_date_accepts_real_date(self):
         self.assertEqual(require_iso_date("2026-07-13"), "2026-07-13")
 
@@ -147,8 +155,10 @@ class DataScopeTests(unittest.TestCase):
         self.session.commit()
         self.assertEqual(visible_store_ids(user, self.session), ["store-a"])
 
-    def test_manager_scope_is_limited_to_team(self):
-        self.assertEqual(visible_store_ids(User(role="manager"), self.session), ["store-a", "store-b"])
+    def test_manager_scope_is_limited_to_explicit_team(self):
+        self.assertEqual(visible_store_ids(User(role="manager"), self.session), [])
+        manager = User(role="manager", team_key="overseas", data_scope="team")
+        self.assertEqual(visible_store_ids(manager, self.session), ["store-a", "store-b"])
 
     def test_unconfigured_sales_fails_closed(self):
         user = User(role="sales", username="alice", hashed_password="test")
@@ -214,6 +224,48 @@ class ProductionHardeningTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn(b'"status":"degraded"', response.body)
 
+    def test_standalone_health_does_not_require_local_backup(self):
+        settings = SimpleNamespace(environment="production", require_vertu=False, scheduler_enabled=False)
+        with (
+            patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.backup_status", return_value={"ok": False}),
+            patch("app.main.get_settings", return_value=settings),
+            patch("app.main.vertu_health", new=AsyncMock(return_value={"ok": False})),
+        ):
+            response = asyncio.run(health())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'"status":"ok"', response.body)
+
+    def test_dealer_is_denied_on_internal_workbench(self):
+        from app.auth.deps import ensure_portal_access
+        dealer = User(role="dealer", dealer_id="store-a")
+        with patch("app.auth.deps.get_settings", return_value=SimpleNamespace(portal_mode="workbench")):
+            with self.assertRaises(HTTPException) as ctx:
+                ensure_portal_access(dealer)
+            self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_dealer_is_allowed_on_walkin_portal(self):
+        from app.auth.deps import ensure_portal_access
+        dealer = User(role="dealer", dealer_id="store-a")
+        with patch("app.auth.deps.get_settings", return_value=SimpleNamespace(portal_mode="walkin")):
+            ensure_portal_access(dealer)
+
+    def test_non_dealer_is_allowed_on_internal_workbench(self):
+        from app.auth.deps import ensure_portal_access
+        with patch("app.auth.deps.get_settings", return_value=SimpleNamespace(portal_mode="workbench")):
+            ensure_portal_access(User(role="sales"))
+            ensure_portal_access(User(role="manager"))
+            ensure_portal_access(User(role="admin"))
+
+    def test_logistics_track_requires_number_and_supported_carrier(self):
+        from app.logistics.router import track_shipment
+        empty = asyncio.run(track_shipment(carrier="UPS", tracking_number=""))
+        self.assertFalse(empty["fetch_ok"])
+        self.assertEqual(empty["error"], "请输入运单号")
+        unsupported = asyncio.run(track_shipment(carrier="SF", tracking_number="12345"))
+        self.assertFalse(unsupported["fetch_ok"])
+        self.assertIn("暂不支持", unsupported["error"])
+
     def test_security_headers_cover_pages_redirects_and_auth_api(self):
         client = TestClient(app)
         for path in ("/login", "/admin-panel"):
@@ -225,6 +277,22 @@ class ProductionHardeningTests(unittest.TestCase):
         auth_response = client.get("/api/auth/config")
         self.assertEqual(auth_response.headers["cache-control"], "no-store, max-age=0")
         self.assertEqual(auth_response.headers["pragma"], "no-cache")
+
+    def test_shared_shell_does_not_require_unsafe_eval(self):
+        root = Path(__file__).resolve().parents[1]
+        shell = (root / "frontend" / "shared" / "shell.js").read_text(encoding="utf-8")
+        response = TestClient(app).get("/login")
+        policy = response.headers["content-security-policy"]
+        self.assertNotIn("createApp", shell)
+        self.assertNotIn("https://", shell)
+        self.assertNotIn("unsafe-eval", policy)
+        self.assertIn("newPassword.value.length < 12", shell)
+
+    def test_walkin_history_filters_have_accessible_names(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "frontend" / "walkin_submit.html").read_text(encoding="utf-8")
+        self.assertIn('id="hist_month" aria-label="History month"', source)
+        self.assertIn('id="hist_dealer" aria-label="History store"', source)
 
     def test_demo_logistics_records_are_detected(self):
         self.assertTrue(
@@ -291,6 +359,19 @@ class ProductionHardeningTests(unittest.TestCase):
         form = (root / "frontend" / "walkin_submit.html").read_text(encoding="utf-8")
         self.assertIn("Revenue (USD $)", form)
         self.assertIn("Do not enter VND", form)
+        self.assertNotIn("toISOString().slice(0,10)", form)
+
+    def test_deployment_sets_business_timezone(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertIn("TZ=Asia/Shanghai", (root / "scripts" / "deploy_remote_docker.ps1").read_text(encoding="utf-8"))
+        self.assertIn("TZ: Asia/Shanghai", (root / "docker-compose.yml").read_text(encoding="utf-8"))
+
+    def test_login_copy_matches_password_policy_and_escapes_vps_identity(self):
+        root = Path(__file__).resolve().parents[1]
+        for name in ("login.html", "login_en.html"):
+            source = (root / "frontend" / name).read_text(encoding="utf-8")
+            self.assertIn("12", source)
+            self.assertNotIn("vpsBox.innerHTML", source)
 
     def test_walkin_summary_excludes_currency_outlier(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
@@ -298,6 +379,8 @@ class ProductionHardeningTests(unittest.TestCase):
         with Session(engine) as session:
             session.add_all(
                 [
+                    DealerStore(store_id="store-a", name="Dealer A", is_active=True),
+                    DealerStore(store_id="store-b", name="Dealer B", is_active=True),
                     WalkinDailyReport(
                         report_date="2026-07-05",
                         dealer_id="store-a",
@@ -312,12 +395,22 @@ class ProductionHardeningTests(unittest.TestCase):
                         deal_count=1,
                         deal_amount_yuan=215_900_000,
                     ),
+                    WalkinDailyReport(
+                        report_date="2026-07-10",
+                        dealer_id="store-a",
+                        dealer_name="Dealer A",
+                        deal_count=3,
+                        deal_amount_yuan=2_170_622,
+                    ),
                 ]
             )
             session.commit()
             with patch(
                 "app.walkin.router.get_settings",
-                return_value=SimpleNamespace(max_reported_revenue_usd=5_000_000),
+                return_value=SimpleNamespace(
+                    max_reported_revenue_usd=5_000_000,
+                    revenue_review_threshold_usd=1_000_000,
+                ),
             ):
                 result = asyncio.run(
                     walkin_metrics_summary(
@@ -329,7 +422,7 @@ class ProductionHardeningTests(unittest.TestCase):
                     )
                 )
             self.assertEqual(result["funnel"]["deal_amount_usd"], 5618)
-            self.assertEqual(result["data_quality"]["excluded_record_count"], 1)
+            self.assertEqual(result["data_quality"]["excluded_record_count"], 2)
         engine.dispose()
 
     def test_vertu_cli_order_rows_are_aggregated_by_customer(self):

@@ -178,10 +178,20 @@
       .kpi-cell:nth-child(n+4){display:none}
     }
     @media(max-width:560px){
+      .header{height:auto;min-height:52px;padding:.55rem .75rem;gap:.45rem;flex-wrap:wrap}
+      .header .sep{display:none}
+      .header-logo{flex:1 1 auto}
+      .header-back{display:inline-flex;align-items:center;min-height:40px}
+      .period-group{order:3}
+      .period-btn{min-width:40px;min-height:40px;padding:.45rem .7rem}
+      .date-input{order:4;min-height:40px;flex:1;min-width:130px}
+      .btn-refresh{order:5;min-height:40px}
+      .vps-badge{order:6}
       .kpi-bar{grid-template-columns:1fr 1fr}
       .kpi-cell:nth-child(n+3){display:none}
       .card-grid{grid-template-columns:1fr}
       .page-body{padding:.85rem .85rem 2rem}
+      .filter-btn,.btn-add{min-height:40px;align-items:center}
     }
   </style>
 </head>
@@ -271,8 +281,9 @@ var currentFilter = 'all';
 // ── 期间工具 ────────────────────────────────────────────────────────────────
 function _fmt(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+dd}
 function _parse(s){var p=String(s||'').split('-');return new Date(+p[0],+p[1]-1,+p[2])}
+function _today(){return _fmt(new Date())}
 function getPeriodRange(anchor,period){
-  var d=_parse(anchor||new Date().toISOString().slice(0,10)),y=d.getFullYear(),m=d.getMonth();
+  var d=_parse(anchor||_today()),y=d.getFullYear(),m=d.getMonth();
   if(period==='day')return{start:anchor,end:anchor,label:anchor};
   if(period==='week'){var dow=d.getDay(),dToMon=dow===0?-6:1-dow,mon=new Date(d),sun=new Date(d);mon.setDate(d.getDate()+dToMon);sun.setDate(mon.getDate()+6);return{start:_fmt(mon),end:_fmt(sun),label:_fmt(mon)+'~'+_fmt(sun).slice(5)};}
   if(period==='month'){var last=new Date(y,m+1,0).getDate();return{start:_fmt(new Date(y,m,1)),end:_fmt(new Date(y,m,last)),label:y+'年'+(m+1)+'月'};}
@@ -284,7 +295,7 @@ function getPeriodRange(anchor,period){
 var _qs = new URLSearchParams(location.search);
 currentFilter = ['all','reported','norep','vps'].indexOf(_qs.get('filter'))>=0?_qs.get('filter'):'all';
 var currentPeriod = _qs.get('period') || (typeof sessionStorage!=='undefined'&&sessionStorage.getItem('pdca_period')) || 'month';
-var currentAnchor = _qs.get('date') || new Date().toISOString().slice(0,10);
+var currentAnchor = _qs.get('date') || _today();
 
 (function(){
   document.getElementById('anchorPicker').value = currentAnchor;

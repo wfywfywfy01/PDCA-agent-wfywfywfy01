@@ -2,10 +2,26 @@
 """通过 vertu-cli 2.x 的业务快捷命令读取销售数据。"""
 from __future__ import annotations
 
+import asyncio
 import os
-from datetime import date as _date, timedelta
+import time
+from datetime import date as _date, datetime, timedelta
 
 from app.vertu.client import run_vertu_json, run_vertu_sync_json
+
+
+# Sell-in is requested on every workbench visit. Keep a short, explicitly
+# timestamped cache so repeated visits do not start three identical CLI
+# processes. Failed refreshes never overwrite the last successful fact.
+_SELL_IN_CACHE: dict[tuple, dict] = {}
+_SELL_IN_LOCKS: dict[tuple, asyncio.Lock] = {}
+
+
+def _sell_in_cache_seconds() -> float:
+    try:
+        return max(float(os.environ.get("PDCA_SELL_IN_CACHE_SECONDS", "60")), 0.0)
+    except ValueError:
+        return 60.0
 
 
 def _date_range(date_text: str, period: str) -> tuple[str, str]:
@@ -80,18 +96,52 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
         "经销商一部,经销商二部,经销商三部",
     )
     departments = [item.strip() for item in configured.split(",") if item.strip()]
-    payloads = [await _headline(start, end, department) for department in departments]
-    if not payloads:
-        payloads = [await _headline(start, end)]
-    amount = sum(float((item.get("period") or {}).get("销额") or 0) for item in payloads)
-    quantity = sum(int((item.get("period") or {}).get("销量") or 0) for item in payloads)
-    label = _PERIOD_LABEL.get(period, "当前区间")
-    return {
-        "amount": amount,
-        "wan": round(amount / 10000, 2),
-        "quantity": quantity,
-        "note": f"{label}实时 · vertu-cli sales",
-    }
+    dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
+    cache_key = (start, end, period, dept_l1, tuple(departments))
+    ttl = _sell_in_cache_seconds()
+
+    def cached_value(now: float) -> dict | None:
+        entry = _SELL_IN_CACHE.get(cache_key)
+        if entry and now - float(entry["monotonic"]) < ttl:
+            return {**entry["data"], "cached": True}
+        return None
+
+    cached = cached_value(time.monotonic())
+    if cached is not None:
+        return cached
+
+    # Single-flight identical requests while still allowing the independent
+    # department calls to run concurrently.
+    lock = _SELL_IN_LOCKS.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        cached = cached_value(time.monotonic())
+        if cached is not None:
+            return cached
+
+        if departments:
+            payloads = await asyncio.gather(
+                *(_headline(start, end, department) for department in departments)
+            )
+        else:
+            payloads = [await _headline(start, end)]
+
+        amount = sum(float((item.get("period") or {}).get("销额") or 0) for item in payloads)
+        quantity = sum(int((item.get("period") or {}).get("销量") or 0) for item in payloads)
+        label = _PERIOD_LABEL.get(period, "当前区间")
+        fetched_at = datetime.now().astimezone()
+        result = {
+            "amount": amount,
+            "wan": round(amount / 10000, 2),
+            "quantity": quantity,
+            "note": f"{label}实时 · vertu-cli sales · {fetched_at:%H:%M:%S}更新",
+            "as_of": fetched_at.isoformat(timespec="seconds"),
+            "cached": False,
+        }
+        _SELL_IN_CACHE[cache_key] = {
+            "monotonic": time.monotonic(),
+            "data": result,
+        }
+        return dict(result)
 
 
 async def fetch_sell_out(date_text: str, period: str = "day") -> dict:

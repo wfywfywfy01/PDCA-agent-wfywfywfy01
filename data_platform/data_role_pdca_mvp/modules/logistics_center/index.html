@@ -69,6 +69,16 @@
     .loading{display:none}
     .loading.show{display:block}
     .chip{display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.06);font-size:11px;color:#94a3b8}
+    .track-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+    .track-box .track-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px}
+    .track-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .track-row select,.track-row input{padding:9px 12px;border:1px solid rgba(255,255,255,.1);border-radius:8px;
+      font-size:14px;background:rgba(255,255,255,.05);color:var(--text);outline:none}
+    .track-row input{flex:1;min-width:200px}
+    .track-result{margin-top:12px;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.6;
+      background:rgba(255,255,255,.03);border:1px solid var(--border);display:none}
+    .track-result.ok{border-color:rgba(16,185,129,.3);color:var(--green)}
+    .track-result.err{border-color:rgba(244,63,94,.3);color:var(--red)}
     @media (max-width: 640px) {
       .wrap { padding: 14px; }
       .tracking { font-size: 15px; }
@@ -102,6 +112,21 @@
       <a class="btn btn-ghost" href="/logistics" id="entryLink">+ 录入单号</a>
     </div>
     <p class="tracking-sub" id="trackingRefreshHint" style="display:none"></p>
+
+    <div class="track-box">
+      <div class="track-title">单号实时查询（不依赖录入台账，直达承运商官网）</div>
+      <div class="track-row">
+        <select id="trackCarrier">
+          <option value="UPS">UPS</option>
+          <option value="FedEx">FedEx</option>
+          <option value="DHL">DHL</option>
+          <option value="SF" disabled>SF 顺丰（需人工）</option>
+        </select>
+        <input type="search" id="trackNumber" placeholder="输入运单号，如 1Z999AA10123456784" />
+        <button type="button" class="btn btn-primary" id="btnTrack">查询</button>
+      </div>
+      <div class="track-result" id="trackResult"></div>
+    </div>
 
     <div class="tabs" id="statusTabs">
       <button type="button" class="tab active" data-status="all">全部</button>
@@ -308,6 +333,48 @@
       }
     }
     document.getElementById('btnTrackingRefresh').addEventListener('click', refreshTrackingFromCarriers);
+
+    async function trackShipment() {
+      var btn = document.getElementById('btnTrack');
+      var box = document.getElementById('trackResult');
+      var carrier = document.getElementById('trackCarrier').value;
+      var number = document.getElementById('trackNumber').value.trim();
+      if (!number) {
+        box.className = 'track-result err';
+        box.style.display = 'block';
+        box.textContent = '请输入运单号';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = '查询中…（约 10-20 秒）';
+      box.className = 'track-result';
+      box.style.display = 'block';
+      box.textContent = '正在查询 ' + carrier + ' 官网，请稍候…';
+      try {
+        var qs = new URLSearchParams({ carrier: carrier, tracking_number: number });
+        var res = await fetch('/api/logistics/track?' + qs, { credentials: 'include' });
+        var data = await res.json();
+        if (data.fetch_ok) {
+          box.className = 'track-result ok';
+          box.innerHTML = '<b>' + esc(data.tracking_number) + ' · ' + esc(data.carrier) + '</b><br>' +
+            '当前状态：<b>' + esc(data.status_text || '未识别') + '</b>' +
+            (data.is_delivered ? '（已签收）' : '');
+        } else {
+          box.className = 'track-result err';
+          box.textContent = data.error || '查询失败，请稍后重试';
+        }
+      } catch (err) {
+        box.className = 'track-result err';
+        box.textContent = '查询失败：无法连接服务';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '查询';
+      }
+    }
+    document.getElementById('btnTrack').addEventListener('click', trackShipment);
+    document.getElementById('trackNumber').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') trackShipment();
+    });
     document.getElementById('btnRefresh').addEventListener('click', refresh);
     document.getElementById('dateFilter').addEventListener('change', refresh);
     document.getElementById('salesFilter').addEventListener('change', refresh);

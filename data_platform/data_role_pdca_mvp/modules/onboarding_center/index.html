@@ -92,7 +92,14 @@
         var mods = (day.modules || []).map(function (m) {
           var done = completed.has(m.id);
           var link = (m.links || []).map(function (href, index) {
-            return ' · <a href="' + esc(href) + '">' + (index ? '入口 ' + (index + 1) : '打开') + '</a>';
+            var labels = {
+              '/': '打开工作台',
+              '/customer-mgmt': '打开客户管理',
+              '/logistics-center/': '打开物流进展',
+              '/signalseller-center/': '打开获客指挥',
+              '/pdca-vps': '打开 PDCA 日结'
+            };
+            return ' · <a href="' + esc(href) + '">' + (labels[href] || (index ? '打开相关入口' : '打开')) + '</a>';
           }).join('');
           return '<div class="mod' + (done ? ' done' : '') + '">' +
             '<div class="t"><b>' + esc(m.title) + '</b> ' + (done ? '✓' : '') + '<br>' +

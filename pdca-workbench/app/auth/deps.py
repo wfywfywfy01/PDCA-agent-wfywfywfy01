@@ -104,6 +104,22 @@ def _check_must_change_password(user: User, request: Request) -> None:
     )
 
 
+def ensure_portal_access(user: User) -> None:
+    """经销商（dealer）账号只允许在门店五件套门户登录，禁止进入内部工作台。
+
+    两个部署共用同一套代码和同一个 Postgres 库，内部工作台无法从数据层面
+    排除 dealer 账号，必须在认证层拦截。walkin 门户用 PDCA_PORTAL_MODE=walkin
+    标识，其余（默认 workbench）一律拒绝 dealer 角色。
+    """
+    if get_settings().portal_mode == "walkin":
+        return
+    if user.role == "dealer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="经销商账号请使用门店五件套录入门户登录",
+        )
+
+
 async def get_current_user(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
@@ -128,6 +144,7 @@ async def get_current_user(
     proxy_user = await _user_from_proxy_headers(session, request)
     if proxy_user:
         _check_must_change_password(proxy_user, request)
+        ensure_portal_access(proxy_user)
         return proxy_user
 
     # 2) JWT
@@ -135,6 +152,7 @@ async def get_current_user(
         user = await _user_from_jwt(session, token)
         if user:
             _check_must_change_password(user, request)
+            ensure_portal_access(user)
             return user
         if mode == "local":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录")
@@ -144,6 +162,7 @@ async def get_current_user(
         user = await _user_from_vps(session, request)
         if user:
             _check_must_change_password(user, request)
+            ensure_portal_access(user)
             return user
 
     if mode == "vps":

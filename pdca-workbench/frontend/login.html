@@ -81,13 +81,13 @@
   <div class="change-overlay" id="changeOverlay">
     <div class="change-card">
       <h2>请设置新密码</h2>
-      <p>首次登录须修改密码，新密码至少 8 位，不能与初始密码相同。</p>
+      <p>首次登录须修改密码，新密码至少 12 位，不能与初始密码相同。</p>
       <div class="field">
         <label>当前密码</label>
         <input type="password" id="cp_old" placeholder="当前密码" />
       </div>
       <div class="field">
-        <label>新密码（至少 8 位）</label>
+        <label>新密码（至少 12 位）</label>
         <input type="password" id="cp_new" placeholder="新密码" />
       </div>
       <div class="field">
@@ -111,6 +111,15 @@
         return parsed.pathname + parsed.search + parsed.hash;
       } catch (_) {
         return '/';
+      }
+    }
+
+    function safeHttpUrl(raw) {
+      try {
+        var parsed = new URL(raw || '', location.origin);
+        return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : '';
+      } catch (_) {
+        return '';
       }
     }
 
@@ -251,10 +260,18 @@
         if (check && check.ok) {
           var name = (check.profile && check.profile.display_name) || 'VPS 用户';
           vpsBox.style.display = 'block';
-          vpsBox.innerHTML =
-            '<p>已检测到 VPS 登录：<strong>' + name + '</strong></p>' +
-            '<button type="button" id="vpsEnterBtn">VPS 一键进入</button>';
-          document.getElementById('vpsEnterBtn').addEventListener('click', function () {
+          vpsBox.textContent = '';
+          var vpsText = document.createElement('p');
+          vpsText.appendChild(document.createTextNode('已检测到 VPS 登录：'));
+          var vpsName = document.createElement('strong');
+          vpsName.textContent = name;
+          vpsText.appendChild(vpsName);
+          var vpsEnterBtn = document.createElement('button');
+          vpsEnterBtn.type = 'button';
+          vpsEnterBtn.textContent = 'VPS 一键进入';
+          vpsBox.appendChild(vpsText);
+          vpsBox.appendChild(vpsEnterBtn);
+          vpsEnterBtn.addEventListener('click', function () {
             enterWorkbench();
           });
           var div = document.createElement('div');
@@ -276,8 +293,21 @@
       msgBox.textContent = '未检测到 VPS 登录，请先在 VPS / Odoo 完成登录后再打开本页';
       msgBox.className = 'msg-box warn';
       if (hint && cfg.vps_login_url) {
-        hint.innerHTML = '<a href="' + cfg.vps_login_url + '" target="_blank" rel="noopener">前往 VPS 登录</a>' +
-          ' · <a href="/login?manual=1">强制显示本地表单</a>';
+        var loginUrl = safeHttpUrl(cfg.vps_login_url);
+        hint.textContent = '';
+        if (loginUrl) {
+          var externalLink = document.createElement('a');
+          externalLink.href = loginUrl;
+          externalLink.target = '_blank';
+          externalLink.rel = 'noopener';
+          externalLink.textContent = '前往 VPS 登录';
+          hint.appendChild(externalLink);
+          hint.appendChild(document.createTextNode(' · '));
+        }
+        var manualLink = document.createElement('a');
+        manualLink.href = '/login?manual=1';
+        manualLink.textContent = '强制显示本地表单';
+        hint.appendChild(manualLink);
       }
     })();
   </script>

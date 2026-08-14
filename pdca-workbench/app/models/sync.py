@@ -208,8 +208,12 @@ def sync_meetings(date_text: str) -> int:
 
 
 def sync_dealer_sales_from_vps(date_text: str) -> int:
-    """通过 vertu-cli 拉取经销商订单汇总，同步到 dealer_sales 表。
+    """通过 vertu-cli 拉取经销商进货（Sell-in）汇总，同步到 dealer_sales 表。
+
     以 (check_date, dealer_name) 做 upsert；当天运行多次会覆盖同日记录。
+    ``sales +orders`` 返回的是 VERTU 卖给经销商的订单，即经销商进货（Sell-in），
+    不是终端 Sell-out。fetch_dealer_sales_orders_sync 的历史字段名叫
+    ``sell_out_yuan``，实际语义是进货金额，此处写入 sell_in_wan。
     """
     from app.vertu.sales import fetch_dealer_sales_orders_sync
 
@@ -227,10 +231,10 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
             name = (item.get("dealer_name") or "").strip()
             if not name:
                 continue
-            sell_out_yuan = float(item.get("sell_out_yuan") or 0)
+            sell_in_yuan = float(item.get("sell_out_yuan") or 0)
             phone_qty = int(item.get("qty") or 0)
             activation_rate = 0.0
-            sell_out_wan = round(sell_out_yuan / 10000, 4)
+            sell_in_wan = round(sell_in_yuan / 10000, 4)
 
             existing = session.exec(
                 select(DealerSales).where(
@@ -239,7 +243,7 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
                 )
             ).first()
             if existing:
-                existing.sell_out_wan = sell_out_wan
+                existing.sell_in_wan = sell_in_wan
                 existing.phone_qty = phone_qty
                 existing.activation_rate = activation_rate
                 existing.units = phone_qty
@@ -250,8 +254,8 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
                 session.add(DealerSales(
                     check_date=date_text,
                     dealer_name=name,
-                    sell_in_wan=0.0,
-                    sell_out_wan=sell_out_wan,
+                    sell_in_wan=sell_in_wan,
+                    sell_out_wan=0.0,
                     units=phone_qty,
                     phone_qty=phone_qty,
                     activation_rate=activation_rate,
@@ -260,7 +264,7 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
             count += 1
         session.commit()
 
-    logger.info("VPS dealer sell-out 同步 {} 条 ({})", count, date_text)
+    logger.info("VPS dealer sell-in 同步 {} 条 ({})", count, date_text)
     return count
 
 

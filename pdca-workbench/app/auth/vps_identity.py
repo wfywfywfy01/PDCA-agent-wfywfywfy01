@@ -173,7 +173,7 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
     role = infer_pdca_role(vps)
     sales_name = name if role == "sales" else ""
     owner_key = _nested(vps, "owner_key") if role == "sales" else ""
-    team_key = (_nested(vps, "team_key") or "overseas") if role == "manager" else ""
+    team_key = _nested(vps, "team_key") if role == "manager" else ""
     data_scope = {
         "admin": "all",
         "manager": "team",
@@ -230,7 +230,7 @@ def vps_profile(vps: dict) -> dict:
         "display_name": name,
         "sales_name": name if role == "sales" else "",
         "owner_key": _nested(vps, "owner_key") if role == "sales" else "",
-        "team_key": (_nested(vps, "team_key") or "overseas") if role == "manager" else "",
+        "team_key": _nested(vps, "team_key") if role == "manager" else "",
         "data_scope": {"admin": "all", "manager": "team", "sales": "self", "dealer": "self", "viewer": "none"}.get(role, "none"),
         "role": role,
         "job_title": job,

@@ -139,8 +139,14 @@ body {
   border: none;
   outline: none;
   width: 100%;
+  min-height: 28px;
   font-size: 0.85rem;
   background: transparent;
+}
+
+.vertu-toolbar select,
+.vertu-toolbar input[type="date"] {
+  min-height: 36px;
 }
 
 .vertu-main {

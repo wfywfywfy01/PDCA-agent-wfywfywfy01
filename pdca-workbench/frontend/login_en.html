@@ -81,7 +81,7 @@
   <div class="change-overlay" id="changeOverlay">
     <div class="change-card">
       <h2>Set New Password</h2>
-      <p>For account security, you must set a new password on first login. Minimum 8 characters, and it cannot match your initial password.</p>
+      <p>For account security, you must set a new password on first login. Minimum 12 characters, and it cannot match your initial password.</p>
       <div class="field">
         <label>Current Password</label>
         <input type="password" id="cp_old" placeholder="Current password" />
@@ -111,6 +111,15 @@
         return parsed.pathname + parsed.search + parsed.hash;
       } catch (_) {
         return '/';
+      }
+    }
+
+    function safeHttpUrl(raw) {
+      try {
+        var parsed = new URL(raw || '', location.origin);
+        return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : '';
+      } catch (_) {
+        return '';
       }
     }
 
@@ -245,10 +254,18 @@
         if (check && check.ok) {
           var name = (check.profile && check.profile.display_name) || 'VPS user';
           vpsBox.style.display = 'block';
-          vpsBox.innerHTML =
-            '<p>VPS login detected: <strong>' + name + '</strong></p>' +
-            '<button type="button" id="vpsEnterBtn">Enter with VPS</button>';
-          document.getElementById('vpsEnterBtn').addEventListener('click', function () {
+          vpsBox.textContent = '';
+          var vpsText = document.createElement('p');
+          vpsText.appendChild(document.createTextNode('VPS login detected: '));
+          var vpsName = document.createElement('strong');
+          vpsName.textContent = name;
+          vpsText.appendChild(vpsName);
+          var vpsEnterBtn = document.createElement('button');
+          vpsEnterBtn.type = 'button';
+          vpsEnterBtn.textContent = 'Enter with VPS';
+          vpsBox.appendChild(vpsText);
+          vpsBox.appendChild(vpsEnterBtn);
+          vpsEnterBtn.addEventListener('click', function () {
             enterWorkbench();
           });
           var div = document.createElement('div');
@@ -270,8 +287,21 @@
       msgBox.textContent = 'No VPS login detected — please sign in on VPS / Odoo first, then reopen this page';
       msgBox.className = 'msg-box warn';
       if (hint && cfg.vps_login_url) {
-        hint.innerHTML = '<a href="' + cfg.vps_login_url + '" target="_blank" rel="noopener">Go to VPS login</a>' +
-          ' · <a href="/login?manual=1">Force local form</a>';
+        var loginUrl = safeHttpUrl(cfg.vps_login_url);
+        hint.textContent = '';
+        if (loginUrl) {
+          var externalLink = document.createElement('a');
+          externalLink.href = loginUrl;
+          externalLink.target = '_blank';
+          externalLink.rel = 'noopener';
+          externalLink.textContent = 'Go to VPS login';
+          hint.appendChild(externalLink);
+          hint.appendChild(document.createTextNode(' · '));
+        }
+        var manualLink = document.createElement('a');
+        manualLink.href = '/login?manual=1';
+        manualLink.textContent = 'Force local form';
+        hint.appendChild(manualLink);
       }
     })();
   </script>

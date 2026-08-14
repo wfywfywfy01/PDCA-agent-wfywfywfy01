@@ -104,3 +104,50 @@ async def refresh_tracking(
 ):
     """Global carrier sync is an admin-only operation."""
     return await service.refresh_tracking_statuses()
+
+
+@router.get("/track")
+async def track_shipment(
+    carrier: str = Query("", description="UPS / FedEx / DHL / SF"),
+    tracking_number: str = Query("", description="运单号"),
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
+):
+    """实时查询单个运单的官网状态，不依赖 CSV 批量数据源。
+
+    支持 UPS / FedEx / DHL（顺丰官网强制图形验证码，返回提示由人工查询）。
+    """
+    from app.logistics import tracking_fetch
+
+    carrier_norm = (carrier or "").strip()
+    tracking = (tracking_number or "").strip()
+    base = {
+        "tracking_number": tracking,
+        "carrier": carrier_norm,
+        "status_text": "",
+        "is_delivered": False,
+        "fetch_ok": False,
+        "error": "",
+    }
+    if not tracking:
+        base["error"] = "请输入运单号"
+        return base
+    if not tracking_fetch.is_supported_carrier(carrier_norm):
+        base["error"] = "暂不支持该承运商（支持 UPS / FedEx / DHL；SF 顺丰官网需人工查询）"
+        return base
+    try:
+        results = await tracking_fetch.fetch_many([(carrier_norm, tracking)])
+    except Exception as exc:  # noqa: BLE001
+        base["error"] = f"查询失败：{str(exc)[:160]}"
+        return base
+    if not results:
+        base["error"] = "未能获取查询结果"
+        return base
+    r = results[0]
+    return {
+        "tracking_number": r.tracking_number,
+        "carrier": r.carrier,
+        "status_text": r.status_text,
+        "is_delivered": r.is_delivered,
+        "fetch_ok": r.fetch_ok,
+        "error": r.error,
+    }

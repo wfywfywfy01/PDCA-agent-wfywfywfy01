@@ -290,11 +290,11 @@
       const params = { managerId: 'default' };
       let overview = null;
 
-      await loadSection('today', async function () {
+      const todayTask = loadSection('today', async function () {
         renderToday(await request(API.today, {}));
       });
 
-      await loadSection('overview', async function () {
+      const overviewTask = loadSection('overview', async function () {
         overview = await request(API.dashboard, params);
         managerName.innerHTML = '<span class="amount-num">' + escapeHtml(overview.managerName || '—') + '</span>';
         managerRole.textContent = overview.managerRole || '';
@@ -311,12 +311,13 @@
 
       // Sell In / Sell Out：分别按当前 period（日/周/月/季）向 Odoo 实时取数，
       // 不能复用 overview 里的字段（那部分对 period 不敏感，会一直显示月度累计）。
-      await loadSection('sellIn', async function () {
+      const sellInTask = loadSection('sellIn', async function () {
         try {
           const sellIn = await request(API.sellIn, params);
           renderSellCard(sellInAmount, document.getElementById('sellInFoot'), sellIn.wan,
             sellIn.amount != null ? ('¥ ' + Math.round(sellIn.amount).toLocaleString()) : null, sellIn.note);
         } catch (err) {
+          await overviewTask;
           if (overview) {
             renderSellCard(sellInAmount, document.getElementById('sellInFoot'), overview.sellInWan, overview.sellInAmount, overview.sellInSub);
           }
@@ -324,12 +325,13 @@
         }
       });
 
-      await loadSection('sellOut', async function () {
+      const sellOutTask = loadSection('sellOut', async function () {
         try {
           const sellOut = await request(API.sellOut, params);
           renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), sellOut.wan,
             sellOut.amount != null ? ('¥ ' + Math.round(sellOut.amount).toLocaleString()) : null, sellOut.note);
         } catch (err) {
+          await overviewTask;
           if (overview) {
             renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), overview.sellOutWan, overview.sellOutAmount, overview.sellOutSub);
           }
@@ -337,9 +339,17 @@
         }
       });
 
-      await loadSection('customers', async function () {
+      const customersTask = loadSection('customers', async function () {
         renderCustomers(await request(API.customerCenter, params));
       });
+
+      await Promise.allSettled([
+        todayTask,
+        overviewTask,
+        sellInTask,
+        sellOutTask,
+        customersTask,
+      ]);
     }
 
     function renderToday(data) {
