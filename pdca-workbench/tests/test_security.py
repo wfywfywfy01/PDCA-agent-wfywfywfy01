@@ -224,6 +224,39 @@ class ProductionHardeningTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertIn(b'"status":"degraded"', response.body)
 
+    def test_standalone_health_does_not_require_local_backup(self):
+        settings = SimpleNamespace(environment="production", require_vertu=False, scheduler_enabled=False)
+        with (
+            patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.backup_status", return_value={"ok": False}),
+            patch("app.main.get_settings", return_value=settings),
+            patch("app.main.vertu_health", new=AsyncMock(return_value={"ok": False})),
+        ):
+            response = asyncio.run(health())
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'"status":"ok"', response.body)
+
+    def test_dealer_is_denied_on_internal_workbench(self):
+        from app.auth.deps import ensure_portal_access
+        dealer = User(role="dealer", dealer_id="store-a")
+        with patch("app.auth.deps.get_settings", return_value=SimpleNamespace(portal_mode="workbench")):
+            with self.assertRaises(HTTPException) as ctx:
+                ensure_portal_access(dealer)
+            self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_dealer_is_allowed_on_walkin_portal(self):
+        from app.auth.deps import ensure_portal_access
+        dealer = User(role="dealer", dealer_id="store-a")
+        with patch("app.auth.deps.get_settings", return_value=SimpleNamespace(portal_mode="walkin")):
+            ensure_portal_access(dealer)
+
+    def test_non_dealer_is_allowed_on_internal_workbench(self):
+        from app.auth.deps import ensure_portal_access
+        with patch("app.auth.deps.get_settings", return_value=SimpleNamespace(portal_mode="workbench")):
+            ensure_portal_access(User(role="sales"))
+            ensure_portal_access(User(role="manager"))
+            ensure_portal_access(User(role="admin"))
+
     def test_security_headers_cover_pages_redirects_and_auth_api(self):
         client = TestClient(app)
         for path in ("/login", "/admin-panel"):

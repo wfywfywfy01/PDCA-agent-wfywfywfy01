@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from app.auth.deps import get_current_user
+from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.audit import log_action
@@ -203,6 +203,7 @@ async def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号已停用")
 
     _clear_fail(key)
+    ensure_portal_access(user)
     log_action(user.username, "login", ip=_client_ip(request))
     pwd_v = getattr(user, "pwd_version", 0) or 0
     token = create_access_token(
