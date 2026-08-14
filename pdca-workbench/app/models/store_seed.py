@@ -24,6 +24,7 @@ _STORES: list[tuple[str, str, str, str, str, str]] = [
     ("me011", "Safiran Hamrah",                           "中东", "伊朗",         "L1", "viki"),
     ("me012", "TIVALI Commercial Broker LLC",             "中东", "伊朗",         "L1", "DEHDEHDAHOUMAIMA"),
     ("me013", "Veysel Sevis Ltd",                         "中东", "土耳其",       "L1", "DEHDEHDAHOUMAIMA"),
+    ("me017", "TALERJASE",                                "中东", "伊拉克",       "L1", "viki"),
     ("me014", "Bestcom",                                  "欧洲", "乌克兰",       "L1", "DEHDEHDAHOUMAIMA"),
     ("me015", "FRONTANA GIDA DIS TICARET LIMITED",        "欧洲", "乌克兰",       "L1", "DEHDEHDAHOUMAIMA"),
     ("me016", "IQ-QUEST SP. Z O.O.",                      "欧洲", "德国",         "L1", "DEHDEHDAHOUMAIMA"),
@@ -41,11 +42,11 @@ _STORES: list[tuple[str, str, str, str, str, str]] = [
     ("sa005", "Sun International General Trading",        "南亚", "印度",         "L1", "april"),
     # ── 东南亚 ────────────────────────────────────────────────────────────────
     ("sea01", "BIN BIN INVESTMENT(CAMBODIA) CO LTD",      "东南亚", "柬埔寨",     "L1", "yubing"),
-    ("sea02a", "VMG Communication and Technology JSC · Saigon",    "东南亚", "越南", "L2", "yubing"),
+    ("sea02a", "VMG Communication and Technology JSC · Dong Khoi", "东南亚", "越南", "L2", "yubing"),
     ("sea02b", "VMG Communication and Technology JSC · Caravelle", "东南亚", "越南", "L2", "yubing"),
     ("sea02c", "VMG Communication and Technology JSC · Majestic",  "东南亚", "越南", "L2", "yubing"),
     ("sea02d", "VMG Communication and Technology JSC · REX",       "东南亚", "越南", "L2", "yubing"),
-    ("sea03", "VST ECS (Thailand) Co., Ltd.",             "东南亚", "泰国",       "L1", "yubing"),
+    ("sea03", "VST ECS (Thailand) Co., Ltd. · Siam Paragon", "东南亚", "泰国",       "L1", "yubing"),
     ("sea04", "Zmc automotive Pte Ltd",                   "东南亚", "新加坡",     "L1", "helongcheng"),
     # ── 中亚 ──────────────────────────────────────────────────────────────────
     ("ca001", "Altyn Zaman H.J.",                         "中亚", "土库曼斯坦",   "L1", "april"),
@@ -53,7 +54,12 @@ _STORES: list[tuple[str, str, str, str, str, str]] = [
     ("ca003", "CONTINENTAL PLUS LLC.",                    "中亚", "俄罗斯",       "L1", "april"),
     ("ca004", "LLC TC Azimut",                            "中亚", "俄罗斯",       "L2", "april"),
     ("ca005", "LYZHINA OLGA",                             "中亚", "俄罗斯",       "L1", "april"),
-    ("ca006", "reStore",                                  "中亚", "哈萨克斯坦",   "L1", "april"),
+    ("ca006", "reStore",                                  "中亚", "俄罗斯",       "L1", "april"),
+    ("ca007", "RSTR_MSK_АВИАПАРК",                        "中亚", "俄罗斯",       "L2", "april"),
+    ("ca008", "RSTR_MSK_АТРИУМ",                          "中亚", "俄罗斯",       "L2", "april"),
+    ("ca009", "RSTR_MSK_АФИМОЛЛ_СИТИ",                    "中亚", "俄罗斯",       "L2", "april"),
+    ("ca010", "RSTR_MSK_НЕГЛИННАЯ_8",                     "中亚", "俄罗斯",       "L2", "april"),
+    ("ca011", "RSTR_MSK_РИГА_МОЛЛ",                       "中亚", "俄罗斯",       "L2", "april"),
 ]
 
 # 旧测试数据的 store_id 前缀，检测到则自动清除重建
