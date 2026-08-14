@@ -256,7 +256,11 @@ async def health():
     settings = get_settings()
     vertu = await vertu_health()
     # 本地开发不要求已有备份；生产环境必须把备份失败暴露给监控。
-    backup_required = settings.environment == "production"
+    # The internal workbench owns scheduled backups.  The standalone walk-in
+    # portal intentionally disables its scheduler and shares that database;
+    # requiring a second local backup directory would keep the portal
+    # unhealthy even while the production backup is current.
+    backup_required = settings.environment == "production" and getattr(settings, "scheduler_enabled", True)
     vertu_required = settings.require_vertu
     ok = db_ok and (backup["ok"] or not backup_required) and (vertu["ok"] or not vertu_required)
     payload = {
