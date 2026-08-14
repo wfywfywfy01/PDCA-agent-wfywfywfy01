@@ -257,6 +257,15 @@ class ProductionHardeningTests(unittest.TestCase):
             ensure_portal_access(User(role="manager"))
             ensure_portal_access(User(role="admin"))
 
+    def test_logistics_track_requires_number_and_supported_carrier(self):
+        from app.logistics.router import track_shipment
+        empty = asyncio.run(track_shipment(carrier="UPS", tracking_number=""))
+        self.assertFalse(empty["fetch_ok"])
+        self.assertEqual(empty["error"], "请输入运单号")
+        unsupported = asyncio.run(track_shipment(carrier="SF", tracking_number="12345"))
+        self.assertFalse(unsupported["fetch_ok"])
+        self.assertIn("暂不支持", unsupported["error"])
+
     def test_security_headers_cover_pages_redirects_and_auth_api(self):
         client = TestClient(app)
         for path in ("/login", "/admin-panel"):
