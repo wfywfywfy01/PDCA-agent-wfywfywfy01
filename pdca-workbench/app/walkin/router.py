@@ -530,7 +530,7 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
 
 
 # ---------------------------------------------------------------------------
-# VPS 真实经销商 Sell-out（海外，来自 odoo_sale 视图）
+# VPS 真实经销商进货 Sell-in（海外，sales +orders 订单聚合）
 # ---------------------------------------------------------------------------
 
 def _run_dealer_vps_query(run_date: str, *, start_date: str = "", end_date: str = "") -> dict:

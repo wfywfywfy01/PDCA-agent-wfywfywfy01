@@ -114,7 +114,10 @@ async def trigger_vps_sellout_sync(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    """手动触发 VPS 手机 Sell-out + 激活率同步。"""
+    """手动触发 VPS 经销商进货（Sell-in）+ 激活率同步。
+
+    端点名 sync-vps-sellout 为历史遗留，实际写入的是 dealer_sales.sell_in_wan。
+    """
     date_text = require_iso_date(date or bridge.today_text())
     count = sync_dealer_sales_from_vps(date_text)
     return {"ok": True, "date": date_text, "synced": count}
