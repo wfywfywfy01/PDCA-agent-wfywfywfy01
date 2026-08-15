@@ -249,6 +249,7 @@ function Start-PdcaWalkinContainer {
         "-e", "PDCA_REVENUE_REVIEW_THRESHOLD_USD=1000000",
         "-e", "PDCA_SCHEDULER_ENABLED=0",
         "-e", "PDCA_HOME_REDIRECT=/walkin-submit",
+        "-e", "PDCA_PORTAL_MODE=walkin",
         "-e", "PDCA_LOG_LEVEL=INFO",
         $Image
     )
