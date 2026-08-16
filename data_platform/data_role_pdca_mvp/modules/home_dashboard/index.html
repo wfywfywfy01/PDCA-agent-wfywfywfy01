@@ -329,11 +329,12 @@
         try {
           const sellOut = await request(API.sellOut, params);
           renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), sellOut.wan,
-            sellOut.amount != null ? ('¥ ' + Math.round(sellOut.amount).toLocaleString()) : null, sellOut.note);
+            sellOut.amount != null ? ('$ ' + Math.round(sellOut.amount).toLocaleString()) : null, sellOut.note);
         } catch (err) {
           await overviewTask;
           if (overview) {
-            renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), overview.sellOutWan, overview.sellOutAmount, overview.sellOutSub);
+            renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), null,
+              overview.sellOutUsd != null ? ('$ ' + Math.round(overview.sellOutUsd).toLocaleString()) : null, overview.sellOutSub);
           }
           throw err;
         }

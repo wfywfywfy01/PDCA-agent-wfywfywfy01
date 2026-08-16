@@ -303,7 +303,14 @@ async def sell_out(
     # failing remote call on every homepage visit.
     data = service.workbench_overview(date_text, period, _session_user(user, session))
     data = service.merge_db_sales(data, date_text, session, user)
-    return _sales_payload(data, "sellOut")
+    # 终销（Sell-out）是门店五件套上报的 USD 金额，不走 CNY 万口径。
+    usd = data.get("sellOutUsd")
+    return {
+        "amount": usd,
+        "wan": None,
+        "note": data.get("sellOutSub") or "门店五件套上报 · USD",
+        "currency": "USD",
+    }
 
 
 @router.get("/api/customer-center/summary")

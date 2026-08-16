@@ -160,5 +160,12 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
         valid_revenue = [r.deal_amount_yuan for r in walkin_rows if r.deal_amount_yuan <= review_threshold]
         data["reportedRevenueUsd"] = round(sum(valid_revenue), 2)
         data["reportedRevenueReviewCount"] = len(walkin_rows) - len(valid_revenue)
+        # 终销（Sell-out）口径为 USD（门店五件套上报），不是 CNY 万。用独立字段表达，
+        # 供前端 Sell-out 卡片直接展示；不再复用 dealer_sales.sell_out_wan（该列已清空）。
+        store_count = len({r.dealer_id for r in walkin_rows})
+        data["sellOutUsd"] = round(sum(valid_revenue), 2)
+        data["sellOutSub"] = f"门店五件套上报 · {store_count} 家门店 · USD"
+        data.setdefault("dataState", {}).update({"sellOut": "live"})
+        data.setdefault("dataSource", {}).update({"sellOut": "five_kit_db"})
 
     return data
