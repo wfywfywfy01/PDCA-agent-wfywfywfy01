@@ -106,13 +106,14 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
 
     # ── 1. dealer_sales 表（sync_from_vertu 写入的 Odoo 数据，最高优先）─────────────
     dealer_stmt = select(DealerSales).where(DealerSales.check_date.startswith(month))
+    # store_ids 无论是否 unrestricted 都需要（walkin 汇总用到），提前解析。
+    store_ids = scoped_active_store_ids(user, session) if user is not None else []
     # VPS ``sales +orders`` 返回的客户名已脱敏（如 "未知客户"/"H*****"），无法按名称
     # 匹配门店主数据。管理员（unrestricted）直接汇总全量；受限账号仍按名称过滤。
     if user is not None and resolve_data_scope(user, session).unrestricted:
         db_rows = list(session.exec(dealer_stmt).all())
     else:
         names = scoped_active_dealer_names(user, session) if user is not None else []
-        store_ids = scoped_active_store_ids(user, session) if user is not None else []
         db_rows = (
             session.exec(dealer_stmt.where(DealerSales.dealer_name.in_(names))).all()
             if names else []
