@@ -167,14 +167,37 @@ def sync_sellin(vertu: str, run_date: str, start_date: str) -> dict:
 
 # ── 会议同步 ──────────────────────────────────────────────────────────────────
 
-_TEAM = [
-    {"name": "杨晶晶", "phone": "[PHONE-REDACTED]"},
-    {"name": "何海文", "phone": "[PHONE-REDACTED]"},
-    {"name": "王宇彤", "phone": "[PHONE-REDACTED]"},
-    {"name": "于冰", "phone": "[PHONE-REDACTED]"},
-    {"name": "吴黎", "phone": "[PHONE-REDACTED]"},
-    {"name": "尤文静", "phone": "[PHONE-REDACTED]1"},
-]
+def _load_team() -> list[dict]:
+    """团队名单从环境变量/未跟踪本地配置加载，不再在仓库中硬编码手机号。
+
+    与 data_role_pdca_mvp/scripts/vemory_bridge.py 共用同一来源：
+    - PDCA_VEMORY_PEOPLE_JSON（JSON 字符串或 {"people": [...]}）
+    - data_platform/data_role_pdca_mvp/config/vemory_people.local.json（已 gitignore）
+    """
+    raw = os.environ.get("PDCA_VEMORY_PEOPLE_JSON", "").strip()
+    if not raw:
+        local_path = (
+            REPO_ROOT / "data_platform" / "data_role_pdca_mvp" / "config" / "vemory_people.local.json"
+        )
+        if local_path.is_file():
+            try:
+                raw = local_path.read_text(encoding="utf-8")
+            except OSError:
+                raw = ""
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict) and item.get("name")]
+    if isinstance(payload, dict) and isinstance(payload.get("people"), list):
+        return [item for item in payload["people"] if isinstance(item, dict) and item.get("name")]
+    return []
+
+
+_TEAM = _load_team()
 
 
 def _pull_vemory_meetings(vertu: str, meeting_date: str, person: dict) -> list[dict]:
@@ -211,6 +234,10 @@ def _infer_bucket(meeting: dict) -> str:
 def sync_meetings(vertu: str, meeting_date: str) -> dict:
     """为团队每人拉 Vemory 会议并写入 meeting_records 表。"""
     print(f"[meetings] 拉取 {meeting_date} 会议…")
+    if not _TEAM:
+        print("  [warn] 团队名单为空：请配置 data_platform/data_role_pdca_mvp/config/vemory_people.local.json"
+              " 或 PDCA_VEMORY_PEOPLE_JSON")
+        return {"ok": True, "count": 0}
     total = 0
     with Session(get_engine()) as session:
         for person in _TEAM:
