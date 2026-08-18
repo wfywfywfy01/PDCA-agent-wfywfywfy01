@@ -21,10 +21,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def _column_names(table: str) -> set[str]:
     insp = sa.inspect(op.get_bind())
+    if not insp.has_table(table):
+        return set()
     return {col["name"] for col in insp.get_columns(table)}
 
 
 def _add_column(table: str, name: str, coltype, **kwargs) -> None:
+    # 001 只建了 5 张初始表；其余表由运行时 create_all 补建。
+    # 表不存在时跳过列补丁，避免新库迁移链失败。
+    if not sa.inspect(op.get_bind()).has_table(table):
+        return
     if name in _column_names(table):
         return
     op.add_column(table, sa.Column(name, coltype, **kwargs))
