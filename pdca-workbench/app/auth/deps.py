@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from app.auth.models import ROLE_LEVELS, User
-from app.auth.security import decode_token
+from app.auth.security import decode_token, is_token_revoked
 from app.auth.vps_identity import (
     ensure_vps_user,
     fetch_vps_me_payload,
@@ -33,7 +33,7 @@ async def _user_from_jwt(
     if not token:
         return None
     payload = decode_token(token)
-    if not payload or "sub" not in payload:
+    if not payload or "sub" not in payload or is_token_revoked(payload):
         return None
     username = payload["sub"]
     user = session.exec(select(User).where(User.username == username)).first()
@@ -50,6 +50,9 @@ async def _user_from_proxy_headers(session: Session, request: Request) -> User |
     """反向代理注入 Header → 本地用户。"""
     settings = get_settings()
     if not settings.trust_proxy_headers:
+        return None
+    client_host = request.client.host if request.client else None
+    if not settings.trusted_proxy_ips or client_host not in settings.trusted_proxy_ips:
         return None
     headers = {k.lower(): v for k, v in request.headers.items()}
     identity = identity_from_headers(headers)
@@ -111,7 +114,7 @@ def ensure_portal_access(user: User) -> None:
     排除 dealer 账号，必须在认证层拦截。walkin 门户用 PDCA_PORTAL_MODE=walkin
     标识，其余（默认 workbench）一律拒绝 dealer 角色。
     """
-    if get_settings().portal_mode == "walkin":
+    if getattr(get_settings(), "portal_mode", "workbench") == "walkin":
         return
     if user.role == "dealer":
         raise HTTPException(

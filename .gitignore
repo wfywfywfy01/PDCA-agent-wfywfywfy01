@@ -20,6 +20,19 @@ data_reports/*.csv
 data_quality/*.md
 pdca_actions/*.md
 
+
+# Generated runtime outputs and local PII config (never commit)
+data_platform/data_role_pdca_mvp/config/vemory_people.local.json
+data_platform/data_role_pdca_mvp/outputs/
+data_platform/data_role_pdca_mvp/outbox/
+data_platform/data_role_pdca_mvp/inputs/questionnaires/
+data_platform/data_role_pdca_mvp/inputs/todos/
+data_platform/data_role_pdca_mvp/inputs/logistics/
+data_platform/*.zip
+pdca-workbench/test_output.txt
+pdca-workbench/compile_results.txt
+
+
 # Cursor team reports local temp + personal config
 team-reports/.tmp/*
 !team-reports/.tmp/.gitkeep

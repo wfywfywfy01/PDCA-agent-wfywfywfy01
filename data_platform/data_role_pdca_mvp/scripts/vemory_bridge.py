@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -16,14 +17,40 @@ WORKSPACE = Path(__file__).resolve().parents[1]
 CACHE_DIR = WORKSPACE / "outputs" / "_vemory_cache"
 CUSTOMER_MGMT_PORT = 8787
 
+
+def _load_vemory_people() -> list[dict]:
+    """从环境变量或未跟踪本地配置加载会议人员；不再在仓库中硬编码手机号。"""
+    raw = os.environ.get("PDCA_VEMORY_PEOPLE_JSON", "").strip()
+    if not raw:
+        local_path = WORKSPACE / "config" / "vemory_people.local.json"
+        if local_path.is_file():
+            try:
+                raw = local_path.read_text(encoding="utf-8")
+            except OSError:
+                raw = ""
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict) and isinstance(payload.get("people"), list):
+        return [item for item in payload["people"] if isinstance(item, dict)]
+    return []
+
+
 VEMORY_PEOPLE = [
-    {"name": "杨晶晶", "phone": "[PHONE-REDACTED]"},
-    {"name": "何海文", "phone": "[PHONE-REDACTED]"},
-    {"name": "王宇彤", "phone": "[PHONE-REDACTED]"},
-    {"name": "于冰", "phone": "[PHONE-REDACTED]"},
-    {"name": "吴黎", "phone": "[PHONE-REDACTED]"},
-    {"name": "尤文静", "phone": "[PHONE-REDACTED]1"},
+    # 人员手机号已从仓库移除，请配置 config/vemory_people.local.json 或 PDCA_VEMORY_PEOPLE_JSON
+    # 人员手机号已从仓库移除，请配置 config/vemory_people.local.json 或 PDCA_VEMORY_PEOPLE_JSON
+    # 人员手机号已从仓库移除，请配置 config/vemory_people.local.json 或 PDCA_VEMORY_PEOPLE_JSON
+    # 人员手机号已从仓库移除，请配置 config/vemory_people.local.json 或 PDCA_VEMORY_PEOPLE_JSON
+    # 人员手机号已从仓库移除，请配置 config/vemory_people.local.json 或 PDCA_VEMORY_PEOPLE_JSON
+    # 人员手机号已从仓库移除，请配置 config/vemory_people.local.json 或 PDCA_VEMORY_PEOPLE_JSON
 ]
+VEMORY_PEOPLE = _load_vemory_people()
+
 
 DEALER_ROSTER = [
     {"region": "南亚", "country": "印度", "name": "GURU ELECTRONICS SINGAPORE PTE LTD", "owner": "杨晶晶"},

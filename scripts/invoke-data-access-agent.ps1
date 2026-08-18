@@ -11,9 +11,9 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $workspace = Resolve-Path (Join-Path $PSScriptRoot "..")
 $workspace = $workspace.Path
-$hermesExe = "C:\Users\frank\AppData\Local\hermes\hermes-agent\venv\Scripts\hermes.exe"
+$hermesExe = $env:HERMES_COMMAND
 
-if (-not (Test-Path $hermesExe)) {
+if (-not $hermesExe -or -not (Test-Path -LiteralPath $hermesExe)) {
   $cmd = Get-Command hermes -ErrorAction SilentlyContinue
   if (-not $cmd) {
     throw "Hermes executable not found."

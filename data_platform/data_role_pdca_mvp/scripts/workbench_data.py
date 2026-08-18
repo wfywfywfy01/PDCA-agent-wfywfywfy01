@@ -18,14 +18,23 @@ WORKSPACE = Path(__file__).resolve().parents[1]
 # Docker 中 WORKSPACE=/mvp、仓库=/repo，两者不是父子目录；优先使用部署配置。
 # 本地源码布局下 WORKSPACE.parent.parent 仍会落到仓库根目录。
 REPO_ROOT = Path(os.environ.get("PDCA_REPO_ROOT", "").strip() or WORKSPACE.parent.parent).resolve()
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(REPO_ROOT / "pdca-workbench" / ".env")
+except Exception:
+    pass
+
 DATA_SOURCES = WORKSPACE / "config" / "data_sources.json"
 DATA_RAW = REPO_ROOT / "data_raw"
 WALKIN_DATA = WORKSPACE / "modules" / "walkin_cockpit" / "data"
 BUILD_WALKIN = WORKSPACE / "scripts" / "build_walkin_bundle.py"
 VN_METRICS = WALKIN_DATA / "vietnam_store_metrics.json"
 VN_COLLECT = WALKIN_DATA / "vn_data_collect_reference.json"
-DEFAULT_VN_XLSX = Path(r"c:\Users\frank\Desktop\越南门店数据.xlsx")
-DEFAULT_COLLECT_XLSX = Path(r"c:\Users\frank\Desktop\Data collecet(5).xlsx")
+_VN_XLSX_ENV = os.environ.get("PDCA_VN_XLSX", "").strip()
+DEFAULT_VN_XLSX = Path(_VN_XLSX_ENV).expanduser() if _VN_XLSX_ENV else Path("__pdca_vn_xlsx_not_configured__")
+_COLLECT_XLSX_ENV = os.environ.get("PDCA_COLLECT_XLSX", "").strip()
+DEFAULT_COLLECT_XLSX = Path(_COLLECT_XLSX_ENV).expanduser() if _COLLECT_XLSX_ENV else Path("__pdca_collect_xlsx_not_configured__")
 DEALERS_CFG_JSON = WORKSPACE / "config" / "dealers.json"
 ONLINE_CHANNEL_JSON = WALKIN_DATA / "online_channel_reference.json"
 REGION_ORDER_DEFAULT = ["中东", "欧洲", "南亚", "东南亚", "中亚"]

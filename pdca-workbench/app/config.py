@@ -91,6 +91,17 @@ class Settings:
         ).strip()
         # 信任反向代理注入的 X-VPS-User-* / X-Forwarded-User（多用户生产）
         self.trust_proxy_headers = os.environ.get("PDCA_TRUST_PROXY_HEADERS", "0") == "1"
+        self.trusted_proxy_ips = {
+            item.strip()
+            for item in os.environ.get("PDCA_TRUSTED_PROXY_IPS", "").split(",")
+            if item.strip()
+        }
+        self.trust_proxy_role_header = (
+            os.environ.get("PDCA_TRUST_PROXY_ROLE_HEADER", "0") == "1"
+        )
+        self.allow_sqlite_fallback = (
+            os.environ.get("PDCA_ALLOW_SQLITE_FALLBACK", "0") == "1"
+        )
         # 每次 VPS 同步是否覆盖本地 role（默认 0，保留手工调权）
         self.vps_sync_role = os.environ.get("PDCA_VPS_SYNC_ROLE", "0") == "1"
         # 精简部署（如五件套录入独立容器）没有经营首页数据时，把 "/" 重定向到指定路径，
@@ -131,10 +142,13 @@ class Settings:
     def _resolve_database_url(self) -> str:
         """解析 PostgreSQL 连接串。"""
         url = os.environ.get("PDCA_DATABASE_URL", "").strip()
+        self.using_default_database_url = not bool(url)
         if url:
             if url.startswith("postgresql://") and "+psycopg2" not in url:
                 return url.replace("postgresql://", "postgresql+psycopg2://", 1)
             return url
+        # 生产环境默认弱口令连接串在 bootstrap_database() 中拦截。
+
         return "postgresql+psycopg2://pdca:pdca@localhost:5432/pdca"
 
     @property

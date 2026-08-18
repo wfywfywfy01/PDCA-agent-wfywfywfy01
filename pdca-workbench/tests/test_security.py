@@ -82,6 +82,22 @@ class InputValidationTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             asyncio.run(post_questionnaire(request=None, date="../../outside", _user=User()))
 
+    def test_proxy_role_header_is_ignored_by_default(self):
+        from app.auth.vps_identity import identity_from_headers
+
+        with patch(
+            "app.auth.vps_identity.get_settings",
+            return_value=SimpleNamespace(trust_proxy_role_header=False),
+        ):
+            identity = identity_from_headers(
+                {
+                    "x-vps-user-login": "alice",
+                    "x-vps-user-role": "admin",
+                }
+            )
+        self.assertEqual(identity["role_hint"], "")
+
+
     def test_module_page_falls_back_when_skinning_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             index = Path(tmp) / "index.html"

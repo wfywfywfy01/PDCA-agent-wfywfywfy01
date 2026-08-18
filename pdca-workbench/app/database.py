@@ -73,10 +73,18 @@ def _probe_url(url: str) -> bool:
 
 
 def bootstrap_database() -> str:
-    """启动时选择数据库：优先 PostgreSQL，失败则回退本地 SQLite。"""
+    """启动时选择数据库：优先 PostgreSQL；生产环境默认禁止回退 SQLite。"""
     global _engine, _active_database_url, _db_mode
     settings = get_settings()
     primary = settings.database_url
+    if (
+        settings.environment == "production"
+        and getattr(settings, "using_default_database_url", False)
+    ):
+        raise RuntimeError(
+            "生产环境必须显式设置 PDCA_DATABASE_URL，禁止使用默认弱口令连接串"
+        )
+
 
     if primary.startswith("sqlite"):
         _active_database_url = primary
@@ -94,6 +102,11 @@ def bootstrap_database() -> str:
         logger.info("已连接 PostgreSQL: {}", settings.pg_connection_info.get("database"))
         return _db_mode
 
+    if settings.environment == "production" and not settings.allow_sqlite_fallback:
+        raise RuntimeError(
+            "生产环境 PostgreSQL 不可用，且未显式设置 PDCA_ALLOW_SQLITE_FALLBACK=1；"
+            "为防止数据写入本地 SQLite 造成数据分叉，启动已中止"
+        )
     fallback = _sqlite_fallback_url()
     logger.warning(
         "PostgreSQL 不可用（{}），回退本地 SQLite",
@@ -121,6 +134,7 @@ def check_db_connection() -> bool:
 def init_db() -> None:
     """创建所有表（首次启动或迁移前）。"""
     from app.auth.models import User  # noqa: F401
+    from app.auth.security_state import LoginFailRecord, TokenRevocation  # noqa: F401
     from app.models.daily_report import DailyReport  # noqa: F401
     from app.models.dealer_sales import DealerSales  # noqa: F401
     from app.models.logistics import LogisticsShipment  # noqa: F401
@@ -197,12 +211,16 @@ def _migrate_schema() -> None:
                 try:
                     conn.exec_driver_sql(sql)
                 except Exception:
+                    logger.warning("PostgreSQL schema patch failed: {}", sql)
+
                     pass
         else:
             for sql in _patches_sqlite:
                 try:
                     conn.exec_driver_sql(sql)
                 except Exception:
+                    logger.warning("SQLite schema patch failed: {}", sql)
+
                     pass
         conn.commit()
 

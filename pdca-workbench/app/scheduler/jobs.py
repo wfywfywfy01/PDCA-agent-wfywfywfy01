@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from loguru import logger
 
 from app.config import get_settings
+from app.database import get_active_database_url
 from app.legacy import bridge
 from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 
@@ -136,7 +137,15 @@ def backup_database() -> str | None:
             logger.error("pg_dump 失败: {}", _last_backup_error)
             return None
 
-    db_path = settings.data_dir / "pdca.db"
+    db_path: Path | None = None
+    active_url = get_active_database_url()
+    if active_url.startswith("sqlite:///"):
+        raw_path = active_url[len("sqlite:///") :]
+        if raw_path and raw_path != ":memory:":
+            candidate = Path(raw_path)
+            db_path = candidate if candidate.is_absolute() else settings.data_dir / candidate
+    if db_path is None:
+        db_path = settings.data_dir / "pdca_local.sqlite"
     if not db_path.is_file():
         return None
     dest = backup_dir / f"pdca_{stamp}.db"

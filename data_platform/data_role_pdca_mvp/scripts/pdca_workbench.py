@@ -27,6 +27,13 @@ if _env_repo_root:
 else:
     _parents = WORKSPACE.parents
     REPO_ROOT = _parents[1] if len(_parents) > 1 else _parents[0]
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(REPO_ROOT / "pdca-workbench" / ".env")
+except Exception:
+    pass
+
 RUN_SCRIPT = WORKSPACE / "scripts" / "run_data_role_pdca_daily.ps1"
 QUESTION_TEMPLATE = WORKSPACE / "templates" / "daily_questionnaire.md"
 HERMES_HOME = Path.home() / ".hermes" / "profiles"
@@ -37,7 +44,8 @@ VPS_CACHE_SECONDS = 300
 RAW_SALES_CACHE_SECONDS = 600
 _VPS_CACHE = {}
 
-CUSTOMER_MGMT_ROOT = Path(r"C:\Users\frank\Documents\Codex\2026-05-27\pdca-codex-1-guru-electronics-singapore\he-haiwen-dealer-workbench")
+_CUSTOMER_MGMT_ROOT_ENV = os.environ.get("PDCA_CUSTOMER_MGMT_ROOT", "").strip()
+CUSTOMER_MGMT_ROOT = Path(_CUSTOMER_MGMT_ROOT_ENV) if _CUSTOMER_MGMT_ROOT_ENV else Path("__pdca_customer_mgmt_not_configured__")
 CUSTOMER_MGMT_PORT = 8787
 WALKIN_COCKPIT_DIR = WORKSPACE / "modules" / "walkin_cockpit"
 WALKIN_COCKPIT_ROOT = WALKIN_COCKPIT_DIR.resolve()
@@ -1353,6 +1361,10 @@ def track_dhl_with_browser(tracking_number):
             except Exception:
                 # DHL 偶发 HTTP2/加载超时，页面主体已渲染时继续后续步骤。
                 pass
+
+      
+
+      
             step("等待页面加载")
             page.wait_for_timeout(4000)
             popup_errors = []
@@ -1468,12 +1480,20 @@ def write_csv_rows(path, fieldnames, rows):
 def safe_name(value):
     return "".join(char if char.isalnum() or char in "-_." else "-" for char in str(value or "")).strip(".-") or "item"
 
+def csv_safe(value):
+    """防止用户输入被 Excel 当作公式执行。"""
+    text = str(value or "")
+    if text.startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return text
+
+
 
 def hermes_exe():
     configured = os.environ.get("HERMES_COMMAND")
     if configured:
         return configured
-    bundled = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "hermes-agent" / "venv" / "Scripts" / "hermes.exe"
+    bundled = Path("__pdca_no_bundled_hermes__")  # HERMES_COMMAND/PATH only; no hard-coded user path
     if bundled.exists():
         return str(bundled)
     discovered = shutil.which("hermes")
@@ -1550,6 +1570,26 @@ def install_skill_to_agent(agent_key, filename, content_bytes):
     return target
 
 
+def data_access_agent_prompt(query: str) -> str:
+    """与 scripts/invoke-data-access-agent.ps1 保持一致的只读取数提示词。"""
+    return f"""
+You are acting as the data-access-agent for the Dealer PDCA workspace.
+
+User data request:
+{query}
+
+Follow the data-access-agent rules in AGENTS.md.
+Use installed Hermes Odoo skills when needed.
+
+Rules:
+1. Read-only only. Do not approve, reject, send messages, write, delete, or import data.
+2. If VPS/Odoo data is needed, use the Vertu/Odoo skill or the vertu CLI.
+3. Return these sections: user question, query scope, skill or command used, data source, result summary, data quality issues, next step.
+4. If you cannot query, explain why and what information is needed next.
+""".strip()
+
+
+
 def run_hermes_chat(query):
     if not query.strip():
         return {"ok": False, "content": "请输入要问 Hermes 的内容。", "path": None}
@@ -1587,6 +1627,17 @@ def run_hermes_chat(query):
         "-Topic",
         topic,
     ]
+    if os.name != "nt":
+        command = [
+            hermes_exe(),
+            "chat",
+            "-q",
+            data_access_agent_prompt(query),
+            "-Q",
+            "--max-turns",
+            "15",
+        ]
+
     try:
         completed = subprocess.run(
             command,
@@ -2110,7 +2161,7 @@ def fetch_vps_daily_report(date_text):
 def local_identity_cache(identity=None):
     if identity and identity.get("ok"):
         return identity
-    return {"ok": True, "user": {"name": "刘春梅", "user_id": "local-cache", "employee_id": "local-cache"}, "error": ""}
+    return {"ok": True, "user": {"name": "本地缓存用户", "user_id": "local-cache", "employee_id": "local-cache"}, "error": ""}
 
 
 def local_todo_payload_rows(date_text):
@@ -2585,12 +2636,12 @@ def append_todo(date_text, form):
     rows.append({
         "date": date_text,
         "source": "workbench",
-        "title": (form.get("title", [""])[0] or "").strip(),
-        "priority": form.get("priority", ["MEDIUM"])[0],
-        "status": form.get("status", ["pending"])[0],
-        "owner": (form.get("owner", ["frank"])[0] or "frank").strip(),
+        "title": csv_safe((form.get("title", [""])[0] or "").strip()),
+        "priority": csv_safe(form.get("priority", ["MEDIUM"])[0]),
+        "status": csv_safe(form.get("status", ["pending"])[0]),
+        "owner": csv_safe((form.get("owner", ["frank"])[0] or "frank").strip()),
         "due_date": (form.get("due_date", [date_text])[0] or date_text).strip(),
-        "notes": (form.get("notes", [""])[0] or "").strip(),
+        "notes": csv_safe((form.get("notes", [""])[0] or "").strip()),
     })
     rows = [row for row in rows if row.get("title")]
     write_csv_rows(path, fieldnames, rows)
@@ -2601,14 +2652,14 @@ def append_logistics(date_text, form):
     fieldnames = ["tracking_number", "carrier", "customer", "salesperson", "ship_date", "expected_status", "current_status", "note"]
     rows = read_csv_rows(path)
     rows.append({
-        "tracking_number": (form.get("tracking_number", [""])[0] or "").strip(),
-        "carrier": form.get("carrier", ["UPS"])[0],
-        "customer": (form.get("customer", [""])[0] or "").strip(),
-        "salesperson": (form.get("salesperson", [""])[0] or "").strip(),
+        "tracking_number": csv_safe((form.get("tracking_number", [""])[0] or "").strip()),
+        "carrier": csv_safe(form.get("carrier", ["UPS"])[0]),
+        "customer": csv_safe((form.get("customer", [""])[0] or "").strip()),
+        "salesperson": csv_safe((form.get("salesperson", [""])[0] or "").strip()),
         "ship_date": (form.get("ship_date", [date_text])[0] or date_text).strip(),
-        "expected_status": (form.get("expected_status", [""])[0] or "").strip(),
-        "current_status": (form.get("current_status", [""])[0] or "").strip(),
-        "note": (form.get("note", [""])[0] or "").strip(),
+        "expected_status": csv_safe((form.get("expected_status", [""])[0] or "").strip()),
+        "current_status": csv_safe((form.get("current_status", [""])[0] or "").strip()),
+        "note": csv_safe((form.get("note", [""])[0] or "").strip()),
     })
     rows = [row for row in rows if row.get("tracking_number")]
     write_csv_rows(path, fieldnames, rows)
@@ -3673,7 +3724,7 @@ def render_home(date_text, message="", hermes_result=None):
 
       <div class="home-top">
         <div class="home-metric">
-          <div class="home-metric-row"><span class="home-metric-kicker">负责人</span><span class="home-chip">Sam</span></div>
+          <div class="home-metric-row"><span class="home-metric-kicker">负责人</span><span class="home-chip">工作台</span></div>
           <div><div class="home-metric-value">{today_todo_count}</div><p>今日待办事项</p></div>
         </div>
         <div class="home-metric">
@@ -3925,8 +3976,8 @@ def render_logistics(date_text, message=""):
 def open_target(date_text, target):
     path = latest_output_file(date_text, target)
     if path and path.exists():
-        os.startfile(path)
-        return f"已打开：{path}"
+        return f"文件已生成：{path}"
+        pass
     return "文件还不存在，请先运行今日 PDCA。"
 
 
@@ -3936,8 +3987,8 @@ def open_path(path_text):
         resolved = path.resolve()
         if not resolved.exists():
             return "文件还不存在。"
-        os.startfile(resolved)
-        return f"已打开：{resolved}"
+        return f"文件路径：{resolved}"
+        pass
     except OSError as exc:
         return f"打开失败：{exc}"
 
@@ -3979,8 +4030,8 @@ def open_im_channel(channel_id):
     if not channel_id:
         return "缺少 IM 会话 ID。"
     url = im_channel_url(channel_id)
-    os.startfile(url)
-    return f"已打开 IM 会话：{url}"
+    return f"IM 会话链接：{url}"
+    pass
 
 
 class WorkbenchHandler(BaseHTTPRequestHandler):
@@ -4352,6 +4403,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    if os.environ.get("PDCA_ENABLE_LEGACY_HTTP", "0") != "1":
+        print(
+            "Legacy HTTP server is disabled. "
+            "Use the FastAPI workbench (pdca-workbench) or set "
+            "PDCA_ENABLE_LEGACY_HTTP=1 only for local development."
+        )
+        return
     server = ThreadingHTTPServer((HOST, PORT), WorkbenchHandler)
     url = f"http://{HOST}:{PORT}/"
     print(f"数据岗位 PDCA 工作台已启动：{url}")

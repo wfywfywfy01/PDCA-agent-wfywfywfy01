@@ -52,8 +52,8 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 
 | 路径 | 权限 | 说明 |
 |------|------|------|
-| `POST /questionnaire` | sales+ | 保存问卷 → PostgreSQL |
-| `POST /todos` | sales+ | 追加代办 → PostgreSQL |
+| `POST /questionnaire` | admin | 保存问卷 → PostgreSQL |
+| `POST /todos` | admin | 追加代办 → PostgreSQL |
 | `POST /logistics` | sales+ | 追加物流单号 |
 | `POST /run` | manager+ | 运行 PDCA 流水线 |
 | `POST /pdca-task` | sales+ | 保存 VPS 待办进度 |
@@ -100,3 +100,9 @@ docker compose up -d
 ## 环境变量
 
 见 `.env.example`。必填：`PDCA_DATABASE_URL`、`PDCA_SECRET_KEY`。
+
+安全相关默认值：
+- `PDCA_TRUST_PROXY_HEADERS=1` 时还必须配置 `PDCA_TRUSTED_PROXY_IPS`，否则代理身份头不会被采信。
+- `X-VPS-User-Role` 默认不信任；确需由 SSO 代理写入角色时再显式设置 `PDCA_TRUST_PROXY_ROLE_HEADER=1`。
+- 生产 PostgreSQL 不可用时默认拒绝启动，不会静默回退 SQLite；如需回退必须显式 `PDCA_ALLOW_SQLITE_FALLBACK=1`。
+

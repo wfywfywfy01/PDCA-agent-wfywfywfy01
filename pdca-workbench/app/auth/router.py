@@ -8,28 +8,102 @@ from collections import defaultdict
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
-from app.auth.security import create_access_token, hash_password, verify_password
+from app.auth.security import create_access_token, hash_password, revoke_token, verify_password
 from app.audit import log_action
 from app.config import get_settings
 from app.database import get_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# ── 登录限速（内存，5 次失败锁 15 分钟）──────────────────────────────────────
+# ── 登录限速（内存热路径 + 数据库共享，5 次失败锁 15 分钟）─────────────────
+# 内存 dict 保证单进程内零延迟；login_fail_records 表保证多 worker / 重启后
+# 失败计数不丢失。数据库不可用时自动降级回纯内存实现。
 _FAIL_WINDOW = 300
 _MAX_FAILS = 5
 _LOCKOUT_SEC = 900
 _fail_log: dict[str, list[float]] = defaultdict(list)
 
 
+def _db_fail_tools():
+    """懒加载数据库工具，避免导入环；环境不支持时返回 None。"""
+    try:
+        from sqlalchemy import delete, func
+
+        from app.auth.security_state import LoginFailRecord
+        from app.database import get_engine
+    except Exception:  # pragma: no cover
+        return None
+    return Session, LoginFailRecord, get_engine, delete, func
+
+
+def _db_fail_stats(key: str, since: float) -> tuple[int, float | None]:
+    """窗口内失败数与最早失败时间；数据库不可用返回 (0, None)。"""
+    tools = _db_fail_tools()
+    if not tools:
+        return 0, None
+    _, LoginFailRecord, get_engine, _, func = tools
+    try:
+        with Session(get_engine()) as session:
+            row = session.exec(
+                select(func.count(), func.min(LoginFailRecord.failed_at)).where(
+                    LoginFailRecord.key == key,
+                    LoginFailRecord.failed_at >= since,
+                )
+            ).one()
+            return int(row[0] or 0), (float(row[1]) if row[1] is not None else None)
+    except Exception:
+        return 0, None
+
+
+def _db_record_fail(key: str, now: float) -> None:
+    tools = _db_fail_tools()
+    if not tools:
+        return
+    _, LoginFailRecord, get_engine, delete, _ = tools
+    try:
+        with Session(get_engine()) as session:
+            session.add(LoginFailRecord(key=key, failed_at=now))
+            # 1/64 概率顺带清理过期记录，避免表无限增长
+            if now % 64 < 1:
+                session.exec(
+                    delete(LoginFailRecord).where(
+                        LoginFailRecord.failed_at < now - _LOCKOUT_SEC * 2
+                    )
+                )
+            session.commit()
+    except Exception:
+        pass
+
+
+def _db_clear_fail(key: str) -> None:
+    tools = _db_fail_tools()
+    if not tools:
+        return
+    _, LoginFailRecord, get_engine, delete, _ = tools
+    try:
+        with Session(get_engine()) as session:
+            session.exec(delete(LoginFailRecord).where(LoginFailRecord.key == key))
+            session.commit()
+    except Exception:
+        pass
+
+
 def _client_ip(request: Request) -> str:
-    """取客户端 IP：优先最右侧 X-Forwarded-For（贴近真实客户端，防伪造链首）。"""
+    """取客户端 IP：仅在请求来自已配置的可信代理时采信 X-Forwarded-For。"""
+    settings = get_settings()
+    client_host = request.client.host if request.client else "unknown"
+    if not (
+        settings.trust_proxy_headers
+        and settings.trusted_proxy_ips
+        and client_host in settings.trusted_proxy_ips
+    ):
+        return client_host
     xff = request.headers.get("x-forwarded-for", "")
     if xff:
         parts = [p.strip() for p in xff.split(",") if p.strip()]
@@ -46,8 +120,16 @@ def _check_rate_limit(key: str) -> None:
     now = time.time()
     times = _fail_log[key]
     _fail_log[key] = [t for t in times if now - t < _FAIL_WINDOW]
-    if len(_fail_log[key]) >= _MAX_FAILS:
-        wait = int(_LOCKOUT_SEC - (now - _fail_log[key][0]))
+    db_count, db_oldest = _db_fail_stats(key, now - _FAIL_WINDOW)
+    fail_count = len(_fail_log[key]) + db_count
+    if fail_count >= _MAX_FAILS:
+        oldest_candidates = []
+        if _fail_log[key]:
+            oldest_candidates.append(_fail_log[key][0])
+        if db_oldest is not None:
+            oldest_candidates.append(db_oldest)
+        oldest = min(oldest_candidates) if oldest_candidates else now
+        wait = int(_LOCKOUT_SEC - (now - oldest))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"登录失败次数过多，请 {max(wait // 60, 1)} 分钟后再试",
@@ -55,11 +137,14 @@ def _check_rate_limit(key: str) -> None:
 
 
 def _record_fail(key: str) -> None:
-    _fail_log[key].append(time.time())
+    now = time.time()
+    _fail_log[key].append(now)
+    _db_record_fail(key, now)
 
 
 def _clear_fail(key: str) -> None:
     _fail_log.pop(key, None)
+    _db_clear_fail(key)
 
 
 class LoginRequest(BaseModel):
@@ -109,7 +194,12 @@ async def vps_check(request: Request):
     )
 
     settings = get_settings()
-    if settings.trust_proxy_headers:
+    proxy_client_host = request.client.host if request.client else None
+    if (
+        settings.trust_proxy_headers
+        and settings.trusted_proxy_ips
+        and proxy_client_host in settings.trusted_proxy_ips
+    ):
         headers = {k.lower(): v for k, v in request.headers.items()}
         identity = identity_from_headers(headers)
         if identity:
@@ -237,8 +327,26 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie("pdca_token")
+async def logout(
+    request: Request,
+    response: Response,
+    pdca_token: Annotated[str | None, Cookie()] = None,
+):
+    settings = get_settings()
+
+    token = pdca_token
+    if not token:
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[len("Bearer ") :]
+    if token:
+        revoke_token(token)
+
+    response.delete_cookie(
+        "pdca_token",
+        secure=settings.secure_cookies,
+        samesite="lax",
+    )
     return {"ok": True}
 
 

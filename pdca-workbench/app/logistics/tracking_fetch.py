@@ -11,6 +11,7 @@ logistics.normal_keywords / abnormal_keywords），兼容官网改版。
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 
 from loguru import logger
@@ -113,8 +114,13 @@ async def _poll_for_content(page) -> str:
 
 async def _fetch_one(browser, carrier: str, tracking_number: str) -> FetchResult:
     key = carrier.strip().lower()
+    tracking_number = re.sub(r"[^A-Za-z0-9_-]", "", str(tracking_number or ""))
     url_template = _TRACK_URL.get(key)
     result = FetchResult(tracking_number=tracking_number, carrier=carrier)
+    if not tracking_number:
+        result.error = "运单号格式无效"
+        return result
+
     if not url_template:
         result.error = f"不支持的承运商: {carrier}"
         return result

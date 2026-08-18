@@ -94,33 +94,33 @@ def sync_pdca_tasks_from_csv(date_text: str) -> int:
     count = 0
     with Session(get_engine()) as session, csv_path.open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
+        # 一次性拉取当日已有记录，避免逐行 SELECT（N+1 → 1）
+        existing_rows = session.exec(
+            select(PdcaTask).where(PdcaTask.task_date == date_text)
+        ).all()
+        existing_map: dict[str, PdcaTask] = {r.title: r for r in existing_rows}
         for row in reader:
             title = (row.get("title") or row.get("任务") or row.get("todo") or "").strip()
             if not title:
                 continue
             owner = (row.get("owner") or row.get("负责人") or "").strip()
             status = (row.get("status") or row.get("状态") or "pending").strip()
-            existing = session.exec(
-                select(PdcaTask).where(
-                    PdcaTask.task_date == date_text,
-                    PdcaTask.title == title,
-                ),
-            ).first()
+            existing = existing_map.get(title)
             if existing:
                 existing.owner = owner
                 existing.status = status
                 existing.updated_at = datetime.utcnow()
                 session.add(existing)
             else:
-                session.add(
-                    PdcaTask(
-                        task_date=date_text,
-                        title=title,
-                        owner=owner,
-                        status=status,
-                        source=str(csv_path),
-                    ),
+                new_task = PdcaTask(
+                    task_date=date_text,
+                    title=title,
+                    owner=owner,
+                    status=status,
+                    source=str(csv_path),
                 )
+                session.add(new_task)
+                existing_map[title] = new_task
             count += 1
         session.commit()
     logger.info("同步待办 {} 条 ({})", count, csv_path.name)
@@ -134,29 +134,29 @@ def sync_daily_reports(date_text: str) -> int:
         return 0
     count = 0
     with Session(get_engine()) as session:
+        # 一次性拉取当日已有报告，避免逐文件 SELECT（N+1 → 1）
+        existing_rows = session.exec(
+            select(DailyReport).where(DailyReport.report_date == date_text)
+        ).all()
+        existing_map: dict[str, DailyReport] = {r.report_type: r for r in existing_rows}
         for md in out_dir.glob("*.md"):
             content = md.read_text(encoding="utf-8", errors="replace")
             report_type = md.stem.replace(f"{date_text}_", "")
-            existing = session.exec(
-                select(DailyReport).where(
-                    DailyReport.report_date == date_text,
-                    DailyReport.report_type == report_type,
-                ),
-            ).first()
+            existing = existing_map.get(report_type)
             if existing:
                 existing.content = content
                 existing.file_path = str(md)
                 session.add(existing)
             else:
-                session.add(
-                    DailyReport(
-                        report_date=date_text,
-                        report_type=report_type,
-                        title=md.stem,
-                        content=content,
-                        file_path=str(md),
-                    ),
+                new_report = DailyReport(
+                    report_date=date_text,
+                    report_type=report_type,
+                    title=md.stem,
+                    content=content,
+                    file_path=str(md),
                 )
+                session.add(new_report)
+                existing_map[report_type] = new_report
             count += 1
         session.commit()
     logger.info("同步日报 {} 份 ({})", count, date_text)
@@ -169,16 +169,16 @@ def sync_meetings(date_text: str) -> int:
     meetings = payload.get("meetings") or []
     count = 0
     with Session(get_engine()) as session:
+        # 一次性拉取当日已有会议，避免逐条 SELECT（N+1 → 1）
+        existing_rows = session.exec(
+            select(MeetingRecord).where(MeetingRecord.meeting_date == date_text)
+        ).all()
+        existing_map: dict[str, MeetingRecord] = {r.external_id: r for r in existing_rows}
         for m in meetings:
             ext_id = str(m.get("id") or "")
             if not ext_id:
                 continue
-            existing = session.exec(
-                select(MeetingRecord).where(
-                    MeetingRecord.meeting_date == date_text,
-                    MeetingRecord.external_id == ext_id,
-                ),
-            ).first()
+            existing = existing_map.get(ext_id)
             todos_json = json.dumps(m.get("todos") or [], ensure_ascii=False)
             participants_json = json.dumps(m.get("participants") or [], ensure_ascii=False)
             if existing:
@@ -188,19 +188,19 @@ def sync_meetings(date_text: str) -> int:
                 existing.synced_at = datetime.utcnow()
                 session.add(existing)
             else:
-                session.add(
-                    MeetingRecord(
-                        meeting_date=date_text,
-                        external_id=ext_id,
-                        title=str(m.get("title") or ""),
-                        meeting_type=str(m.get("meeting_type") or "internal"),
-                        bucket=str(m.get("bucket") or "report"),
-                        duration_minutes=int(m.get("duration_minutes") or 0),
-                        brief=str(m.get("brief") or ""),
-                        todos_json=todos_json,
-                        participants_json=participants_json,
-                    ),
+                new_meeting = MeetingRecord(
+                    meeting_date=date_text,
+                    external_id=ext_id,
+                    title=str(m.get("title") or ""),
+                    meeting_type=str(m.get("meeting_type") or "internal"),
+                    bucket=str(m.get("bucket") or "report"),
+                    duration_minutes=int(m.get("duration_minutes") or 0),
+                    brief=str(m.get("brief") or ""),
+                    todos_json=todos_json,
+                    participants_json=participants_json,
                 )
+                session.add(new_meeting)
+                existing_map[ext_id] = new_meeting
             count += 1
         session.commit()
     logger.info("同步会议 {} 场 ({})", count, date_text)
@@ -227,6 +227,11 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
 
     count = 0
     with Session(get_engine()) as session:
+        # 一次性拉取当日已有记录，避免逐条 SELECT（N+1 → 1）
+        existing_rows = session.exec(
+            select(DealerSales).where(DealerSales.check_date == date_text)
+        ).all()
+        existing_map: dict[str, DealerSales] = {r.dealer_name: r for r in existing_rows}
         for item in dealers:
             name = (item.get("dealer_name") or "").strip()
             if not name:
@@ -236,12 +241,7 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
             activation_rate = 0.0
             sell_in_wan = round(sell_in_yuan / 10000, 4)
 
-            existing = session.exec(
-                select(DealerSales).where(
-                    DealerSales.check_date == date_text,
-                    DealerSales.dealer_name == name,
-                )
-            ).first()
+            existing = existing_map.get(name)
             if existing:
                 existing.sell_in_wan = sell_in_wan
                 existing.phone_qty = phone_qty
@@ -251,7 +251,7 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
                 existing.source_file = "vertu-cli:sales-orders"
                 session.add(existing)
             else:
-                session.add(DealerSales(
+                new_row = DealerSales(
                     check_date=date_text,
                     dealer_name=name,
                     sell_in_wan=sell_in_wan,
@@ -260,7 +260,9 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
                     phone_qty=phone_qty,
                     activation_rate=activation_rate,
                     source_file="vertu-cli:sales-orders",
-                ))
+                )
+                session.add(new_row)
+                existing_map[name] = new_row
             count += 1
         session.commit()
 

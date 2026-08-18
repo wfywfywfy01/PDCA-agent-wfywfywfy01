@@ -39,6 +39,11 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             auth_mode="local",
             trust_proxy_headers=False,
             secure_cookies=False,
+            portal_mode="walkin",
+            trusted_proxy_ips=set(),
+            trust_proxy_role_header=False,
+            allow_sqlite_fallback=False,
+
             access_token_expire_minutes=60,
             secret_key="test-secret-key-that-is-long-enough-for-jwt",
             algorithm="HS256",
@@ -181,6 +186,21 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         me = self.client.get("/api/auth/me")
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.json()["role"], "viewer")
+
+    def test_logout_revokes_current_access_token(self):
+        success = self._login("viewer")
+        token = success.json().get("access_token", "")
+        self.assertTrue(token)
+
+        logout = self.client.post("/api/auth/logout")
+        self.assertEqual(logout.status_code, 200)
+
+        me = self.client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(me.status_code, 401)
+
 
     def test_public_vps_probe_does_not_expose_server_session(self):
         with patch("app.auth.vps_identity.fetch_vps_me_payload") as fetch_vps:

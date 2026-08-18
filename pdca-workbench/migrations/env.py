@@ -8,10 +8,20 @@ from sqlmodel import SQLModel
 
 from app.config import get_settings
 from app.auth.models import User  # noqa: F401
+from app.auth.security_state import LoginFailRecord, TokenRevocation  # noqa: F401
 from app.models.dealer_sales import DealerSales  # noqa: F401
 from app.models.daily_report import DailyReport  # noqa: F401
 from app.models.pdca_task import PdcaTask  # noqa: F401
 from app.models.meeting import MeetingRecord  # noqa: F401
+from app.models.logistics import LogisticsShipment  # noqa: F401
+from app.models.onboarding_progress import OnboardingProgress  # noqa: F401
+from app.models.walkin_daily_report import WalkinDailyReport  # noqa: F401
+from app.models.dealer_store import DealerStore  # noqa: F401
+from app.models.dealer_assignment import DealerAssignment  # noqa: F401
+from app.models.monthly_target import MonthlyTarget  # noqa: F401
+from app.models.audit_log import AuditLog  # noqa: F401
+from app.models.tracking_status import TrackingAutoStatus  # noqa: F401
+from app.models.acquisition_login_ticket import AcquisitionLoginTicket  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

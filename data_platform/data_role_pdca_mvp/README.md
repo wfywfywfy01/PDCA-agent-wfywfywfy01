@@ -33,6 +33,16 @@ data_role_pdca_mvp/
 └── outbox/
 ```
 
+> Vemory 会议人员名单不再写入代码。请把真实名单放在未跟踪的
+> `config/vemory_people.local.json`，或设置 `PDCA_VEMORY_PEOPLE_JSON`
+> 环境变量；格式见 `config/vemory_people.example.json`。
+
+> 旧版 `scripts/pdca_workbench.py` 独立 HTTP 服务默认关闭；请使用
+> `pdca-workbench` FastAPI 服务。仅本地开发需要时设置
+> `PDCA_ENABLE_LEGACY_HTTP=1`。
+
+
+
 ## 快速演示
 
 直接读取 `config\data_sources.json` 运行：

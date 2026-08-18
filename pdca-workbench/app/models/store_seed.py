@@ -2,6 +2,8 @@
 """真实经销商主数据初始化。"""
 from __future__ import annotations
 
+import os
+
 from loguru import logger
 from sqlmodel import Session, select
 
@@ -76,7 +78,14 @@ def seed_stores() -> None:
                 any(s.store_id.startswith(p) for p in _OLD_PREFIXES)
                 for s in existing
             )
-            if is_old:
+            cleanup_enabled = os.environ.get("PDCA_CLEAN_LEGACY_STORE_DATA", "0") == "1"
+            if is_old and not cleanup_enabled:
+                logger.warning(
+                    "检测到旧测试门店数据 ({} 条)，但未设置 PDCA_CLEAN_LEGACY_STORE_DATA=1，保留现有数据",
+                    len(existing),
+                )
+
+            if is_old and cleanup_enabled:
                 logger.info("检测到旧测试门店数据 ({} 条)，清除并重建...", len(existing))
                 for s in existing:
                     session.delete(s)
@@ -91,7 +100,7 @@ def seed_stores() -> None:
                     logger.info("已清除旧五件套测试数据")
                 except Exception as exc:
                     logger.debug("清除旧五件套记录跳过: {}", exc)
-            else:
+            elif not is_old:
                 # 已有真实数据，只做 upsert（补充缺失条目）
                 existing_ids = {s.store_id for s in existing}
                 canonical = {row[0]: row for row in _STORES}

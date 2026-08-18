@@ -80,7 +80,11 @@ def identity_from_headers(headers: dict[str, str]) -> dict | None:
     name = (headers.get("x-vps-user-name") or headers.get("x-forwarded-preferred-username") or "").strip()
     job = (headers.get("x-vps-job-title") or "").strip()
     dept = (headers.get("x-vps-department") or "").strip()
-    role_hint = (headers.get("x-vps-user-role") or "").strip().lower()
+    role_hint = (
+        (headers.get("x-vps-user-role") or "").strip().lower()
+        if get_settings().trust_proxy_role_header
+        else ""
+    )
     owner_key = (headers.get("x-vps-owner-key") or "").strip()
     team_key = (headers.get("x-vps-team-key") or "").strip()
     return {

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Sha = "",
-    [string]$DockerHost = "tcp://10.100.0.176:2375",
+    [string]$DockerHost = "",
     [string]$PublicUrl = "https://pdca-workbench-teams.vertu.cn",
     [ValidateRange(1, 86400)]
     [int]$DockerCommandTimeoutSeconds = 120,
@@ -11,6 +11,20 @@ param(
     [switch]$SkipCiCheck,
     [switch]$SkipImagePull
 )
+
+if ([string]::IsNullOrWhiteSpace($DockerHost)) {
+    if ($env:PDCA_DOCKER_HOST) {
+        $DockerHost = $env:PDCA_DOCKER_HOST
+    } else {
+        $DockerHost = "tcp://10.100.0.176:2375"
+    }
+}
+
+
+if ($DockerHost -match '^tcp://' -and $DockerHost -notmatch ':2376$') {
+    Write-Warning "DockerHost uses unencrypted Docker API ($DockerHost). Prefer TLS on port 2376, or set PDCA_DOCKER_HOST=ssh://user@host."
+}
+
 
 $ErrorActionPreference = "Stop"
 $ImageRegistry = "ghcr.io/frankie-foo/pdca-workbench"
@@ -254,6 +268,26 @@ function Test-ActivationSource {
     Write-Output "Activation source healthy: $dealerCount dealers"
 }
 
+function New-SecretEnvFile {
+    param(
+        [hashtable]$Secrets,
+        [hashtable]$Agent
+    )
+    $path = Join-Path $env:TEMP ("pdca-docker-secrets-{0}.env" -f ([guid]::NewGuid().ToString("N")))
+    $lines = @(
+        "PDCA_SECRET_KEY=$($Secrets.PDCA_SECRET_KEY)",
+        "PDCA_DATABASE_URL=$($Secrets.PDCA_DATABASE_URL)",
+        "VERTU_APP_KEY=$($Agent.VERTU_APP_KEY)",
+        "VERTU_USER_LOGIN=$($Agent.VERTU_USER_LOGIN)"
+    )
+    if ($Secrets.VERTU_BOT_INBOUND_KEY) {
+        $lines += "VERTU_BOT_INBOUND_KEY=$($Secrets.VERTU_BOT_INBOUND_KEY)"
+    }
+    [System.IO.File]::WriteAllLines($path, $lines)
+    return $path
+}
+
+
 function Start-PdcaContainer {
     param(
         [string]$Image,
@@ -262,6 +296,9 @@ function Start-PdcaContainer {
         [hashtable]$Secrets,
         [hashtable]$Agent
     )
+    $secretEnvFile = New-SecretEnvFile -Secrets $Secrets -Agent $Agent
+    try {
+
     $dockerArgs = @(
         "run", "-d", "--name", "pdca-workbench",
         "--restart", "unless-stopped",
@@ -275,12 +312,13 @@ function Start-PdcaContainer {
         "-v", "${RuntimeDataRoot}/outbox:/mvp/outbox",
         "-v", "${ReleasePath}:/repo:ro",
         "-v", "/opt/PDCA-agent/pdca-workbench/vertu/vps-service.json:/root/.vertu/vps-service.json:ro",
+        "--env-file", $secretEnvFile,
+
         "-e", "PDCA_ENV=production",
         "-e", "TZ=Asia/Shanghai",
         "-e", "PDCA_HOST=0.0.0.0",
         "-e", "PDCA_WORKBENCH_PORT=8767",
-        "-e", "PDCA_SECRET_KEY=$($Secrets.PDCA_SECRET_KEY)",
-        "-e", "PDCA_DATABASE_URL=$($Secrets.PDCA_DATABASE_URL)",
+
         "-e", "PDCA_MVP_ROOT=/mvp",
         "-e", "PDCA_REPO_ROOT=/repo",
         "-e", "PDCA_AUTH_MODE=hybrid",
@@ -299,15 +337,14 @@ function Start-PdcaContainer {
         "-e", "VERTU_COMMAND=vertu-cli",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
-        "-e", "VERTU_APP_ID=cursor",
-        "-e", "VERTU_APP_KEY=$($Agent.VERTU_APP_KEY)",
-        "-e", "VERTU_USER_LOGIN=$($Agent.VERTU_USER_LOGIN)"
+        "-e", "VERTU_APP_ID=cursor"
     )
-    if ($Secrets.VERTU_BOT_INBOUND_KEY) {
-        $dockerArgs += @("-e", "VERTU_BOT_INBOUND_KEY=$($Secrets.VERTU_BOT_INBOUND_KEY)")
-    }
     $dockerArgs += $Image
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
+    }
+    finally {
+        Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Initialize-RemoteRuntimeDirectories {

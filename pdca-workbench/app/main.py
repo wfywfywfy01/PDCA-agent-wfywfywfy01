@@ -106,8 +106,8 @@ app = FastAPI(
     openapi_url=None if _production else "/openapi.json",
 )
 
-_cors_origins = _settings0.cors_origins or ["*"]
-# credentials + "*" 浏览器会拒；有显式白名单时才开 credentials
+_cors_origins = _settings0.cors_origins
+# 未配置 CORS 白名单时不发送跨域头；有显式白名单时才开 credentials
 _cors_credentials = bool(_settings0.cors_origins)
 app.add_middleware(
     CORSMiddleware,
