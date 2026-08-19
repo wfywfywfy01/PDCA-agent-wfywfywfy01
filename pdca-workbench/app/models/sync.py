@@ -44,6 +44,11 @@ def sync_dealer_sales_from_json(date_text: str) -> int:
     except (json.JSONDecodeError, OSError):
         return 0
     rows = payload if isinstance(payload, list) else payload.get("dealers") or payload.get("rows") or []
+    if not rows:
+        # F1：pull_vps_sales_data.ps1 曾产出 455 字节空文件（customer_summary=[]），
+        # 继续用空文件同步只会得到 0 条；显式告警，避免"同步成功 0 条"的假象。
+        logger.warning("data_raw JSON 无经销商业绩行（空文件/空 customer_summary），跳过同步: {}", path.name)
+        return 0
     count = 0
     with Session(get_engine()) as session:
         # 一次性拉取本月所有已有记录，避免逐行 SELECT（N+1 → 1）
@@ -271,12 +276,30 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
 
 
 def run_full_sync(date_text: str | None = None) -> dict:
-    """执行全量文件→数据库同步，单步失败不影响其他步骤。"""
+    """执行全量文件→数据库同步，单步失败不影响其他步骤。
+
+    F2（单一事实源）：dealer_sales 以 vertu-cli 直写库为主写入方；
+    data_raw JSON 仅在该同步失败或返回 0 条时作为回退，防止空文件/旧文件
+    覆盖当日新鲜数据（此前两条路径同时写、后写覆盖先写，口径漂移）。
+    """
     date_text = date_text or bridge.today_text()
     result: dict = {"date": date_text}
+    try:
+        vps_count = sync_dealer_sales_from_vps(date_text)
+        result["vps_dealer_sales"] = vps_count
+        if vps_count:
+            result["dealer_sales"] = vps_count
+        else:
+            logger.warning("VPS sell-in 同步 0 条，回退 data_raw JSON 文件源")
+            result["dealer_sales"] = sync_dealer_sales_from_json(date_text)
+    except Exception as exc:
+        logger.warning("VPS sell-in 同步失败，回退 data_raw JSON 文件源: {}", exc)
+        result["vps_dealer_sales"] = f"error: {exc}"
+        try:
+            result["dealer_sales"] = sync_dealer_sales_from_json(date_text)
+        except Exception as exc2:
+            result["dealer_sales"] = f"error: {exc2}"
     for key, fn in (
-        ("dealer_sales", lambda: sync_dealer_sales_from_json(date_text)),
-        ("vps_dealer_sales", lambda: sync_dealer_sales_from_vps(date_text)),
         ("pdca_tasks", lambda: sync_pdca_tasks_from_csv(date_text)),
         ("daily_reports", lambda: sync_daily_reports(date_text)),
         ("meetings", lambda: sync_meetings(date_text)),

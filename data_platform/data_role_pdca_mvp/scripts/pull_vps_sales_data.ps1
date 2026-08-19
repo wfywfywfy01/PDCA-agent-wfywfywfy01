@@ -41,20 +41,33 @@ if ($LASTEXITCODE -ne 0) {
     throw "vertu-cli sales +orders failed with exit code $LASTEXITCODE"
 }
 $payload = ($raw -join "`n") | ConvertFrom-Json
+
+# F1：按列名定位，不再硬编码列序号。vertu-cli sales +orders 输出列序曾变化，
+# 旧实现 $sourceRow[5]/[7]/[8] 取到空值导致每天产出空 customer_summary（455 字节）。
+# 与 Python 侧 app/vertu/sales.py::fetch_dealer_sales_orders_sync 保持同一契约。
+$columns = @($payload.columns)
+if ($columns.Count -eq 0) {
+    throw "sales +orders 输出缺少 columns 字段，无法按列名解析"
+}
+$iName = [Array]::IndexOf($columns, "客户名称")
+if ($iName -lt 0) { $iName = [Array]::IndexOf($columns, "客户") }
+$iQty  = [Array]::IndexOf($columns, "数量")
+$iAmt  = [Array]::IndexOf($columns, "金额")
+if ($iName -lt 0 -or $iQty -lt 0 -or $iAmt -lt 0) {
+    throw "sales +orders 输出缺少必需列（客户名称/数量/金额）: $($columns -join ',')"
+}
+
 $groups = @{}
 
 foreach ($sourceRow in @($payload.rows)) {
-    # vertu-cli sales +orders shortcut contract:
-    # customer name=column 5, quantity=column 7, amount=column 8.
     if ($sourceRow -is [System.Array]) {
-        $name = [string]$sourceRow[5]
-        $quantity = [double]$sourceRow[7]
-        $amount = [double]$sourceRow[8]
+        $name = [string]$sourceRow[$iName]
+        $quantity = [double]$sourceRow[$iQty]
+        $amount = [double]$sourceRow[$iAmt]
     } else {
-        $properties = @($sourceRow.PSObject.Properties)
-        $name = [string]$properties[5].Value
-        $quantity = [double]$properties[7].Value
-        $amount = [double]$properties[8].Value
+        $name = [string]$sourceRow.($columns[$iName])
+        $quantity = [double]$sourceRow.($columns[$iQty])
+        $amount = [double]$sourceRow.($columns[$iAmt])
     }
     if ([string]::IsNullOrWhiteSpace($name)) { continue }
     if (-not $groups.ContainsKey($name)) {
