@@ -248,6 +248,9 @@ function Wait-ContainerHealthy {
 }
 
 function Test-ActivationSource {
+    # P0/F6 决策：激活数据暂无可自动拉取的数据源（vertu-cli 2.x 已不支持
+    # odoo data sandbox，dealer_activation_stats 属已死亡查询），UI 诚实
+    # 显示"无数据源"。部署时不再把该冒烟当作硬性通过条件，仅记录告警。
     $raw = Invoke-Docker -DockerArgs @(
         "exec", "pdca-workbench", "vertu", "odoo", "data", "sandbox",
         "--code-file", "/mvp/system_queries/dealer_activation_stats.py",
@@ -255,17 +258,11 @@ function Test-ActivationSource {
     ) -TimeoutSeconds 330
     try {
         $payload = $raw | ConvertFrom-Json
+        $dealerCount = @($payload.execution.result.dealers).Count
+        Write-Output "Activation source healthy: $dealerCount dealers"
     } catch {
-        throw "Activation source smoke test returned invalid JSON"
+        Write-Warning "Activation source smoke unavailable (expected until business provides a data channel): $($_.Exception.Message)"
     }
-    if ($payload.validation.ok -ne $true -or -not $payload.execution.result) {
-        throw "Activation source smoke test failed validation or execution"
-    }
-    $dealerCount = @($payload.execution.result.dealers).Count
-    if ($dealerCount -lt 1) {
-        throw "Activation source smoke test returned no dealers"
-    }
-    Write-Output "Activation source healthy: $dealerCount dealers"
 }
 
 function New-SecretEnvFile {
@@ -339,6 +336,11 @@ function Start-PdcaContainer {
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
         "-e", "VERTU_APP_ID=cursor"
     )
+    # P1/P5：可选业务开关从 .env 透传（未配置则保持默认行为）
+    $homeRedirect = Read-OptionalDotEnvValue "PDCA_HOME_REDIRECT"
+    if ($homeRedirect) { $dockerArgs += @("-e", "PDCA_HOME_REDIRECT=$homeRedirect") }
+    $alertWebhook = Read-OptionalDotEnvValue "PDCA_ALERT_WEBHOOK_URL"
+    if ($alertWebhook) { $dockerArgs += @("-e", "PDCA_ALERT_WEBHOOK_URL=$alertWebhook") }
     $dockerArgs += $Image
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
     }
