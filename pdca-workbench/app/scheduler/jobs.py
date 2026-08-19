@@ -16,6 +16,7 @@ from app.database import get_active_database_url
 from app.legacy import bridge
 from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 from app.alerting import notify
+from app.metrics import mark_sync
 
 _scheduler: BackgroundScheduler | None = None
 _last_backup_error: str = ""
@@ -161,15 +162,19 @@ def daily_sync_job() -> None:
     """每日 VPS/文件同步任务（06:00）。"""
     date_text = bridge.today_text()
     logger.info("开始每日同步: {}", date_text)
+    sync_success = True
     try:
         result = run_full_sync(date_text)
         logger.info("每日同步完成: {}", result)
         errors = {key: value for key, value in result.items() if str(value).startswith("error:")}
         if errors:
+            sync_success = False
             notify("每日同步部分步骤失败", str(errors)[:300])
     except Exception as exc:
+        sync_success = False
         logger.exception("每日同步失败: {}", exc)
         notify("每日同步失败", str(exc)[:300])
+    mark_sync(sync_success)
     if not backup_database():
         notify("数据库备份失败", "请检查 pg_dump 配置与服务日志")
 

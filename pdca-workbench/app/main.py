@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from loguru import logger
 
@@ -22,6 +22,7 @@ from app.database import bootstrap_database, get_db_mode
 from app.logging_setup import setup_logging
 from app.logistics.router import router as logistics_router
 from app.meeting.router import router as meeting_router
+from app.metrics import export_prometheus, mark_sync, record_request
 from app.onboarding.router import router as onboarding_router
 from app.pages.router import router as pages_router
 from app.files.router import router as files_router
@@ -160,6 +161,14 @@ async def security_headers_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """P5：记录请求指标（Prometheus）。"""
+    response = await call_next(request)
+    record_request(request.method, request.url.path, response.status_code)
+    return response
+
+
+@app.middleware("http")
 async def auth_redirect_middleware(request: Request, call_next):
     """未登录访问页面时跳转登录（API 返回 401）。"""
     path = request.url.path
@@ -284,3 +293,9 @@ async def health():
         "vertu_cli": vertu,
     }
     return JSONResponse(payload, status_code=200 if ok else 503)
+
+
+@app.get("/metrics")
+async def metrics():
+    """P5：Prometheus 指标（进程内计数 + 同步/备份新鲜度）。"""
+    return Response(export_prometheus(backup_status_fn=backup_status), media_type="text/plain; version=0.0.4")
