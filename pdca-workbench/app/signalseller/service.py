@@ -8,11 +8,31 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from loguru import logger
+
 from app.config import get_settings
 from app.legacy import bridge
 
 DEFAULT_TEAM = "yang-jingjing"
 CUSTOMER_MGMT_PORT = 8787
+
+
+def _db_customers(team: str) -> list[dict]:
+    """P3：从 customer_profiles 表读客户（DB 唯一事实源）；无数据返回 []。"""
+    try:
+        from sqlmodel import Session, select
+
+        from app.database import get_engine
+        from app.models.customer_profile import CustomerProfile
+
+        with Session(get_engine()) as session:
+            rows = session.exec(
+                select(CustomerProfile).where(CustomerProfile.team == team)
+            ).all()
+            return [row.model_dump() for row in rows]
+    except Exception as exc:
+        logger.warning("读取 customer_profiles 失败: {}", exc)
+        return []
 
 
 def _methodology() -> dict:
@@ -151,7 +171,10 @@ def load_customers(
     overdue_only: bool = False,
     ref_date: str | None = None,
 ) -> list[dict]:
-    rows = [score_customer(r, ref_date) for r in _read_csv(team_customers_path(team))]
+    # P3：DB（customer_profiles）优先；未导入时回退 CSV（legacy 兼容）
+    db_rows = _db_customers(team)
+    source_rows = db_rows if db_rows else _read_csv(team_customers_path(team))
+    rows = [score_customer(r, ref_date) for r in source_rows]
     if owner:
         rows = [r for r in rows if (r.get("owner") or "").strip() == owner]
     if abcd and abcd.lower() != "all":
@@ -218,7 +241,10 @@ def build_summary(customers: list[dict]) -> dict:
 
 
 def list_owners(team: str = DEFAULT_TEAM) -> list[str]:
-    names = {(r.get("owner") or "").strip() for r in _read_csv(team_customers_path(team))}
+    # P3：DB 优先，未导入时回退 CSV
+    names = {(r.get("owner") or "").strip() for r in _db_customers(team)}
+    if not names:
+        names = {(r.get("owner") or "").strip() for r in _read_csv(team_customers_path(team))}
     return sorted(n for n in names if n)
 
 

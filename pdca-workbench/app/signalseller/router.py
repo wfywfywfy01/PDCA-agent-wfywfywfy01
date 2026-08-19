@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.auth.deps import require_role
 from app.auth.models import User
@@ -172,3 +174,68 @@ async def signalseller_outreach_generate(
         body.product or outreach.PRODUCT_DEFAULT,
         body.use_hermes,
     )
+
+
+class CustomerUpdateBody(BaseModel):
+    dealer_name: str
+    team: str = "yang-jingjing"
+    next_action: str | None = None
+    abcd_grade: str | None = None
+    followup_round: str | None = None
+    last_followup_date: str | None = None
+    value_score: int | None = None
+    intent_score: int | None = None
+
+
+@router.put("/customers")
+async def signalseller_update_customer(
+    body: CustomerUpdateBody,
+    user: Annotated[User, Depends(require_role("sales"))],
+    session: Annotated[Session, Depends(get_session)],
+):
+    """P3：更新客户跟进状态（写 customer_profiles，DB 唯一事实源）。
+
+    sales 仅能更新自己权限范围内的客户；CSV 保留为导入素材，后续导入
+    不会覆盖 DB 中已更新的字段（导入器按整行 upsert，运营时以 DB 为准）。
+    """
+    from app.models.customer_profile import CustomerProfile
+
+    allowed, _label = _scoped_customers(body.team, user, session)
+    requested = body.dealer_name.strip().casefold()
+    if not any(
+        str(row.get("dealer_name") or "").strip().casefold() == requested
+        for row in allowed
+    ):
+        raise HTTPException(status_code=403, detail="该客户不在当前账号的数据权限范围内")
+
+    row = session.exec(
+        select(CustomerProfile).where(
+            CustomerProfile.team == body.team,
+            CustomerProfile.dealer_name == body.dealer_name.strip(),
+        )
+    ).first()
+    if row is None:
+        row = CustomerProfile(team=body.team, dealer_name=body.dealer_name.strip())
+        session.add(row)
+    if body.next_action is not None:
+        row.next_action = body.next_action.strip()
+    if body.abcd_grade is not None:
+        grade = body.abcd_grade.strip().upper()
+        if grade in ("A", "B", "C", "D"):
+            row.abcd_grade = grade
+    if body.followup_round is not None:
+        row.followup_round = body.followup_round.strip()
+    if body.last_followup_date is not None:
+        from app.validation import require_iso_date
+
+        row.last_followup_date = require_iso_date(
+            body.last_followup_date, field="last_followup_date"
+        )
+    if body.value_score is not None:
+        row.value_score = body.value_score
+    if body.intent_score is not None:
+        row.intent_score = body.intent_score
+    row.updated_at = datetime.utcnow()
+    session.add(row)
+    session.commit()
+    return {"ok": True, "dealer_name": row.dealer_name}
