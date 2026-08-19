@@ -33,14 +33,14 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && vertu-cli --version \
     && vertu --version
 
-COPY requirements.txt requirements.lock ./
+COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock
 RUN python -m playwright install --with-deps chromium
 
-COPY app ./app
-COPY frontend ./frontend
-COPY migrations ./migrations
-COPY run.py .
+COPY pdca-workbench/app ./app
+COPY pdca-workbench/frontend ./frontend
+COPY pdca-workbench/migrations ./migrations
+COPY pdca-workbench/run.py .
 COPY --from=web-build /web/dist ./spa-dist
 
 ENV PDCA_HOST=0.0.0.0
