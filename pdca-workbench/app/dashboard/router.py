@@ -9,6 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.auth.deps import require_role
@@ -470,3 +471,134 @@ async def task_center_panel(
     if panel is None:
         panel = _bridge_call(bridge.api_task_center_panel, date_text, default={})
     return _scoped_task_panel(panel, user, session)
+
+
+class TaskCreateBody(BaseModel):
+    task_date: str | None = None
+    title: str
+    owner: str = ""
+    priority: str = "normal"
+
+
+class TaskPatchBody(BaseModel):
+    status: str | None = None
+    owner: str | None = None
+    priority: str | None = None
+
+
+def _allowed_task_owners(user: User, session: Session) -> set[str] | None:
+    """返回当前账号可操作的任务负责人集合；None 表示不受限。"""
+    scope = resolve_data_scope(user, session)
+    if scope.unrestricted:
+        return None
+    return {
+        str(value).strip().casefold()
+        for value in scope.owner_keys
+        if str(value).strip()
+    }
+
+
+@router.get("/api/task-center/tasks")
+async def task_center_tasks(
+    date: str | None = None,
+    owner: str = Query(""),
+    status: str = Query(""),
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+):
+    """P4：任务列表（DB 直查，scope 过滤）。"""
+    date_text = _date_or_today(date)
+    stmt = select(PdcaTask).where(PdcaTask.task_date == date_text)
+    if owner.strip():
+        stmt = stmt.where(PdcaTask.owner == owner.strip())
+    if status.strip():
+        stmt = stmt.where(PdcaTask.status == status.strip())
+    rows = list(session.exec(stmt.order_by(PdcaTask.id)).all())
+    allowed = _allowed_task_owners(user, session)
+    if allowed is not None:
+        rows = [
+            row for row in rows
+            if str(row.owner or "").strip().casefold() in allowed
+        ]
+    return {
+        "date": date_text,
+        "count": len(rows),
+        "items": [
+            {
+                "id": row.id,
+                "task_date": row.task_date,
+                "title": row.title,
+                "owner": row.owner,
+                "status": row.status,
+                "priority": row.priority,
+                "source": row.source,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else "",
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/api/task-center/tasks")
+async def task_center_create(
+    body: TaskCreateBody,
+    user: Annotated[User, Depends(require_role("sales"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+):
+    """P4：创建任务。manager/admin 可指派任意负责人；sales 仅可建给自己。"""
+    if not body.title.strip():
+        raise HTTPException(status_code=422, detail="任务标题不能为空")
+    date_text = require_iso_date(body.task_date or bridge.today_text(), field="task_date")
+    allowed = _allowed_task_owners(user, session)
+    owner = body.owner.strip()
+    if user.role == "sales":
+        owner = (
+            getattr(user, "sales_name", "")
+            or getattr(user, "display_name", "")
+            or user.username
+        )
+    elif allowed is not None and owner and owner.casefold() not in allowed:
+        raise HTTPException(status_code=403, detail="负责人不在当前账号权限范围内")
+    from app.models import writes as db_writes
+
+    db_writes.insert_pdca_task(
+        task_date=date_text,
+        title=body.title.strip(),
+        owner=owner,
+        status="pending",
+        priority=body.priority.strip() or "normal",
+        source="workbench",
+    )
+    return {"ok": True, "task_date": date_text, "title": body.title.strip(), "owner": owner}
+
+
+@router.patch("/api/task-center/tasks/{task_id}")
+async def task_center_patch(
+    task_id: int,
+    body: TaskPatchBody,
+    user: Annotated[User, Depends(require_role("sales"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+):
+    """P4：更新任务状态/负责人/优先级（scope 校验）。"""
+    row = session.get(PdcaTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    allowed = _allowed_task_owners(user, session)
+    if allowed is not None:
+        current_owner = str(row.owner or "").strip().casefold()
+        if current_owner and current_owner not in allowed:
+            raise HTTPException(status_code=403, detail="该任务不在当前账号权限范围内")
+        if body.owner and body.owner.strip().casefold() not in allowed:
+            raise HTTPException(status_code=403, detail="新负责人不在当前账号权限范围内")
+    if body.status is not None:
+        row.status = body.status.strip()
+    if body.owner is not None:
+        row.owner = body.owner.strip()
+    if body.priority is not None:
+        row.priority = body.priority.strip()
+    from datetime import datetime as _dt
+
+    row.updated_at = _dt.utcnow()
+    session.add(row)
+    session.commit()
+    return {"ok": True, "id": row.id, "status": row.status}

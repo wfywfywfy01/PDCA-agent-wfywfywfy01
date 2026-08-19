@@ -98,6 +98,33 @@ def insert_pdca_task(
         logger.warning("插入 pdca_tasks 失败: {}", exc)
 
 
+def update_pdca_task_by_id(
+    task_id: int,
+    status: str = "",
+    owner: str = "",
+    priority: str = "",
+) -> bool:
+    """P4：按主键更新任务状态/负责人/优先级；返回是否命中。"""
+    try:
+        with Session(get_engine()) as session:
+            row = session.get(PdcaTask, task_id)
+            if not row:
+                return False
+            if status:
+                row.status = status
+            if owner:
+                row.owner = owner
+            if priority:
+                row.priority = priority
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+            session.commit()
+            return True
+    except Exception as exc:
+        logger.warning("更新 pdca_tasks 失败: {}", exc)
+        return False
+
+
 def update_pdca_task_from_form(
     task_date: str,
     title: str,

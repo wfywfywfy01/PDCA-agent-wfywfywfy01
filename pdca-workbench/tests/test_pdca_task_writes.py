@@ -77,6 +77,26 @@ class PdcaTaskWriteTests(unittest.TestCase):
         db_writes.insert_pdca_task(task_date="2026-08-18", title="   ")
         self.assertEqual(self._rows("2026-08-18"), [])
 
+    def test_update_by_id_updates_status_and_owner(self):
+        db_writes.insert_pdca_task(
+            task_date="2026-08-18",
+            title="任务A",
+            owner="he-haiwen",
+            status="pending",
+        )
+        row = self._rows("2026-08-18")[0]
+        ok = db_writes.update_pdca_task_by_id(
+            row.id, status="done", owner="wang-yutong", priority="high"
+        )
+        self.assertTrue(ok)
+        updated = self._rows("2026-08-18")[0]
+        self.assertEqual(updated.status, "done")
+        self.assertEqual(updated.owner, "wang-yutong")
+        self.assertEqual(updated.priority, "high")
+
+    def test_update_by_id_missing_returns_false(self):
+        self.assertFalse(db_writes.update_pdca_task_by_id(99999, status="done"))
+
 
 if __name__ == "__main__":
     unittest.main()
