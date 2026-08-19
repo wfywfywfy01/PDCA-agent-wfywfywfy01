@@ -7,6 +7,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from loguru import logger
+
 from app.config import get_settings
 from app.legacy import bridge
 
@@ -268,19 +270,29 @@ def _enrich_row(
 
 
 def list_available_dates() -> list[str]:
-    """有物流录入数据的日期列表（新→旧）。"""
+    """有物流录入数据的日期列表（新→旧）：DB record_date ∪ CSV 批次。"""
+    dates: set[str] = set()
+    try:
+        from sqlmodel import Session, select
+        from app.database import get_engine
+        from app.models.logistics import LogisticsShipment
+
+        with Session(get_engine()) as session:
+            rows = session.exec(select(LogisticsShipment.record_date)).all()
+            dates.update(str(d) for d in rows if d)
+    except Exception as exc:
+        logger.warning("读取物流 DB 日期失败: {}", exc)
+
     inputs_dir = get_settings().mvp_root / "inputs" / "logistics"
-    if not inputs_dir.is_dir():
-        return []
-    dates = []
-    for csv_path in inputs_dir.glob("*_tracking.csv"):
-        rows = _read_csv(csv_path)
-        if any(
-            (r.get("tracking_number") or "").strip()
-            and (get_settings().include_demo_data or not _is_demo_record(r))
-            for r in rows
-        ):
-            dates.append(csv_path.stem.replace("_tracking", ""))
+    if inputs_dir.is_dir():
+        for csv_path in inputs_dir.glob("*_tracking.csv"):
+            rows = _read_csv(csv_path)
+            if any(
+                (r.get("tracking_number") or "").strip()
+                and (get_settings().include_demo_data or not _is_demo_record(r))
+                for r in rows
+            ):
+                dates.add(csv_path.stem.replace("_tracking", ""))
     return sorted(dates, reverse=True)
 
 
@@ -303,9 +315,49 @@ def load_auto_status_map() -> dict[str, object]:
             rows = session.exec(select(TrackingAutoStatus)).all()
             return {r.tracking_number: r for r in rows}
     except Exception as exc:
-        logger_warn = __import__("loguru").logger
-        logger_warn.warning("读取自动物流状态失败: {}", exc)
+        logger.warning("读取自动物流状态失败: {}", exc)
         return {}
+
+
+def _load_db_rows(date_text: str | None = None) -> list[dict]:
+    """P2：从 logistics_shipments 表读取运单（DB 唯一事实源）。
+
+    date_text 为 None/"all" 时返回全量；否则只返回该录入批次日。行结构
+    与 CSV 路径一致（_enrich_row 统一补充判定/URL/在途天数）。
+    """
+    try:
+        from sqlmodel import Session, select
+        from app.database import get_engine
+        from app.models.logistics import LogisticsShipment
+
+        stmt = select(LogisticsShipment)
+        if date_text and date_text != "all":
+            stmt = stmt.where(LogisticsShipment.record_date == date_text)
+        with Session(get_engine()) as session:
+            rows = list(session.exec(stmt).all())
+    except Exception as exc:
+        logger.warning("读取 logistics_shipments 失败: {}", exc)
+        return []
+
+    result = []
+    for row in rows:
+        result.append(
+            {
+                "tracking_number": row.tracking_number,
+                "carrier": row.carrier,
+                "customer": row.customer,
+                "salesperson": row.salesperson,
+                "ship_date": row.ship_date,
+                "expected_status": row.expected_status,
+                "current_status": row.current_status,
+                "note": row.note,
+                "tracking_url": row.tracking_url,
+                "judgement": row.judgement,
+                "reason": row.reason,
+                "progress_pct": row.progress_pct,
+            }
+        )
+    return result
 
 
 def load_shipments(
@@ -315,41 +367,55 @@ def load_shipments(
     query: str = "",
     open_only: bool = False,
 ) -> list[dict]:
-    """合并 inputs 与 outputs 物流数据。"""
+    """合并运单数据：DB（logistics_shipments）优先，CSV 历史兜底。
+
+    P2 起新录入直接落库（POST /logistics → upsert_logistics_shipment）；
+    CSV 仅作为历史批次与未迁移数据的补充源，同一运单号以 DB 为准。
+    """
     settings = get_settings()
     inputs_dir = settings.mvp_root / "inputs" / "logistics"
     outputs_dir = settings.mvp_root / "outputs"
     carriers = _load_carriers()
     cfg = _load_settings()
-    # "在途天数"/7天预警的参照点永远是真实今天，不能用录入批次日（date_text 可能是具体批次日
-    # 甚至字面量 "all"）——否则默认视图（date=all）在途天数全部算不出来，选中某批次时算出来的
-    # 天数也是"以录入那天为准"而不是"以现在为准"
+    # 在途天数/7天预警的参照点永远是真实今天
     ref_date = bridge.today_text()
     auto_map = load_auto_status_map()
     merged: dict[str, dict] = {}
 
-    if not inputs_dir.is_dir():
-        return []
-
-    for csv_path in sorted(inputs_dir.glob("*_tracking.csv")):
-        file_date = csv_path.stem.replace("_tracking", "")
-        if date_text and date_text != "all" and file_date != date_text:
+    # 1) DB 行（最高优先）
+    for row in _load_db_rows(date_text):
+        tracking = (row.get("tracking_number") or "").strip()
+        if not tracking:
             continue
-        results_path = outputs_dir / file_date / f"{file_date}_logistics_results.csv"
-        results_by_tracking = {
-            (r.get("tracking_number") or "").strip(): r
-            for r in _read_csv(results_path)
-        }
-        for row in _read_csv(csv_path):
-            tracking = (row.get("tracking_number") or "").strip()
-            if not tracking:
+        if not settings.include_demo_data and _is_demo_record(row):
+            continue
+        merged[tracking] = _enrich_row(
+            row, carriers, cfg, row.get("record_date") or ref_date, ref_date, auto_map
+        )
+
+    # 2) CSV 历史（只补充 DB 没有的运单）
+    if inputs_dir.is_dir():
+        for csv_path in sorted(inputs_dir.glob("*_tracking.csv")):
+            file_date = csv_path.stem.replace("_tracking", "")
+            if date_text and date_text != "all" and file_date != date_text:
                 continue
-            if not settings.include_demo_data and _is_demo_record(row):
-                continue
-            enriched = dict(row)
-            if tracking in results_by_tracking:
-                enriched.update(results_by_tracking[tracking])
-            merged[tracking] = _enrich_row(enriched, carriers, cfg, file_date, ref_date, auto_map)
+            results_path = outputs_dir / file_date / f"{file_date}_logistics_results.csv"
+            results_by_tracking = {
+                (r.get("tracking_number") or "").strip(): r
+                for r in _read_csv(results_path)
+            }
+            for row in _read_csv(csv_path):
+                tracking = (row.get("tracking_number") or "").strip()
+                if not tracking or tracking in merged:
+                    continue
+                if not settings.include_demo_data and _is_demo_record(row):
+                    continue
+                enriched = dict(row)
+                if tracking in results_by_tracking:
+                    enriched.update(results_by_tracking[tracking])
+                merged[tracking] = _enrich_row(
+                    enriched, carriers, cfg, file_date, ref_date, auto_map
+                )
 
     rows = list(merged.values())
     if salesperson:

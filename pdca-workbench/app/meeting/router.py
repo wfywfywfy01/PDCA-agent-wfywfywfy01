@@ -14,7 +14,7 @@ from app.auth.scope import normalize_scope_key, resolve_data_scope
 from app.database import get_session
 from app.legacy import bridge
 from app.validation import require_iso_date
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 router = APIRouter(tags=["meeting"])
 
@@ -75,6 +75,62 @@ def _apply_meeting_scope(payload: dict, user: User, session: Session) -> dict:
     return result
 
 
+def _db_meetings(start: str, finish: str, name: str, session: Session) -> dict | None:
+    """P2：优先从 meeting_records 表读会议（DB 唯一事实源）。
+
+    库内区间无数据时返回 None，调用方回退 bridge（Vemory 实时拉取）。
+    显式 name 过滤（仅 unrestricted 可传）在 DB 层按参与人归一化匹配。
+    """
+    import json as _json
+
+    from app.models.meeting import MeetingRecord
+
+    stmt = select(MeetingRecord).where(MeetingRecord.meeting_date >= start)
+    if finish:
+        stmt = stmt.where(MeetingRecord.meeting_date <= finish)
+    db_rows = list(session.exec(stmt).all())
+    if not db_rows:
+        return None
+
+    wanted = normalize_scope_key(name) if name.strip() else ""
+    meetings = []
+    for row in db_rows:
+        try:
+            todos = _json.loads(row.todos_json or "[]")
+        except ValueError:
+            todos = []
+        try:
+            participants = _json.loads(row.participants_json or "[]")
+        except ValueError:
+            participants = []
+        if wanted:
+            if not _meeting_matches(
+                {"participants": participants, "todos": todos}, {wanted}
+            ):
+                continue
+        meetings.append(
+            {
+                "id": row.external_id,
+                "title": row.title,
+                "meeting_type": row.meeting_type,
+                "bucket": row.bucket,
+                "duration_minutes": row.duration_minutes,
+                "brief": row.brief,
+                "todos": todos,
+                "participants": participants,
+                "source": "meeting_records_db",
+            }
+        )
+    return {
+        "ok": True,
+        "date": start,
+        "date_end": finish or "",
+        "meetings": meetings,
+        "summary": _meeting_summary(meetings),
+        "counts": _meeting_counts(meetings),
+    }
+
+
 def _load_meetings(
     start: str,
     finish: str,
@@ -86,6 +142,10 @@ def _load_meetings(
     scope = resolve_data_scope(user, session)
     if not scope.unrestricted and not scope.owner_keys:
         return {"ok": True, "date": start, "date_end": finish, "meetings": [], "summary": _meeting_summary([]), "counts": _meeting_counts([]), "scope": scope.mode}
+    # P2：DB 优先；区间无数据时回退 Vemory（bridge → vertu 子进程）。
+    payload = _db_meetings(start, finish, name if scope.unrestricted else "", session)
+    if payload is not None:
+        return _apply_meeting_scope(payload, user, session)
     # Restricted callers may not choose another person.  Prefer the explicitly
     # configured source name used by Vemory; the result is filtered again after
     # normalization to prevent provider-side filter failures from leaking rows.
