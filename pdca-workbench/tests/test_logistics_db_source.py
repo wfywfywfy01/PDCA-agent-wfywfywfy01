@@ -41,6 +41,7 @@ class LogisticsDbSourceTests(unittest.TestCase):
         self.patches = [
             patch("app.logistics.service.get_settings", return_value=self.settings),
             patch("app.database.get_engine", return_value=self.engine),
+            patch("app.models.writes.get_engine", return_value=self.engine),
             patch("app.legacy.bridge.today_text", return_value="2026-08-19"),
         ]
         for item in self.patches:
@@ -218,6 +219,46 @@ class LogisticsDbSourceTests(unittest.TestCase):
             ]
         )
         self.assertEqual(service.load_shipments(date_text="all"), [])
+
+    def test_create_shipment_writes_db_and_csv(self):
+        from sqlmodel import Session, select
+
+        from app.logistics import service
+        from app.models.logistics import LogisticsShipment
+
+        with patch("app.legacy.bridge.append_logistics") as append_mock:
+            tracking = service.create_shipment(
+                "2026-08-19",
+                {
+                    "tracking_number": "NEW123",
+                    "carrier": "UPS",
+                    "customer": "新客户",
+                    "ship_date": "2026-08-19",
+                    "current_status": "",
+                    "note": "测试",
+                },
+                salesperson="何海文",
+            )
+        self.assertEqual(tracking, "NEW123")
+        append_mock.assert_called_once()
+        with Session(self.engine) as session:
+            row = session.exec(
+                select(LogisticsShipment).where(
+                    LogisticsShipment.tracking_number == "NEW123"
+                )
+            ).first()
+        self.assertIsNotNone(row)
+        self.assertEqual(row.customer, "新客户")
+        self.assertEqual(row.salesperson, "何海文")
+        # 录入后立即可在 DB-first 读取侧看到
+        rows = service.load_shipments(date_text="all")
+        self.assertIn("NEW123", {r["tracking_number"] for r in rows})
+
+    def test_create_shipment_rejects_blank_tracking(self):
+        from app.logistics import service
+
+        with self.assertRaises(ValueError):
+            service.create_shipment("2026-08-19", {"tracking_number": "  "})
 
 
 if __name__ == "__main__":

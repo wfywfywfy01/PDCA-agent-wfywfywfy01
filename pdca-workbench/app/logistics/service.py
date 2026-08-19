@@ -269,6 +269,38 @@ def _enrich_row(
     return enriched
 
 
+def create_shipment(date_text: str, fields: dict, salesperson: str = "") -> str:
+    """P2：物流单号录入统一入口（新 JSON API 与旧表单 POST 共用）。
+
+    - 写 DB（logistics_shipments）：读取侧事实源；
+    - 同步追加 CSV（inputs/logistics）：保留 legacy 日流水线兼容；
+    - sales 角色由调用方锁定 salesperson。
+    返回运单号；非法输入抛 ValueError。
+    fields 值兼容两种形态：标量（JSON API）与 list（form_to_legacy 表单）。
+    """
+    form: dict[str, list[str]] = {}
+    for key, value in (fields or {}).items():
+        if isinstance(value, (list, tuple)):
+            form[str(key)] = [str(item or "") for item in value]
+        else:
+            form[str(key)] = [str(value or "")]
+    tracking = (form.get("tracking_number", [""])[0] or "").strip()
+    if not tracking:
+        raise ValueError("物流单号不能为空")
+    from app.legacy import bridge
+    from app.models import writes as db_writes
+
+    bridge.append_logistics(date_text, form)
+    db_writes.upsert_logistics_shipment(
+        date_text,
+        form,
+        canonical_sales_name(
+            salesperson or (form.get("salesperson", [""])[0] or "").strip()
+        ),
+    )
+    return tracking
+
+
 def list_available_dates() -> list[str]:
     """有物流录入数据的日期列表（新→旧）：DB record_date ∪ CSV 批次。"""
     dates: set[str] = set()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { apiGet, HttpError } from '@/api/client'
+import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
 
 interface Summary {
@@ -52,6 +52,51 @@ const error = ref('')
 const trackQuery = ref({ carrier: 'UPS', tracking_number: '' })
 const trackBusy = ref(false)
 const trackResult = ref<{ text?: string; status_text?: string; error?: string } | null>(null)
+
+const showEntry = ref(false)
+const entryBusy = ref(false)
+const entryError = ref('')
+const entrySuccess = ref('')
+const entryForm = ref({
+  tracking_number: '',
+  carrier: 'UPS',
+  customer: '',
+  ship_date: todayText(),
+  current_status: '',
+  expected_status: '',
+  note: '',
+})
+
+function todayText(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+
+async function submitEntry() {
+  entryBusy.value = true
+  entryError.value = ''
+  entrySuccess.value = ''
+  try {
+    await apiPost('/api/logistics/shipments', entryForm.value)
+    entrySuccess.value = '✅ 已保存，看板即时可见'
+    showEntry.value = false
+    entryForm.value = {
+      tracking_number: '',
+      carrier: 'UPS',
+      customer: '',
+      ship_date: todayText(),
+      current_status: '',
+      expected_status: '',
+      note: '',
+    }
+    await load()
+  } catch (err) {
+    entryError.value = err instanceof HttpError ? err.detail : '保存失败，请稍后重试'
+  } finally {
+    entryBusy.value = false
+  }
+}
 
 const STATUS_TABS = [
   { value: 'all', label: '全部' },
@@ -160,8 +205,17 @@ watch([date, status, q], () => {
         <h1>物流中心</h1>
         <p class="sub">运单进度 · 异常核查 · 实时追踪（数据来自数据库）</p>
       </div>
-      <a class="btn" href="/logistics" v-if="me && (me.role === 'sales' || me.role === 'admin')">录入物流单号</a>
+      <button
+        v-if="me && (me.role === 'sales' || me.role === 'manager' || me.role === 'admin')"
+        class="btn btn-primary"
+        type="button"
+        @click="showEntry = true"
+      >
+        录入物流单号
+      </button>
     </header>
+
+    <p v-if="entrySuccess" class="entry-msg ok">{{ entrySuccess }}</p>
 
     <section class="toolbar card">
       <label>
@@ -264,6 +318,52 @@ watch([date, status, q], () => {
         </div>
       </section>
     </template>
+
+    <div v-if="showEntry" class="modal-backdrop" @click.self="showEntry = false">
+      <section class="card modal">
+        <h2>录入物流单号</h2>
+        <p class="sub">保存后立即进入看板（销售身份由服务器锁定）</p>
+        <div v-if="entryError" class="entry-msg bad">{{ entryError }}</div>
+        <form class="entry-form" @submit.prevent="submitEntry">
+          <label>
+            物流单号 *
+            <input v-model="entryForm.tracking_number" class="input" required />
+          </label>
+          <label>
+            承运商
+            <select v-model="entryForm.carrier" class="input">
+              <option v-for="carrier in CARRIERS" :key="carrier" :value="carrier">{{ carrier }}</option>
+            </select>
+          </label>
+          <label>
+            客户
+            <input v-model="entryForm.customer" class="input" />
+          </label>
+          <label>
+            发货日期
+            <input v-model="entryForm.ship_date" type="date" class="input" />
+          </label>
+          <label>
+            当前状态
+            <input v-model="entryForm.current_status" class="input" placeholder="不知道可留空" />
+          </label>
+          <label>
+            预期状态
+            <input v-model="entryForm.expected_status" class="input" />
+          </label>
+          <label class="span-2">
+            备注
+            <input v-model="entryForm.note" class="input" />
+          </label>
+          <div class="modal-actions span-2">
+            <button type="button" class="btn" @click="showEntry = false">取消</button>
+            <button type="submit" class="btn btn-primary" :disabled="entryBusy">
+              {{ entryBusy ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -559,5 +659,76 @@ h2 {
   background: rgba(244, 63, 94, 0.08);
   border-color: rgba(244, 63, 94, 0.25);
   color: var(--red);
+}
+
+.entry-msg {
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.entry-msg.ok {
+  color: var(--green);
+}
+
+.entry-msg.bad {
+  color: var(--red);
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 20;
+}
+
+.modal {
+  width: 100%;
+  max-width: 560px;
+  padding: 22px 24px;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.modal h2 {
+  margin-bottom: 4px;
+}
+
+.entry-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.entry-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.span-2 {
+  grid-column: 1 / -1;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+@media (max-width: 560px) {
+  .entry-form {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.auth.deps import require_role
 from app.auth.models import User
 from app.auth.scope import normalize_scope_key, resolve_data_scope
 from app.database import get_session
+from app.legacy import bridge
 from app.logistics import service
+from app.validation import require_iso_date
 
 router = APIRouter(prefix="/api/logistics", tags=["logistics"])
 
@@ -96,6 +99,51 @@ async def logistics_salespeople(
     rows, _label = _scoped_shipments(service.load_shipments("all"), user, session)
     names = sorted({service.canonical_sales_name(row.get("salesperson", "")) for row in rows if row.get("salesperson")})
     return {"items": names}
+
+
+class ShipmentCreateBody(BaseModel):
+    tracking_number: str
+    carrier: str = ""
+    customer: str = ""
+    ship_date: str = ""
+    expected_status: str = ""
+    current_status: str = ""
+    note: str = ""
+
+
+@router.post("/shipments")
+async def create_shipment(
+    body: ShipmentCreateBody,
+    user: Annotated[User, Depends(require_role("sales"))],
+):
+    """P2：物流单号录入（JSON API）。sales 身份由服务器锁定；manager/admin 可自由录入。"""
+    if not body.tracking_number.strip():
+        raise HTTPException(status_code=422, detail="物流单号不能为空")
+    sales_label = ""
+    if user.role == "sales":
+        sales_label = (getattr(user, "sales_name", "") or "").strip()
+        if not sales_label:
+            raise HTTPException(status_code=403, detail="账号未配置销售数据名称，请联系管理员")
+    date_text = bridge.today_text()
+    ship_date = require_iso_date(body.ship_date or date_text, field="ship_date")
+    try:
+        tracking = service.create_shipment(
+            date_text,
+            {
+                "tracking_number": body.tracking_number.strip(),
+                "carrier": body.carrier.strip(),
+                "customer": body.customer.strip(),
+                "ship_date": ship_date,
+                "expected_status": body.expected_status.strip(),
+                "current_status": body.current_status.strip(),
+                "note": body.note.strip(),
+                "salesperson": sales_label,
+            },
+            salesperson=sales_label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ok": True, "tracking_number": tracking, "record_date": date_text, "ship_date": ship_date}
 
 
 @router.post("/refresh-tracking")

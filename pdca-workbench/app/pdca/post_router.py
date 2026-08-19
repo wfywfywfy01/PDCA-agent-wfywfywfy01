@@ -85,13 +85,12 @@ async def post_logistics(
         if not sales_label:
             raise HTTPException(status_code=403, detail="账号未配置销售数据名称，请联系管理员")
         form["salesperson"] = [sales_label]
-    bridge.append_logistics(date_text, form)
-    from app.logistics.service import canonical_sales_name
+    from app.logistics import service
 
-    db_writes.upsert_logistics_shipment(
+    service.create_shipment(
         date_text,
         form,
-        canonical_sales_name((form.get("salesperson", [""])[0] or "").strip()),
+        salesperson=(form.get("salesperson", [""])[0] or "").strip(),
     )
     return _redirect("/logistics-center/", date_text, "物流单号已保存。")
 
