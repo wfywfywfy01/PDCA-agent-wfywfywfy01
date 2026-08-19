@@ -199,18 +199,12 @@ async def legacy_dashboard(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    if effective_data_scope(user) != "all":
-        raise HTTPException(status_code=403, detail="历史静态看板无法安全分割，范围账号请使用经营首页")
-    """只展示已有日看板；GET 请求不隐式运行数据流水线。"""
-    date_text = _date_or_today(date)
-    try:
-        dashboard = bridge.output_dir(date_text) / "dashboard.html"
-    except Exception:
-        logger.exception("解析日看板目录失败: date={}", date_text)
-        return _unavailable("数据看板")
-    if not dashboard.is_file():
-        return _redirect_msg("/", date_text, "这个日期还没有看板，请先运行当天 PDCA。")
-    return _serve_skinned_html(dashboard, date_text, "数据看板", "数据看板")
+    """旧静态看板已退役（P1）：KPI 刷新不再生成 outputs/dashboard.html。
+
+    数据看板功能并入经营首页（数据库实时 + scope 隔离），此处 302 跳转，
+    范围账号也不再被 403 挡在门外。
+    """
+    return RedirectResponse(f"/?date={_date_or_today(date)}")
 
 
 @router.get("/questionnaire")

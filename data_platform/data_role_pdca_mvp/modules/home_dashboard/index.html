@@ -78,7 +78,7 @@
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span id="dataUpdateHint" style="font-size:12px;color:#9ca3af"></span>
         <button type="button" class="btn ghost" id="btnFetch" onclick="fetchRefresh()">刷新</button>
-        <button type="button" class="btn" id="btnRebuild" onclick="rebuildDashboard()" title="重新运行 bridge 脚本生成最新数据（约1-3分钟）" style="background:rgba(78,158,245,.12);color:#4e9ef5;border-color:rgba(78,158,245,.3)">重建数据</button>
+        <button type="button" class="btn" id="btnRebuild" onclick="rebuildDashboard()" title="手动触发 vertu-cli → 数据库同步（看板实时来自数据库）" style="background:rgba(78,158,245,.12);color:#4e9ef5;border-color:rgba(78,158,245,.3)">同步数据</button>
         <span id="rebuildStatus" style="font-size:12px;color:#f59e0b;display:none"></span>
       </div>
     </div>
@@ -247,12 +247,12 @@
     async function rebuildDashboard() {
       var btn = document.getElementById('btnRebuild');
       var status = document.getElementById('rebuildStatus');
-      if (btn) { btn.disabled = true; btn.textContent = '重建中…'; }
-      if (status) { status.style.display = ''; status.textContent = '⏳ 正在重建数据…（约1-3分钟）'; }
+      if (btn) { btn.disabled = true; btn.textContent = '同步中…'; }
+      if (status) { status.style.display = ''; status.textContent = '⏳ 正在同步数据…（约1分钟）'; }
       var start = Date.now();
       var timer = setInterval(function () {
         var s = Math.floor((Date.now() - start) / 1000);
-        if (status) status.textContent = '⏳ 重建中 ' + s + 's…（数据正在从 Odoo 拉取生成）';
+        if (status) status.textContent = '⏳ 同步中 ' + s + 's…（vertu-cli → 数据库）';
       }, 1000);
       try {
         var res = await fetch('/api/dashboard/refresh', {
@@ -263,17 +263,17 @@
         clearInterval(timer);
         if (res.ok) {
           var elapsed = Math.floor((Date.now() - start) / 1000);
-          if (status) { status.textContent = '✅ 重建完成（耗时 ' + elapsed + 's）'; }
+          if (status) { status.textContent = '✅ 同步完成（耗时 ' + elapsed + 's）'; }
           await refreshDashboard();
           setTimeout(function () { if (status) status.style.display = 'none'; }, 4000);
         } else {
-          if (status) { status.textContent = '❌ 重建失败（' + res.status + '）'; }
+          if (status) { status.textContent = '❌ 同步失败（' + res.status + '）'; }
         }
       } catch (e) {
         clearInterval(timer);
         if (status) { status.textContent = '❌ 请求超时或网络错误'; }
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '重建数据'; }
+        if (btn) { btn.disabled = false; btn.textContent = '同步数据'; }
       }
     }
 

@@ -290,19 +290,33 @@ async def overview(
 async def dashboard_refresh(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("manager"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
-    """手动触发当日 KPI 数据刷新（重建 chart_data.json + dashboard.html）。约需 1-3 分钟。"""
+    """手动触发数据同步（vertu-cli → 数据库）。
+
+    P1：看板数据实时来自数据库，不再经子进程重建 chart_data.json/
+    dashboard.html（旧 run_pdca 链路）。此处改为跑一次全量同步并返回
+    最新的数据库同步时刻。
+    """
     date_text = _date_or_today(date)
-    code, _stdout, stderr = await asyncio.to_thread(bridge.run_pdca, date_text, False)
-    if code != 0:
-        raise HTTPException(status_code=503, detail=f"刷新失败: {(stderr or '')[:200]}")
-    # 返回最新文件时间
+    from app.models.sync import run_full_sync
+
+    result = await asyncio.to_thread(run_full_sync, date_text)
+    errors = [str(value) for value in result.values() if str(value).startswith("error:")]
+    if errors:
+        raise HTTPException(status_code=503, detail=f"同步失败: {'; '.join(errors)[:200]}")
+    updated_at = None
     try:
-        chart_path = bridge.output_dir(date_text) / "chart_data.json"
-        updated_at = int(chart_path.stat().st_mtime * 1000) if chart_path.is_file() else None
-    except Exception:
-        updated_at = None
-    return {"ok": True, "date": date_text, "dataUpdatedAt": updated_at}
+        latest = session.exec(
+            select(DealerSales.synced_at).where(
+                DealerSales.check_date.startswith(date_text[:7])
+            ).order_by(DealerSales.synced_at.desc())
+        ).first()
+        if latest is not None:
+            updated_at = int(latest.replace(tzinfo=None).timestamp() * 1000)
+    except Exception as exc:  # 数据时间获取失败不影响同步结果
+        logger.warning("读取 synced_at 失败: {}", exc)
+    return {"ok": True, "date": date_text, "dataUpdatedAt": updated_at, "sync": result}
 
 
 @router.get("/api/dashboard/sell-in")
