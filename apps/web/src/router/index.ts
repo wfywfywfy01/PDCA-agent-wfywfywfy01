@@ -17,6 +17,11 @@ export const router = createRouter({
       name: 'logistics',
       component: () => import('@/pages/LogisticsPage.vue'),
     },
+    {
+      path: '/meetings',
+      name: 'meetings',
+      component: () => import('@/pages/MeetingPage.vue'),
+    },
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
