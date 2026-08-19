@@ -4,13 +4,21 @@
 
 - 越南区：vietnam_store_metrics.json（越南 walk-in 真实参考）
 - 其他：dealer_distribution_reference.json（代理商终销表经销商）
+
+F5：随机模拟值（缺额经销商金额、导购 staff）默认仍按历史行为生成，
+但在逐条记录上打 `simulated: true` 标记，并在 meta 加 `containsSimulated`；
+设 `PDCA_INCLUDE_DEMO_DATA=0` 时不再生成任何模拟值（金额保持真实值、
+staff 为空），仅打包真实来源数据。
 """
 import argparse
 import json
+import os
 import random
 import re
 from datetime import datetime
 from pathlib import Path
+
+DEMO_DATA_ENABLED = os.environ.get("PDCA_INCLUDE_DEMO_DATA", "1") == "1"
 
 WORKSPACE = Path(__file__).resolve().parents[1]
 OUT_DIR = WORKSPACE / "modules" / "walkin_cockpit" / "data"
@@ -93,16 +101,22 @@ def dealer_to_store(dealer, month):
     amount = float(dealer.get("sellOutAmount") or 0)
     qty = float(dealer.get("sellOutQty") or 0)
     ctype = (dealer.get("customerType") or "S").upper()[:1]
+    simulated = False
     if amount <= 0:
-        tier = {"A": 1200000, "B": 650000, "S": 380000}.get(ctype, 420000)
-        amount = tier * rng.uniform(0.85, 1.15)
+        if not DEMO_DATA_ENABLED:
+            amount = 0.0
+            simulated = True  # 金额缺口保留真实 0，仍标记为非实测来源
+        else:
+            tier = {"A": 1200000, "B": 650000, "S": 380000}.get(ctype, 420000)
+            amount = tier * rng.uniform(0.85, 1.15)
+            simulated = True
     sales = int(amount)
-    if sales < 80000:
+    if sales < 80000 and DEMO_DATA_ENABLED:
         sales = int(80000 * rng.uniform(1.0, 1.8))
-    visits = max(40, int(sales / rng.uniform(38000, 52000)))
+    visits = max(40, int(sales / rng.uniform(38000, 52000))) if DEMO_DATA_ENABLED else 0
     if qty > 0:
         visits = max(visits, int(qty * rng.uniform(8, 15)))
-    add_rate, touch_rate, use_rate = _tier_rates(ctype, rng)
+    add_rate, touch_rate, use_rate = _tier_rates(ctype, rng) if DEMO_DATA_ENABLED else (0.0, 0.0, 0.0)
     anomalies = []
     if add_rate < 0.35:
         anomalies.append("留资率偏低")
@@ -126,10 +140,13 @@ def dealer_to_store(dealer, month):
         "dealerTeam": dealer.get("team") or "",
         "customerType": ctype,
         "dataSource": "dealer_distribution",
+        "simulated": simulated,
     }
 
 
 def build_staff_for_stores(stores, month):
+    if not DEMO_DATA_ENABLED:
+        return []
     staff = []
     idx = 1
     names = ["Alex", "Mina", "Omar", "Sara", "Li", "Chen", "Kim", "Noah"]
@@ -160,6 +177,7 @@ def build_staff_for_stores(stores, month):
                 "avgAov": int(sales / max(1, per_groups // 2)),
                 "crmReachRate": round(min(0.99, 0.55 + add_rate), 2),
                 "anomalies": anomalies,
+                "simulated": True,
             })
     return staff
 
@@ -185,6 +203,7 @@ def build_bundle(vn_ref, dealer_ref, ym):
             "storeCount": len(stores),
             "dealerCount": len(dealer_ref.get("dealers") or []),
             "regionOrder": regions,
+            "containsSimulated": bool(staff) or any(s.get("simulated") for s in stores),
         },
         "stores": stores,
         "staff": staff,

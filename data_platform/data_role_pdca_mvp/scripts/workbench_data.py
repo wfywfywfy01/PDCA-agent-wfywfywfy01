@@ -156,7 +156,7 @@ def format_source_detail(sources: list[str], month: str, date_text: str, vps_fil
 
 
 def _strip_simulated_walkin_metrics(bundle: dict) -> None:
-    """生产默认移除构建脚本随机生成的客流、销售和导购指标。"""
+    """生产默认移除构建脚本随机生成的客流、销售和导购指标（F5）。"""
     if os.environ.get("PDCA_INCLUDE_DEMO_DATA", "0") == "1":
         return
     stripped = 0
@@ -172,13 +172,15 @@ def _strip_simulated_walkin_metrics(bundle: dict) -> None:
                 "anomalies": [],
                 "avgTouchRate": 0,
                 "avgUseRate": 0,
+                "simulated": False,
             }
         )
     # build_walkin_bundle.py 中的 staff 全部由随机数生成，生产环境不展示。
     if bundle.get("staff"):
         bundle["staff"] = []
+    meta = bundle.setdefault("meta", {})
+    meta["containsSimulated"] = False
     if stripped:
-        meta = bundle.setdefault("meta", {})
         meta["simulatedMetricsRemoved"] = True
         meta["simulatedStoreCount"] = stripped
 

@@ -2106,6 +2106,12 @@
       state.dataSourceDetail =
         '静态数据包 · ' + (ym ? '自然月 ' + ym + ' · ' : pl ? pl + ' · ' : '') + tail;
     }
+    // F5：meta.containsSimulated 为真时显式标为参考数据（amber 横幅），
+    // 防止构建脚本生成的模拟值被误读为实测经营数据。
+    if (j.meta && j.meta.containsSimulated) {
+      state.dataSource = 'demo';
+      state.dataSourceDetail = '⚠ 参考数据（含模拟值，非实测经营数据）· ' + state.dataSourceDetail;
+    }
     return true;
   }
 
