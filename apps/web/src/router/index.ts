@@ -27,6 +27,11 @@ export const router = createRouter({
       name: 'admin-sync',
       component: () => import('@/pages/AdminSyncPage.vue'),
     },
+    {
+      path: '/signalseller',
+      name: 'signalseller',
+      component: () => import('@/pages/SignalsellerPage.vue'),
+    },
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

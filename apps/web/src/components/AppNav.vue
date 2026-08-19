@@ -47,6 +47,7 @@ async function logout() {
         <router-link to="/dashboard">数据看板</router-link>
         <router-link to="/logistics">物流中心</router-link>
         <router-link to="/meetings">会议中心</router-link>
+        <router-link to="/signalseller">获客指挥</router-link>
         <router-link v-if="me && (me.role === 'manager' || me.role === 'admin')" to="/admin/sync">
           数据同步
         </router-link>

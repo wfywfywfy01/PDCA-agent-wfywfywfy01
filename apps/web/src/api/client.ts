@@ -38,6 +38,17 @@ export async function apiPost<T = unknown>(path: string, body?: unknown): Promis
   return (await res.json()) as T
 }
 
+export async function apiPut<T = unknown>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw await toHttpError(res)
+  return (await res.json()) as T
+}
+
 async function toHttpError(res: Response): Promise<HttpError> {
   try {
     const payload = (await res.json()) as { detail?: string; code?: string }
