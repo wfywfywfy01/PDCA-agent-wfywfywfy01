@@ -8,7 +8,8 @@ param(
     [ValidateRange(1, 86400)]
     [int]$DockerPullTimeoutSeconds = 900,
     [string]$LogDirectory = "",
-    [switch]$SkipCiCheck
+    [switch]$SkipCiCheck,
+    [switch]$SkipImagePull
 )
 
 # Standalone deploy script for the walkin-submit (dealer daily five-kit entry) portal.
@@ -313,8 +314,16 @@ if ($currentRevision -eq $Sha) {
     }
 }
 
-Write-Output "Pulling tested image $image"
-Invoke-Docker -DockerArgs @("pull", $image) -TimeoutSeconds $DockerPullTimeoutSeconds | Out-Null
+if ($SkipImagePull) {
+    Write-Output "Using preloaded tested image $image"
+    $imageInspectResult = Invoke-DockerProcess -DockerArgs @("image", "inspect", $image)
+    if ($imageInspectResult.ExitCode -ne 0 -or -not $imageInspectResult.StdOut) {
+        throw "Preloaded image is missing: $image"
+    }
+} else {
+    Write-Output "Pulling tested image $image"
+    Invoke-Docker -DockerArgs @("pull", $image) -TimeoutSeconds $DockerPullTimeoutSeconds | Out-Null
+}
 
 $secrets = @{
     PDCA_WALKIN_SECRET_KEY = Read-DotEnvValue "PDCA_WALKIN_SECRET_KEY"

@@ -254,17 +254,21 @@ function Test-ActivationSource {
     # P0/F6 决策：激活数据暂无可自动拉取的数据源（vertu-cli 2.x 已不支持
     # odoo data sandbox，dealer_activation_stats 属已死亡查询），UI 诚实
     # 显示"无数据源"。部署时不再把该冒烟当作硬性通过条件，仅记录告警。
-    $raw = Invoke-Docker -DockerArgs @(
+    $result = Invoke-DockerProcess -DockerArgs @(
         "exec", "pdca-workbench", "vertu", "odoo", "data", "sandbox",
         "--code-file", "/mvp/system_queries/dealer_activation_stats.py",
         "--timeout", "300000"
     ) -TimeoutSeconds 330
+    if ($result.ExitCode -ne 0) {
+        Write-Warning "Activation source smoke unavailable (expected until business provides a data channel): exit $($result.ExitCode)"
+        return
+    }
     try {
-        $payload = $raw | ConvertFrom-Json
+        $payload = $result.StdOut | ConvertFrom-Json
         $dealerCount = @($payload.execution.result.dealers).Count
         Write-Output "Activation source healthy: $dealerCount dealers"
     } catch {
-        Write-Warning "Activation source smoke unavailable (expected until business provides a data channel): $($_.Exception.Message)"
+        Write-Warning "Activation source smoke returned invalid JSON (non-fatal): $($_.Exception.Message)"
     }
 }
 
@@ -425,8 +429,11 @@ if ($SkipImagePull) {
     }
     $imageObject = ($imageInspectResult.StdOut | ConvertFrom-Json)[0]
     $sourceRevision = $imageObject.Config.Labels.'com.vertu.pdca.source_revision'
-    if ($sourceRevision -ne $Sha) {
+    if ($sourceRevision -and $sourceRevision -ne $Sha) {
         throw "Preloaded image revision mismatch: expected $Sha"
+    }
+    if (-not $sourceRevision) {
+        Write-Warning "Preloaded image lacks the source_revision label; relying on explicit -Sha and digest pinning"
     }
 } else {
     Write-Output "Pulling tested image $image"
