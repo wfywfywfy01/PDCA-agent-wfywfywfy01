@@ -28,6 +28,9 @@ if ($DockerHost -match '^tcp://' -and $DockerHost -notmatch ':2376$') {
 
 $ErrorActionPreference = "Stop"
 $ImageRegistry = "ghcr.io/wfywfywfy01/pdca-workbench"
+# gh 默认仓库从分支上游解析（本仓 main 跟踪 upstream/main 的历史遗留），
+# 会误查上游 Frankie-Foo 的 CI；显式锁定 fork 仓库。
+$CiRepo = "wfywfywfy01/PDCA-agent-wfywfywfy01"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $WorkbenchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $EnvFile = Join-Path $WorkbenchRoot ".env"
@@ -377,7 +380,7 @@ if (-not (Test-Path -LiteralPath $EnvFile)) {
 }
 
 if (-not $Sha) {
-    $run = gh run list --workflow pdca-ci-cd.yml --branch main --status success `
+    $run = gh run list --repo $CiRepo --workflow pdca-ci-cd.yml --branch main --status success `
         --limit 1 --json headSha,conclusion | ConvertFrom-Json
     if (-not $run -or $run.conclusion -ne "success") {
         throw "No successful main PDCA CI/CD run found"
@@ -387,9 +390,12 @@ if (-not $Sha) {
 if ($Sha -notmatch '^[0-9a-f]{40}$') { throw "Sha must be a full 40-character commit" }
 
 if (-not $SkipCiCheck) {
-    $run = gh run list --workflow pdca-ci-cd.yml --commit $Sha --limit 1 `
-        --json status,conclusion,headSha | ConvertFrom-Json
-    if (-not $run -or $run.status -ne "completed" -or $run.conclusion -ne "success") {
+    # gh run list 的 --commit / --status 过滤均存在漏报怪癖；显式 --repo 锁定
+    # fork（默认解析会跟到 upstream），拉取最近 10 条 run 后精确匹配 headSha。
+    $runs = gh run list --repo $CiRepo --workflow pdca-ci-cd.yml --branch main `
+        --limit 10 --json headSha,conclusion | ConvertFrom-Json
+    $matched = @($runs | Where-Object { $_.headSha -eq $Sha -and $_.conclusion -eq "success" })
+    if (-not $matched) {
         throw "CI is not green for $Sha"
     }
 }
