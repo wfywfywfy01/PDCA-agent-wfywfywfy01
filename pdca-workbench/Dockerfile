@@ -1,6 +1,14 @@
 ARG NODE_RUNTIME_IMAGE=node:22-bookworm-slim
 FROM ${NODE_RUNTIME_IMAGE} AS node-runtime
 
+# ── 前端构建层（P1）：Vue3 SPA → 静态产物 ──────────────────────────────
+FROM ${NODE_RUNTIME_IMAGE} AS web-build
+WORKDIR /web
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY apps/web ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -33,6 +41,7 @@ COPY app ./app
 COPY frontend ./frontend
 COPY migrations ./migrations
 COPY run.py .
+COPY --from=web-build /web/dist ./spa-dist
 
 ENV PDCA_HOST=0.0.0.0
 ENV PDCA_WORKBENCH_PORT=8767

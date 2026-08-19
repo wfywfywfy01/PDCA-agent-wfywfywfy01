@@ -28,6 +28,7 @@ from app.files.router import router as files_router
 from app.pdca.post_router import router as pdca_post_router
 from app.pdca.router import router as pdca_router
 from app.scheduler.jobs import backup_database, backup_status, start_scheduler, stop_scheduler
+from app.spa.router import router as spa_router
 from app.vertu.client import vertu_health
 from app.signalseller.router import router as signalseller_router
 from app.export.router import router as export_router
@@ -42,6 +43,10 @@ PUBLIC_PATHS = {
     "/health",
     "/dashboard-theme.css",
     "/workbench-cockpit-shell.css",
+    # P1：Vue3 SPA 入口与其登录路由免登录跳转（SPA 内部走 /api/auth/* 鉴权）
+    "/app",
+    "/app/",
+    "/app/login",
 }
 
 
@@ -158,7 +163,9 @@ async def security_headers_middleware(request: Request, call_next):
 async def auth_redirect_middleware(request: Request, call_next):
     """未登录访问页面时跳转登录（API 返回 401）。"""
     path = request.url.path
-    if path in PUBLIC_PATHS or path.startswith("/shared/"):
+    # /app/* 为 Vue3 SPA（含静态资源与客户端路由），公开托管；
+    # SPA 数据面走 /api/* 鉴权，未登录由 SPA 内部跳转其登录页。
+    if path in PUBLIC_PATHS or path.startswith("/shared/") or path.startswith("/app/"):
         return await call_next(request)
     if path.startswith("/api/") and path != "/api/auth/login":
         return await call_next(request)
@@ -249,6 +256,7 @@ app.include_router(files_router)
 app.include_router(admin_router)
 app.include_router(export_router)
 app.include_router(pages_router)
+app.include_router(spa_router)
 
 
 @app.get("/health")

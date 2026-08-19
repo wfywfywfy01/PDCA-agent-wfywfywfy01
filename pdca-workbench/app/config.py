@@ -222,6 +222,21 @@ class Settings:
     def frontend_dir(self) -> Path:
         return APP_ROOT / "frontend"
 
+    @property
+    def spa_dist_dir(self) -> Path:
+        """Vue3 SPA 构建产物目录（P1）。
+
+        优先级：PDCA_SPA_DIST 环境变量 > 镜像内 pdca-workbench/spa-dist
+        > 仓库 apps/web/dist（本地开发）。
+        """
+        configured = os.environ.get("PDCA_SPA_DIST", "").strip()
+        if configured:
+            return Path(configured).resolve()
+        in_image = APP_ROOT / "spa-dist"
+        if in_image.is_dir():
+            return in_image
+        return APP_ROOT.parent / "apps" / "web" / "dist"
+
 
 @lru_cache
 def get_settings() -> Settings:

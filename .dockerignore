@@ -1,0 +1,51 @@
+# 仓库根构建上下文（CI docker build 使用），排除与镜像无关的大目录与敏感文件
+.git
+*.bundle
+**/node_modules
+**/__pycache__
+**/*.py[cod]
+**/*.log
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# 前端：dist 在镜像内构建，node_modules 本地产物
+apps/web/dist
+apps/web/node_modules
+
+# 数据与文件产物（运行时经 /mvp /repo 卷挂载，不进镜像）
+data_raw
+data_reports
+data_platform
+data_clean
+data_metrics
+data_requests
+data_quality
+pdca_actions
+teams
+docs
+assets
+inbox
+manager
+sales_alice
+sales_bob
+profiles
+templates
+contracts
+insights
+dist
+_dash_test.html
+_tmp_*.py
+_tmp_*.txt
+
+# pdca-workbench 本地开发与敏感文件（原 pdca-workbench/.dockerignore 合并）
+pdca-workbench/.env
+pdca-workbench/.env.*
+!pdca-workbench/.env.example
+pdca-workbench/.venv
+pdca-workbench/venv
+pdca-workbench/data
+pdca-workbench/tests
+pdca-workbench/docs
+pdca-workbench/start.bat
+pdca-workbench/nginx-ssl.conf
