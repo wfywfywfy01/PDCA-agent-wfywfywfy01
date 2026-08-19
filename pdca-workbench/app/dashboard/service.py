@@ -87,6 +87,66 @@ def _fmt_cny(yuan: float) -> str:
     return f"¥ {yuan:,.0f}"
 
 
+def db_sellin_summary(month: str, session, user=None) -> dict:
+    """P1：从 dealer_sales 表聚合经销商进货汇总（替代 bridge 读 data_raw JSON）。
+
+    返回结构与 /api/dealer/sellin-summary 一致：{month, total_wan, dealers,
+    has_data, trend}。受限账号按 scope 经销商名过滤（与调用方后过滤一致）。
+    """
+    from sqlmodel import select
+    from app.models.dealer_sales import DealerSales
+    from app.auth.scope import resolve_data_scope, scoped_active_dealer_names
+
+    names = None
+    if user is not None and not resolve_data_scope(user, session).unrestricted:
+        names = scoped_active_dealer_names(user, session)
+
+    def _month_rows(mo: str) -> list:
+        stmt = select(DealerSales).where(DealerSales.check_date.startswith(mo))
+        if names is not None:
+            stmt = stmt.where(DealerSales.dealer_name.in_(names))
+        return list(session.exec(stmt).all())
+
+    rows = _month_rows(month)
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        item = grouped.setdefault(
+            row.dealer_name,
+            {"name": row.dealer_name, "wan": 0.0, "quantity": 0},
+        )
+        item["wan"] += float(row.sell_in_wan or 0)
+        item["quantity"] += int(row.units or 0)
+    dealers = [
+        {"name": item["name"], "wan": round(item["wan"], 2), "quantity": item["quantity"]}
+        for item in grouped.values()
+        if item["wan"] > 0 or item["quantity"] > 0
+    ]
+    dealers.sort(key=lambda item: item["wan"], reverse=True)
+    for index, dealer in enumerate(dealers):
+        dealer["rank"] = index + 1
+
+    trend = []
+    year, number = int(month[:4]), int(month[5:7])
+    for offset in range(5, -1, -1):
+        current = number - offset
+        current_year = year
+        while current <= 0:
+            current += 12
+            current_year -= 1
+        mo = f"{current_year:04d}-{current:02d}"
+        mo_total = round(sum(float(row.sell_in_wan or 0) for row in _month_rows(mo)), 2)
+        trend.append({"month": mo, "wan": mo_total})
+
+    return {
+        "month": month,
+        "total_wan": round(sum(item["wan"] for item in dealers), 2),
+        "dealers": dealers,
+        "has_data": bool(dealers),
+        "trend": trend,
+        "source": "dealer_sales_db",
+    }
+
+
 def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
     """Use authoritative database rows to override legacy-source values.
 

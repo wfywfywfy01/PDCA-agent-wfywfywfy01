@@ -425,8 +425,8 @@ async def dealer_sellin_summary(
     try:
         data = await fetch_sellin_summary(m)
     except Exception as exc:
-        logger.warning("vertu sellin-summary 失败，回退 bridge: {}", exc)
-        data = _bridge_call(bridge.api_dealer_sellin_summary, m, default={})
+        logger.warning("vertu sellin-summary 失败，回退数据库快照: {}", exc)
+        data = service.db_sellin_summary(m, session, user)
     names = visible_dealer_names(user, session)
     if names is None or not isinstance(data, dict):
         return data
