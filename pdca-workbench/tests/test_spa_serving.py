@@ -109,6 +109,16 @@ class SpaServingTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn("text/html", res.headers["content-type"])
 
+    def test_metrics_endpoint_export(self):
+        """P5：/metrics 公开可抓取且输出 Prometheus 文本。"""
+        res = self.client.get("/metrics")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("text/plain", res.headers["content-type"])
+        body = res.text
+        self.assertIn("pdca_uptime_seconds", body)
+        self.assertIn("pdca_requests_total", body)
+        self.assertIn("pdca_sync_last_success_ok", body)
+
 
 if __name__ == "__main__":
     unittest.main()

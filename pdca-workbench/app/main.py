@@ -42,6 +42,7 @@ PUBLIC_PATHS = {
     "/api/auth/config",
     "/api/auth/vps-check",
     "/health",
+    "/metrics",
     "/dashboard-theme.css",
     "/workbench-cockpit-shell.css",
     # P1：Vue3 SPA 入口与其登录路由免登录跳转（SPA 内部走 /api/auth/* 鉴权）
