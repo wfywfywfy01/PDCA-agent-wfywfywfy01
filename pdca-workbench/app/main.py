@@ -72,12 +72,16 @@ async def lifespan(app: FastAPI):
     if settings.require_vertu:
         vertu = await vertu_health(force=True)
         if not vertu["ok"]:
+            from app.alerting import notify
+            notify("vertu-cli 健康检查失败", vertu.get("detail") or "认证失败")
             raise RuntimeError(f"生产环境 vertu-cli 不可用: {vertu.get('detail') or '认证失败'}")
     if settings.environment == "production":
         backup = backup_status()
         if not backup["ok"]:
             path = await asyncio.to_thread(backup_database)
             if not path:
+                from app.alerting import notify
+                notify("生产启动备份失败", "数据库备份失败，/health 将保持 degraded")
                 logger.error("生产启动备份失败，/health 将保持 degraded")
     start_scheduler()
     logger.info(

@@ -15,6 +15,7 @@ from app.config import get_settings
 from app.database import get_active_database_url
 from app.legacy import bridge
 from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
+from app.alerting import notify
 
 _scheduler: BackgroundScheduler | None = None
 _last_backup_error: str = ""
@@ -163,9 +164,14 @@ def daily_sync_job() -> None:
     try:
         result = run_full_sync(date_text)
         logger.info("每日同步完成: {}", result)
+        errors = {key: value for key, value in result.items() if str(value).startswith("error:")}
+        if errors:
+            notify("每日同步部分步骤失败", str(errors)[:300])
     except Exception as exc:
         logger.exception("每日同步失败: {}", exc)
-    backup_database()
+        notify("每日同步失败", str(exc)[:300])
+    if not backup_database():
+        notify("数据库备份失败", "请检查 pg_dump 配置与服务日志")
 
 
 def logistics_tracking_refresh_job() -> None:
@@ -179,20 +185,18 @@ def logistics_tracking_refresh_job() -> None:
         logger.info("物流状态自动刷新完成: {}", result)
     except Exception as exc:
         logger.exception("物流状态自动刷新异常: {}", exc)
+        notify("物流状态自动刷新失败", str(exc)[:300])
 
 
 def kpi_refresh_job() -> None:
-    """KPI 数据刷新（09:00 / 12:00 / 21:00）：重新生成 chart_data.json + dashboard.html。"""
-    date_text = bridge.today_text()
-    logger.info("KPI 刷新开始 {}", date_text)
-    try:
-        code, _stdout, stderr = bridge.run_pdca(date_text, push=False)
-        if code == 0:
-            logger.info("KPI 刷新完成 {}", date_text)
-        else:
-            logger.warning("KPI 刷新失败 code={} stderr={}", code, (stderr or "")[:300])
-    except Exception as exc:
-        logger.exception("KPI 刷新异常: {}", exc)
+    """【已停用 F1】旧 KPI 刷新：子进程重建 chart_data.json + dashboard.html。
+
+    该链路读取 data_raw 文件（曾因空文件把看板刷成 0），与数据库事实源
+    冲突，自 P0 起停用；Sell-in/看板数据由 /api/dashboard/* 实时查
+    dealer_sales 表提供。函数保留以便追溯，注册已从 start_scheduler 移除。
+    """
+    logger.info("kpi_refresh_job 已停用（P0 F1）：看板改由数据库实时查询提供，不再重建静态文件")
+    return
 
 
 def start_scheduler() -> BackgroundScheduler | None:
@@ -253,21 +257,12 @@ def start_scheduler() -> BackgroundScheduler | None:
         coalesce=True,
     )
 
-    # 09:00 / 12:00 / 21:00 — KPI 数据刷新
-    for hour in (9, 12, 21):
-        _scheduler.add_job(
-            kpi_refresh_job,
-            trigger="cron",
-            hour=hour,
-            minute=0,
-            id=f"kpi_refresh_{hour:02d}",
-            max_instances=1,
-            coalesce=True,
-        )
+    # kpi_refresh（09:00/12:00/21:00 重建静态 chart_data.json）已停用（F1）：
+    # 看板数据由 /api/dashboard/* 实时查库，不再运行子进程生成静态文件。
 
     _scheduler.start()
     logger.info(
-        "调度器已启动 cron={} logistics_tracking=07:30 kpi_refresh=09:00/12:00/21:00",
+        "调度器已启动 cron={} logistics_tracking=07:30 vps_sellin=20:00 kpi_refresh=停用(F1)",
         settings.sync_cron,
     )
     return _scheduler
