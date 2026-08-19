@@ -136,6 +136,7 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
             "note": f"{label}实时 · vertu-cli sales · {fetched_at:%H:%M:%S}更新",
             "as_of": fetched_at.isoformat(timespec="seconds"),
             "cached": False,
+            "state": "live",
         }
         _SELL_IN_CACHE[cache_key] = {
             "monotonic": time.monotonic(),

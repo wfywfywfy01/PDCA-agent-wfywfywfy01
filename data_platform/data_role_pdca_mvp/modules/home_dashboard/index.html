@@ -277,13 +277,27 @@
       }
     }
 
-    function renderSellCard(amountEl, footEl, wan, amountText, note) {
+    function renderSellCard(amountEl, footEl, wan, amountText, note, state, asOf) {
       if (wan != null && wan !== '') {
         amountEl.innerHTML = formatWanHtml(wan);
       } else {
         amountEl.innerHTML = '<span class="amount-num">' + escapeHtml(amountText || '—') + '</span>';
       }
-      if (footEl) footEl.textContent = note || '';
+      // F6：数据新鲜度徽标——missing/stale 显式可见，绝不静默展示旧数据。
+      var foot = note || '';
+      if (state === 'missing') {
+        foot = '⚠ 数据尚未同步（无可用数据源）';
+      } else if (state === 'stale') {
+        foot = '⚠ 数据可能已过期 · ' + foot;
+      } else if (asOf) {
+        try {
+          var t = new Date(asOf);
+          if (!isNaN(t.getTime())) {
+            foot += ' · 更新于 ' + t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          }
+        } catch (_e) {}
+      }
+      if (footEl) footEl.textContent = foot;
     }
 
     async function refreshDashboard() {
@@ -315,11 +329,12 @@
         try {
           const sellIn = await request(API.sellIn, params);
           renderSellCard(sellInAmount, document.getElementById('sellInFoot'), sellIn.wan,
-            sellIn.amount != null ? ('¥ ' + Math.round(sellIn.amount).toLocaleString()) : null, sellIn.note);
+            sellIn.amount != null ? ('¥ ' + Math.round(sellIn.amount).toLocaleString()) : null,
+            sellIn.note, sellIn.state, sellIn.as_of);
         } catch (err) {
           await overviewTask;
           if (overview) {
-            renderSellCard(sellInAmount, document.getElementById('sellInFoot'), overview.sellInWan, overview.sellInAmount, overview.sellInSub);
+            renderSellCard(sellInAmount, document.getElementById('sellInFoot'), overview.sellInWan, overview.sellInAmount, overview.sellInSub, 'missing');
           }
           throw err;
         }
@@ -329,12 +344,14 @@
         try {
           const sellOut = await request(API.sellOut, params);
           renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), sellOut.wan,
-            sellOut.amount != null ? ('$ ' + Math.round(sellOut.amount).toLocaleString()) : null, sellOut.note);
+            sellOut.amount != null ? ('$ ' + Math.round(sellOut.amount).toLocaleString()) : null,
+            sellOut.note, sellOut.state, sellOut.as_of);
         } catch (err) {
           await overviewTask;
           if (overview) {
             renderSellCard(sellOutAmount, document.getElementById('sellOutFoot'), null,
-              overview.sellOutUsd != null ? ('$ ' + Math.round(overview.sellOutUsd).toLocaleString()) : null, overview.sellOutSub);
+              overview.sellOutUsd != null ? ('$ ' + Math.round(overview.sellOutUsd).toLocaleString()) : null,
+              overview.sellOutSub, 'missing');
           }
           throw err;
         }

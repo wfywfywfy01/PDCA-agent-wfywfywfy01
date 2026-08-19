@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import asyncio
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
@@ -19,6 +20,7 @@ from app.legacy import bridge
 from app.validation import require_iso_date
 from app.models.dealer_store import DealerStore
 from app.models.walkin_daily_report import WalkinDailyReport
+from app.models.pdca_task import PdcaTask
 
 router = APIRouter(tags=["dashboard"])
 
@@ -94,16 +96,40 @@ def _fact(value, state: str, source: str, as_of: str, scope: str, message: str =
     }
 
 
+_STALE_HOURS = 36
+
+
+def _freshness_state(as_of: str | None) -> str:
+    """F6：按数据时间计算新鲜度状态（live/missing/stale）。
+
+    无 as_of → missing；距今超过 _STALE_HOURS 小时 → stale；否则 live。
+    数据库 synced_at 为 naive UTC，vertu as_of 为带时区本地时间，两者都兼容。
+    """
+    if not as_of:
+        return "missing"
+    try:
+        dt = datetime.fromisoformat(str(as_of))
+        now = datetime.now().astimezone()
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=now.tzinfo)
+        age_seconds = (now - dt.astimezone(now.tzinfo)).total_seconds()
+        return "stale" if age_seconds > _STALE_HOURS * 3600 else "live"
+    except ValueError:
+        return "missing"
+
+
 def _sales_payload(data: dict, prefix: str) -> dict:
     wan = data.get(f"{prefix}Wan")
     amount = round(float(wan) * 10000, 2) if wan is not None else None
+    as_of = data.get("dataAsOf")
     return {
         "amount": amount,
         "wan": wan,
         "note": data.get(f"{prefix}Sub") or "数据尚未同步",
-        "as_of": data.get("dataAsOf"),
+        "as_of": as_of,
         "source": (data.get("dataSource") or {}).get(prefix),
-        "cached": bool(data.get("dataAsOf")),
+        "cached": bool(as_of),
+        "state": _freshness_state(as_of),
     }
 
 
@@ -233,19 +259,30 @@ async def overview(
     session_user = _session_user(user, session)
     date_text = _date_or_today(date)
     data = service.workbench_overview(date_text, period, session_user)
-    # 附上 chart_data.json 最后修改时间，供前端显示"上次更新"
-    try:
-        chart_path = bridge.output_dir(date_text) / "chart_data.json"
-        if isinstance(data, dict) and chart_path.is_file():
-            data["dataUpdatedAt"] = int(chart_path.stat().st_mtime * 1000)
-    except Exception:
-        pass
     # 用云端 DB 数据覆盖 bridge 返回的 sellin/sellout（公网环境无本地文件时生效）
     if isinstance(data, dict):
         try:
             data = service.merge_db_sales(data, date_text, session, user)
         except Exception as exc:
             logger.warning("merge_db_sales 失败: {}", exc)
+    # F1：数据更新时间以数据库同步时刻为准（dealer_sales.synced_at），
+    # 不再依赖已停用的 chart_data.json 文件 mtime；仅在无 DB 数据时回退文件时间。
+    if isinstance(data, dict):
+        data_as_of = data.get("dataAsOf")
+        if data_as_of:
+            try:
+                data["dataUpdatedAt"] = int(
+                    datetime.fromisoformat(str(data_as_of)).timestamp() * 1000
+                )
+            except ValueError:
+                pass
+        elif not data.get("dataUpdatedAt"):
+            try:
+                chart_path = bridge.output_dir(date_text) / "chart_data.json"
+                if chart_path.is_file():
+                    data["dataUpdatedAt"] = int(chart_path.stat().st_mtime * 1000)
+            except Exception:
+                pass
     return data
 
 
@@ -282,7 +319,9 @@ async def sell_in(
         data = service.merge_db_sales(data, date_text, session, user)
         return _sales_payload(data, "sellIn")
     try:
-        return await fetch_sell_in(date_text, period)
+        payload = await fetch_sell_in(date_text, period)
+        payload["state"] = _freshness_state(payload.get("as_of"))
+        return payload
     except Exception as exc:
         logger.warning("vertu sell-in 失败，回退数据库快照: {}", exc)
         data = service.workbench_overview(date_text, period, _session_user(user, session))
@@ -310,6 +349,9 @@ async def sell_out(
         "wan": None,
         "note": data.get("sellOutSub") or "门店五件套上报 · USD",
         "currency": "USD",
+        "as_of": data.get("dataAsOf"),
+        "source": "five_kit_db",
+        "state": _freshness_state(data.get("dataAsOf")),
     }
 
 
@@ -322,13 +364,52 @@ async def customer_center(
     return _bridge_call(bridge.api_customer_center_summary, session_user, default=[])
 
 
+def _db_task_panel(date_text: str, user: User, session: Session) -> dict | None:
+    """F4：任务中心优先读 pdca_tasks 表（DB 唯一事实源）。
+
+    无数据时返回 None，调用方回退 bridge（vertu 待办）。注意：scope 过滤
+    仍由 _scoped_task_panel 完成，行为与 bridge 路径一致（fail-closed）。
+    """
+    rows = list(session.exec(select(PdcaTask).where(PdcaTask.task_date == date_text)).all())
+    if not rows:
+        return None
+    items = [
+        {
+            "owner_key": row.owner,
+            "owner": row.owner,
+            "title": row.title,
+            "status": row.status,
+            "priority": row.priority,
+            "source": row.source,
+            "date": row.task_date,
+        }
+        for row in rows
+    ]
+    done_values = {"done", "completed", "complete", "已完成"}
+    done = sum(
+        1 for item in items if str(item.get("status") or "").strip().casefold() in done_values
+    )
+    return {
+        "items": items,
+        "summary": [
+            {"key": "total", "label": "总任务数", "value": len(items)},
+            {"key": "done", "label": "已完成", "value": done},
+            {"key": "undone", "label": "未完成", "value": len(items) - done},
+        ],
+        "source": "pdca_tasks_db",
+    }
+
+
 @router.get("/api/task-center/summary")
 async def task_center_summary(
     date: str | None = None,
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    panel = _bridge_call(bridge.api_task_center_panel, _date_or_today(date), default={})
+    date_text = _date_or_today(date)
+    panel = _db_task_panel(date_text, user, session)
+    if panel is None:
+        panel = _bridge_call(bridge.api_task_center_panel, date_text, default={})
     return _scoped_task_panel(panel, user, session).get("summary", [])
 
 
@@ -370,5 +451,8 @@ async def task_center_panel(
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    panel = _bridge_call(bridge.api_task_center_panel, _date_or_today(date), default={})
+    date_text = _date_or_today(date)
+    panel = _db_task_panel(date_text, user, session)
+    if panel is None:
+        panel = _bridge_call(bridge.api_task_center_panel, date_text, default={})
     return _scoped_task_panel(panel, user, session)
