@@ -1,4 +1,4 @@
-﻿# PDCA 经销商经营工作台
+# PDCA 经销商经营工作台
 
 海外经销商团队的 **Plan-Do-Check-Act** 数据中台与 Web 工作台。  
 基于 **FastAPI + PostgreSQL + vertu-cli 2.x**，由 Cursor 编辑业务数据，Git 做版本管理。
@@ -61,12 +61,16 @@ python run.py
 | 路径 | 功能 |
 |------|------|
 | `/` | 经营驾驶舱（Sell In/Out、客户管理中心） |
-| `/logistics-center/` | 物流进展 |
-| `/signalseller-center/` | 获客指挥 |
-| `/walkin-cockpit/` | 客流 / 线上 |
-| `/meeting-center/` | 会议中心 |
-| `/dashboard` | 数据看板 |
-| `/customer-mgmt` | 客户管理（需另部署 8787 服务） |
+| `/app/` | **Vue3 SPA 工作台**（P1+）：登录、驾驶舱、数据看板、物流中心、会议中心、获客指挥、客流五件套、任务中心、新人培训、数据同步 |
+| `/app/dashboard` | 数据看板：Sell-in 排行 + 近 6 月趋势（ECharts） |
+| `/logistics-center/` → `/app/logistics` | 物流进展（已迁 SPA） |
+| `/signalseller-center/` → `/app/signalseller` | 获客指挥（已迁 SPA） |
+| `/meeting-center/` → `/app/meetings` | 会议中心（已迁 SPA） |
+| `/walkin-submit` | 五件套录入（经销商门户；SPA 版在 `/app/walkin`） |
+| `/customer-mgmt` | 客户管理（获客外部服务 iframe 或 `/app/signalseller`） |
+
+**切到新前端**：生产 `.env` 设 `PDCA_HOME_REDIRECT=/app/`（旧页面共存，可随时回退）。
+**生产运维**：见 `pdca-workbench/docs/运维手册-P5.md`（切换三步曲、监控告警、备份演练、回滚）。
 
 ---
 

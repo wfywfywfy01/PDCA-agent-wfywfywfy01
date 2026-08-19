@@ -147,6 +147,44 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
     }
 
 
+def db_customer_center_summary(session, user=None) -> list[dict] | None:
+    """P5：客户分层概览改由 customer_profiles 表聚合（替代 bridge 读文件）。
+
+    返回 [{"level": "A", "total": n, "touched": None, "target": 0}, ...]；
+    库内无客户时返回 None，调用方回退 bridge（CSV 文件兜底）。
+    touched 尚无触达记录数据源，显式 None → 前端显示"未同步"（数据诚实）。
+    """
+    from sqlmodel import select
+
+    from app.auth.scope import resolve_data_scope
+    from app.models.customer_profile import CustomerProfile
+
+    rows = list(session.exec(select(CustomerProfile)).all())
+    if not rows:
+        return None
+    if user is not None:
+        scope = resolve_data_scope(user, session)
+        if not scope.unrestricted:
+            owners = {str(value).strip().casefold() for value in scope.owner_keys if str(value).strip()}
+            dealers = {str(value).strip().casefold() for value in scope.dealer_names if str(value).strip()}
+            rows = [
+                row for row in rows
+                if str(row.owner or "").strip().casefold() in owners
+                or str(row.dealer_name or "").strip().casefold() in dealers
+            ]
+    counts = {"A": 0, "B": 0, "C": 0, "D": 0}
+    for row in rows:
+        grade = (row.abcd_grade or "").strip().upper()
+        if grade not in counts:
+            grade = "D"
+        counts[grade] += 1
+    return [
+        {"level": grade, "total": counts[grade], "touched": None, "target": 0}
+        for grade in ("A", "B", "C", "D")
+        if counts[grade]
+    ]
+
+
 def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
     """Use authoritative database rows to override legacy-source values.
 

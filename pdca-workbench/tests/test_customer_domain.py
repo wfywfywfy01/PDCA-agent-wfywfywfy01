@@ -151,6 +151,36 @@ class CustomerDomainTests(unittest.TestCase):
             session.commit()
         self.assertEqual(service.list_owners("yang-jingjing"), ["何海文"])
 
+    def test_customer_center_summary_db_aggregation(self):
+        from app.dashboard import service
+
+        with Session(self.engine) as session:
+            for name, grade in [
+                ("甲", "A"), ("乙", "A"), ("丙", "B"), ("丁", "C"),
+            ]:
+                session.add(
+                    CustomerProfile(
+                        team="yang-jingjing",
+                        dealer_name=name,
+                        owner="何海文",
+                        abcd_grade=grade,
+                    )
+                )
+            session.commit()
+            result = service.db_customer_center_summary(session, user=None)
+        self.assertIsNotNone(result)
+        by_level = {row["level"]: row["total"] for row in result}
+        self.assertEqual(by_level["A"], 2)
+        self.assertEqual(by_level["B"], 1)
+        self.assertEqual(by_level["C"], 1)
+        self.assertNotIn("D", by_level)  # 无 D 类客户不出现空档
+
+    def test_customer_center_summary_none_when_empty(self):
+        from app.dashboard import service
+
+        with Session(self.engine) as session:
+            self.assertIsNone(service.db_customer_center_summary(session, user=None))
+
 
 if __name__ == "__main__":
     unittest.main()

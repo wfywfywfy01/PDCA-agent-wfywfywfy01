@@ -376,7 +376,10 @@ async def customer_center(
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     session_user = _session_user(user, session)
-    return _bridge_call(bridge.api_customer_center_summary, session_user, default=[])
+    rows = service.db_customer_center_summary(session, user)
+    if rows is None:
+        rows = _bridge_call(bridge.api_customer_center_summary, session_user, default=[])
+    return rows
 
 
 def _db_task_panel(date_text: str, user: User, session: Session) -> dict | None:
