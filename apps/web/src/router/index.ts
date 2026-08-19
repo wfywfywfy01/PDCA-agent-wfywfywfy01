@@ -22,6 +22,11 @@ export const router = createRouter({
       name: 'meetings',
       component: () => import('@/pages/MeetingPage.vue'),
     },
+    {
+      path: '/admin/sync',
+      name: 'admin-sync',
+      component: () => import('@/pages/AdminSyncPage.vue'),
+    },
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
