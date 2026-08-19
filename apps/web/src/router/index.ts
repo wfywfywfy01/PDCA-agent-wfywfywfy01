@@ -32,6 +32,11 @@ export const router = createRouter({
       name: 'signalseller',
       component: () => import('@/pages/SignalsellerPage.vue'),
     },
+    {
+      path: '/walkin',
+      name: 'walkin',
+      component: () => import('@/pages/WalkinPage.vue'),
+    },
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
