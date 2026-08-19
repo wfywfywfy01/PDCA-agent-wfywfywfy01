@@ -27,7 +27,7 @@ if ($DockerHost -match '^tcp://' -and $DockerHost -notmatch ':2376$') {
 
 
 $ErrorActionPreference = "Stop"
-$ImageRegistry = "ghcr.io/frankie-foo/pdca-workbench"
+$ImageRegistry = "ghcr.io/wfywfywfy01/pdca-workbench"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $WorkbenchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $EnvFile = Join-Path $WorkbenchRoot ".env"

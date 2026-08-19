@@ -30,7 +30,7 @@ param(
 # restarting/redeploying one never touches the other.
 
 $ErrorActionPreference = "Stop"
-$ImageRegistry = "ghcr.io/frankie-foo/pdca-workbench"
+$ImageRegistry = "ghcr.io/wfywfywfy01/pdca-workbench"
 $WorkbenchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $EnvFile = Join-Path $WorkbenchRoot ".env.walkin"
 $HelperImage = "vertu-registry.cn-chengdu.cr.aliyuncs.com/base/postgres:18.4-bookworm"

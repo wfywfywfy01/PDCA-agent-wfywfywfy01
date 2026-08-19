@@ -117,7 +117,7 @@ jobs:
       - name: Publish tested image
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
-          registry_image="ghcr.io/frankie-foo/pdca-workbench"
+          registry_image="ghcr.io/wfywfywfy01/pdca-workbench"
           docker tag "pdca-workbench:${{ github.sha }}" "$registry_image:${{ github.sha }}"
           docker tag "pdca-workbench:${{ github.sha }}" "$registry_image:latest"
           docker push "$registry_image:${{ github.sha }}"
