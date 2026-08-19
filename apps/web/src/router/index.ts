@@ -42,6 +42,11 @@ export const router = createRouter({
       name: 'tasks',
       component: () => import('@/pages/TasksPage.vue'),
     },
+    {
+      path: '/onboarding',
+      name: 'onboarding',
+      component: () => import('@/pages/OnboardingPage.vue'),
+    },
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

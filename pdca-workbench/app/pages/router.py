@@ -289,34 +289,23 @@ async def customer_mgmt(
     user: Annotated[User, Depends(get_current_user)] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    try:
-        date_text = _date_or_today(date)
-        settings = get_settings()
-        if (
-            settings.acquisition_enabled
-            and not legacy
-            and user.role in {"admin", "manager", "sales"}
-        ):
-            scope = resolve_data_scope(user, session)
-            code = issue_login_ticket(user, scope, session)
-            frame_url = f"{settings.acquisition_url}/?{urlencode({'pdca_code': code})}#dashboard"
-            return _customer_acquisition_page(frame_url, date_text)
-        if settings.environment == "production":
-            session_user = {
-                "username": user.username,
-                "display_name": user.display_name,
-                "sales_name": getattr(user, "sales_name", "") or "",
-                "role": user.role,
-            }
-            session_user.update(resolve_data_scope(user, session).as_session_user_fields())
-            rows = bridge.api_customer_center_summary(session_user=session_user)
-            return _customer_summary_page(rows if isinstance(rows, list) else [], date_text)
-        err = bridge.ensure_customer_server()
-        if err:
-            return _redirect_msg("/", date_text, err)
-        return html_page(bridge.render_customer_mgmt_frame(date_text))
-    except Exception:
-        return _unavailable("客户管理")
+    """P4（决策 A/D）：客户管理收敛进主产品。
+
+    - 启用获客外部服务且角色符合时维持 iframe（决策 D 暂缓 API 化）；
+    - 其余情况 307 到 /app/signalseller（主 SPA 客户管理，决策 A 落地）——
+      不再拉起硬编码路径的 8787 服务、不再渲染旧只读汇总页。
+    """
+    settings = get_settings()
+    if (
+        settings.acquisition_enabled
+        and not legacy
+        and user.role in {"admin", "manager", "sales"}
+    ):
+        scope = resolve_data_scope(user, session)
+        code = issue_login_ticket(user, scope, session)
+        frame_url = f"{settings.acquisition_url}/?{urlencode({'pdca_code': code})}#dashboard"
+        return _customer_acquisition_page(frame_url, _date_or_today(date))
+    return RedirectResponse("/app/signalseller", status_code=307)
 
 
 @router.get("/agent-soul")
@@ -496,12 +485,8 @@ async def logistics_center_index(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    settings = get_settings()
-    return _serve_module(
-        settings.logistics_center_dir / "index.html",
-        _date_or_today(date),
-        "物流进展", "物流中心",
-    )
+    """P2：物流中心已迁入主 SPA（/app/logistics），旧静态页 307 收敛。"""
+    return RedirectResponse("/app/logistics", status_code=307)
 
 
 @router.get("/logistics-center/{rel_path:path}")
@@ -520,12 +505,8 @@ async def meeting_center_index(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    settings = get_settings()
-    return _serve_module(
-        settings.meeting_center_dir / "index.html",
-        _date_or_today(date),
-        "会议中心", "会议中心",
-    )
+    """P2：会议中心已迁入主 SPA（/app/meetings），旧静态页 307 收敛。"""
+    return RedirectResponse("/app/meetings", status_code=307)
 
 
 @router.get("/meeting-center/{rel_path:path}")
@@ -568,12 +549,8 @@ async def signalseller_center_index(
     date: str | None = None,
     user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    settings = get_settings()
-    return _serve_module(
-        settings.signalseller_center_dir / "index.html",
-        _date_or_today(date),
-        "获客指挥", "SignalSeller 获客指挥",
-    )
+    """P4：获客指挥已迁入主 SPA（/app/signalseller），旧静态页 307 收敛。"""
+    return RedirectResponse("/app/signalseller", status_code=307)
 
 
 @router.get("/signalseller-center/{rel_path:path}")
