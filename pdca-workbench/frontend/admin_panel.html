@@ -99,6 +99,7 @@
   <button class="tab-btn" onclick="switchTab('targets',this)">🎯 月度目标</button>
   <button class="tab-btn" onclick="switchTab('audit',this)">📋 操作日志</button>
   <button class="tab-btn" onclick="switchTab('export',this)">⬇ 数据导出</button>
+<button class="tab-btn" onclick="switchTab('todo',this)">⏰ 待办催办</button>
 </div>
 
 <!-- ══ 用户管理 ══ -->
@@ -205,6 +206,32 @@
 </div>
 </div>
 
+
+<!-- ══ 待办催办 ══ -->
+<div id="tab-todo" class="tab-panel">
+<div class="container">
+  <div class="card">
+    <div class="card-header">
+      <h2>待办催办（直接催本人）</h2>
+      <div style="display:flex;gap:.5rem">
+        <button class="btn btn-ghost" onclick="loadTodoRemind()">刷新清单</button>
+        <button class="btn btn-primary" onclick="sendTodoRemind()">立即催办</button>
+      </div>
+    </div>
+    <div id="alertTodo" class="alert-inline"></div>
+    <p style="font-size:.78rem;color:#64748b;margin-bottom:.85rem">
+      把「今日 + 逾期」未完成待办通过 VPS IM 私聊直接发给负责人本人。
+      每天 09:30 / 16:30 自动催一轮（同一轮当天不重复）；负责人匹配不到 IM 用户时跳过并列出。
+      <span id="todoHint" style="color:#94a3b8"></span>
+    </p>
+    <div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>负责人</th><th>IM 用户</th><th>待办数</th><th>待办明细</th><th>状态</th>
+    </tr></thead><tbody id="todoTbody"><tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">点击「刷新清单」加载</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+</div>
 <!-- ══ 用户 Modal ══ -->
 <div id="userModal" class="modal-overlay" onclick="if(event.target===this)closeModal('userModal')">
   <div class="modal">
@@ -269,6 +296,7 @@ function switchTab(tab, btn) {
   else if(tab==='targets') initTargets();
   else if(tab==='audit') loadAudit();
   else if(tab==='export') initExport();
+  else if(tab==='todo') loadTodoRemind();
 }
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
@@ -559,6 +587,58 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('exportSalesMonth') && document.getElementById('exportSalesMonth').addEventListener('input',updateExportLinks);
 });
 
+
+// ── 待办催办 ──
+function todoRow(owner,userId,tasks,titles,status,cls){
+  return '<tr><td><strong>'+esc(owner)+'</strong></td>'
+    +'<td>'+(userId?'<code>'+esc(userId)+'</code>':'—')+'</td>'
+    +'<td>'+tasks+'</td>'
+    +'<td>'+esc((titles||[]).join('；'))+'</td>'
+    +'<td><span class="badge '+cls+'">'+esc(status)+'</span></td></tr>';
+}
+function loadTodoRemind(){
+  document.getElementById('todoTbody').innerHTML='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr>';
+  fetch(API+'/api/todos/remind/candidates',{credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d;
+      if(!res.ok){document.getElementById('todoTbody').innerHTML='<tr><td colspan="5" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
+      var html='';
+      (d.sent||[]).forEach(function(s){
+        html+=todoRow(s.owner,s.user_id,s.tasks,s.titles,'可催办','badge-ok');
+      });
+      (d.skipped_owners||[]).forEach(function(s){
+        html+=todoRow(s.owner,'',s.tasks,'未匹配到 IM 用户，已跳过','跳过','badge-warn');
+      });
+      if(!html){html='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">当前没有待催的未完成待办 ✓</td></tr>';}
+      document.getElementById('todoTbody').innerHTML=html;
+      document.getElementById('todoHint').textContent='—— '+(d.summary||'');
+    });
+}
+function sendTodoRemind(){
+  if(!confirm('确定立即给所有未完成待办的负责人发送 VPS IM 私聊催办吗？'))return;
+  document.getElementById('todoTbody').innerHTML='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">发送中…（每人一条私聊，约几秒）</td></tr>';
+  fetch(API+'/api/todos/remind',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({dry_run:false})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d;
+      if(!res.ok){setAlert('alertTodo',d.detail||'发送失败','err');loadTodoRemind();return;}
+      setAlert('alertTodo','催办完成：'+d.summary,'ok');
+      var html='';
+      (d.sent||[]).forEach(function(s){
+        html+=todoRow(s.owner,s.user_id,s.tasks,s.titles,'已催办','badge-ok');
+      });
+      (d.skipped_owners||[]).forEach(function(s){
+        html+=todoRow(s.owner,'',s.tasks,'未匹配到 IM 用户，已跳过','跳过','badge-warn');
+      });
+      (d.failed||[]).forEach(function(s){
+        html+=todoRow(s.owner,'',s.tasks,(s.reason||'发送失败'),'失败','badge-off');
+      });
+      if(!html){html='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">没有可催办的待办</td></tr>';}
+      document.getElementById('todoTbody').innerHTML=html;
+      document.getElementById('todoHint').textContent='—— '+(d.summary||'');
+    });
+}
 // 初始加载
 loadUsers();
 </script>

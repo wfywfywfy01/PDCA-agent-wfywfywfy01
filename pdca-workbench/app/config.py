@@ -56,6 +56,18 @@ class Settings:
         )
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
+        # 待办催办（提醒跟进）：VPS IM 私聊本人。
+        # PDCA_TODO_REMIND_TIMES 为逗号分隔的 HH:MM 列表，默认上午/下午各一轮。
+        self.todo_remind_enabled = os.environ.get("PDCA_TODO_REMIND_ENABLED", "1") == "1"
+        self.todo_remind_times = [
+            item.strip()
+            for item in os.environ.get("PDCA_TODO_REMIND_TIMES", "09:30,16:30").split(",")
+            if item.strip()
+        ]
+        self.workbench_base_url = os.environ.get(
+            "PDCA_WORKBENCH_URL",
+            "https://pdca-workbench-teams.vertu.cn/app/",
+        ).strip().rstrip("/") + "/"
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
         acquisition_url = os.environ.get(

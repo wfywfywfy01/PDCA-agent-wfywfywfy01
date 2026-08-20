@@ -68,8 +68,14 @@ async def run_vertu(
         return -1, "", str(exc)
 
 
-def run_vertu_sync_json(args: list[str], timeout: float = 60.0) -> dict | list | None:
-    """同步调用 vertu-cli，供调度线程和遗留同步函数复用。"""
+def run_vertu_sync(
+    args: list[str],
+    timeout: float = 60.0,
+) -> tuple[int, str, str]:
+    """同步执行 vertu-cli，供调度线程/后台线程复用。
+
+    @returns (exit_code, stdout, stderr)；执行失败返回 (-1, "", 错误信息)。
+    """
     command = resolve_vertu_command()
     cmd = [command, *args]
     if sys.platform == "win32" and command.lower().endswith((".cmd", ".bat")):
@@ -86,18 +92,28 @@ def run_vertu_sync_json(args: list[str], timeout: float = 60.0) -> dict | list |
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("vertu-cli 同步调用失败: {}", exc)
-        return None
-    if completed.returncode != 0 or not completed.stdout.strip():
+        return -1, "", str(exc)
+    return (
+        completed.returncode or 0,
+        completed.stdout or "",
+        completed.stderr or "",
+    )
+
+
+def run_vertu_sync_json(args: list[str], timeout: float = 60.0) -> dict | list | None:
+    """同步调用 vertu-cli 并解析 JSON，供调度线程和遗留同步函数复用。"""
+    code, stdout, stderr = run_vertu_sync(args, timeout=timeout)
+    if code != 0 or not stdout.strip():
         logger.warning(
             "vertu-cli 同步调用无有效输出 code={} stderr={}",
-            completed.returncode,
-            (completed.stderr or "")[:200],
+            code,
+            stderr[:200],
         )
         return None
     try:
-        return json.loads(completed.stdout.strip())
+        return json.loads(stdout.strip())
     except json.JSONDecodeError:
-        logger.warning("vertu-cli 同步输出不是 JSON: {}", completed.stdout[:200])
+        logger.warning("vertu-cli 同步输出不是 JSON: {}", stdout[:200])
         return None
 
 

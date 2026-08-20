@@ -193,6 +193,28 @@ def logistics_tracking_refresh_job() -> None:
         notify("物流状态自动刷新失败", str(exc)[:300])
 
 
+def todo_remind_job(round_label: str) -> None:
+    """待办催办：未完成待办 -> VPS IM 私聊本人。
+
+    范围：task_date <= 今天且未完成且 owner 非空；同一轮当天只催一次；
+    负责人匹配不到 IM 用户时跳过并在结果/日志里报告（设计决定，不打扰群）。
+    """
+    from app.todos.service import run_todo_reminders
+
+    logger.info("待办催办开始 round={}", round_label)
+    try:
+        result = run_todo_reminders(round_label=round_label, force=False)
+        logger.info("待办催办完成: {}", result.get("summary"))
+        if result.get("failed"):
+            notify(
+                "待办催办部分失败",
+                "失败 " + str(len(result["failed"])) + " 人：" + str(result["failed"])[:200],
+            )
+    except Exception as exc:
+        logger.exception("待办催办异常: {}", exc)
+        notify("待办催办失败", str(exc)[:300])
+
+
 def kpi_refresh_job() -> None:
     """【已停用 F1】旧 KPI 刷新：子进程重建 chart_data.json + dashboard.html。
 
@@ -262,13 +284,40 @@ def start_scheduler() -> BackgroundScheduler | None:
         coalesce=True,
     )
 
+    # 待办催办（VPS IM 私聊本人）：PDCA_TODO_REMIND_TIMES 每轮一个任务，
+    # 默认 09:30（morning）/ 16:30（afternoon）各一轮。
+    if settings.todo_remind_enabled:
+        from app.todos.service import round_label_for_time
+
+        for slot in settings.todo_remind_times:
+            try:
+                hour_text, minute_text = slot.split(":", 1)
+                hour = int(hour_text)
+                minute = int(minute_text)
+            except (ValueError, AttributeError):
+                logger.warning("忽略非法待办催办时间: {}", slot)
+                continue
+            label = round_label_for_time(f"{hour:02d}:{minute:02d}")
+            _scheduler.add_job(
+                todo_remind_job,
+                args=[label],
+                trigger="cron",
+                hour=hour,
+                minute=minute,
+                id=f"todo_remind_{label}",
+                max_instances=1,
+                coalesce=True,
+            )
+
     # kpi_refresh（09:00/12:00/21:00 重建静态 chart_data.json）已停用（F1）：
     # 看板数据由 /api/dashboard/* 实时查库，不再运行子进程生成静态文件。
 
     _scheduler.start()
     logger.info(
-        "调度器已启动 cron={} logistics_tracking=07:30 vps_sellin=20:00 kpi_refresh=停用(F1)",
+        "调度器已启动 cron={} logistics_tracking=07:30 vps_sellin=20:00 "
+        "kpi_refresh=停用(F1) todo_remind={}",
         settings.sync_cron,
+        settings.todo_remind_times if settings.todo_remind_enabled else "停用",
     )
     return _scheduler
 

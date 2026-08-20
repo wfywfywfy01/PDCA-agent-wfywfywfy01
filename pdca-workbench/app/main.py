@@ -33,6 +33,7 @@ from app.spa.router import router as spa_router
 from app.vertu.client import vertu_health
 from app.signalseller.router import router as signalseller_router
 from app.export.router import router as export_router
+from app.todos.router import router as todos_router
 from app.walkin.router import router as walkin_router
 from app.acquisition.router import router as acquisition_router
 
@@ -260,6 +261,7 @@ app.include_router(logistics_router)
 app.include_router(meeting_router)
 app.include_router(onboarding_router)
 app.include_router(signalseller_router)
+app.include_router(todos_router)
 app.include_router(pdca_router)
 app.include_router(pdca_post_router)
 app.include_router(files_router)
