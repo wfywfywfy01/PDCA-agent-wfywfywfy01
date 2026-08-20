@@ -196,7 +196,23 @@ def main() -> int:
                         choices=["generic", "dingtalk", "wecom"])
     args = parser.parse_args()
     day = args.date or date.today().isoformat()
-    message = build_report(day)
+    try:
+        message = build_report(day)
+    except Exception as exc:  # noqa: BLE001 — DB 不可达时推送失败提示而非静默
+        fallback = (
+            f"⚠️ PDCA 经营日报 {day} 生成失败\n"
+            f"原因：{type(exc).__name__}: {str(exc)[:150]}\n"
+            "请检查生产数据库连通性（/metrics 与 /health）。"
+        )
+        print(f"[日报生成失败] {exc}")
+        try:
+            sys.path.insert(0, str(APP_ROOT))
+            from app.vps_im_push import push_vps_message
+
+            push_vps_message(fallback)
+        except Exception:  # noqa: BLE001
+            pass
+        return 1
 
     webhook = (
         os.environ.get("PDCA_REPORT_WEBHOOK_URL", "").strip()
