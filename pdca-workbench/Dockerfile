@@ -40,6 +40,7 @@ RUN python -m playwright install --with-deps chromium
 COPY pdca-workbench/app ./app
 COPY pdca-workbench/frontend ./frontend
 COPY pdca-workbench/migrations ./migrations
+COPY pdca-workbench/scripts ./scripts
 COPY pdca-workbench/run.py .
 COPY --from=web-build /web/dist ./spa-dist
 

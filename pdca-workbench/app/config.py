@@ -55,6 +55,8 @@ class Settings:
             os.environ.get("PDCA_REVENUE_REVIEW_THRESHOLD_USD", "1000000")
         )
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
+        # 每日经营日报推送（08:30，服务器自跑）；走 VPS IM 机器人通道
+        self.daily_report_enabled = os.environ.get("PDCA_DAILY_REPORT_ENABLED", "1") == "1"
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         # 待办催办（提醒跟进）：VPS IM 私聊本人。
         # PDCA_TODO_REMIND_TIMES 为逗号分隔的 HH:MM 列表，默认上午/下午各一轮。

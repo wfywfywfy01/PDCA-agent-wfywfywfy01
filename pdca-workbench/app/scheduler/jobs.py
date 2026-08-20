@@ -226,6 +226,33 @@ def kpi_refresh_job() -> None:
     return
 
 
+def daily_report_job() -> None:
+    """每日经营日报（08:30）：容器内直连生产库 → VPS IM 群。
+
+    独立于部署机网络；生成失败时推送失败提示（不静默）。
+    """
+    from datetime import date
+
+    from app.daily_report import build_report
+    from app.vps_im_push import push_vps_message
+
+    day = date.today().isoformat()
+    try:
+        message = build_report(day)
+    except Exception as exc:
+        logger.exception("日报生成失败: {}", exc)
+        push_vps_message(
+            f"⚠️ PDCA 经营日报 {day} 生成失败\n"
+            f"{type(exc).__name__}: {str(exc)[:150]}"
+        )
+        notify("每日经营日报生成失败", str(exc)[:200])
+        return
+    if push_vps_message(message):
+        logger.info("日报已推送 {}", day)
+    else:
+        logger.warning("日报推送失败（VPS 机器人未配置或推送异常）{}", day)
+
+
 def start_scheduler() -> BackgroundScheduler | None:
     """启动后台调度器。"""
     global _scheduler
@@ -283,6 +310,18 @@ def start_scheduler() -> BackgroundScheduler | None:
         max_instances=1,
         coalesce=True,
     )
+
+    # 08:30 — 每日经营日报推送（服务器自跑，不依赖部署机网络）
+    if getattr(settings, "daily_report_enabled", True):
+        _scheduler.add_job(
+            daily_report_job,
+            trigger="cron",
+            hour=8,
+            minute=30,
+            id="daily_report_push",
+            max_instances=1,
+            coalesce=True,
+        )
 
     # 待办催办（VPS IM 私聊本人）：PDCA_TODO_REMIND_TIMES 每轮一个任务，
     # 默认 09:30（morning）/ 16:30（afternoon）各一轮。

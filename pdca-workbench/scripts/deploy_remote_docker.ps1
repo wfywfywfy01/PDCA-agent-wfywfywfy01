@@ -348,7 +348,8 @@ function Start-PdcaContainer {
         "PDCA_HOME_REDIRECT", "PDCA_ALERT_WEBHOOK_URL",
         "PDCA_REPORT_WEBHOOK_URL",
         "PDCA_VPS_BOT_APP_ID", "PDCA_VPS_BOT_APP_SECRET", "PDCA_VPS_BOT_CHANNEL_ID",
-        "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL"
+        "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
+        "PDCA_DAILY_REPORT_ENABLED"
     )) {
         $envValue = Read-OptionalDotEnvValue $envName
         if ($envValue) { $dockerArgs += @("-e", "$envName=$envValue") }
