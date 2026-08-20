@@ -207,13 +207,24 @@ def main() -> int:
     out_path = outbox / f"{day}_daily_report_push.txt"
     out_path.write_text(message, encoding="utf-8")
 
-    if not webhook:
-        print(f"[未配置 webhook] 日报已写入 {out_path}，未发送")
+    # 优先 VPS IM 机器人（与告警同通道），其次通用 webhook
+    sent = False
+    try:
+        sys.path.insert(0, str(APP_ROOT))
+        from app.vps_im_push import push_vps_message
+
+        sent = push_vps_message(message)
+        if sent:
+            print(f"[VPS 推送成功] 日报已写入 {out_path}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[VPS 推送失败] {exc}")
+    if not sent and webhook:
+        sent = post_message(webhook, message, args.platform)
+        print(f"[{'webhook 推送成功' if sent else 'webhook 推送失败'}] 日报已写入 {out_path}")
+    if not sent:
+        print(f"[未发送] 日报已写入 {out_path}")
         print(message)
-        return 0
-    ok = post_message(webhook, message, args.platform)
-    print(f"[{'推送成功' if ok else '推送失败'}] 日报已写入 {out_path}")
-    return 0 if ok else 1
+    return 0 if sent else 1
 
 
 if __name__ == "__main__":

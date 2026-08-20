@@ -22,7 +22,10 @@ def webhook_url() -> str:
 
 
 def notify(title: str, detail: str = "") -> None:
-    """发送告警；未配置 webhook 时仅写日志。调用方无需 try/except。"""
+    """发送告警；优先 VPS IM 机器人，其次通用 webhook，均未配置仅写日志。
+
+    调用方无需 try/except；相同告警 10 分钟内去重。
+    """
     key = f"{title}|{(detail or '')[:120]}"
     now = time.monotonic()
     if key == _last_alert["key"] and now - _last_alert["at"] < _DEDUP_SECONDS:
@@ -31,12 +34,22 @@ def notify(title: str, detail: str = "") -> None:
     _last_alert["at"] = now
 
     logger.error("[alert] {} | {}", title, detail)
+    message = f"[PDCA 告警] {title}\n{detail}"
+
+    try:
+        from app.vps_im_push import push_vps_message
+
+        if push_vps_message(message):
+            return
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("VPS 告警推送失败: {}", exc)
+
     url = webhook_url()
     if not url:
         return
     try:
         import httpx
 
-        httpx.post(url, json={"text": f"[PDCA 告警] {title}\n{detail}"}, timeout=5.0)
-    except Exception as exc:  # noqa: BLE001 — 告警失败只能记日志，不能影响主流程
-        logger.warning("告警推送失败: {}", exc)
+        httpx.post(url, json={"text": message}, timeout=5.0)
+    except Exception as exc:  # noqa: BLE001 — 推送失败只能记日志，不能影响主流程
+        logger.warning("告警 webhook 推送失败: {}", exc)

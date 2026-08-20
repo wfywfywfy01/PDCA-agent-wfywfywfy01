@@ -344,10 +344,14 @@ function Start-PdcaContainer {
         "-e", "VERTU_APP_ID=cursor"
     )
     # P1/P5：可选业务开关从 .env 透传（未配置则保持默认行为）
-    $homeRedirect = Read-OptionalDotEnvValue "PDCA_HOME_REDIRECT"
-    if ($homeRedirect) { $dockerArgs += @("-e", "PDCA_HOME_REDIRECT=$homeRedirect") }
-    $alertWebhook = Read-OptionalDotEnvValue "PDCA_ALERT_WEBHOOK_URL"
-    if ($alertWebhook) { $dockerArgs += @("-e", "PDCA_ALERT_WEBHOOK_URL=$alertWebhook") }
+    foreach ($envName in @(
+        "PDCA_HOME_REDIRECT", "PDCA_ALERT_WEBHOOK_URL",
+        "PDCA_REPORT_WEBHOOK_URL",
+        "PDCA_VPS_BOT_APP_ID", "PDCA_VPS_BOT_APP_SECRET", "PDCA_VPS_BOT_CHANNEL_ID"
+    )) {
+        $envValue = Read-OptionalDotEnvValue $envName
+        if ($envValue) { $dockerArgs += @("-e", "$envName=$envValue") }
+    }
     $dockerArgs += $Image
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
     }
