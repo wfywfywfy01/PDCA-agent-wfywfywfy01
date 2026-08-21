@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.auth.odoo_login_map import should_refuse_odoo_sso_create
 from app.auth.odoo_sso import parse_odoo_ticket, resolve_odoo_sso_secret
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
@@ -264,6 +265,8 @@ async def odoo_sso(
     payload = parse_odoo_ticket(ticket, secret) if secret else None
     next_path = _safe_next_path(next)
     if not payload:
+        return RedirectResponse(f"/login?next={next_path}", status_code=302)
+    if should_refuse_odoo_sso_create(payload["login"]):
         return RedirectResponse(f"/login?next={next_path}", status_code=302)
 
     identity = {

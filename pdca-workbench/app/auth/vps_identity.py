@@ -13,6 +13,7 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.auth.models import User
+from app.auth.odoo_login_map import resolve_pdca_username
 from app.auth.security import hash_password
 from app.config import get_settings
 from app.vertu.client import resolve_vertu_command
@@ -148,10 +149,10 @@ def vps_display_name(vps: dict) -> str:
 
 
 def vps_username(vps: dict) -> str:
-    """@returns 本地 users.username（优先 Odoo login）"""
+    """@returns 本地 users.username（Odoo login，经销商走对照表）"""
     login = _nested(vps, "login")
     if login:
-        return login
+        return resolve_pdca_username(login)
     uid = vps.get("user_id") or vps.get("id")
     if uid:
         return f"vps-{uid}"
