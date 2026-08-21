@@ -70,6 +70,18 @@ class Settings:
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
         ).strip().rstrip("/") + "/"
+        # Vemory 会议待办（事实源）：OpenAPI 地址、查询人员名单、催办宽限。
+        # 名单为 JSON 字符串：[{"name","vemoryUserId","vpsUserId"}, ...]；
+        # 密钥走环境变量 VEMORY_OPENAPI_KEY（X-API-Key），不落入配置对象。
+        self.vemory_openapi_url = os.environ.get(
+            "PDCA_VEMORY_OPENAPI_URL",
+            "https://vemory-meet.vemory.io",
+        ).strip().rstrip("/")
+        self.vemory_todo_users_json = os.environ.get("PDCA_VEMORY_TODO_USERS", "").strip()
+        # Vemory 无截止待办：会议满该小时数后才进入催办（对齐 todo-tracker 语义）。
+        self.todo_remind_grace_hours = float(
+            os.environ.get("PDCA_TODO_REMIND_GRACE_HOURS", "48")
+        )
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
         acquisition_url = os.environ.get(

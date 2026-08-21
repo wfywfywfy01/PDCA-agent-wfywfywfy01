@@ -13,8 +13,9 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -48,7 +49,13 @@ def today_text() -> str:
 
 
 def list_pending_tasks(today: str) -> list[PdcaTask]:
-    """待催待办：到期日 <= 今天、状态未完成、owner 非空。"""
+    """待催待办：到期日 <= 今天、状态未完成、owner 非空。
+
+    Vemory 无截止待办（task_date == meeting_date）有宽限期：会议满
+    todo_remind_grace_hours（默认 48h）后才进入催办，对齐 todo-tracker 语义；
+    有 deadline 的待办不受宽限影响（task_date != meeting_date）。
+    注：deadline 恰好等于会议日期时也会享受宽限，属可接受的近似。
+    """
     with Session(get_engine()) as session:
         rows = session.exec(
             select(PdcaTask)
@@ -58,7 +65,22 @@ def list_pending_tasks(today: str) -> list[PdcaTask]:
             )
             .order_by(PdcaTask.task_date.asc(), PdcaTask.id.asc()),
         ).all()
-    return [row for row in rows if not is_done(row.status)]
+    pending = [row for row in rows if not is_done(row.status)]
+    settings = get_settings()
+    grace_days = max(0, int(math.ceil(settings.todo_remind_grace_hours / 24.0)))
+    if not grace_days:
+        return pending
+    cutoff = (datetime.now() - timedelta(days=grace_days)).strftime("%Y-%m-%d")
+    return [
+        row
+        for row in pending
+        if not (
+            row.source == "vemory"
+            and row.meeting_date
+            and row.task_date == row.meeting_date
+            and row.meeting_date > cutoff
+        )
+    ]
 
 
 def _already_reminded_today(row: PdcaTask, round_label: str, today: str) -> bool:

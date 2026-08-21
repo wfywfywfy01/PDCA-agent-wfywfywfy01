@@ -303,6 +303,8 @@ def run_full_sync(date_text: str | None = None) -> dict:
         ("pdca_tasks", lambda: sync_pdca_tasks_from_csv(date_text)),
         ("daily_reports", lambda: sync_daily_reports(date_text)),
         ("meetings", lambda: sync_meetings(date_text)),
+        # Vemory 会议待办（事实源：Vemory OpenAPI → pdca_tasks，Vemory 为准）
+        ("vemory_todos", lambda: sync_vemory_todos(date_text)),
     ):
         try:
             result[key] = fn()
@@ -310,3 +312,10 @@ def run_full_sync(date_text: str | None = None) -> dict:
             logger.warning("同步步骤 {} 失败: {}", key, exc)
             result[key] = f"error: {exc}"
     return result
+
+
+def sync_vemory_todos(date_text: str | None = None) -> dict:
+    """Vemory OpenAPI 会议待办同步（懒 import，避免启动期引入 httpx 依赖链）。"""
+    from app.todos.vemory import sync_vemory_todos as _sync
+
+    return _sync(date_text)

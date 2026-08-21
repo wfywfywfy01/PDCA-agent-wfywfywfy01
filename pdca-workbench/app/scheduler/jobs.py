@@ -215,6 +215,24 @@ def todo_remind_job(round_label: str) -> None:
         notify("待办催办失败", str(exc)[:300])
 
 
+def vemory_todo_sync_job() -> None:
+    """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
+
+    密钥/名单未配置时同步安全跳过（fail-closed），只记日志不告警。
+    """
+    from app.todos.vemory import sync_vemory_todos
+
+    logger.info("Vemory 待办同步开始")
+    try:
+        result = sync_vemory_todos()
+        logger.info("Vemory 待办同步完成: {}", result)
+        if result.get("status") == "ok" and result.get("errors"):
+            notify("Vemory 待办同步部分失败", str(result["errors"])[:300])
+    except Exception as exc:
+        logger.exception("Vemory 待办同步异常: {}", exc)
+        notify("Vemory 待办同步失败", str(exc)[:300])
+
+
 def kpi_refresh_job() -> None:
     """【已停用 F1】旧 KPI 刷新：子进程重建 chart_data.json + dashboard.html。
 
@@ -348,13 +366,25 @@ def start_scheduler() -> BackgroundScheduler | None:
                 coalesce=True,
             )
 
+    # 16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），为 16:30 催办轮供数。
+    # 密钥/名单未配置时同步内部安全跳过；06:00 每日同步也含此步骤。
+    _scheduler.add_job(
+        vemory_todo_sync_job,
+        trigger="cron",
+        hour=16,
+        minute=0,
+        id="vemory_todo_sync_16",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # kpi_refresh（09:00/12:00/21:00 重建静态 chart_data.json）已停用（F1）：
     # 看板数据由 /api/dashboard/* 实时查库，不再运行子进程生成静态文件。
 
     _scheduler.start()
     logger.info(
         "调度器已启动 cron={} logistics_tracking=07:30 vps_sellin=20:00 "
-        "kpi_refresh=停用(F1) todo_remind={}",
+        "kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
     )

@@ -9,7 +9,8 @@ param(
     [int]$DockerPullTimeoutSeconds = 900,
     [string]$LogDirectory = "",
     [switch]$SkipCiCheck,
-    [switch]$SkipImagePull
+    [switch]$SkipImagePull,
+    [switch]$Force
 )
 
 if ([string]::IsNullOrWhiteSpace($DockerHost)) {
@@ -287,6 +288,9 @@ function New-SecretEnvFile {
     if ($Secrets.VERTU_BOT_INBOUND_KEY) {
         $lines += "VERTU_BOT_INBOUND_KEY=$($Secrets.VERTU_BOT_INBOUND_KEY)"
     }
+    if ($Secrets.VEMORY_OPENAPI_KEY) {
+        $lines += "VEMORY_OPENAPI_KEY=$($Secrets.VEMORY_OPENAPI_KEY)"
+    }
     [System.IO.File]::WriteAllLines($path, $lines)
     return $path
 }
@@ -349,6 +353,8 @@ function Start-PdcaContainer {
         "PDCA_REPORT_WEBHOOK_URL",
         "PDCA_VPS_BOT_APP_ID", "PDCA_VPS_BOT_APP_SECRET", "PDCA_VPS_BOT_CHANNEL_ID",
         "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
+        "PDCA_TODO_REMIND_GRACE_HOURS",
+        "PDCA_VEMORY_OPENAPI_URL", "PDCA_VEMORY_TODO_USERS",
         "PDCA_DAILY_REPORT_ENABLED"
     )) {
         $envValue = Read-OptionalDotEnvValue $envName
@@ -480,16 +486,21 @@ $secrets = @{
     PDCA_SECRET_KEY = Read-DotEnvValue "PDCA_SECRET_KEY"
     PDCA_DATABASE_URL = Read-DotEnvValue "PDCA_DATABASE_URL"
     VERTU_BOT_INBOUND_KEY = Read-OptionalDotEnvValue "VERTU_BOT_INBOUND_KEY"
+    VEMORY_OPENAPI_KEY = Read-OptionalDotEnvValue "VEMORY_OPENAPI_KEY"
 }
 if (-not $secrets.VERTU_BOT_INBOUND_KEY) {
     Write-Output "VERTU_BOT_INBOUND_KEY is not set; using the persisted pdca-vertu-session login"
+}
+if (-not $secrets.VEMORY_OPENAPI_KEY) {
+    Write-Output "VEMORY_OPENAPI_KEY is not set; Vemory 待办同步将安全跳过（fail-closed）"
 }
 $agent = Get-AgentCredential
 $script:SensitiveValues = @(
     $secrets.PDCA_SECRET_KEY,
     $secrets.PDCA_DATABASE_URL,
     $agent.VERTU_APP_KEY,
-    $secrets.VERTU_BOT_INBOUND_KEY
+    $secrets.VERTU_BOT_INBOUND_KEY,
+    $secrets.VEMORY_OPENAPI_KEY
 )
 
 Write-Output "Ensuring writable PDCA runtime directories"

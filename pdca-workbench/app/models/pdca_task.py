@@ -27,5 +27,11 @@ class PdcaTask(SQLModel, table=True):
     last_reminded_at: Optional[datetime] = Field(default=None)
     last_reminded_round: str = Field(default="", max_length=32)
     remind_count: int = Field(default=0)
+    # Vemory 会议待办（事实源：Vemory OpenAPI getUserMeetingTodos）。
+    # external_todo_id 为 Vemory 待办 ID（vemory:{id}），同步去重主键；
+    # meeting_date 为会议日期；无截止时 task_date 回退为会议日期。
+    external_todo_id: str = Field(default="", index=True, max_length=64)
+    meeting_name: str = Field(default="", max_length=256)
+    meeting_date: str = Field(default="", max_length=10)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
