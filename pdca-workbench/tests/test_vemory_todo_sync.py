@@ -72,7 +72,8 @@ class VemorySyncTests(unittest.TestCase):
                 len(vmemory.load_vemory_users('{"people":[{"name":"甲","vemoryUserId":1}]}')), 1
             )
             self.assertEqual(vmemory.load_vemory_users("not json"), [])
-            self.assertEqual(vmemory.load_vemory_users(""), [])
+            # 空 raw 会回退到环境配置的名单；显式空数组才是真空名单
+            self.assertEqual(vmemory.load_vemory_users("[]"), [])
             self.assertEqual(
                 vmemory.load_vemory_users('[{"name":"无ID"}]'), []  # 无 ID 视为无效
             )

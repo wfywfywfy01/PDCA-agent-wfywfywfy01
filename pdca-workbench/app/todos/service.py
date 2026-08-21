@@ -25,6 +25,12 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.database import get_engine
 from app.models.pdca_task import PdcaTask
+from app.todos.evidence import (
+    fetch_report_text,
+    has_followup,
+    load_vps_user_map,
+    report_window_days,
+)
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
 
 DONE_STATUSES = {"done", "completed", "complete", "已完成", "完成"}
@@ -163,7 +169,13 @@ def send_direct_message(
     return False, (stderr or stdout or "vertu-cli 发送失败")[:200]
 
 
-def build_person_message(owner: str, tasks: list[PdcaTask], today: str, entry_url: str) -> str:
+def build_person_message(
+    owner: str,
+    tasks: list[PdcaTask],
+    today: str,
+    entry_url: str,
+    has_vemory: bool = False,
+) -> str:
     """一人一条消息，列出其全部待催任务（逾期标日期、今日标今日）。"""
     lines = [
         "【PDCA 待办催办】",
@@ -176,8 +188,14 @@ def build_person_message(owner: str, tasks: list[PdcaTask], today: str, entry_ur
     lines += [
         "",
         f"处理入口：{entry_url}",
-        "（系统自动提醒，完成后无需回复）",
     ]
+    if has_vemory:
+        lines.append(
+            "（以上事项已比对日报、未检出明确跟进记录；在 Vemory 更新状态"
+            "或日报注明进展，可停止提醒）"
+        )
+    else:
+        lines.append("（系统自动提醒，完成后无需回复）")
     return "\n".join(lines)
 
 
@@ -243,10 +261,46 @@ def run_todo_reminders(
     sent: list[dict] = []
     skipped_owners: list[dict] = []
     failed: list[dict] = []
+    evidence_skipped: list[dict] = []
     user_cache: dict[str, Optional[dict]] = {}
+
+    # 日报证据抑制（仅 Vemory 待办）：有跟进证据的不催；日报不可用时
+    # 该人 Vemory 待办保守跳过（与 todo-tracker 语义一致）。
+    vps_map = load_vps_user_map()
+    report_cache: dict[int, Optional[str]] = {}
+    report_start, report_end = report_window_days(today)
 
     for owner in sorted(by_owner, key=str.casefold):
         owned = by_owner[owner]
+        keep: list[PdcaTask] = []
+        vemory_tasks = [task for task in owned if task.source == "vemory"]
+        if vemory_tasks:
+            vps_id = vps_map.get(owner)
+            report = (
+                fetch_report_text(vps_id, report_start, report_end, report_cache)
+                if vps_id
+                else None
+            )
+            if report is None:
+                skipped_owners.append(
+                    {
+                        "owner": owner,
+                        "reason": "daily_report_unavailable",
+                        "tasks": len(vemory_tasks),
+                    }
+                )
+            else:
+                for task in vemory_tasks:
+                    if has_followup(task.title, report):
+                        evidence_skipped.append(
+                            {"owner": owner, "title": task.title}
+                        )
+                    else:
+                        keep.append(task)
+        keep += [task for task in owned if task.source != "vemory"]
+        if not keep:
+            continue
+        owned = keep
         user = resolve_im_user(owner, user_cache)
         if user is None:
             skipped_owners.append(
@@ -259,7 +313,10 @@ def run_todo_reminders(
                 {"owner": owner, "reason": "im_user_missing_id", "tasks": len(owned)}
             )
             continue
-        body = build_person_message(owner, owned, today, entry_url)
+        has_vemory = any(task.source == "vemory" for task in owned)
+        body = build_person_message(
+            owner, owned, today, entry_url, has_vemory=has_vemory
+        )
         if dry_run:
             sent.append(
                 {
@@ -300,10 +357,12 @@ def run_todo_reminders(
         "candidates": len(candidates),
         "sent": sent,
         "skipped_owners": skipped_owners,
+        "evidence_skipped": evidence_skipped,
         "failed": failed,
         "summary": (
             "待办 " + str(len(tasks)) + " 项，本轮催办 " + str(len(sent)) + " 人"
-            " / 跳过 " + str(len(skipped_owners)) + " 人 / 失败 " + str(len(failed)) + " 人"
+            " / 跳过 " + str(len(skipped_owners)) + " 人 / 证据暂缓 "
+            + str(len(evidence_skipped)) + " 项 / 失败 " + str(len(failed)) + " 人"
         ),
     }
     _write_outbox(result)
