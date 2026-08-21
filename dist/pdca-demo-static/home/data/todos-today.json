@@ -1,0 +1,142 @@
+[
+  {
+    "id": 1,
+    "title": "顺丰合同",
+    "status": "进行中",
+    "progress": 25,
+    "deadline": "2026-06-14",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 2,
+    "title": "亚马逊问题沟通",
+    "status": "进行中",
+    "progress": 30,
+    "deadline": "2026-06-07",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 3,
+    "title": "经销商晨会",
+    "status": "进行中",
+    "progress": 14,
+    "deadline": "2026-06-30",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 4,
+    "title": "经销商PDCA",
+    "status": "进行中",
+    "progress": 20,
+    "deadline": "2026-06-30",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 5,
+    "title": "经销商问题反馈",
+    "status": "进行中",
+    "progress": 45,
+    "deadline": "2026-06-05",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 6,
+    "title": "报关资料核查",
+    "status": "进行中",
+    "progress": 20,
+    "deadline": "2026-06-30",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 7,
+    "title": "商务带教",
+    "status": "进行中",
+    "progress": 20,
+    "deadline": "2026-06-30",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 8,
+    "title": "现有客户信息完善",
+    "status": "进行中",
+    "progress": 0,
+    "deadline": "2026-06-07",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 9,
+    "title": "清库策略",
+    "status": "进行中",
+    "progress": 40,
+    "deadline": "2026-06-07",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 10,
+    "title": "定价规则",
+    "status": "进行中",
+    "progress": 40,
+    "deadline": "2026-06-07",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 11,
+    "title": "人员招聘",
+    "status": "进行中",
+    "progress": 15,
+    "deadline": "2026-06-30",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 12,
+    "title": "经销商周报7大板块梳理",
+    "status": "进行中",
+    "progress": 0,
+    "deadline": "2026-06-07",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 13,
+    "title": "异常订单情况跟进",
+    "status": "进行中",
+    "progress": 10,
+    "deadline": "2026-06-30",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  },
+  {
+    "id": 14,
+    "title": "经销商在途/业绩情况",
+    "status": "进行中",
+    "progress": 20,
+    "deadline": "2026-06-30",
+    "source": "昨日日报·明日计划",
+    "yesterday": "2026-06-04",
+    "from_cache": false
+  }
+]

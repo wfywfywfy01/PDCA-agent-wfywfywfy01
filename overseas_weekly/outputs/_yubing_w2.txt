@@ -1,0 +1,21 @@
+week_sum=54.10万 mtd_sum=70.55万
+--- week lines ---
+17.15万	2026-07-10	VMG	其他/权益服务		于冰	海外经销商尾款
+14.40万	2026-07-10	VMG	其他/权益服务		于冰	海外经销商尾款
+3.04万	2026-07-10	BIN BIN	手机/VERTU ALPHAFOLD		于冰	VERTU ALPHAFOLD-黑基础套装款-小牛皮-黑色X绗缝(纯色)-无Lo
+3.04万	2026-07-10	BIN BIN	手机/VERTU ALPHAFOLD		郑丽苹	VERTU ALPHAFOLD-黑基础套装款-小牛皮-黑色X绗缝(纯色)-无Lo
+2.57万	2026-07-08	BIN BIN	手机/VERTU AGENT Q		于冰	VERTU AGENT Q-银品质套装款-钛银超跑-墨玉黑-1TB-海外
+2.38万	2026-07-08	BIN BIN	手机/VERTU AGENT Q		于冰	VERTU AGENT Q-银基础套装款-小牛皮-黑色绗线(撞色)-1TB-海外
+2.38万	2026-07-08	BIN BIN	手机/VERTU AGENT Q		于冰	VERTU AGENT Q-黑基础套装款-小牛皮-酒红绗线(撞色)-1TB-海外
+1.95万	2026-07-10	BIN BIN	手机/VERTU ALPHAFOLD		郑丽苹	VERTU ALPHAFOLD-黑品质套装款-鳄鱼皮-玄铁黑-1TB-海外
+1.95万	2026-07-10	BIN BIN	手机/VERTU ALPHAFOLD		于冰	VERTU ALPHAFOLD-黑品质套装款-鳄鱼皮-玄铁黑-1TB-海外
+1.94万	2026-07-08	BIN BIN	手机/VERTU AGENT Q		于冰	VERTU AGENT Q-银基础套装款-碳纤纹牛皮(XGY)-棕色-1TB-海
+1.52万	2026-07-10	BIN BIN	手机/VERTU ALPHAFOLD		于冰	VERTU ALPHAFOLD-黑基础套装款-小牛皮-棕色X绗缝(撞色)-无Lo
+1.52万	2026-07-10	BIN BIN	手机/VERTU ALPHAFOLD		郑丽苹	VERTU ALPHAFOLD-黑基础套装款-小牛皮-棕色X绗缝(撞色)-无Lo
+0.49万	2026-07-07	VMG	手机辅料/VERTU AGENT Q	XSD-DL26070202189	于冰	META3-紫光檀木背盖套件(组装点胶)
+0.27万	2026-07-08	BIN BIN	钢笔/灵蛇钢笔		于冰	VERTU 灵蛇权杖钢笔-HW
+0.00万	2026-07-07	VMG	手机辅料/VERTU QUANTUM	XSD-DL26070202189	于冰	VTL-202402 喷胶件(TP/LCD+上/下中框组件/黑色/1234483
+0.00万	2026-07-10	BIN BIN	其他/杜邦纸手提袋		郑丽苹	杜邦纸手提袋-黄色-海外
+0.00万	2026-07-07	VMG	电子配件/充电器	XSD-DL26070202189	于冰	中规充电器(含二维码-65W-型号:FC498C)-HW
+0.00万	2026-07-10	BIN BIN	其他/杜邦纸手提袋		于冰	杜邦纸手提袋-黄色-海外
+-0.49万	2026-07-07	VMG	手机辅料/VERTU AGENT Q	XSD-DL26070202189	于冰	META3-紫光檀木背盖套件(组装点胶)

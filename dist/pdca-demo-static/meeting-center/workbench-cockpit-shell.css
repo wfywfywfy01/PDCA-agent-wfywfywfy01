@@ -1,0 +1,169 @@
+/**
+ * 驾驶舱子页与主页统一：浅灰底、白卡片、墨黑强调、顶栏返回
+ */
+html,
+body {
+  background: #f5f7fb !important;
+  color: #1f2937 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif !important;
+}
+
+.wb-cockpit-backbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+}
+
+.wb-cockpit-backbar .back-to-workbench {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #111827;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 6px 14px;
+}
+
+.wb-cockpit-backbar .back-to-workbench:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.wb-cockpit-backbar .wb-cockpit-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.vertu-shell {
+  min-height: 100vh;
+  background: #f5f7fb !important;
+}
+
+.vertu-topbar {
+  background: #fff !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+
+.vertu-brand h1 {
+  color: #111827 !important;
+}
+
+.vertu-brand p {
+  color: #64748b !important;
+}
+
+.vertu-nav .nav-tab {
+  color: #64748b !important;
+}
+
+.vertu-nav .nav-tab.active {
+  background: #111827 !important;
+  color: #fff !important;
+}
+
+.glass-card,
+.oi-merged {
+  background: #fff !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* 线上并入块：浅色（与主页一致，覆盖原深色） */
+.oi-dark,
+.oi-panel {
+  background: #f5f7fb !important;
+  color: #1f2937 !important;
+  padding: 1rem 1.1rem 1.25rem !important;
+}
+
+.oi-dark .oi-card,
+.oi-panel .oi-card {
+  background: #fff !important;
+  border: 1px solid #e5e7eb !important;
+  color: #1f2937 !important;
+}
+
+.oi-dark .oi-card > h3,
+.oi-panel .oi-card > h3 {
+  color: #111827 !important;
+}
+
+.oi-dark .oi-note,
+.oi-panel .oi-note {
+  color: #64748b !important;
+}
+
+.oi-dark .oi-note strong,
+.oi-panel .oi-note strong {
+  color: #334155 !important;
+}
+
+.oi-dark table.oi-grid th,
+.oi-panel table.oi-grid th {
+  color: #6b7280 !important;
+}
+
+.oi-dark table.oi-grid th,
+.oi-dark table.oi-grid td,
+.oi-panel table.oi-grid th,
+.oi-panel table.oi-grid td {
+  border-bottom-color: #e5e7eb !important;
+  color: #1f2937 !important;
+}
+
+.oi-dark .oi-delta-ok,
+.oi-panel .oi-delta-ok {
+  color: #059669 !important;
+}
+
+.oi-dark .oi-bar-tag,
+.oi-panel .oi-bar-tag {
+  color: #2563eb !important;
+}
+
+.oi-dark .oi-bar-track,
+.oi-panel .oi-bar-track {
+  background: #f1f5f9 !important;
+}
+
+.oi-dark .oi-bar-cap,
+.oi-dark .oi-stack-sum,
+.oi-dark .oi-stack-rg,
+.oi-dark .oi-foot,
+.oi-panel .oi-bar-cap,
+.oi-panel .oi-stack-sum,
+.oi-panel .oi-stack-rg,
+.oi-panel .oi-foot {
+  color: #64748b !important;
+}
+
+.oi-dark .oi-stack-v,
+.oi-panel .oi-stack-v {
+  border-color: #e5e7eb !important;
+}
+
+.oi-merged .oi-head {
+  border-bottom-color: #e5e7eb !important;
+}
+
+.oi-merged .oi-head h2 {
+  color: #111827 !important;
+}
+
+.oi-merged .oi-head p {
+  color: #64748b !important;
+}

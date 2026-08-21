@@ -1,0 +1,98 @@
+{
+  "period": "2026-07-01 ~ 2026-07-12",
+  "filter": "产成品 + 非定金",
+  "total_main": 2893236.03,
+  "other_rest": 315422.48,
+  "chart": [
+    {
+      "label": "手机",
+      "amount": 2178682.99
+    },
+    {
+      "label": "其他（预售虚拟类）",
+      "amount": 596234.45
+    },
+    {
+      "label": "腕表",
+      "amount": 49661.68
+    },
+    {
+      "label": "钢笔",
+      "amount": 23575.01
+    },
+    {
+      "label": "耳机",
+      "amount": 23228.99
+    },
+    {
+      "label": "手链",
+      "amount": 12609.41
+    },
+    {
+      "label": "皮具",
+      "amount": 9243.5
+    }
+  ],
+  "series_top": [
+    {
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 1236373.27,
+      "lines": 26
+    },
+    {
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 647736.68,
+      "lines": 25
+    },
+    {
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": 596234.45,
+      "lines": 12
+    },
+    {
+      "major": "其他",
+      "series": "权益服务",
+      "amount": 315422.48,
+      "lines": 2
+    },
+    {
+      "major": "手机",
+      "series": "SIGNATURE S",
+      "amount": 179960.88,
+      "lines": 1
+    },
+    {
+      "major": "手机",
+      "series": "VERTU QUANTUM",
+      "amount": 60834.88,
+      "lines": 2
+    },
+    {
+      "major": "手机",
+      "series": "iVERTU",
+      "amount": 53777.29,
+      "lines": 8
+    },
+    {
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "amount": 49661.68,
+      "lines": 7
+    },
+    {
+      "major": "钢笔",
+      "series": "灵蛇钢笔",
+      "amount": 23575.01,
+      "lines": 3
+    },
+    {
+      "major": "耳机",
+      "series": "VERTU PHANTOM",
+      "amount": 23228.99,
+      "lines": 4
+    }
+  ]
+}

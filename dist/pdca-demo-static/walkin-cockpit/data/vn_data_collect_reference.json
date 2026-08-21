@@ -1,0 +1,143 @@
+{
+  "note": "参考 Data collecet(5).xlsx 越南 walk-in 四店日登记；驾驶舱只读 JSON。区域/门店数为真实，汇总表其余列为 mock。",
+  "sourceFile": "Data collecet(5).xlsx",
+  "regionDefault": "越南区",
+  "stores": [
+    {
+      "sheet": "ĐỒNG KHỞI",
+      "storeName": "Dong Khoi",
+      "storeNameZh": "同启店",
+      "region": "越南区",
+      "city": "胡志明"
+    },
+    {
+      "sheet": "CARAVELLE",
+      "storeName": "Caravelle",
+      "storeNameZh": "Caravelle",
+      "region": "越南区",
+      "city": "胡志明"
+    },
+    {
+      "sheet": "MAJESTIC",
+      "storeName": "MaJestic",
+      "storeNameZh": "Majestic",
+      "region": "越南区",
+      "city": "胡志明"
+    },
+    {
+      "sheet": "REX",
+      "storeName": "Rex",
+      "storeNameZh": "Rex",
+      "region": "越南区",
+      "city": "胡志明"
+    }
+  ],
+  "months": {
+    "2026-05": {
+      "regions": [
+        {
+          "rg": "越南区",
+          "storeCount": 4,
+          "storeNames": [
+            "Dong Khoi",
+            "Caravelle",
+            "MaJestic",
+            "Rex"
+          ],
+          "city": "胡志明"
+        }
+      ],
+      "stores": [
+        {
+          "storeName": "Dong Khoi",
+          "storeNameZh": "同启店",
+          "sheet": "ĐỒNG KHỞI",
+          "daysInMonth": 16,
+          "customersServed": 33,
+          "contactsAdded": 26,
+          "performanceRaw": 0.6
+        },
+        {
+          "storeName": "Caravelle",
+          "storeNameZh": "Caravelle",
+          "sheet": "CARAVELLE",
+          "daysInMonth": 16,
+          "customersServed": 35,
+          "contactsAdded": 27,
+          "performanceRaw": 0.5
+        },
+        {
+          "storeName": "MaJestic",
+          "storeNameZh": "Majestic",
+          "sheet": "MAJESTIC",
+          "daysInMonth": 16,
+          "customersServed": 15,
+          "contactsAdded": 14,
+          "performanceRaw": 0.59
+        },
+        {
+          "storeName": "Rex",
+          "storeNameZh": "Rex",
+          "sheet": "REX",
+          "daysInMonth": 16,
+          "customersServed": 18,
+          "contactsAdded": 14,
+          "performanceRaw": 0.58
+        }
+      ]
+    },
+    "2026-06": {
+      "regions": [
+        {
+          "rg": "越南区",
+          "storeCount": 4,
+          "storeNames": [
+            "Dong Khoi",
+            "Caravelle",
+            "MaJestic",
+            "Rex"
+          ],
+          "city": "胡志明"
+        }
+      ],
+      "stores": [
+        {
+          "storeName": "Dong Khoi",
+          "storeNameZh": "同启店",
+          "sheet": "ĐỒNG KHỞI",
+          "daysInMonth": 2,
+          "customersServed": 0,
+          "contactsAdded": 0,
+          "performanceRaw": 0.0
+        },
+        {
+          "storeName": "Caravelle",
+          "storeNameZh": "Caravelle",
+          "sheet": "CARAVELLE",
+          "daysInMonth": 2,
+          "customersServed": 0,
+          "contactsAdded": 0,
+          "performanceRaw": 0.0
+        },
+        {
+          "storeName": "MaJestic",
+          "storeNameZh": "Majestic",
+          "sheet": "MAJESTIC",
+          "daysInMonth": 2,
+          "customersServed": 0,
+          "contactsAdded": 0,
+          "performanceRaw": 0.0
+        },
+        {
+          "storeName": "Rex",
+          "storeNameZh": "Rex",
+          "sheet": "REX",
+          "daysInMonth": 2,
+          "customersServed": 0,
+          "contactsAdded": 0,
+          "performanceRaw": 0.0
+        }
+      ]
+    }
+  }
+}

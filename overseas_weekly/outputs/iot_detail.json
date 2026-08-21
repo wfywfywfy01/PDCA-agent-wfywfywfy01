@@ -1,0 +1,127 @@
+{
+  "summary": {
+    "手链": {
+      "qty": 4,
+      "amount": 12609.41,
+      "series": [
+        {
+          "series": "VERTU关心智能手链",
+          "qty": 4,
+          "amount": 12609.41
+        }
+      ]
+    },
+    "耳机": {
+      "qty": 10,
+      "amount": 23228.99,
+      "series": [
+        {
+          "series": "VERTU PHANTOM",
+          "qty": 10,
+          "amount": 23228.99
+        }
+      ]
+    },
+    "腕表": {
+      "qty": 4,
+      "amount": 49661.68,
+      "series": [
+        {
+          "series": "METAWATCH S1",
+          "qty": 4,
+          "amount": 49661.68
+        }
+      ]
+    },
+    "钢笔": {
+      "qty": 8,
+      "amount": 23575.01,
+      "series": [
+        {
+          "series": "灵蛇钢笔",
+          "qty": 8,
+          "amount": 23575.01
+        }
+      ]
+    }
+  },
+  "detail": [
+    {
+      "major": "手链",
+      "series": "VERTU关心智能手链",
+      "product_name": "VERTU关心智能手链-黑色珐琅主体(男款)-小叶紫檀木串(12颗)-海外",
+      "qty": 2,
+      "amount": 5840.15
+    },
+    {
+      "major": "手链",
+      "series": "VERTU关心智能手链",
+      "product_name": "VERTU关心智能手链-黑色珐琅主体(男款)-黄花梨木串(12颗)-海外",
+      "qty": 1,
+      "amount": 4335.87
+    },
+    {
+      "major": "手链",
+      "series": "VERTU关心智能手链",
+      "product_name": "VERTU关心智能手链-黑色珐琅主体(男款)-星月菩提串(12颗)-海外",
+      "qty": 1,
+      "amount": 2433.4
+    },
+    {
+      "major": "耳机",
+      "series": "VERTU PHANTOM",
+      "product_name": "VERTU PHANTOM-深咖色基础款-珍稀木材-HW",
+      "qty": 10,
+      "amount": 23228.99
+    },
+    {
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "product_name": "腕表S1成品套装-高定金-黑色陶瓷-黑色表带 HW",
+      "qty": 2,
+      "amount": 23393.27
+    },
+    {
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "product_name": "腕表S1成品套装-高定金色-黑白碳纤维-白色表带 HW",
+      "qty": 1,
+      "amount": 14016.36
+    },
+    {
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "product_name": "腕表S1成品套装-高定款-不锈钢镀金色镶白色人工钻-黑色表带-HW",
+      "qty": 1,
+      "amount": 12252.06
+    },
+    {
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "product_name": "腕表S1成品套装-黑色陶瓷-黑色表带-RAU",
+      "qty": 1,
+      "amount": 7034.72
+    },
+    {
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "product_name": "腕表S1成品套装-黑色陶瓷-黑色表带-RU(T)",
+      "qty": -1,
+      "amount": -7034.72
+    },
+    {
+      "major": "钢笔",
+      "series": "灵蛇钢笔",
+      "product_name": "VERTU 灵蛇权杖钢笔(不含墨囊)-HW",
+      "qty": 6,
+      "amount": 18541.45
+    },
+    {
+      "major": "钢笔",
+      "series": "灵蛇钢笔",
+      "product_name": "VERTU 灵蛇权杖钢笔-HW",
+      "qty": 2,
+      "amount": 5033.55
+    }
+  ]
+}

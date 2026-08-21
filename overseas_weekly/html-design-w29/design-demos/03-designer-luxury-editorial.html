@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>方向三 · Luxury Editorial · W29</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #12110f;
+    --panel: #1c1a17;
+    --ink: #f3eee4;
+    --muted: #9a9285;
+    --gold: #c4a574;
+    --line: rgba(196, 165, 116, 0.28);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Manrope, "PingFang SC", "Microsoft YaHei", sans-serif; background: #000; color: var(--ink); }
+  .slide {
+    width: 1920px; height: 1080px;
+    background: radial-gradient(1200px 700px at 75% 20%, #242018 0%, var(--bg) 55%);
+    margin: 0 auto 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .frame {
+    position: absolute; inset: 40px;
+    border: 1px solid var(--line);
+    pointer-events: none;
+  }
+  .pad {
+    position: relative; z-index: 1;
+    padding: 96px 120px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .wordmark {
+    letter-spacing: 0.42em;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--gold);
+  }
+  .week {
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  h1 {
+    font-family: "Cormorant Garamond", "Songti SC", serif;
+    font-size: 108px;
+    font-weight: 600;
+    line-height: 1.05;
+    margin-top: 80px;
+    letter-spacing: -0.01em;
+    max-width: 12ch;
+  }
+  .rule {
+    width: 64px; height: 1px;
+    background: var(--gold);
+    margin: 40px 0 28px;
+  }
+  .sub {
+    font-size: 22px;
+    color: var(--muted);
+    max-width: 34ch;
+    line-height: 1.6;
+    font-weight: 400;
+  }
+  .bottom {
+    margin-top: auto;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 48px;
+    align-items: end;
+  }
+  .pct {
+    font-family: "Cormorant Garamond", serif;
+    font-size: 180px;
+    font-weight: 600;
+    line-height: 0.85;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .pct span { color: var(--gold); font-size: 0.55em; }
+  .pct-note { font-size: 18px; color: var(--muted); margin-top: 16px; line-height: 1.5; }
+
+  /* overview */
+  h2 {
+    font-family: "Cormorant Garamond", serif;
+    font-size: 56px;
+    font-weight: 600;
+    margin-top: 36px;
+  }
+  .rail {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    margin-top: 48px;
+    border: 1px solid var(--line);
+  }
+  .cell {
+    background: var(--panel);
+    padding: 32px 28px;
+    min-height: 160px;
+  }
+  .cell .l {
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .cell .v {
+    font-family: "Cormorant Garamond", serif;
+    font-size: 56px;
+    margin-top: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tri {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    margin-top: 28px;
+  }
+  .band {
+    border: 1px solid var(--line);
+    padding: 28px 26px;
+    min-height: 240px;
+    background: rgba(28, 26, 23, 0.7);
+  }
+  .band h3 {
+    font-size: 18px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gold);
+    font-weight: 600;
+  }
+  .band .r {
+    font-family: "Cormorant Garamond", serif;
+    font-size: 64px;
+    margin: 18px 0 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .band p { font-size: 17px; color: var(--muted); line-height: 1.5; }
+  .caption {
+    margin-top: auto;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+</style>
+</head>
+<body>
+  <section class="slide" id="cover">
+    <div class="frame"></div>
+    <div class="pad">
+      <div class="row">
+        <div class="wordmark">VERTU</div>
+        <div class="week">Overseas · 2026 W29</div>
+      </div>
+      <h1>七月第三周<br />经销商经营回顾</h1>
+      <div class="rule"></div>
+      <p class="sub">以全盘达成率为锚，铺开产品、区域与三部节奏——中台与新部动作另章。</p>
+      <div class="bottom">
+        <div>
+          <div class="pct">85.8<span>%</span></div>
+          <div class="pct-note">MTD 596.41 万 / 目标 695 万<br />本周 SI 240.83 万</div>
+        </div>
+        <div class="caption">设计思维参照：奢侈品年度信 × 原研哉式留白克制</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="overview">
+    <div class="frame"></div>
+    <div class="pad">
+      <div class="row">
+        <div class="wordmark">VERTU</div>
+        <div class="week">01 · Overview</div>
+      </div>
+      <h2>全盘与三部</h2>
+      <div class="rail">
+        <div class="cell"><div class="l">Target</div><div class="v">695</div></div>
+        <div class="cell"><div class="l">MTD</div><div class="v">596.4</div></div>
+        <div class="cell"><div class="l">Attainment</div><div class="v" style="color:var(--gold)">85.8%</div></div>
+        <div class="cell"><div class="l">This week</div><div class="v">240.8</div></div>
+      </div>
+      <div class="tri">
+        <div class="band">
+          <h3>Dept III</h3>
+          <div class="r">116%</div>
+          <p>336.7 万 · 周 172.1<br />中东主力 · 待收 ~143</p>
+        </div>
+        <div class="band">
+          <h3>Dept II</h3>
+          <div class="r">83%</div>
+          <p>195.68 万 · 周 68.73<br />领先时间进度</p>
+        </div>
+        <div class="band">
+          <h3>Dept I</h3>
+          <div class="r">58%</div>
+          <p>64.03 万 · 周 0<br />在途约 49 万</p>
+        </div>
+      </div>
+      <div class="caption">代表页 · 选定后扩产品 / 客户 / 各组与中台</div>
+    </div>
+  </section>
+</body>
+</html>

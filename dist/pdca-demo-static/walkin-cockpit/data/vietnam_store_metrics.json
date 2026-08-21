@@ -1,0 +1,77 @@
+{
+  "note": "参考用户提供的越南门店 Excel 汇总结果，已固化为 JSON。驾驶舱与构建脚本只读此文件，不读取、不操作 xlsx。",
+  "storeId": "vn1",
+  "sourceXlsx": "c:\\Users\\frank\\Desktop\\越南门店数据.xlsx",
+  "months": {
+    "2026-05": {
+      "name": "胡志明 Walk-in 旗舰店",
+      "city": "胡志明",
+      "region": "越南区",
+      "class": "Class 1",
+      "totalVisitGroups": 208,
+      "avgAddRate": 0.505,
+      "totalSalesAmount": 3648000,
+      "anomalies": [],
+      "avgTouchRate": 0.495,
+      "avgUseRate": 0.878,
+      "walkinPeople": 345,
+      "wechatAddCount": 105,
+      "dealGroups": 96,
+      "touchCount": 103,
+      "useCount": 208,
+      "effectiveCustomers": 141,
+      "effectiveAdded": 112
+    },
+    "2026-06": {
+      "name": "胡志明 Walk-in 旗舰店",
+      "city": "胡志明",
+      "region": "越南区",
+      "class": "Class 1",
+      "totalVisitGroups": 210,
+      "avgAddRate": 0.5,
+      "totalSalesAmount": 3990000,
+      "anomalies": [],
+      "avgTouchRate": 0.357,
+      "avgUseRate": 0.95,
+      "walkinPeople": 349,
+      "wechatAddCount": 105,
+      "dealGroups": 105,
+      "touchCount": 75,
+      "useCount": 210,
+      "effectiveCustomers": 143,
+      "effectiveAdded": 113
+    }
+  },
+  "channelByMonth": {
+    "2026-05": {
+      "shortVideo": 86,
+      "live": 0,
+      "other": 744,
+      "tiktok": 86,
+      "tiktokLive": 0,
+      "facebook": 707,
+      "instagram": 37,
+      "labels": [
+        "TikTok/短视频",
+        "TikTok直播",
+        "Ins+Facebook"
+      ],
+      "sourceFile": "c:\\Users\\frank\\Desktop\\越南门店数据.xlsx"
+    },
+    "2026-06": {
+      "shortVideo": 0,
+      "live": 0,
+      "other": 0,
+      "tiktok": 0,
+      "tiktokLive": 0,
+      "facebook": 0,
+      "instagram": 0,
+      "labels": [
+        "TikTok/短视频",
+        "TikTok直播",
+        "Ins+Facebook"
+      ],
+      "sourceFile": "c:\\Users\\frank\\Desktop\\越南门店数据.xlsx"
+    }
+  }
+}

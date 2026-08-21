@@ -1,0 +1,17 @@
+[
+  {
+    "key": "total",
+    "label": "总任务数",
+    "value": 14
+  },
+  {
+    "key": "done",
+    "label": "已完成",
+    "value": 0
+  },
+  {
+    "key": "undone",
+    "label": "未完成",
+    "value": 14
+  }
+]

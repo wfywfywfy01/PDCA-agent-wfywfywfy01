@@ -1,0 +1,44 @@
+{
+  "于冰": {
+    "ok": false,
+    "dept": "一部（于冰组）",
+    "error": "Vertu 服务未提供该查询脚本：user_summary\n",
+    "payload_keys": []
+  },
+  "杨晶晶": {
+    "ok": false,
+    "dept": "二部（杨晶晶组）",
+    "error": "Vertu 服务未提供该查询脚本：user_summary\n",
+    "payload_keys": []
+  },
+  "何海文": {
+    "ok": false,
+    "dept": "二部（杨晶晶组）",
+    "error": "Vertu 服务未提供该查询脚本：user_summary\n",
+    "payload_keys": []
+  },
+  "Lina/DEHDAHOUMAIMA": {
+    "ok": false,
+    "dept": "三部（Lina组）",
+    "error": "Vertu 服务未提供该查询脚本：user_summary\n",
+    "payload_keys": []
+  },
+  "尤文静": {
+    "ok": false,
+    "dept": "三部（Lina组）",
+    "error": "Vertu 服务未提供该查询脚本：user_summary\n",
+    "payload_keys": []
+  },
+  "欧阳英平": {
+    "ok": false,
+    "dept": "新部",
+    "error": "Vertu 服务未提供该查询脚本：user_summary\n",
+    "payload_keys": []
+  },
+  "李浩然": {
+    "ok": false,
+    "dept": "新部",
+    "error": "Vertu 服务未提供该查询脚本：user_summary\n",
+    "payload_keys": []
+  }
+}

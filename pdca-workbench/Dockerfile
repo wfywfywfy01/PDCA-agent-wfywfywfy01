@@ -35,6 +35,7 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir requests pillow rapidocr-onnxruntime pypdf
 RUN python -m playwright install --with-deps chromium
 
 COPY pdca-workbench/app ./app
@@ -42,6 +43,7 @@ COPY pdca-workbench/frontend ./frontend
 COPY pdca-workbench/migrations ./migrations
 COPY pdca-workbench/scripts ./scripts
 COPY pdca-workbench/run.py .
+COPY pdca-workbench/logibot ./logibot
 COPY --from=web-build /web/dist ./spa-dist
 
 ENV PDCA_HOST=0.0.0.0
@@ -51,6 +53,8 @@ ENV PDCA_REPO_ROOT=/repo
 ENV PDCA_PG_DUMP_COMMAND=/usr/lib/postgresql/18/bin/pg_dump
 ENV PDCA_TRACKING_HEADLESS=1
 ENV VERTU_COMMAND=vertu-cli
+ENV LOGIBOT_ROOT=/app/logibot
+ENV LOGIBOT_DATA_DIR=/app/data/logibot
 
 VOLUME ["/app/data", "/mvp", "/repo"]
 

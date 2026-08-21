@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>马来西亚线索全生命周期 · Board Briefing</title>
+<style>
+:root{
+  --bg:#06182d;--bg2:#0a2948;--panel:#0d3152;--gold:#d5a85b;--gold2:#f0cc85;
+  --ink:#f4f1e9;--muted:#aebfd0;--line:#ffffff2a;--danger:#5a2e32;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#020a14;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}
+.page{display:none;min-height:100vh;height:100vh;padding:36px 6.7% 42px 10.2%;position:relative;overflow:hidden;background:linear-gradient(135deg,var(--bg),var(--bg2))}
+.page:first-child{display:block}
+.page aside{position:absolute;left:0;top:0;bottom:0;width:5.8%;background:#071e37;display:flex;align-items:center;flex-direction:column;padding-top:34px;color:var(--gold);font-family:Georgia,serif}
+.page aside b{font-size:16px}
+.page aside i{width:1px;height:75px;background:var(--gold);margin:18px 0}
+.page aside small{font:9px/1.5 Arial;letter-spacing:1px;writing-mode:vertical-rl;color:#b8c9d8}
+.page header{height:29px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;color:var(--gold);font:11px Arial;letter-spacing:2px}
+.page header em{font-style:normal;color:#9eb2c5;letter-spacing:1px}
+.page main{height:calc(100vh - 122px);display:flex;flex-direction:column;justify-content:space-between;gap:10px}
+.page h1{font:900 34px/1.17 "Microsoft YaHei","PingFang SC",Arial,sans-serif;letter-spacing:-1px;margin:14px 0 6px;color:#faf7ef}
+.page h1 em{font-style:normal;color:var(--gold2)}
+p{margin:6px 0;font-size:13px;line-height:1.55;color:var(--muted)}
+.cover-copy{font-size:20px;line-height:1.4;max-width:860px;margin-top:8px;color:#d6e0ea}
+.cover-rule{width:190px;height:3px;background:var(--gold);margin:16px 0}
+.hero-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1px}
+.hero-metrics div{background:#071c34dd;padding:14px 16px;min-height:108px}
+.hero-metrics small{color:#b4c6d7;font-size:11px}
+.hero-metrics strong{display:block;font:900 36px Georgia;color:var(--gold2);margin:8px 0}
+.hero-metrics strong span{font:14px "Microsoft YaHei"}
+.hero-metrics p{font-size:11px}
+.cover-note{max-width:860px;background:#071c34cc;border-left:3px solid var(--gold);padding:12px 16px;color:#c5d2dd;font-size:13px;line-height:1.55}
+.answer-grid,.lineage,.model-stack,.funnel-labels,.two-col{display:grid;gap:1px;background:var(--line)}
+.answer-grid{grid-template-columns:repeat(3,1fr)}
+.answer-grid>div,.lineage>div,.model-stack>div,.funnel-labels>div{background:#0d3152;padding:14px}
+.answer-grid>div{min-height:170px}
+.answer-grid span,.lineage b,.model-stack span,.funnel-labels small{font:11px Arial;color:var(--gold);letter-spacing:1px}
+.answer-grid b{display:block;font-size:18px;margin:10px 0}
+.answer-grid strong{display:block;color:var(--gold2);font-size:16px;margin-top:10px}
+.answer-grid p,.lineage p,.model-stack p,.funnel-labels p{font-size:12px}
+.lineage{grid-template-columns:repeat(4,1fr)}
+.lineage strong{display:block;font:900 26px Georgia;color:var(--gold2);margin:10px 0 6px}
+.five{grid-template-columns:repeat(5,1fr)}
+.five>div{min-height:150px;padding:12px}
+.model-stack{grid-template-columns:repeat(3,1fr)}
+.model-stack>div{min-height:110px}
+.model-stack b{display:block;font-size:16px;margin:6px 0}
+.funnel-labels{grid-template-columns:repeat(7,1fr)}
+.funnel-labels>div{min-height:118px;padding:10px}
+.funnel-labels b{display:block;font:900 26px Georgia;color:var(--gold2);margin-bottom:4px}
+.funnel-labels>div.empty{background:#3a1f24}
+.funnel-labels>div.empty b{color:#ffd6d6}
+.two-col{grid-template-columns:1fr 1fr}
+a{color:var(--gold2);text-decoration:none;border-bottom:1px solid #d5a85b66}
+.quote{color:#e8d7b0;font-size:12px;line-height:1.5}
+article{background:#0c2b49;padding:14px 16px;border:1px solid #ffffff18}
+article label{font:11px Arial;letter-spacing:1.5px;color:var(--gold)}
+article h2{font-size:18px;margin:6px 0 8px}
+.callout{background:#40321c;border:1px solid #9b7638;color:#f4ddab;padding:10px 14px;font-size:13px;line-height:1.55}
+.warning{background:var(--danger);border:1px solid #bd7373;color:#ffd6d6;padding:10px 14px;font-size:13px;line-height:1.55}
+.formula{background:#041427;border-left:4px solid var(--gold);padding:12px 16px;font:17px Georgia,"Microsoft YaHei";line-height:1.45}
+.formula small{font:12px "Microsoft YaHei";color:#b4c6d8}
+.formula b{color:var(--gold2)}
+table{width:100%;border-collapse:collapse;background:#0c2c4a;font-size:12px}
+th{background:#163b5d;color:var(--gold2);text-align:left;font-weight:700}
+td,th{padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+td:nth-child(2){color:#fff;font-weight:700}
+table.tight td,table.tight th{padding:5px 8px;font-size:11px}
+.ask{border:1px solid var(--gold);padding:14px 16px;color:#f4dfae;font-size:15px;line-height:1.55}
+.final{background:#041427;border-left:4px solid var(--gold);padding:14px 16px;font:18px Georgia}
+.final b{color:var(--gold2)}
+.audit-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}
+.audit-strip span{background:#0a2948;padding:9px 11px;font-size:11px;color:#c0cfda;line-height:1.4}
+.audit-strip b{display:block;color:var(--gold);font:10px Arial;letter-spacing:1px;margin-bottom:4px}
+.page footer{position:absolute;bottom:15px;left:10.2%;right:6.7%;display:flex;justify-content:space-between;font:10px Arial;color:#a8bdce;letter-spacing:.5px}
+button{position:fixed;bottom:18px;z-index:9;background:#0d3152;color:var(--gold2);border:1px solid var(--line);padding:8px 14px;cursor:pointer;font:12px Arial}
+button:first-of-type{right:72px}button:last-of-type{right:18px}
+@media print{
+  .page{display:block!important;width:297mm;height:210mm;min-height:0;padding:12mm 17mm 12mm 25mm;page-break-after:always;overflow:hidden}
+  .page aside{width:17mm}.page footer{left:25mm;right:17mm}button{display:none}
+}
+@media(max-width:900px){
+  .page{height:auto;min-height:100vh;padding:28px 6% 38px 13%;overflow:auto}
+  .page main{height:auto;display:block}
+  .page h1{font-size:26px}
+  .hero-metrics,.answer-grid,.lineage,.model-stack,.funnel-labels,.two-col,.five,.audit-strip{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<section class="page cover" id="p1">
+  <aside><b>01</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>BOARD BRIEFING</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>马来西亚市场：<br><em>线索全生命周期，不是客户管理</em></h1>
+    <div class="cover-copy">62 条可跟进线索。进行中 6 条。客户 0。S7 试铺或签约前，一律叫线索。</div>
+    <div class="cover-rule"></div>
+    <div class="hero-metrics">
+      <div><small>可跟进线索</small><strong>62<span>条</span></strong><p>手册 32 ∪ 获客净增 13 ∪ 金山净增 17</p></div>
+      <div><small>S4–S6 进行中</small><strong>6<span>条</span></strong><p>Amy / John / SWAP / Pavilion / Genting / KLCC</p></div>
+      <div><small>事中录音</small><strong>8<span>场</span></strong><p>7/14–16 · 467min · 第 05 页可点开</p></div>
+      <div><small>已转化客户</small><strong>0</strong><p>马来 SI=0 · L2=0 · 五件套=0</p></div>
+    </div>
+    <div class="cover-note">于冰 7 月 ¥1,265,468.52、8/1–13 ¥968,982.06 是越柬存量，检索 DirectD / SWITCH / KLCC = 0。H2 stretch 155 万不能用这 220 万证明。合同/LOI 需人工复核，本页非法务意见。</div>
+  </main>
+  <footer><span>LEAD LIFECYCLE · 于冰 Ivan · 2026-08-13</span><b>01 / 09</b></footer>
+</section>
+
+<section class="page" id="p2">
+  <aside><b>02</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>STORYLINE</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>一条逻辑线：<br><em>池 → 事前 → 事中 → 难点 → 意愿。</em></h1>
+    <div class="lineage five">
+      <div><b>01 · 池</b><strong>62</strong><p>三类：承接方 / 场地方 / 生态。总抓取 MY75 未分池停 S0。</p></div>
+      <div><b>02 · 事前</b><strong>17天</strong><p>Cursor 尽调 + 获客 CSV 30 + 金山 /S/21。入库 ≠ 触达。</p></div>
+      <div><b>03 · 事中</b><strong>8场</strong><p>7/14–16 录音 467min。出差周 Cursor 空。</p></div>
+      <div><b>04 · 难点</b><strong>原文</strong><p>利润七八个点。主体未定。Pavilion 无铺。GTO 15% 偏高。</p></div>
+      <div><b>05 · 意愿</b><strong>未签</strong><p>只引录音/纪要。WhatsApp 正文待确认。</p></div>
+    </div>
+    <div class="answer-grid">
+      <div><span>可以证明</span><b>线索漏斗存在</b><p>8 场录音 + Amy 7/24 回邮 + KLCC 7/31 书面。</p><strong>最高：KLCC S6</strong></div>
+      <div><span>不能证明</span><b>马来已有客户</b><p>无试铺、无 MOU 签署、无门店五件套、无按国拆激活。</p><strong>L2 = 0 · 马来 SI = 0</strong></div>
+      <div><span>怎么管</span><b>按联系人升阶段</b><p>Amy=S4 不等于 DirectD 已成。John=S5，Lawrence 仍 S1。场地方签字 ≠ 代理已成。</p><strong>晋级只认发送 / 回复 / 纪要 / 书面</strong></div>
+    </div>
+    <div class="formula">毕业公式：<b>S7 试铺或签约发生</b> → 才改口叫客户<small> · 200+ 台/年、USD 3.5–5K、155 万是假设或目标，不是系统事实</small></div>
+  </main>
+  <footer><span>事实 / 推导 / 假设 / 目标 四层不能混</span><b>02 / 09</b></footer>
+</section>
+
+<section class="page" id="p3">
+  <aside><b>03</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>LEAD POOL</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>线索池：<br><em>62 条，三类。重点 6 条仍是线索。</em></h1>
+    <div class="model-stack">
+      <div><span>承接方 · 谁卖</span><b>Amy S4 · John S5 · SWAP S5</b><p>DirectD / SWITCH / SWAP / Machines。SWAP 非签约主体。Ezwan / Lawrence / Marcus / Chin / Adeline / Stacey 仍 S1，跟主会走。</p></div>
+      <div><span>场地方 · 在哪卖</span><b>KLCC S6 · 另三条 S5</b><p>Pavilion Lovell / Genting leasing / TRX Delia。Shawn / Chris / Ai Lin 公司有会 ≠ 该人已触达。</p></div>
+      <div><span>生态 · 腕表豪车华商</span><b>多数 S1 冻结</b><p>本周可发：Hour Glass · Cortina Ming Hon · ACCCIM · MCCC。Senheng / Zitron 调性不匹配冻结。</p></div>
+    </div>
+    <table class="tight">
+      <tr><th>来源</th><th>条数</th><th>进漏斗</th></tr>
+      <tr><td>手册（截止 8/5）</td><td>32</td><td>底表。按联系人归位</td></tr>
+      <tr><td>7/23 获客 CSV 腕表19+3C11</td><td>30</td><td>重叠不双计，净增 13 进 S1。CSV「是否跟进:否」29</td></tr>
+      <tr><td>金山过往名单总表 /S/21</td><td>MY 34</td><td>去重净增 17 进 S1。表内已回不升阶段</td></tr>
+      <tr><td>金山总抓取名单</td><td>MY 75</td><td>地产/抓取未分池 · 停 S0</td></tr>
+      <tr><td>6/23 · 6/26 批次</td><td>118 / MY48</td><td>原件未找到 · 停 S0</td></tr>
+    </table>
+    <div class="callout">金山净增要点：Ming Hon 补进 Cortina 可发。Ian / William / Shawn / Chris / Ai Lin 不并入已有主线。F J Benjamin / Horloger / Infinite 先补人。</div>
+  </main>
+  <footer><span>kdocs.cn/l/chxzet9BUaXO?R=L1MvMjE= · 总抓取 Andy Tan / Janson Kwan 停 S0</span><b>03 / 09</b></footer>
+</section>
+
+<section class="page" id="p4">
+  <aside><b>04</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>BEFORE</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>事前调研：<br><em>Cursor 尽调 + 名单入库。名单不是触达。</em></h1>
+    <table class="tight">
+      <tr><th>日期</th><th>动作</th><th>产出 / 标签</th></tr>
+      <tr><td>6/17–29</td><td>Cursor：Switch / Valiram / 云顶 / Ital Auto</td><td>事实：尽调种子</td></tr>
+      <tr><td>6/23–7/03</td><td>渠道 118 / 公司种子 / 日报写 1949</td><td>事实：金山盘点已打开；总抓取 MY75 未分池</td></tr>
+      <tr><td>7/08</td><td>H2 OKR</td><td>目标：Genting+Pavilion 155 万</td></tr>
+      <tr><td>7/20–24</td><td>话术 · TRX Delia 邮件稿 · DirectD/SWITCH 尽调</td><td>事实：Cursor 有。6/12 测试日报忽略</td></tr>
+      <tr><td>7/23</td><td>3C+腕表获客 CSV 30 行</td><td>事实：原件已找到；净增 13 进 S1</td></tr>
+      <tr><td>8/13</td><td>金山《东南亚线索盘点》/S/21</td><td>事实：过往名单 MY34，净增 17 进 S1</td></tr>
+    </table>
+    <div class="audit-strip">
+      <span><b>CSV</b>邮箱 28 · 电话 29 · 跟进否 29。Amy 快照仍写否，7/24 回邮已升 S4</span>
+      <span><b>金山规则</b>是否跟进/回复 ≠ 发送记录。Ian 表写暂无兴趣，不升 S4</span>
+      <span><b>获客净增 13</b>门店级/Habib/Poh Kong/Adeline/Stacey 本周不群发</span>
+      <span><b>S1=52</b>Cc 6 · 本周可发 5 · 冻结 41。禁止把未清洗名单当已触达</span>
+    </div>
+    <div class="warning">Red Army Regional 邮箱在新加坡，不计入马来 13。获客 P0 里 Switch/DirectD/Valiram/Hour Glass/Cortina 已在手册，进度以会议/回邮为准。</div>
+  </main>
+  <footer><span>Cursor 最新 Ivan 停 7/24 · 出差周 7/14–16 Cursor 空</span><b>04 / 09</b></footer>
+</section>
+
+<section class="page" id="p5">
+  <aside><b>05</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>8 RECORDINGS</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>事中 8 场：<br><em>录音在，Cursor 空。点开即证据。</em></h1>
+    <table class="tight">
+      <tr><th>日期</th><th>对象</th><th>时长</th><th>事实产出</th><th>录音</th></tr>
+      <tr><td>7/14</td><td>SWAP 门店布局</td><td>54min</td><td>两店 Getin+KLCC。利润「七八」。非签约主体</td><td><a href="https://vemory-share.vemory.ai/share?id=1d939024" target="_blank">1d939024</a></td></tr>
+      <tr><td>7/14</td><td>SWAP 零售/电动车</td><td>24min</td><td>小库存试水。premium 不接受「卖了再算」。电动车停观察</td><td><a href="https://vemory-share.vemory.ai/share?id=4c58a03d" target="_blank">4c58a03d</a></td></tr>
+      <tr><td>7/14</td><td>DirectD 选址</td><td>48min</td><td>标题 DirectD。纪要是商场选址+越南销售。Amy 升 S4 只认 7/24 邮件</td><td><a href="https://vemory-share.vemory.ai/share?id=6cc96a48" target="_blank">6cc96a48</a></td></tr>
+      <tr><td>7/15</td><td>Pavilion</td><td>54min</td><td>暂无铺、进 waiting list。要公司资料。直营/代理未拍</td><td><a href="https://vemory-share.vemory.ai/share?id=d8ca9b58" target="_blank">d8ca9b58</a></td></tr>
+      <tr><td>7/15</td><td>Genting 落位</td><td>59min</td><td>赌场动线。自营/代理并行。要更优惠商务条件</td><td><a href="https://vemory-share.vemory.ai/share?id=e547d52e" target="_blank">e547d52e</a></td></tr>
+      <tr><td>7/15</td><td>Genting 参观</td><td>65min</td><td>定制款意向。约定 WhatsApp 群。群原文未入库</td><td><a href="https://vemory-share.vemory.ai/share?id=e478833d" target="_blank">e478833d</a></td></tr>
+      <tr><td>7/16</td><td>KLCC</td><td>68min</td><td>口述 200+ 台/年。30–50㎡。书面在 7/31</td><td><a href="https://vemory-share.vemory.ai/share?id=d11b354d" target="_blank">d11b354d</a></td></tr>
+      <tr><td>7/16</td><td>SWITCH</td><td>95min</td><td>pop-up 试水。John=S5。Lawrence/Marcus/Chin 仍 S1</td><td><a href="https://vemory-share.vemory.ai/share?id=997cda36" target="_blank">997cda36</a></td></tr>
+    </table>
+    <div class="audit-strip">
+      <span><b>事后</b>Amy 7/24「Kindly send me the relevant info」</span>
+      <span><b>书面</b>KLCC 7/31 RM70k/月或 15% GTO · 10/12</span>
+      <span><b>系统</b>8/1–13 马来 SI=0 · Cursor 停 7/24</span>
+      <span><b>规则</b>公司有会 ≠ 该联系人已触达</span>
+    </div>
+  </main>
+  <footer><span>来源：vemory-share.vemory.ai snapshot · 时长按 audio_duration</span><b>05 / 09</b></footer>
+</section>
+
+<section class="page" id="p6">
+  <aside><b>06</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>LOCAL FRICTION</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>当地难点：<br><em>录音里的话，不是感觉。</em></h1>
+    <div class="two-col">
+      <article>
+        <label>MARKET</label>
+        <h2>卖得动吗</h2>
+        <p class="quote">「他们利润点多少？」「七八啊。」「所以我们手机大致上如果赚不到的话，我们就不做。」— SWAP 7/14 · <a href="https://vemory-share.vemory.ai/share?id=1d939024" target="_blank">1d939024</a></p>
+        <p class="quote">「专门店都关。」Power 关掉；Valiram 接过老库存。— 同场</p>
+        <p class="quote">无正式店仍「每年两百多台」— KLCC 7/16 口述，VPS 未按国拆。· <a href="https://vemory-share.vemory.ai/share?id=d11b354d" target="_blank">d11b354d</a></p>
+      </article>
+      <article>
+        <label>DEAL</label>
+        <h2>签得下来吗</h2>
+        <p class="quote">「GTO十五有点高，其实可以往下谈。」Getin 初步「四千多美金一个月，或者说GTO是十五。」— SWAP 7/14</p>
+        <p class="quote">Pavilion：暂无铺位、不能给平面图，进 waiting list，要公司资料。直营/代理二选一未拍。— 7/15 · <a href="https://vemory-share.vemory.ai/share?id=d8ca9b58" target="_blank">d8ca9b58</a></p>
+        <p class="quote">premium「不接受先卖再算」。— SWAP 7/14 · <a href="https://vemory-share.vemory.ai/share?id=4c58a03d" target="_blank">4c58a03d</a></p>
+      </article>
+    </div>
+    <div class="warning">主体不拍，Pavilion 材料交不出，KLCC 签约主体也空。提袋率无官方数。越南月均 USD 16–22 万（最好月 34 万）只作 sell-in 背书，不是马来 sell-out。</div>
+    <div class="formula">KLCC 书面 RM70k/月或 15% GTO · 10/12 是 <b>7/31 事后文件</b>，不是这 8 场当场签下。</div>
+  </main>
+  <footer><span>合同/LOI 需法务复核，本页非法务意见</span><b>06 / 09</b></footer>
+</section>
+
+<section class="page" id="p7">
+  <aside><b>07</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>COUNTERPARTY INTENT</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>对方想怎么合作：<br><em>只引录音，未签约。</em></h1>
+    <table class="tight">
+      <tr><th>线索</th><th>对方意愿（纪要/转写）</th><th>卡点</th><th>阶段</th></tr>
+      <tr><td>SWAP</td><td>可谈 boutique / pop-up；要先锁利润。会员/concierge/叠码仔可玩。非商场签约方</td><td>手机利润谈不拢历史</td><td>S5 内部</td></tr>
+      <tr><td>DirectD</td><td>7/14 场标题写 DirectD，纪要未见 Amy 本人承诺。Amy 升 S4 只认 7/24「Kindly send me the relevant info」</td><td>资料包未发</td><td>S4 邮件</td></tr>
+      <tr><td>Pavilion</td><td>帮忙留意铺位、纳入 waiting list。偏好 2 楼腕表区。要管理层材料</td><td>无现成铺 · 主体未定</td><td>S5</td></tr>
+      <tr><td>Genting</td><td>可谈定制款/限定款、发布会。点位认赌场动线。要更优惠租金。参观场约定 WhatsApp 群</td><td>口头未转 LOI · 群聊天未入库</td><td>S5</td></tr>
+      <tr><td>KLCC</td><td>支持小步试点。30–50㎡。看 ROI 再定直营/代理</td><td>书面在 7/31；经营主体空</td><td>S6</td></tr>
+      <tr><td>SWITCH</td><td>先 pop-up 试水。强调代理商要有利润。可协助认证/海关。John 会 = John S5</td><td>未签约 · 其他人仍 S1</td><td>S5</td></tr>
+    </table>
+    <div class="callout">WhatsApp：仅云顶参观场纪要写「后续通过 WhatsApp 群保持沟通」。群原文 <b>待确认</b>，不能当已回复。18% 净利润、200+ 台/年、USD 3.5–5K 是会中口述或测算，标签=假设。</div>
+  </main>
+  <footer><span>晋级只认发送记录 / 回复 / 会议纪要 / 书面</span><b>07 / 09</b></footer>
+</section>
+
+<section class="page" id="p8">
+  <aside><b>08</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>FUNNEL + THIS WEEK</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>漏斗归位，本周只推能升一级的。</h1>
+    <div class="funnel-labels">
+      <div><small>S1 入库</small><b>52</b><p>不群发</p></div>
+      <div><small>S2 尽调</small><b>3</b><p>Delia / Valiram / Damien</p></div>
+      <div><small>S3 已发</small><b>1</b><p>Machines 失联</p></div>
+      <div><small>S4 回复</small><b>1</b><p>仅 Amy</p></div>
+      <div><small>S5 谈判</small><b>4</b><p>John / SWAP / Pavilion / Genting</p></div>
+      <div><small>S6 书面</small><b>1</b><p>仅 KLCC</p></div>
+      <div class="empty"><small>S7 客户</small><b>0</b><p>试铺后毕业</p></div>
+    </div>
+    <table class="tight">
+      <tr><th>P</th><th>线索</th><th>动作</th><th>完成后</th></tr>
+      <tr><td>P0</td><td>Amy Tan</td><td>资料包 + 线上 MOU 1-pager</td><td>S5</td></tr>
+      <tr><td>P0</td><td>KLCC</td><td>ROI 一页纸 + 经营主体书面</td><td>进场筹备（仍是线索）</td></tr>
+      <tr><td>P0</td><td>Delia Yap</td><td>租赁邮件发出并记日志</td><td>S3</td></tr>
+      <tr><td>P1</td><td>John Cheah</td><td>30min ROI 会</td><td>S6 或淘汰</td></tr>
+      <tr><td>P1</td><td>Lovell Ho / Genting</td><td>Pavilion 材料 · 口头转 LOI</td><td>S6</td></tr>
+      <tr><td>P1</td><td>Damien / Valiram</td><td>probe 发出</td><td>S3</td></tr>
+    </table>
+    <div class="ask"><b>8 月拍板三件事：</b>① DirectD 线上先行 vs SWITCH 双店　② 市区以 KLCC 已锁为准、Pavilion 并行　③ 经营主体。主体不拍，两条商场线都卡。</div>
+  </main>
+  <footer><span>Zahir 等 Damien · Wearnes 先补人 · Machines 不重启</span><b>08 / 09</b></footer>
+</section>
+
+<section class="page cover" id="p9">
+  <aside><b>09</b><i></i><small>MALAYSIA<br>LEADS<br>2026</small></aside>
+  <header><span>ASK</span><em>VERTU OVERSEAS · CONFIDENTIAL</em></header>
+  <main>
+    <h1>用本周真实动作<br><em>换下一级漏斗。</em></h1>
+    <div class="cover-rule"></div>
+    <div class="final">现在能汇报的不是「马来客户」，是 <b>62 条线索的位置</b>。<br>8 场录音证明事中发生过，不证明已经签。客户从 S7 才开始。</div>
+    <div class="hero-metrics" style="grid-template-columns:repeat(3,1fr);margin-top:8px">
+      <div><small>本周最小闭环</small><strong>Amy + KLCC + Delia</strong><p>一条回复升级、一条书面可进场、一条从尽调发出</p></div>
+      <div><small>并行验证</small><strong>John ROI</strong><p>测算或放弃 · 避免两家承接方同时空转</p></div>
+      <div><small>不要做的</small><strong>52 条群发</strong><p>金山入库不是触达。S1 冻结是管理</p></div>
+    </div>
+    <div class="cover-note">缺口仍在：WhatsApp 群原文、Amy 以外邮件全文、总抓取 MY75 未分池、200+ 台无法按国复核、8 月 Cursor/Vemory 空。评分草案未计入 WhatsApp/财务尽调/90 天 sell-out。← → 或空格翻页。</div>
+  </main>
+  <footer><span>LEAD LIFECYCLE · 于冰 Ivan · 2026-08-13</span><b>09 / 09</b></footer>
+</section>
+
+<button onclick="go(-1)">←</button>
+<button onclick="go(1)">→</button>
+<script>
+let i=0,p=[...document.querySelectorAll('.page')];
+function go(n){i=(i+n+p.length)%p.length;p.forEach((x,k)=>x.style.display=k===i?'block':'none')}
+document.onkeydown=e=>{if(e.key==='ArrowRight'||e.key===' ')go(1);if(e.key==='ArrowLeft')go(-1)}
+</script>
+</body>
+</html>

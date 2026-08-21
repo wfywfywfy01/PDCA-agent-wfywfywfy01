@@ -1,0 +1,1230 @@
+{
+  "note": "门店清单=config/dealers.json；真实销售/提货件数=vertu odoo data sandbox customer_summary。",
+  "source": "vps",
+  "vpsFile": "config/data_sources.json",
+  "checkDate": "2026-06-05",
+  "storeCount": 34,
+  "estRatio": 4,
+  "channelLabels": [
+    "TikTok/短视频",
+    "TikTok直播",
+    "Ins+Facebook"
+  ],
+  "channelLeads": {
+    "shortVideo": 86,
+    "live": 0,
+    "other": 744,
+    "tiktok": 86,
+    "tiktokLive": 0,
+    "facebook": 707,
+    "instagram": 37,
+    "labels": [
+      "TikTok/短视频",
+      "TikTok直播",
+      "Ins+Facebook"
+    ],
+    "sourceFile": "c:\\Users\\frank\\Desktop\\越南门店数据.xlsx",
+    "displayMonth": "2026-05",
+    "requestedMonth": "2026-06"
+  },
+  "regionOrder": [
+    "中东",
+    "欧洲",
+    "南亚",
+    "东南亚",
+    "中亚"
+  ],
+  "dealerRegion": [
+    {
+      "region": "中东",
+      "perf": 81.99,
+      "qty": 35,
+      "countries": [
+        {
+          "country": "伊拉克",
+          "perf": 4.7,
+          "qty": 2,
+          "dealers": [
+            {
+              "name": "HASSIB ABDALLAH AMIR ALLAH",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 4.7,
+              "qty": 2,
+              "pickupAmount": 4.7,
+              "pickupQty": 2,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 4.7,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "AI-SARAF CO",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "Behzadi Boutique",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "Rashid lukman rashid",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "阿联酋",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Billionaire Collections",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "卡塔尔",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "CLICK TECH SERVICES",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "科威特",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Dar Al Sabaek",
+              "nickname": "",
+              "salesperson": "Viki",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "伊朗",
+          "perf": 70.13,
+          "qty": 27,
+          "dealers": [
+            {
+              "name": "Luxem Store",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 42.68,
+              "qty": 26,
+              "pickupAmount": 42.68,
+              "pickupQty": 26,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 42.68,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "Safiranhamrah",
+              "nickname": "",
+              "salesperson": "Viki",
+              "perf": 27.45,
+              "qty": 1,
+              "pickupAmount": 27.45,
+              "pickupQty": 1,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 27.45,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "TİVALİ Commercial Broker LLC",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "约旦",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Mkateb for e-commerce",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "阿塞拜疆",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "My Shops Electronics Trading LLC",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "土耳其",
+          "perf": 7.16,
+          "qty": 6,
+          "dealers": [
+            {
+              "name": "Veysel Sevis Ltd",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 7.16,
+              "qty": 6,
+              "pickupAmount": 7.16,
+              "pickupQty": 6,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 7.16,
+              "inTransitPerformance": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "region": "欧洲",
+      "perf": 29.08,
+      "qty": 20,
+      "countries": [
+        {
+          "country": "乌克兰",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Bestcom",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "FRONTANA GIDA DIS TICARET LIMITED",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "波兰",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "IQ-QUEST SP. Z O.O.",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "斯洛文尼亚",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Optimizers d.o.o.",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "保加利亚",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Robo Trading Ltd",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "英国",
+          "perf": 29.08,
+          "qty": 20,
+          "dealers": [
+            {
+              "name": "VERTU LONDON LTD",
+              "nickname": "Wiji",
+              "salesperson": "Lina",
+              "perf": 29.08,
+              "qty": 20,
+              "pickupAmount": 29.08,
+              "pickupQty": 20,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 29.08,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "德国",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "vipconnect.de",
+              "nickname": "",
+              "salesperson": "Lina",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "region": "东南亚",
+      "perf": 9.26,
+      "qty": 4,
+      "countries": [
+        {
+          "country": "柬埔寨",
+          "perf": 9.26,
+          "qty": 4,
+          "dealers": [
+            {
+              "name": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+              "nickname": "",
+              "salesperson": "于冰",
+              "perf": 9.26,
+              "qty": 4,
+              "pickupAmount": 9.26,
+              "pickupQty": 4,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 9.26,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "越南",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "VMG Communication and Technology Joint Stock Company",
+              "nickname": "",
+              "salesperson": "于冰",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "泰国",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "VST ECS (Thailand) Co., Ltd.",
+              "nickname": "yuemai",
+              "salesperson": "于冰",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "新加坡",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Zmc automotive Pte Ltd",
+              "nickname": "",
+              "salesperson": "何龙承",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "region": "南亚",
+      "perf": 2.59,
+      "qty": 12,
+      "countries": [
+        {
+          "country": "印度",
+          "perf": 2.59,
+          "qty": 12,
+          "dealers": [
+            {
+              "name": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+              "nickname": "高山",
+              "salesperson": "杨晶晶",
+              "perf": 2.59,
+              "qty": 5,
+              "pickupAmount": 2.59,
+              "pickupQty": 5,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 2.59,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "GURU ELECTRONICS SINGAPORE PTE LTD",
+              "nickname": "3C",
+              "salesperson": "杨晶晶",
+              "perf": 0.0,
+              "qty": 7,
+              "pickupAmount": 0.0,
+              "pickupQty": 7,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": 0.0,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "Sidd Senthil",
+              "nickname": "Ankit Jain",
+              "salesperson": "何海文",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "Parth Kamlesh Doshi",
+              "nickname": "",
+              "salesperson": "何龙承",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "Sun International General Trading",
+              "nickname": "",
+              "salesperson": "杨晶晶",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "region": "中亚",
+      "perf": 0.0,
+      "qty": 0,
+      "countries": [
+        {
+          "country": "土库曼斯坦",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Altyn Zaman H.J.",
+              "nickname": "",
+              "salesperson": "杨晶晶",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "乌兹别克斯坦",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "Bizcon Group",
+              "nickname": "",
+              "salesperson": "杨晶晶",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "俄罗斯",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "CONTINENTAL PLUS LLC.",
+              "nickname": "",
+              "salesperson": "杨晶晶",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            },
+            {
+              "name": "LLC \"TC Azimut\"",
+              "nickname": "",
+              "salesperson": "杨晶晶",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        },
+        {
+          "country": "哈萨克斯坦",
+          "perf": 0.0,
+          "qty": 0,
+          "dealers": [
+            {
+              "name": "LYZHINA OLGA",
+              "nickname": "",
+              "salesperson": "杨晶晶",
+              "perf": 0.0,
+              "qty": 0,
+              "pickupAmount": null,
+              "pickupQty": null,
+              "vpsUsage": null,
+              "inboundQty": null,
+              "activationQty": null,
+              "walkinQty": null,
+              "orderPerformance": null,
+              "inTransitPerformance": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "okrByMonth": {
+    "2026-06": {
+      "AI-SARAF CO": 120.0,
+      "Behzadi Boutique": 120.0,
+      "Billionaire Collections": 120.0,
+      "CLICK TECH SERVICES": 120.0,
+      "Dar Al Sabaek": 120.0,
+      "HASSIB ABDALLAH AMIR ALLAH": 120.0,
+      "Luxem Store": 120.0,
+      "Mkateb for e-commerce": 120.0,
+      "My Shops Electronics Trading LLC": 120.0,
+      "Rashid lukman rashid": 120.0,
+      "Safiranhamrah": 120.0,
+      "TİVALİ Commercial Broker LLC": 120.0,
+      "Veysel Sevis Ltd": 120.0,
+      "Bestcom": 120.0,
+      "FRONTANA GIDA DIS TICARET LIMITED": 120.0,
+      "IQ-QUEST SP. Z O.O.": 120.0,
+      "Optimizers d.o.o.": 120.0,
+      "Robo Trading Ltd": 120.0,
+      "VERTU LONDON LTD（Wiji）": 120.0,
+      "vipconnect.de": 120.0,
+      "GURU ELECTRONICS SINGAPORE PTE LTD（3C）": 120.0,
+      "LZB INDIA ELECTRIC PRIVATE LIMITED（高山）": 120.0,
+      "Sidd Senthil（Ankit Jain）": 120.0,
+      "Parth Kamlesh Doshi": 120.0,
+      "Sun International General Trading": 120.0,
+      "BIN BIN INVESTMENT(CAMBODIA) COLTD": 120.0,
+      "VMG Communication and Technology Joint Stock Company": 120.0,
+      "VST ECS (Thailand) Co., Ltd.（yuemai）": 120.0,
+      "Zmc automotive Pte Ltd": 120.0,
+      "Altyn Zaman H.J.": 120.0,
+      "Bizcon Group": 120.0,
+      "CONTINENTAL PLUS LLC.": 120.0,
+      "LLC \"TC Azimut\"": 120.0,
+      "LYZHINA OLGA": 120.0
+    }
+  },
+  "stores": [
+    {
+      "rg": "中东",
+      "nm": "HASSIB ABDALLAH AMIR ALLAH",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 32,
+      "Ll": 14,
+      "Lo": 14,
+      "sal": 4.7,
+      "qty": 2,
+      "partner": "HASSIB ABDALLAH AMIR ALLAH",
+      "country": "伊拉克"
+    },
+    {
+      "rg": "中东",
+      "nm": "AI-SARAF CO",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "AI-SARAF CO",
+      "country": "伊拉克"
+    },
+    {
+      "rg": "中东",
+      "nm": "Behzadi Boutique",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Behzadi Boutique",
+      "country": "伊拉克"
+    },
+    {
+      "rg": "中东",
+      "nm": "Rashid lukman rashid",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Rashid lukman rashid",
+      "country": "伊拉克"
+    },
+    {
+      "rg": "中东",
+      "nm": "Luxem Store",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 426,
+      "Ll": 128,
+      "Lo": 128,
+      "sal": 42.68,
+      "qty": 26,
+      "partner": "Luxem Store",
+      "country": "伊朗"
+    },
+    {
+      "rg": "中东",
+      "nm": "Safiranhamrah",
+      "mgr": "Viki",
+      "hk": 0,
+      "Ls": 192,
+      "Ll": 109,
+      "Lo": 82,
+      "sal": 27.45,
+      "qty": 1,
+      "partner": "Safiranhamrah",
+      "country": "伊朗"
+    },
+    {
+      "rg": "中东",
+      "nm": "TİVALİ Commercial Broker LLC",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "TİVALİ Commercial Broker LLC",
+      "country": "伊朗"
+    },
+    {
+      "rg": "中东",
+      "nm": "CLICK TECH SERVICES",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "CLICK TECH SERVICES",
+      "country": "卡塔尔"
+    },
+    {
+      "rg": "中东",
+      "nm": "Veysel Sevis Ltd",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 50,
+      "Ll": 14,
+      "Lo": 21,
+      "sal": 7.16,
+      "qty": 6,
+      "partner": "Veysel Sevis Ltd",
+      "country": "土耳其"
+    },
+    {
+      "rg": "中东",
+      "nm": "Dar Al Sabaek",
+      "mgr": "Viki",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Dar Al Sabaek",
+      "country": "科威特"
+    },
+    {
+      "rg": "中东",
+      "nm": "Mkateb for e-commerce",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Mkateb for e-commerce",
+      "country": "约旦"
+    },
+    {
+      "rg": "中东",
+      "nm": "My Shops Electronics Trading LLC",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "My Shops Electronics Trading LLC",
+      "country": "阿塞拜疆"
+    },
+    {
+      "rg": "中东",
+      "nm": "Billionaire Collections",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Billionaire Collections",
+      "country": "阿联酋"
+    },
+    {
+      "rg": "欧洲",
+      "nm": "Bestcom",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Bestcom",
+      "country": "乌克兰"
+    },
+    {
+      "rg": "欧洲",
+      "nm": "FRONTANA GIDA DIS TICARET LIMITED",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "FRONTANA GIDA DIS TICARET LIMITED",
+      "country": "乌克兰"
+    },
+    {
+      "rg": "欧洲",
+      "nm": "Robo Trading Ltd",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Robo Trading Ltd",
+      "country": "保加利亚"
+    },
+    {
+      "rg": "欧洲",
+      "nm": "vipconnect.de",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "vipconnect.de",
+      "country": "德国"
+    },
+    {
+      "rg": "欧洲",
+      "nm": "Optimizers d.o.o.",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Optimizers d.o.o.",
+      "country": "斯洛文尼亚"
+    },
+    {
+      "rg": "欧洲",
+      "nm": "IQ-QUEST SP. Z O.O.",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "IQ-QUEST SP. Z O.O.",
+      "country": "波兰"
+    },
+    {
+      "rg": "欧洲",
+      "nm": "VERTU LONDON LTD（Wiji）",
+      "mgr": "Lina",
+      "hk": 0,
+      "Ls": 290,
+      "Ll": 145,
+      "Lo": 58,
+      "sal": 29.08,
+      "qty": 20,
+      "partner": "VERTU LONDON LTD",
+      "country": "英国"
+    },
+    {
+      "rg": "南亚",
+      "nm": "LZB INDIA ELECTRIC PRIVATE LIMITED（高山）",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 15,
+      "Ll": 7,
+      "Lo": 7,
+      "sal": 2.59,
+      "qty": 5,
+      "partner": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "country": "印度"
+    },
+    {
+      "rg": "南亚",
+      "nm": "GURU ELECTRONICS SINGAPORE PTE LTD（3C）",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 7,
+      "partner": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "country": "印度"
+    },
+    {
+      "rg": "南亚",
+      "nm": "Parth Kamlesh Doshi",
+      "mgr": "何龙承",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Parth Kamlesh Doshi",
+      "country": "印度"
+    },
+    {
+      "rg": "南亚",
+      "nm": "Sidd Senthil（Ankit Jain）",
+      "mgr": "何海文",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Sidd Senthil",
+      "country": "印度"
+    },
+    {
+      "rg": "南亚",
+      "nm": "Sun International General Trading",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Sun International General Trading",
+      "country": "印度"
+    },
+    {
+      "rg": "东南亚",
+      "nm": "Zmc automotive Pte Ltd",
+      "mgr": "何龙承",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Zmc automotive Pte Ltd",
+      "country": "新加坡"
+    },
+    {
+      "rg": "东南亚",
+      "nm": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "mgr": "于冰",
+      "hk": 0,
+      "Ls": 55,
+      "Ll": 27,
+      "Lo": 18,
+      "sal": 9.26,
+      "qty": 4,
+      "partner": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "country": "柬埔寨"
+    },
+    {
+      "rg": "东南亚",
+      "nm": "VST ECS (Thailand) Co., Ltd.（yuemai）",
+      "mgr": "于冰",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "VST ECS (Thailand) Co., Ltd.",
+      "country": "泰国"
+    },
+    {
+      "rg": "东南亚",
+      "nm": "VMG Communication and Technology Joint Stock Company",
+      "mgr": "于冰",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "VMG Communication and Technology Joint Stock Company",
+      "country": "越南"
+    },
+    {
+      "rg": "中亚",
+      "nm": "Bizcon Group",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Bizcon Group",
+      "country": "乌兹别克斯坦"
+    },
+    {
+      "rg": "中亚",
+      "nm": "CONTINENTAL PLUS LLC.",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "CONTINENTAL PLUS LLC.",
+      "country": "俄罗斯"
+    },
+    {
+      "rg": "中亚",
+      "nm": "LLC \"TC Azimut\"",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "LLC \"TC Azimut\"",
+      "country": "俄罗斯"
+    },
+    {
+      "rg": "中亚",
+      "nm": "LYZHINA OLGA",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "LYZHINA OLGA",
+      "country": "哈萨克斯坦"
+    },
+    {
+      "rg": "中亚",
+      "nm": "Altyn Zaman H.J.",
+      "mgr": "杨晶晶",
+      "hk": 0,
+      "Ls": 0,
+      "Ll": 0,
+      "Lo": 0,
+      "sal": 0.0,
+      "qty": 0,
+      "partner": "Altyn Zaman H.J.",
+      "country": "土库曼斯坦"
+    }
+  ],
+  "scaleByMonth": {
+    "2026-06": 1
+  }
+}

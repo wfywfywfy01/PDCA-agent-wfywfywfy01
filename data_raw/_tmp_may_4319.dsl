@@ -1,0 +1,1 @@
+﻿sale_date >= "2026-05-01" AND sale_date <= "2026-05-31" AND level1_department_id = 1569 AND level2_department_id = 1577 AND sale_type IN ["agent_sale","agent_sale_replacement","agent_sale_return"] AND lv3_product_category = 4319

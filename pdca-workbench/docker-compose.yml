@@ -43,6 +43,12 @@ services:
       VERTU_USER_LOGIN: ${VERTU_USER_LOGIN:?请在未跟踪的 .env 中设置 VERTU_USER_LOGIN}
       VERTU_LEGACY_COMMAND: ${VERTU_LEGACY_COMMAND:-vertu}
       VERTU_BOT_INBOUND_KEY: ${VERTU_BOT_INBOUND_KEY:-}
+      LOGIBOT_ENABLED: ${LOGIBOT_ENABLED:-0}
+      LOGIBOT_ROOT: /app/logibot
+      LOGIBOT_DATA_DIR: /app/data/logibot
+      PDCA_VPS_BOT_APP_ID: ${PDCA_VPS_BOT_APP_ID:-}
+      PDCA_VPS_BOT_APP_SECRET: ${PDCA_VPS_BOT_APP_SECRET:-}
+      PDCA_VPS_BOT_CHANNEL_ID: ${PDCA_VPS_BOT_CHANNEL_ID:-}
     volumes:
       - ./data:/app/data
       # Persist legacy `vertu login` sessions when Bot Key authentication is not used.

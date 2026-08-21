@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"/><title>PDCA 静态演示包</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6}
+a{display:block;margin:8px 0;color:#2563eb}</style></head><body>
+<h1>经销商 PDCA · 静态演示</h1>
+<p>数据快照日：<strong>2026-06-05</strong>。请先在本文件夹打开终端执行：</p>
+<pre>python -m http.server 8080</pre>
+<p>浏览器访问 <a href="http://127.0.0.1:8080/">http://127.0.0.1:8080/</a></p>
+<h2>页面</h2>
+<a href="home/index.html?date=2026-06-05">经营首页（驾驶舱）</a>
+<a href="dashboard.html">数据看板（门店大区树 + 业绩）</a>
+<a href="walkin-cockpit/index.html?date=2026-06-05#oi-merged">客流分析 / 线上 OKR</a>
+<a href="meeting-center/index.html?date=2026-06-05">会议中心（Vemory 快照）</a>
+<h2>说明</h2>
+<ul>
+<li>无需 vertu CLI、无需 8767 工作台</li>
+<li>业绩/门店/渠道/会议数据已写入 JSON，与打包当日一致</li>
+<li>解压后在本目录执行 <code>python -m http.server 8080</code>，用浏览器打开（勿直接双击 HTML）</li>
+</ul>
+</body></html>

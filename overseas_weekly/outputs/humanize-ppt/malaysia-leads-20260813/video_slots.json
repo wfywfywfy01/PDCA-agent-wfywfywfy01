@@ -1,0 +1,22 @@
+[
+  {
+    "video_id": "V04",
+    "slide_id": "S04",
+    "kind": "remotion-clip",
+    "purpose": "8-12s process clip that walks through the method",
+    "duration_seconds": 10,
+    "aspect_ratio": "16:9",
+    "slot": "method-video-16x9",
+    "fallback_static": "asset-s04-diagram"
+  },
+  {
+    "video_id": "V05",
+    "slide_id": "S05",
+    "kind": "remotion-clip",
+    "purpose": "Short before/after or result clip",
+    "duration_seconds": 8,
+    "aspect_ratio": "16:9",
+    "slot": "proof-video-16x9",
+    "fallback_static": "asset-s05-diagram"
+  }
+]

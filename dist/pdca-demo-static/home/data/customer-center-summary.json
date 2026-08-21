@@ -1,0 +1,26 @@
+[
+  {
+    "level": "S",
+    "total": 30,
+    "touched": 8,
+    "target": 8
+  },
+  {
+    "level": "A",
+    "total": 2,
+    "touched": 2,
+    "target": 20
+  },
+  {
+    "level": "B",
+    "total": 1,
+    "touched": 1,
+    "target": 45
+  },
+  {
+    "level": "C",
+    "total": 0,
+    "touched": 0,
+    "target": 30
+  }
+]

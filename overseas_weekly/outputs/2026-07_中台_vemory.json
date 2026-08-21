@@ -1,0 +1,184 @@
+[
+  {
+    "name": "张倩",
+    "uid": 13848,
+    "status": "ok",
+    "total": 4,
+    "cats": {
+      "外部会议": 1,
+      "面试": 3
+    },
+    "items": [
+      {
+        "day": "2026-07-16",
+        "cat": "外部会议",
+        "title": "2026-07-16 印度客户关税与折扣成交案例复盘",
+        "dur": 28,
+        "summary": "本次会议围绕一个印度客户的成交案例做复盘，重点讨论了关税解释、报价策略、付款拆分、定制服务话术以及成交过程中的得失。会议最终认可了该单已成交，但也指出报价偏松、实拍视频发得太少、话术库没有充分用起来等问题。后续要求大家结合该案例总结可借鉴做法与不足，并形成书面反馈。"
+      },
+      {
+        "day": "2026-07-15",
+        "cat": "面试",
+        "title": "2026-07-15 门店运营培训与销售五件套说明会",
+        "dur": 42,
+        "summary": "本次会议主要围绕门店运营的日常动作、销售接待流程、线上引流方式以及“销售五件套”的考核思路进行培训说明，目的是让国内代理商团队理解门店销售在开业前、营业中和闭店时分别要做什么。会议最终强调：门店运营要落实到人、落实到动作，尤其要重视客流接待、客户留资、线上内容输出和数据复盘。关于"
+      },
+      {
+        "day": "2026-07-08",
+        "cat": "面试",
+        "title": "2026-07-08 海外渠道销售候选人二面评估",
+        "dur": 32,
+        "summary": "候选人整体呈现出较强的海外渠道开拓和管理经验，尤其在欧洲多国市场、从零到一建联、渠道筛选、门店建设和销售管理方面有较丰富的实战案例。面试官对其跨区域渠道经验和市场判断能力基本认可，但也关注其与当前岗位的匹配度，尤其是对品牌海外渠道类型、目标市场选择和资源复用的思考深度。面试官明确"
+      },
+      {
+        "day": "2026-07-07",
+        "cat": "面试",
+        "title": "2026-07-07 海外BD经理➕董振宇",
+        "dur": 15,
+        "summary": "本次面试主要围绕候选人在尼日利亚及非洲市场的长期销售与管理经验、转入消费电子和短交通产品的动机，以及对海外市场的理解展开。候选人有较强的海外常驻经历，能清楚说明当地市场、渠道和消费分层，表达较顺畅，且对非洲市场有一定实战认知。面试官整体交流较积极，但也对候选人从传统品类切换到短交"
+      }
+    ]
+  },
+  {
+    "name": "刘雪梅",
+    "uid": 14461,
+    "status": "error",
+    "err": "Failed to parse JSON-RPC response from /ai/cli/v1/execute (HTTP 502): Unexpected token '<', \"<html>\n<h\"... is not valid JSON\n"
+  },
+  {
+    "name": "刘春梅",
+    "uid": 12564,
+    "status": "error",
+    "err": "✗ 命令无法执行：无法连接 Odoo 服务 (unreachable)\n\n原因：请求 https://admin.vertu.cn/ai/cli/v1/execute 超时（60s 未响应）。\n修复：服务端处理较慢时使用 --timeout <ms> 调大超时（如 --timeout 300000 即 5 分钟）；或确"
+  },
+  {
+    "name": "付汪阳",
+    "uid": 13365,
+    "status": "ok",
+    "total": 0,
+    "cats": {},
+    "items": []
+  },
+  {
+    "name": "Safae Ben M'hamed",
+    "uid": 14460,
+    "status": "denied"
+  },
+  {
+    "name": "王宇彤",
+    "uid": 14344,
+    "status": "ok",
+    "total": 15,
+    "cats": {
+      "外部会议": 12,
+      "内部会议": 3
+    },
+    "items": [
+      {
+        "day": "2026-07-17",
+        "cat": "外部会议",
+        "title": "2026-07-17 Russian Translation Fixes and Follow-up System Issues",
+        "dur": 4,
+        "summary": "This internal meeting focused on a customer-facing translation issue in the system UI, specifically that a button explanation still appears "
+      },
+      {
+        "day": "2026-07-16",
+        "cat": "外部会议",
+        "title": "2026-07-16 Partner Outreach Messaging for Russia Hospitality Collaboration and Statement Draft Finalization",
+        "dur": 9,
+        "summary": "This meeting focused on refining the outbound message to a target luxury hotel partner in Russia and finalizing a concise statement draft fo"
+      },
+      {
+        "day": "2026-07-16",
+        "cat": "外部会议",
+        "title": "2026-07-16 Indian Customer Sales Case Review and Quotation Strategy Training",
+        "dur": 27,
+        "summary": "This internal meeting reviewed a completed overseas customer case, mainly focusing on how to handle Indian customer negotiations around tari"
+      },
+      {
+        "day": "2026-07-16",
+        "cat": "外部会议",
+        "title": "2026-07-16 AI-Powered Market Research Methods and Tool Usage Training",
+        "dur": 145,
+        "summary": "This internal meeting was held to explain how AI tools can support overseas market research, site selection, competitor benchmarking, and bu"
+      },
+      {
+        "day": "2026-07-16",
+        "cat": "外部会议",
+        "title": "2026-07-16 Overseas Sales Follow-up, Agent Standards, and Market Expansion Coordination",
+        "dur": 30,
+        "summary": "This internal meeting reviewed overseas order progress, agent and brand-standard issues, channel management, and upcoming market-expansion w"
+      },
+      {
+        "day": "2026-07-14",
+        "cat": "内部会议",
+        "title": "2026-07-14 Google Authenticator Setup and Account Access Troubleshooting",
+        "dur": 6,
+        "summary": "This internal meeting was mainly a live troubleshooting session focused on a device/app access issue, with the participants trying to locate"
+      },
+      {
+        "day": "2026-07-14",
+        "cat": "外部会议",
+        "title": "2026-07-14 Sales Performance Review, Customer Follow-up, and Internal Training Priorities",
+        "dur": 38,
+        "summary": "This internal meeting reviewed current sales performance, key customer follow-ups, product and contract issues, and upcoming work priorities"
+      },
+      {
+        "day": "2026-07-13",
+        "cat": "外部会议",
+        "title": "2026-07-13 Virtual Boutique Cooperation Discussion for Metro in Moscow",
+        "dur": 14,
+        "summary": "This meeting was held to explore a potential cooperation model for introducing Metro pole to the market through a virtual boutique, virtual "
+      },
+      {
+        "day": "2026-07-13",
+        "cat": "内部会议",
+        "title": "2026-07-13 Onboarding Training on B2B Execution, Selection, and Leveraging Tools",
+        "dur": 14,
+        "summary": "This internal meeting was held to welcome a new teammate and provide onboarding guidance on how the team should operate in its B2B business."
+      },
+      {
+        "day": "2026-07-09",
+        "cat": "内部会议",
+        "title": "2026-07-09 New Recording",
+        "dur": 0,
+        "summary": ""
+      },
+      {
+        "day": "2026-07-08",
+        "cat": "外部会议",
+        "title": "2026-07-08 Sales Progress, Reporting Prep, and Product Data Workflow Coordination",
+        "dur": 2001,
+        "summary": "This internal meeting focused on coordinating shipment and invoicing details, preparing the upcoming half-year summary and annual review mat"
+      },
+      {
+        "day": "2026-07-07",
+        "cat": "外部会议",
+        "title": "2026-07-07 Regional Sales Follow-up, Order Collection, and Internal Process Updates",
+        "dur": 55,
+        "summary": "This internal meeting focused on regional customer follow-up, order collection, channel coordination, and several operational issues that ne"
+      },
+      {
+        "day": "2026-07-02",
+        "cat": "外部会议",
+        "title": "2026-07-02 Customer Segmentation and AI-Enabled B2B Outreach Workflow Training",
+        "dur": 29,
+        "summary": "This internal meeting was held to explain the customer tiering model, demonstrate the new outbound sales workflow, and clarify how the syste"
+      },
+      {
+        "day": "2026-07-02",
+        "cat": "外部会议",
+        "title": "2026-07-02 Customer Support Discussion on App Login, Call Reception, and AI Camera Issues",
+        "dur": 97,
+        "summary": "This internal meeting was held to address the customer's concerns about the product experience, restore confidence, and clarify whether the "
+      },
+      {
+        "day": "2026-07-01",
+        "cat": "外部会议",
+        "title": "2026-07-01 OKR Decomposition, New Employee Onboarding, and Daily Reporting Workflow",
+        "dur": 25,
+        "summary": "This internal meeting focused on clarifying how the company’s OKR system should be decomposed from department goals to individual tasks, esp"
+      }
+    ]
+  }
+]

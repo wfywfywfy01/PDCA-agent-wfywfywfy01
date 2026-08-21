@@ -1,0 +1,304 @@
+{
+  "meta": {
+    "team": "杨晶晶小组",
+    "as_of_date": "2026-05-26",
+    "month": "2026-05",
+    "source": "local:teams/yang-jingjing",
+    "generated_at": "2026-06-03T16:50:34"
+  },
+  "team": {
+    "target_wan": 190,
+    "leader_share_pct": 88.9,
+    "dealer_total": 9,
+    "status": "需关注"
+  },
+  "kpis": [
+    {
+      "key": "logs",
+      "label": "日报提交",
+      "value": "3/3",
+      "tone": "ok"
+    },
+    {
+      "key": "overdue",
+      "label": "超期客户",
+      "value": "2",
+      "tone": "bad"
+    },
+    {
+      "key": "leader_share",
+      "label": "组长客户占比",
+      "value": "88.9%",
+      "tone": "warn"
+    },
+    {
+      "key": "dealers",
+      "label": "负责客户总数",
+      "value": "9",
+      "tone": "neutral"
+    }
+  ],
+  "process_defaults": {
+    "新增客户": 3,
+    "有效触达": 15,
+    "客户跟进": 8,
+    "报价": 2,
+    "重点客户维护": 2,
+    "日报提交": 1
+  },
+  "sales": [
+    {
+      "id": "yang-jingjing",
+      "name": "杨晶晶",
+      "target_wan": 125.0,
+      "process_rate": 55.7,
+      "log_submitted": true,
+      "owned_customers": 8,
+      "metrics": {
+        "新增客户": {
+          "actual": 0.0,
+          "target": 3.0
+        },
+        "有效触达": {
+          "actual": 8.0,
+          "target": 15.0
+        },
+        "客户跟进": {
+          "actual": 6.0,
+          "target": 8.0
+        },
+        "报价": {
+          "actual": 1.0,
+          "target": 2.0
+        },
+        "重点客户维护": {
+          "actual": 2.0,
+          "target": 2.0
+        }
+      },
+      "anomalies": [
+        "过程指标不足",
+        "日报字段不完整",
+        "报价动作不足"
+      ],
+      "risk": "过程指标不足；日报字段不完整；报价动作不足"
+    },
+    {
+      "id": "he-haiwen",
+      "name": "何海文",
+      "target_wan": 45.0,
+      "process_rate": 35.3,
+      "log_submitted": true,
+      "owned_customers": 1,
+      "metrics": {
+        "新增客户": {
+          "actual": 0.0,
+          "target": 3.0
+        },
+        "有效触达": {
+          "actual": 4.0,
+          "target": 15.0
+        },
+        "客户跟进": {
+          "actual": 4.0,
+          "target": 8.0
+        },
+        "报价": {
+          "actual": 1.0,
+          "target": 2.0
+        },
+        "重点客户维护": {
+          "actual": 1.0,
+          "target": 2.0
+        }
+      },
+      "anomalies": [
+        "过程指标不足",
+        "日报字段不完整",
+        "报价动作不足"
+      ],
+      "risk": "过程指标不足；日报字段不完整；报价动作不足"
+    },
+    {
+      "id": "wang-yutong",
+      "name": "王宇彤",
+      "target_wan": 10.0,
+      "process_rate": 48.2,
+      "log_submitted": true,
+      "owned_customers": 0,
+      "metrics": {
+        "新增客户": {
+          "actual": 2.0,
+          "target": 3.0
+        },
+        "有效触达": {
+          "actual": 13.0,
+          "target": 15.0
+        },
+        "客户跟进": {
+          "actual": 3.0,
+          "target": 8.0
+        },
+        "报价": {
+          "actual": 0.0,
+          "target": 2.0
+        },
+        "重点客户维护": {
+          "actual": 1.0,
+          "target": 2.0
+        }
+      },
+      "anomalies": [
+        "过程指标不足",
+        "报价动作不足",
+        "无明确负责客户"
+      ],
+      "risk": "过程指标不足；报价动作不足；无明确负责客户"
+    }
+  ],
+  "dealers": [
+    {
+      "name": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "nickname": "3C",
+      "region": "南亚",
+      "country": "印度",
+      "owner": "杨晶晶",
+      "priority": "A",
+      "last_followup": "2026-05-28",
+      "days_since": -2,
+      "overdue": false,
+      "next_action": "发送 6 月新品报价单"
+    },
+    {
+      "name": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "nickname": "高山",
+      "region": "南亚",
+      "country": "印度",
+      "owner": "杨晶晶",
+      "priority": "B",
+      "last_followup": "2026-05-14",
+      "days_since": 12,
+      "overdue": false,
+      "next_action": "确认 Q2 采购计划并推动报价"
+    },
+    {
+      "name": "Sidd Senthil",
+      "nickname": "Ankit Jain",
+      "region": "南亚",
+      "country": "印度",
+      "owner": "何海文",
+      "priority": "B",
+      "last_followup": "2026-05-30",
+      "days_since": -4,
+      "overdue": false,
+      "next_action": "发送样品报价及产品手册"
+    },
+    {
+      "name": "Sun International General Trading",
+      "nickname": "",
+      "region": "南亚",
+      "country": "印度",
+      "owner": "杨晶晶",
+      "priority": "B",
+      "last_followup": "2026-05-09",
+      "days_since": 17,
+      "overdue": true,
+      "next_action": "重新建立联系，了解当前采购需求"
+    },
+    {
+      "name": "Altyn Zaman H.J.",
+      "nickname": "",
+      "region": "中亚",
+      "country": "土库曼斯坦",
+      "owner": "杨晶晶",
+      "priority": "A",
+      "last_followup": "2026-05-24",
+      "days_since": 2,
+      "overdue": false,
+      "next_action": "确认 5 月订单尾款及 Q3 备货计划"
+    },
+    {
+      "name": "Bizcon Group",
+      "nickname": "",
+      "region": "中亚",
+      "country": "乌兹别克斯坦",
+      "owner": "杨晶晶",
+      "priority": "A",
+      "last_followup": "2026-05-26",
+      "days_since": 0,
+      "overdue": false,
+      "next_action": "升级联系人，推动 Q2 复购"
+    },
+    {
+      "name": "CONTINENTAL PLUS LLC.",
+      "nickname": "",
+      "region": "中亚",
+      "country": "俄罗斯",
+      "owner": "杨晶晶",
+      "priority": "B",
+      "last_followup": "2026-05-20",
+      "days_since": 6,
+      "overdue": false,
+      "next_action": "发送新品介绍，试探 Q3 采购意向"
+    },
+    {
+      "name": "LLC \"TC Azimut\"",
+      "nickname": "",
+      "region": "中亚",
+      "country": "俄罗斯",
+      "owner": "杨晶晶",
+      "priority": "A",
+      "last_followup": "2026-05-22",
+      "days_since": 4,
+      "overdue": false,
+      "next_action": "微信沟通复购意向，目标锁定 7 月订单"
+    },
+    {
+      "name": "LYZHINA OLGA",
+      "nickname": "",
+      "region": "中亚",
+      "country": "哈萨克斯坦",
+      "owner": "杨晶晶",
+      "priority": "C",
+      "last_followup": "2026-05-10",
+      "days_since": 16,
+      "overdue": true,
+      "next_action": "邮件确认是否仍有采购需求"
+    }
+  ],
+  "regions": [
+    {
+      "name": "中亚",
+      "dealer_count": 5,
+      "overdue_count": 1,
+      "owner_count": 1
+    },
+    {
+      "name": "南亚",
+      "dealer_count": 4,
+      "overdue_count": 1,
+      "owner_count": 2
+    }
+  ],
+  "ai_insights": [
+    "客户资源高度集中在组长（88.9%），建议向组员分配 B/C 类客户。",
+    "超期跟进：Sun International General Trading（17 天）",
+    "超期跟进：LYZHINA OLGA（16 天）",
+    "杨晶晶：过程指标未达标，需加强有效触达与报价。",
+    "何海文：过程指标未达标，需加强有效触达与报价。",
+    "王宇彤：过程指标未达标，需加强有效触达与报价。"
+  ],
+  "pdca": {
+    "team_check": "teams\\yang-jingjing\\check_reports\\2026-05-26_team_check.md",
+    "actions": [
+      "从杨晶晶客户池中选择 1-2 个 B/C 类客户转交给王宇彤做维护练习。",
+      "何海文继续负责 Sidd Senthil，同时新增印度拓客任务。",
+      "保留 LLC “TC Azimut” 和 Altyn Zaman H.J. 为 A 类重点客户，每周至少 2 次有效维护。",
+      "何海文：辅导报价跟进和印度客户开发。",
+      "王宇彤：建立客户池，先从新客户开发和低风险老客户维护开始。",
+      "团队：统一日报填写口径，要求每个客户动作都有下一步和下次跟进日期。",
+      "客户资源高度集中在组长，组员成长和覆盖不足",
+      "杨晶晶：过程指标不足；日报字段不完整；报价动作不足"
+    ]
+  }
+}

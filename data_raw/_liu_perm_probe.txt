@@ -1,0 +1,20 @@
+current_auth 1.0s rc=0
+ALIAS    BASE URL                 STATUS           AUTH  USER
+-------------------------------------------------------------
+default  https://admin.vertu.cn   ok               user  frank.fu@vertu.cn (uid=13365)
+im       https://vps-im.vertu.cn  ok               user  frank.fu@vertu.cn (uid=13365)
+
+C
+
+--- 刘春梅本人 uid=12564 ---
+rc=1 0.8s denied=True meetings=0
+  msg:  你没有权限查询该用户的数据。默认情况下你只能查询本人及 HR 下属的数据。如需更广的查询范围，请联系管理员为你的用户组创建 CLI 权限策略。 
+--- 于冰 uid=13063 ---
+rc=1 0.8s denied=True meetings=0
+  msg:  你没有权限查询该用户的数据。默认情况下你只能查询本人及 HR 下属的数据。如需更广的查询范围，请联系管理员为你的用户组创建 CLI 权限策略。 
+--- 杨晶晶 uid=13122 ---
+rc=1 0.8s denied=True meetings=0
+  msg:  你没有权限查询该用户的数据。默认情况下你只能查询本人及 HR 下属的数据。如需更广的查询范围，请联系管理员为你的用户组创建 CLI 权限策略。 
+--- 尤文静 uid=13551 ---
+rc=1 0.8s denied=True meetings=0
+  msg:  你没有权限查询该用户的数据。默认情况下你只能查询本人及 HR 下属的数据。如需更广的查询范围，请联系管理员为你的用户组创建 CLI 权限策略。 

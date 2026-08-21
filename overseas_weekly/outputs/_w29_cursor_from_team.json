@@ -1,0 +1,299 @@
+{
+  "pulled_at": "2026-07-20",
+  "week": "2026-07-13 ~ 2026-07-19",
+  "include_through": "2026-07-20",
+  "db_max_updated_at": "2026-07-17 17:52:42.417995+00:00",
+  "db_max_report_date": "2026-07-18",
+  "db_row_count": 18,
+  "users": {
+    "Ivan": {
+      "username": "Ivan",
+      "display": "于冰",
+      "week_days": 0,
+      "sessions": 0,
+      "turns": 0,
+      "days": [],
+      "latest_date": null,
+      "latest_summary": "",
+      "status": "本周未提交"
+    },
+    "April": {
+      "username": "April",
+      "display": "杨晶晶",
+      "week_days": 0,
+      "sessions": 0,
+      "turns": 0,
+      "days": [],
+      "latest_date": null,
+      "latest_summary": "",
+      "status": "本周未提交"
+    },
+    "Haiwen": {
+      "username": "Haiwen",
+      "display": "何海文",
+      "week_days": 0,
+      "sessions": 0,
+      "turns": 0,
+      "days": [],
+      "latest_date": null,
+      "latest_summary": "",
+      "status": "本周未提交"
+    },
+    "Lina": {
+      "username": "Lina",
+      "display": "Lina",
+      "week_days": 0,
+      "sessions": 0,
+      "turns": 0,
+      "days": [],
+      "latest_date": null,
+      "latest_summary": "",
+      "status": "本周未提交"
+    },
+    "Viki": {
+      "username": "Viki",
+      "display": "尤文静",
+      "week_days": 5,
+      "sessions": 5,
+      "turns": 5,
+      "days": [
+        {
+          "date": "2026-07-13",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "- 【Cursor 日报自动化】工作日定时任务触发，执行 cursor-daily-report skill，通过 Cloud Agent 环境汇总当日会话并提交团队日报 API；工具：cursor-cloud MCP、automation_memory；状态：进行中\n- 【会话采集】Cloud Agent 环境无本地 agent-transcripts，通过 list-cloud-agents 查询当日活动，仅检测到 1 条 automations 来源会话（本日报任务本身）\n- 【日报提交】采用手动构建 draft.json + submit_report.py 方式提交（Viki odoo_user_id 未配置，使用 cursor-only 模式）",
+          "compact": "Cursor 日报自动化；daily-report skill，通过 Cloud Agent 环境汇总当日会话并提交团队日报 API；工具：cursor-cloud MCP、automa；transcripts，通过 list-cloud-agents 查询当日活动，仅检测到 1 条 automations 来源会话（本日报任务本身） - 【日报",
+          "updated_at": "2026-07-13 17:51:08.378251+00:00"
+        },
+        {
+          "date": "2026-07-14",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "07.14 今日工作总结\n\nCursor\n1. Cloud Agent 定时任务触发 cursor-daily-report skill，读取 automation memory 与 GitHub 脚本仓库，确认 Viki API 配置与提交流程\n2. 通过 cursor-cloud MCP 拉取当日 Cloud Agent 会话，Cloud 环境无本地 agent-transcripts，改用手动构建 draft.json 方式汇总\n3. 今日仅检测到 1 次自动化会话（日报提交任务本身），未检出 Desktop 端业务开发会话，使用 submit_report.py 向团队 API 提交 Cursor 日报",
+          "compact": "daily-report skill，读取 automation memory 与 GitHub 脚本仓库，确认 Viki API 配置与提交流程 2. 通过 ；transcripts，改用手动构建 draft.json 方式汇总 3. 今日仅检测到 1 次自动化会话（日报提交任务本身），未检出 Desktop 端业务开",
+          "updated_at": "2026-07-14 17:51:43.312723+00:00"
+        },
+        {
+          "date": "2026-07-15",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "07.15 今日工作总结\n\nCursor\n1. Cloud Agent 定时任务触发 cursor-daily-report skill，从 automation memory 读取 Viki 配置，克隆 Frankie-Foo/cursor-team-daily-report 脚本仓库\n2. 通过 cursor-cloud MCP 枚举当日 Cloud Agent 会话，确认 Cloud 环境无本地 agent-transcripts，采用手动构建 draft.json 流程\n3. 今日未检出 Desktop 端业务开发会话，仅 1 次日报自动化运行；使用 submit_report.py 向团队 API 提交 Cursor 日报",
+          "compact": "daily-report skill，从 automation memory 读取 Viki 配置，克隆 Frankie-Foo/cursor-team-dai；transcripts，采用手动构建 draft.json 流程 3. 今日未检出 Desktop 端业务开发会话，仅 1 次日报自动化运行；使用 submit",
+          "updated_at": "2026-07-15 17:51:35.960432+00:00"
+        },
+        {
+          "date": "2026-07-16",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "07.16 今日工作总结\n\nCursor\n1. Cloud Agent 定时任务触发 cursor-daily-report skill，从 automation memory 读取 Viki 配置，克隆 Frankie-Foo/cursor-team-daily-report 脚本仓库\n2. 通过 cursor-cloud MCP 枚举当日 Cloud Agent 会话，确认 Cloud 环境无本地 agent-transcripts，采用手动构建 draft.json 流程\n3. 今日未检出 Desktop 端业务开发会话，仅 1 次日报自动化运行；使用 submit_report.py 向团队 API 提交 Cursor 日报",
+          "compact": "daily-report skill，从 automation memory 读取 Viki 配置，克隆 Frankie-Foo/cursor-team-dai；transcripts，采用手动构建 draft.json 流程 3. 今日未检出 Desktop 端业务开发会话，仅 1 次日报自动化运行；使用 submit",
+          "updated_at": "2026-07-16 17:52:05.418322+00:00"
+        },
+        {
+          "date": "2026-07-17",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "07.17 今日工作总结\n\nCursor\n1. Cloud Agent 定时任务触发 cursor-daily-report skill，从 automation memory 读取 Viki 配置，克隆 Frankie-Foo/cursor-team-daily-report 脚本仓库\n2. 通过 cursor-cloud MCP 枚举当日 Cloud Agent 会话，确认 Cloud 环境无本地 agent-transcripts，采用手动构建 draft.json 流程\n3. 今日未检出 Desktop 端业务开发会话，仅 1 次日报自动化运行；使用 submit_report.py 向团队 API 提交 Cursor 日报",
+          "compact": "daily-report skill，从 automation memory 读取 Viki 配置，克隆 Frankie-Foo/cursor-team-dai；transcripts，采用手动构建 draft.json 流程 3. 今日未检出 Desktop 端业务开发会话，仅 1 次日报自动化运行；使用 submit",
+          "updated_at": "2026-07-17 17:52:42.417995+00:00"
+        }
+      ],
+      "latest_date": "2026-07-17",
+      "latest_summary": "daily-report skill，从 automation memory 读取 Viki 配置，克隆 Frankie-Foo/cursor-team-dai；transcripts，采用手动构建 draft.json 流程 3. 今日未检出 Desktop 端业务开发会话，仅 1 次日报自动化运行；使用 submit",
+      "status": "有使用",
+      "latest_sessions": 1,
+      "latest_turns": 1
+    },
+    "Chen": {
+      "username": "Chen",
+      "display": "陈鹏飞（Tony）",
+      "week_days": 0,
+      "sessions": 0,
+      "turns": 0,
+      "days": [],
+      "latest_date": null,
+      "latest_summary": "",
+      "status": "本周未提交"
+    },
+    "Henry": {
+      "username": "Henry",
+      "display": "李浩然-1",
+      "week_days": 4,
+      "sessions": 4,
+      "turns": 4,
+      "days": [
+        {
+          "date": "2026-07-13",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "今日 Cursor 工作摘要：\n- 【Cursor 日报自动化】由 cron 定时触发 Cloud Agent，执行 cursor-daily-report skill；克隆 cursor-team-daily-report 仓库、配置 API 与用户 profile，聚合并 POST 今日统一日报至 global-pdca.vertu.cn；Cloud Agent 环境无本地 agent-transcripts 与 Vertu CLI，Vertu/Vemory 板块为空，Cursor 板块基于 Cloud Agent 会话记录。\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- （无）",
+          "compact": "Cursor 日报自动化；daily-report skill；克隆 cursor-team-daily-report 仓库、配置 API 与用户 profile，聚合并 POST 今日；transcripts 与 Vertu CLI，Vertu/Vemory 板块为空，Cursor 板块基于 Cloud Agent 会话记录。 ## 明日计划 ",
+          "updated_at": "2026-07-13 17:51:47.406560+00:00"
+        },
+        {
+          "date": "2026-07-14",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "今日 Cursor 工作摘要（Cloud Agent 汇总）：\n- 【Cursor 日报自动化】运行 cursor-daily-report Skill，按 cron 定时触发统一日报提交流程；工具：Shell、Grep、Glob、Read；状态：进行中\n- 克隆日报仓库 cursor-team-daily-report，加载 Henry 用户配置与 API Token，确认 global-pdca.vertu.cn 服务可用\n- Cloud Agent 环境无本机 agent-transcripts 与 vertu CLI，采用 skip vertu/vemory + Cloud Agent 会话回退方案\n- 通过 cursor-cloud MCP 拉取当日 Cloud Agent 活动：检测到 1 个会话（Cursor 日报 skill 定时任务）\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- （无）",
+          "compact": "Cursor 日报自动化；daily-report Skill，按 cron 定时触发统一日报提交流程；工具：Shell、Grep、Glob、Read；状态：进行中 - 克隆日报仓库 c；pdca.vertu.cn 服务可用 - Cloud Agent 环境无本机 agent-transcripts 与 vertu CLI，采用 skip ver",
+          "updated_at": "2026-07-14 17:51:52.236295+00:00"
+        },
+        {
+          "date": "2026-07-15",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "今日 Cursor 工作摘要（Cloud Agent 汇总）：\n- 【Cursor 日报自动化】运行 cursor-daily-report Skill，按 cron 定时触发（17:50 UTC）统一日报提交流程；工具：Shell、Grep、Glob、Read、CallMcpTool；状态：已完成\n- 克隆日报仓库 cursor-team-daily-report，加载 Henry 用户配置与 API Token，确认 global-pdca.vertu.cn 服务可用\n- Cloud Agent 环境无本机 agent-transcripts 与 vertu CLI，采用 skip vertu/vemory + Cloud Agent 会话回退方案\n- 通过 cursor-cloud MCP 拉取当日 Cloud Agent 活动：检测到 1 个会话（Cursor 日报 skill 定时任务）\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- （无）",
+          "compact": "Cursor 日报自动化；daily-report Skill，按 cron 定时触发（17:50 UTC）统一日报提交流程；工具：Shell、Grep、Glob、Read、CallMc；pdca.vertu.cn 服务可用 - Cloud Agent 环境无本机 agent-transcripts 与 vertu CLI，采用 skip ver",
+          "updated_at": "2026-07-15 17:51:45.869146+00:00"
+        },
+        {
+          "date": "2026-07-16",
+          "sessions": 1,
+          "turns": 1,
+          "in_w29": true,
+          "cursor_text": "今日 Cursor 工作摘要：\n- 【Cursor 日报自动化】按 cron 触发运行 cursor-daily-report skill，克隆 cursor-team-daily-report 仓库并完成 API 配置；工具: Shell, Read, Grep；状态: in_progress\n- 【Cloud Agent 环境检查】确认云端 Pod 无本地 agent-transcripts 目录、无 Vertu CLI，采用 cloud fallback 流程构建日报；工具: CallMcpTool, Shell；状态: success\n- 【今日活动扫描】查询 Cloud Agents 列表，当日无 desktop/web/cli 端 Cursor 会话，仅 Automation 定时任务运行；工具: list-cloud-agents；状态: success\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- （无）",
+          "compact": "Cursor 日报自动化；daily-report skill，克隆 cursor-team-daily-report 仓库并完成 API 配置；工具: Shell, Read, Gre；transcripts 目录、无 Vertu CLI，采用 cloud fallback 流程构建日报；工具: CallMcpTool, Shell；状态: s",
+          "updated_at": "2026-07-16 17:51:43.806290+00:00"
+        }
+      ],
+      "latest_date": "2026-07-16",
+      "latest_summary": "Cursor 日报自动化；daily-report skill，克隆 cursor-team-daily-report 仓库并完成 API 配置；工具: Shell, Read, Gre；transcripts 目录、无 Vertu CLI，采用 cloud fallback 流程构建日报；工具: CallMcpTool, Shell；状态: s",
+      "status": "有使用",
+      "latest_sessions": 1,
+      "latest_turns": 1
+    },
+    "Vivi": {
+      "username": "Vivi",
+      "display": "王宇彤",
+      "week_days": 2,
+      "sessions": 0,
+      "turns": 0,
+      "days": [
+        {
+          "date": "2026-07-13",
+          "sessions": 0,
+          "turns": 0,
+          "in_w29": true,
+          "cursor_text": "1. 俄语商务话术与产品文案翻译（行程确认、取货、诉讼、智能手串卖点、Restore培训资料等）\n2. Vertu Restore 售后群聊（VDAO 3.5.8→3.6.5 更新卡住）中俄翻译与问题梳理\n3. 俄罗斯市场资讯梳理（燃油紧张、炼厂遇袭、莫斯科常住人口口径）及与卖货场景的关系判断\n4. 老板 ToB 寄语延申：穿透力、Map定位、Research、杠杆、算账、National Partner\n5. 俄罗斯五星酒店BD名单 Excel（40家，含莫斯科/圣彼得堡/索契/远东等）及高管公开线索、本地渠道猎取SOP",
+          "compact": "1. 俄语商务话术与产品文案翻译（行程确认、取货、诉讼、智能手串卖点、Restore培训资料等） 2. Vertu Restore 售后群聊（VDAO 3.5.8→3.6.5 更新卡住）中俄翻译与问题梳理 3. 俄罗斯市场资讯梳理（燃油紧张、炼厂遇袭、莫斯科常住人口口径）及与卖货场景的关系判断 4. 老板 ToB 寄语延申：穿透力、Map定位、Researc",
+          "updated_at": "2026-07-13 09:50:19.158657+00:00"
+        },
+        {
+          "date": "2026-07-18",
+          "sessions": 0,
+          "turns": 0,
+          "in_w29": true,
+          "cursor_text": "今日未检测到 Cursor 会话记录。\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- 当日无 Cursor 会话记录",
+          "compact": "当日未检出 Cursor 会话",
+          "updated_at": "2026-07-17 16:28:45.192564+00:00"
+        }
+      ],
+      "latest_date": "2026-07-18",
+      "latest_summary": "当日未检出 Cursor 会话",
+      "status": "有摘要·会话计数0",
+      "latest_sessions": 0,
+      "latest_turns": 0
+    },
+    "Miranda": {
+      "username": "Miranda",
+      "display": "刘雪梅",
+      "week_days": 0,
+      "sessions": 0,
+      "turns": 0,
+      "days": [],
+      "latest_date": null,
+      "latest_summary": "",
+      "status": "本周未提交"
+    },
+    "Frank": {
+      "username": "Frank",
+      "display": "刘春梅",
+      "week_days": 5,
+      "sessions": 0,
+      "turns": 0,
+      "days": [
+        {
+          "date": "2026-07-13",
+          "sessions": 0,
+          "turns": 0,
+          "in_w29": true,
+          "cursor_text": "（当日未检测到 Cursor 会话）\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- 当日无 Cursor 会话记录",
+          "compact": "当日未检出 Cursor 会话",
+          "updated_at": "2026-07-13 17:51:31.336303+00:00"
+        },
+        {
+          "date": "2026-07-14",
+          "sessions": 0,
+          "turns": 0,
+          "in_w29": true,
+          "cursor_text": "（当日未检测到 Cursor 会话）\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- 当日无 Cursor 会话记录",
+          "compact": "当日未检出 Cursor 会话",
+          "updated_at": "2026-07-14 17:51:36.373369+00:00"
+        },
+        {
+          "date": "2026-07-15",
+          "sessions": 0,
+          "turns": 0,
+          "in_w29": true,
+          "cursor_text": "（当日未检测到 Cursor 会话）\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- 当日无 Cursor 会话记录",
+          "compact": "当日未检出 Cursor 会话",
+          "updated_at": "2026-07-15 17:51:16.580734+00:00"
+        },
+        {
+          "date": "2026-07-16",
+          "sessions": 0,
+          "turns": 0,
+          "in_w29": true,
+          "cursor_text": "（当日未检测到 Cursor 会话）\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- 当日无 Cursor 会话记录",
+          "compact": "当日未检出 Cursor 会话",
+          "updated_at": "2026-07-16 17:50:49.596456+00:00"
+        },
+        {
+          "date": "2026-07-17",
+          "sessions": 0,
+          "turns": 0,
+          "in_w29": true,
+          "cursor_text": "（当日未检测到 Cursor 会话）\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- 当日无 Cursor 会话记录",
+          "compact": "当日未检出 Cursor 会话",
+          "updated_at": "2026-07-17 17:51:21.180726+00:00"
+        }
+      ],
+      "latest_date": "2026-07-17",
+      "latest_summary": "当日未检出 Cursor 会话",
+      "status": "有日报·会话为0",
+      "latest_sessions": 0,
+      "latest_turns": 0
+    },
+    "Safae": {
+      "username": "Safae",
+      "display": "Safae",
+      "week_days": 1,
+      "sessions": 5,
+      "turns": 125,
+      "days": [
+        {
+          "date": "2026-07-17",
+          "sessions": 5,
+          "turns": 125,
+          "in_w29": true,
+          "cursor_text": "今日 Cursor 工作摘要：\n- 【i got areply from agapi boat in bahrian, tell meabout them a】工具: Glob, Grep, WebFetch, WebSearch；涉及文件: 0 个；状态: success\n- 【anser it by teling the thanks for interste or sothing and th】工具: 无；涉及文件: 0 个；状态: success\n- 【We would start by having only one point of sales in Interlak】工具: Glob, Grep, Read, Shell, StrReplace；涉及文件: 0 个；状态: success\n- 【Dear Sir/Madam,】工具: CallMcpTool, Glob, Grep, Read, Shell；涉及文件: 1 个；状态: error\n- 【tru cursor team daily report now】工具: 无；涉及文件: 0 个；状态: unknown\n\n## 明日计划\n\n- （待补充）\n\n## 重点事项\n\n- Cursor 活跃：5 个会话",
+          "compact": "i got areply from agapi boat in bahrian, tell meabout them a；anser it by teling the thanks for interste or sothing and th；We would start by having only one point of sales in Interl",
+          "updated_at": "2026-07-17 09:17:07.951700+00:00"
+        }
+      ],
+      "latest_date": "2026-07-17",
+      "latest_summary": "i got areply from agapi boat in bahrian, tell meabout them a；anser it by teling the thanks for interste or sothing and th；We would start by having only one point of sales in Interl",
+      "status": "有使用",
+      "latest_sessions": 5,
+      "latest_turns": 125
+    }
+  }
+}

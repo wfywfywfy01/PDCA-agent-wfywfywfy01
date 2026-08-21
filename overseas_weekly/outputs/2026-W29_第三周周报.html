@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>海外经销商 2026年7月第三周周报</title>
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --card: #fff;
+    --ink: #1a1a1a;
+    --muted: #5c5c5c;
+    --line: #e5e2db;
+    --accent: #0f4c5c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 18px; margin: 28px 0 12px; color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border: 1px solid var(--line);
+    border-radius: 4px; font-size: 12px; color: var(--muted); margin-right: 6px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
+  .stat {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .stat .v { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; }
+  .stat .l { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 16px 18px; margin: 14px 0;
+  }
+  .bar {
+    height: 10px; background: #eceae4; border-radius: 999px; overflow: hidden; margin-top: 10px;
+  }
+  .bar > i {
+    display: block; height: 100%; background: var(--accent); width: 72.7%;
+  }
+  table {
+    width: 100%; border-collapse: collapse; background: var(--card);
+    border: 1px solid var(--line); font-size: 13px;
+  }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { background: #f0eee8; font-weight: 600; font-size: 12px; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .note {
+    font-size: 13px; color: var(--muted); border-left: 3px solid var(--accent);
+    padding: 8px 12px; margin: 12px 0; background: #fff;
+  }
+  .warn {
+    font-size: 13px; border-left: 3px solid #b45309; padding: 8px 12px;
+    margin: 12px 0; background: #fff8f0; color: #5c4a2a;
+  }
+  footer { margin-top: 28px; font-size: 12px; color: var(--muted); }
+  @media print {
+    body { background: #fff; padding: 12px; }
+    .stat, .card, table { break-inside: avoid; }
+  }
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>海外经销商 · 第三周周报</h1>
+  <div class="sub">
+    <span class="badge">2026-W29</span>
+    <span class="badge">ppt 口径</span>
+    本周 2026-07-13 ~ 2026-07-19（取数至 2026-07-17）
+  </div>
+  <div class="sub">月累计 2026-07-01 ~ 2026-07-17 · Source: odoo_sale / dealers.json</div>
+
+  <div class="note">
+    ppt = 经销商归组 − 非团队记名（MTD 已剔 郑丽苹+陈晓霜 共 8.31 万）。
+    环比=上月同期；同比=去年同期。金额单位：万元。
+  </div>
+
+  <div class="grid">
+    <div class="stat"><div class="v">505.61</div><div class="l">月累计 SI（万）</div></div>
+    <div class="stat"><div class="v">170.47</div><div class="l">本周 SI（万）</div></div>
+    <div class="stat"><div class="v">-14.4%</div><div class="l">环比</div></div>
+    <div class="stat"><div class="v">+185.7%</div><div class="l">同比</div></div>
+  </div>
+
+  <div class="card">
+    <strong>全盘 OKR 达成 72.7%</strong>
+    <div class="sub">已完成 505.61 万 / 目标 695.0 万 · 时间进度约 55%</div>
+    <div class="bar"><i></i></div>
+  </div>
+
+  <div class="warn">
+    本周结构：Billionaire 约 102.1 万占本周大头；于冰组本周 SI=0；Lina 组月达成约 98%。
+    「预售虚拟类 / 权益服务」请确认是否计入 OKR。
+  </div>
+
+  <h2>三组业绩（ppt）</h2>
+  <table>
+    <thead><tr>
+      <th>组别</th><th class="n">本周</th><th class="n">月累计</th><th class="n">达成率</th>
+      <th class="n">环比</th><th class="n">同比</th><th class="n">月目标</th>
+    </tr></thead>
+    <tbody><tr><td>Lina组</td><td class='n'>154.46</td><td class='n'>318.43</td><td class='n'>109.8%</td><td class='n'>-22.9%</td><td class='n'>+522.3%</td><td class='n'>290.0</td></tr><tr><td>于冰组</td><td class='n'>0.0</td><td class='n'>64.03</td><td class='n'>58.2%</td><td class='n'>+60.8%</td><td class='n'>-33.1%</td><td class='n'>110.0</td></tr><tr><td>杨晶晶组</td><td class='n'>16.01</td><td class='n'>123.15</td><td class='n'>52.4%</td><td class='n'>-10.8%</td><td class='n'>+310.0%</td><td class='n'>235.0</td></tr></tbody>
+  </table>
+
+  <h2>区域贡献（月累计）</h2>
+  <table>
+    <thead><tr><th>区域</th><th class="n">销售额（万）</th></tr></thead>
+    <tbody><tr><td>中东</td><td class='n'>249.48</td></tr><tr><td>南亚</td><td class='n'>95.82</td></tr><tr><td>东南亚</td><td class='n'>70.55</td></tr><tr><td>欧洲</td><td class='n'>68.94</td></tr><tr><td>中亚</td><td class='n'>29.12</td></tr></tbody>
+  </table>
+
+  <h2>核心代理商 Top 10（月累计）</h2>
+  <table>
+    <thead><tr><th>代理商</th><th>组别</th><th>区域</th><th class="n">销售额（万）</th></tr></thead>
+    <tbody><tr><td>Billionaire Collections</td><td>Lina组</td><td>中东</td><td class='n'>102.1</td></tr><tr><td>VERTU LONDON LTD</td><td>Lina组</td><td>欧洲</td><td class='n'>68.94</td></tr><tr><td>GURU ELECTRONICS SINGAPORE PTE LTD</td><td>杨晶晶组</td><td>南亚</td><td class='n'>68.64</td></tr><tr><td>BIN BIN INVESTMENT(CAMBODIA) COLTD</td><td>于冰组</td><td>东南亚</td><td class='n'>38.52</td></tr><tr><td>Safiranhamrah</td><td>Lina组</td><td>中东</td><td class='n'>38.51</td></tr><tr><td>TİVALİ Commercial Broker LLC</td><td>Lina组</td><td>中东</td><td class='n'>37.43</td></tr><tr><td>VMG Communication and Technology Joi</td><td>于冰组</td><td>东南亚</td><td class='n'>32.03</td></tr><tr><td>LLC "TC Azimut"</td><td>杨晶晶组</td><td>中亚</td><td class='n'>27.89</td></tr><tr><td>Luxem Store</td><td>Lina组</td><td>中东</td><td class='n'>26.61</td></tr><tr><td>HASSIB ABDALLAH AMIR ALLAH</td><td>Lina组</td><td>中东</td><td class='n'>25.55</td></tr></tbody>
+  </table>
+
+  <h2>个人贡献（salesperson_aligned）</h2>
+  <table>
+    <thead><tr><th>销售</th><th>组别</th><th class="n">本周</th><th class="n">月累计</th></tr></thead>
+    <tbody><tr><td>Lina</td><td>Lina组</td><td class='n'>146.5</td><td class='n'>279.71</td></tr><tr><td>杨晶晶</td><td>杨晶晶组</td><td class='n'>16.01</td><td class='n'>95.96</td></tr><tr><td>于冰</td><td>于冰组</td><td class='n'>0.0</td><td class='n'>64.03</td></tr><tr><td>尤文静</td><td>Lina组</td><td class='n'>7.96</td><td class='n'>38.51</td></tr><tr><td>何海文</td><td>杨晶晶组</td><td class='n'>0.0</td><td class='n'>27.19</td></tr><tr><td>刘彦麟</td><td>Lina组</td><td class='n'>0.0</td><td class='n'>0.2</td></tr></tbody>
+  </table>
+
+  <h2>商品大类（月累计）</h2>
+  <table>
+    <thead><tr><th>大类</th><th class="n">销售额（万）</th></tr></thead>
+    <tbody><tr><td>手机</td><td class='n'>333.92</td></tr><tr><td>其他</td><td class='n'>161.44</td></tr><tr><td>腕表</td><td class='n'>8.09</td></tr><tr><td>手机辅料</td><td class='n'>2.98</td></tr><tr><td>耳机</td><td class='n'>2.75</td></tr><tr><td>钢笔</td><td class='n'>2.36</td></tr><tr><td>手链</td><td class='n'>1.26</td></tr><tr><td>皮具</td><td class='n'>0.92</td></tr></tbody>
+  </table>
+
+  <h2>商品细类 Top（月累计）</h2>
+  <table>
+    <thead><tr><th>细类</th><th>大类</th><th class="n">销售额（万）</th><th class="n">订单数</th></tr></thead>
+    <tbody><tr><td>VERTU ALPHAFOLD</td><td>手机</td><td class='n'>206.44</td><td class='n'>7</td></tr><tr><td>预售虚拟类</td><td>其他</td><td class='n'>110.58</td><td class='n'>7</td></tr><tr><td>VERTU AGENT Q</td><td>手机</td><td class='n'>83.08</td><td class='n'>4</td></tr><tr><td>权益服务</td><td>其他</td><td class='n'>50.85</td><td class='n'>—</td></tr><tr><td>VERTU QUANTUM</td><td>手机</td><td class='n'>21.02</td><td class='n'>2</td></tr><tr><td>SIGNATURE S</td><td>手机</td><td class='n'>18.0</td><td class='n'>—</td></tr><tr><td>METAWATCH S1</td><td>腕表</td><td class='n'>8.09</td><td class='n'>6</td></tr><tr><td>iVERTU</td><td>手机</td><td class='n'>5.38</td><td class='n'>1</td></tr><tr><td>VERTU 机械腕表-水晶款</td><td>腕表</td><td class='n'>4.42</td><td class='n'>1</td></tr><tr><td>VERTU PHANTOM</td><td>耳机</td><td class='n'>2.75</td><td class='n'>2</td></tr></tbody>
+  </table>
+
+  <h2>商品细类 Top（本周）</h2>
+  <table>
+    <thead><tr><th>细类</th><th>大类</th><th class="n">销售额（万）</th></tr></thead>
+    <tbody><tr><td>VERTU ALPHAFOLD</td><td>手机</td><td class='n'>82.8</td></tr><tr><td>预售虚拟类</td><td>其他</td><td class='n'>50.96</td></tr><tr><td>VERTU AGENT Q</td><td>手机</td><td class='n'>18.31</td></tr><tr><td>VERTU QUANTUM</td><td>手机</td><td class='n'>14.94</td></tr><tr><td>VERTU 机械腕表-水晶款</td><td>腕表</td><td class='n'>4.42</td></tr><tr><td>METAWATCH S1</td><td>腕表</td><td class='n'>3.12</td></tr><tr><td>VERTU IRONFLIP</td><td>手机辅料</td><td class='n'>0.61</td></tr><tr><td>VERTU PHANTOM</td><td>耳机</td><td class='n'>0.23</td></tr></tbody>
+  </table>
+
+  <h2>业务组交付（四份 PPT + 于冰 PDF）</h2>
+
+  <div class="card">
+    <strong>Lina 组 · 中东与欧北美（业务自报）</strong>
+    <div class="sub">本周 172.1 万 · MTD 336.7 万 / 目标 335.7 万 → 116% · W4 待收线索约 143 万</div>
+    <div class="sub">中东 81% / 欧洲 19% · AQ*59、QUANTUM*32、AF*17</div>
+    <p style="font-size:13px;margin:8px 0 0">
+      录单：Billionaire 102.1 · 伦敦 29.1 · Taher Jasem 17.7 · Tivali 8.0 · Safiran 8.0 · Luxem 3.9 · Veysel 3.4。
+      环比约 -22%；高定黄金4/喜马拉雅 AF；跟进瑞士尺寸、沙特首单、荷兰 AQ 试单。
+    </p>
+  </div>
+
+  <div class="card">
+    <strong>何海文 · 印度</strong>
+    <div class="sub">目标 75W · 第三周收款 27.8W · 累计 75.4W → <b>101%</b></div>
+    <p style="font-size:13px;margin:8px 0 0">
+      W3：潮汕/喀拉拉名单；商会 10 人；获客 28 条；售后 3；内洛尔接待 PPT。
+      Thakral 待反馈；Zimson NDA+9 月访问；PLF/Black Apple 推进。
+      W4：名单与系统、内洛尔接待、印度出差专题汇报。
+    </p>
+  </div>
+
+  <div class="card">
+    <strong>刘雪梅 · 商务中台（7.13–7.17 / 计划 7.20–7.24）</strong>
+    <p style="font-size:13px;margin:8px 0 0">
+      完成：GURU 发货审核；Sidd 尾款发货；越南录单发货；印度清关；越/印售后；VST 合同与印度 NDA 预审。<br/>
+      计划：印录单 8 单约 14.1 万美金、发货物流 9 单；Sidd 预付 1 万待清库；越/印免费换新；
+      越南预付款 17 日已付；VST/伊拉克协议；广交会与 VPS 异常。
+    </p>
+  </div>
+
+  <div class="card">
+    <strong>Vivi · 商务助理 + 拓客</strong>
+    <p style="font-size:13px;margin:8px 0 0">
+      P1 拓客（6W）：土库曼来蓉、乌克兰 boutique、metrogroup、圣彼得堡酒店；日均触达 10+。<br/>
+      P2 Sell-out 视频/报关；协助春梅带教。P3 Konstantin/restore/Perspectiva 跟单与售后。<br/>
+      W4：跟单推单、高管清单、PR 博主、带教；卡点为熟悉期提效与俄语区响应。
+    </p>
+  </div>
+
+  <div class="card">
+    <strong>于冰组 · 东南亚（PDF 7.13–7.17）</strong>
+    <div class="sub">目标 110W · 已完成 ¥640,347 → <b>58.2%</b>（与系统一致）· 在途约 ¥489,787 · 本周 SI=0</div>
+    <p style="font-size:13px;margin:8px 0 0">
+      越南 PO：26 台 / ~$12 万 · AF*20（约 81% 金额）+ AQ*6（3% rebate）；鳄鱼皮撑利润、小牛皮走量。<br/>
+      Sell-out 7/1–7/16（越4+泰1）：进店97 / 触摸14 / 成交3 / ~$8,292（几乎全靠 Saigon）；Siam 金额漏报。<br/>
+      马来：云顶+Pavilion/KLCC 双店；SWAP/云顶/SWITCH/KLCC 多场会议，主体未定。印尼 TI 下周；澳洲拒免费样机。<br/>
+      W4：马来商务定案、印尼框架、越南发货到账、泰国 PO、澳洲意向。
+    </p>
+  </div>
+
+  <footer>
+    系统 SI as_of 2026-07-17（Vertu 会话过期未能刷 07-18）。仍缺杨晶晶本人整页、全盘待收台账。<br/>
+    打印 PDF：浏览器打开本页 → Ctrl+P → 另存为 PDF。
+  </footer>
+</div>
+</body>
+</html>

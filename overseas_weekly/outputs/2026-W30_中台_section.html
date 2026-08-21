@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>海外经销商 2026-W30 · 海外中台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#F0EFEB;--ink:#1C1C1A;--muted:#8F8E88;--faint:#C6C5BF;--grid:#DEDDD6}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);font-family:'Inter','PingFang SC','Microsoft YaHei',sans-serif;
+    color:var(--ink);padding:40px;-webkit-font-smoothing:antialiased}
+  .sheet{max-width:1100px;margin:0 auto}
+  .nav{display:flex;gap:2px;margin-bottom:26px;border-bottom:1px solid var(--grid);flex-wrap:wrap}
+  .nav a{font-size:11.5px;font-weight:700;letter-spacing:.04em;color:var(--muted);
+    text-decoration:none;padding:9px 18px;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .nav a:hover{color:var(--ink)}
+  .nav a.on{color:var(--ink);border-bottom-color:var(--ink)}
+  .nav .sp{flex:1}
+  .nav .tag{font-size:9px;font-weight:600;letter-spacing:.14em;color:var(--faint);
+    text-transform:uppercase;padding:12px 0}
+  .sec-head{margin-bottom:24px}
+  .sec-eyebrow{font-size:9.5px;font-weight:600;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+  .sec-title{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-top:6px}
+  .sec-lede{font-size:12.5px;color:var(--muted);margin-top:8px;max-width:66ch;line-height:1.65}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--grid);margin:22px 0 28px}
+  .kpi{background:var(--bg);padding:16px 18px}
+  .kpi .l{font-size:9px;font-weight:600;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+  .kpi .v{font-size:25px;font-weight:800;letter-spacing:-.03em;margin-top:7px;font-variant-numeric:tabular-nums}
+  .kpi .n{font-size:10px;color:var(--muted);margin-top:3px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .card{background:var(--bg);border-radius:24px;padding:26px 26px 18px}
+  .card.wide{grid-column:1/-1}
+  h2{font-weight:700;font-size:16.5px;letter-spacing:-.02em;margin-bottom:3px}
+  .sub{font-size:11.5px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+  .src{font-size:9.5px;color:var(--faint);margin-top:8px;letter-spacing:.08em;font-weight:500}
+  svg{width:100%;display:block;margin:0 auto}
+  .band{margin-top:30px;border-top:1px solid var(--grid);padding-top:22px}
+  .band h3{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+    text-align:left;padding:0 12px 8px 0;border-bottom:1px solid var(--grid)}
+  td{padding:9px 12px 9px 0;border-bottom:1px solid var(--grid);color:#4A4944}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;padding-right:20px}
+  td:last-child,th:last-child{padding-right:0}
+  td b{font-weight:700;color:var(--ink)}
+  .zero td{color:#B0AFA9}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-top:6px}
+  .who-name{font-size:12.5px;font-weight:700;margin-bottom:5px}
+  .who-name span{font-size:10px;font-weight:600;color:var(--muted);margin-left:8px}
+  ul{list-style:none;font-size:11.5px;line-height:1.7;color:#4A4944}
+  li{padding-left:13px;position:relative;margin-bottom:2px}
+  li::before{content:'';position:absolute;left:0;top:9px;width:5px;height:1px;background:#B0AFA9}
+  .risks{margin-top:26px;padding:16px 20px;border-left:2px solid var(--ink)}
+  .risks ol{font-size:11.5px;line-height:1.8;color:#4A4944;padding-left:16px}
+  .risks li{padding-left:0}
+  .risks li::before{display:none}
+  .risks b{font-weight:700;color:var(--ink)}
+  .pop{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.7,.3,1.3) both}
+  @keyframes pop{from{transform:scale(0)}to{transform:none}}
+  .fade{animation:fade .9s ease both}
+  @keyframes fade{from{opacity:0}}
+  .draw{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1s cubic-bezier(.4,0,.2,1) both}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @media (prefers-reduced-motion:reduce){.pop,.fade{animation:none}
+    .draw{animation:none;stroke-dasharray:none;stroke-dashoffset:0}}
+  @media (max-width:900px){.grid2,.cols{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}}
+  @media print{.card,table{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="nav">
+    <a class="tab" href="W30_经销商总体_周报.html">总体</a>
+    <a class="tab" href="W30_经销商一部_周报.html">经销商一部</a>
+    <a class="tab" href="W30_经销商二部_周报.html">经销商二部</a>
+    <a class="tab" href="W30_经销商三部_周报.html">经销商三部</a>
+    <a class="tab" href="W30_经销商新部_周报.html">经销商新部</a>
+    <a class="tab on" href="W30_经销商中台_周报.html">海外中台</a>
+    <span class="sp"></span>
+    <span class="tag">2026-W30 · 07/20–07/26</span>
+  </div>
+
+<!--SEC-START-->
+  <div class="sec-head">
+    <div class="sec-eyebrow">2026-W30 · 07/20–07/26 · 编制 6 人 · 无业绩板块</div>
+    <div class="sec-title">海外中台</div>
+    <div class="sec-lede">中台不承接销售指标。本周两条主线：一是协同投入 47 场会议、36.9 小时、产生 162 项待办；二是付汪阳四条技术线并行推进——获客系统 v0.2.0 已发布、门店 Agent 全链路跑通待投产、会议智能方案待拍板、双环治理架构研究中。投入高度集中——刘春梅一人 32 场 / 19.2 小时 / 110 待办，占全部门待办的 68%。会议结构上外部协同（45%）与招聘面试（40%）几乎平分，内部会议仅 15%。付汪阳、冯磊-1、刘雪梅本周零会议记录。</div>
+  </div>
+
+  <div class="kpis">
+      <div class="kpi"><div class="l">会议场次</div><div class="v">47</div><div class="n">本周 07/20–07/26</div></div>
+      <div class="kpi"><div class="l">会议时长</div><div class="v">36.9</div><div class="n">小时 · 人均 12.3 小时（按有记录 3 人）</div></div>
+      <div class="kpi"><div class="l">产生待办</div><div class="v">162</div><div class="n">项 · 刘春梅一人占 68%</div></div>
+      <div class="kpi"><div class="l">有记录人数</div><div class="v">3 / 6</div><div class="n">付汪阳 / 冯磊-1 / 刘雪梅 本周零记录</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>刘春梅一人扛了一半会议时长</h2>
+      <div class="sub">1 tick = 0.5 小时 · 本周 07/20–07/26 · 行尾为小时数与会议场次</div>
+      <svg id="mid_tickrows" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="src">TICK ROWS · MONO-BASIC · Vemory 会议时长 07/20–07/26</div>
+    </div>
+    <div class="card">
+      <h2>外部协同与招聘面试几乎平分</h2>
+      <div class="sub">1 点 = 1%（约 0.47 场）· 按会议标题与摘要关键词自动分类 · 内部会议仅占 15%</div>
+      <svg id="mid_hundredfield" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="src">HUNDRED FIELD · MONO-LUPI · 会议类型构成 07/20–07/26</div>
+    </div>
+    <div class="card wide">
+      <h2>六人里三人本周零会议记录</h2>
+      <div class="sub">左列 = 中台 6 人 · 实线 = 本周有 Vemory 记录 · 虚线 = 零记录 · 右侧按主责会议类型归集 · 数字为会议时长（小时）</div>
+      <svg id="mid_colonnade" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet" style="max-width:820px"></svg>
+      <div class="src">TYPE COLONNADE · MONO-LUPI · 中台会议记录覆盖 07/20–07/26</div>
+    </div>
+  </div>
+
+  <div class="band">
+    <h3>付汪阳 · 四条技术线并行</h3>
+    <div class="sub" style="margin-bottom:14px">本周同时推进获客系统、门店 Agent、会议智能与双环治理架构，其中两项已出可交付成果</div>
+    <table>
+      <thead><tr><th>项目</th><th>本周进展</th><th>状态</th><th>阻塞 / 下一步</th></tr></thead>
+      <tbody>
+        <tr><td><b>自动化获客系统 v0.2.0</b></td><td>四类区域特化上线，形成 104 封可核验触达；222 项自动化测试通过</td><td>已发布</td><td>部署生产并真实账号验收；统一发送入口</td></tr>
+        <tr><td><b>门店运营 Agent 数据库</b></td><td>五层架构 13 张表建成，采集 → ETL → 检索 → Agent 全链路本地跑通，32 项测试通过（07-23 端到端验证）</td><td>待投产</td><td>生产库未装 pgvector 扩展需运维安装；主数据仅 1 条测试种子，需业务方提供门店与 SKU 清单</td></tr>
+        <tr><td><b>会议智能 · 身份锚定与待办追踪</b></td><td>完成方案设计：身份锚定、项目归档、待办结构化、跨会对账四模块，P0 两周可上线</td><td>待拍板</td><td>两个决策点：底层是否支持声纹注册库；项目维度手动建还是从 CRM 同步</td></tr>
+        <tr><td><b>双环治理架构（方向 C）</b></td><td>输出确定性快环 + 受治理研究慢环方案，含晋级防火墙与四道生产安全护栏</td><td>研究中</td><td>当前成熟度 RESEARCH-ONLY，production_eligible = false</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>四条线的共同指向</b>　获客系统解决「从哪找客户」，门店 Agent 解决「门店数据怎么进系统」，会议智能解决「会议待办怎么追踪」，双环治理解决「AI 能力如何安全地进化」——四者叠加，是把海外渠道的获客、履约、协同、演进四个环节逐步系统化。当前两个明确阻塞都不在开发侧：门店 Agent 卡在运维装 pgvector 与业务方提供主数据，会议智能卡在两个待拍板决策。建议本周内推动，否则已完成的代码无法投用。</div>
+  </div>
+
+  <div class="band">
+    <h3>门店运营 Agent · 架构与落地价值</h3>
+    <div class="sub" style="margin-bottom:14px">面向俄罗斯、伊朗、伊拉克三国代理商门店的统一数据底座 · PostgreSQL 16 + pgvector · 5 层 13 张表</div>
+    <table>
+      <thead><tr><th>层级</th><th>职责</th><th>关键表 / 能力</th></tr></thead>
+      <tbody>
+        <tr><td><b>L0 采集</b></td><td>门店专属链接内嵌 store_id，无登录系统；支持英/俄/波斯/阿拉伯四语，波斯与阿语为 RTL 布局</td><td>日销 · 库存盘点 · 客户建档 · 门店异动 · 照片上传</td></tr>
+        <tr><td><b>L1 暂存</b></td><td>表单原样存 JSONB 不清洗，带处理状态与失败原因，清洗规则调整后可整批重跑</td><td>raw_form_submission</td></tr>
+        <tr><td><b>L2 主数据</b></td><td>全库校验基准，写事实表前逐条核对门店与 SKU；汇率表把当地币种折算英镑</td><td>dim_dealer · dim_store · dim_product · dim_fx_rate</td></tr>
+        <tr><td><b>L3 建模</b></td><td>四类表单对应四张事实表，全部外键指向门店表，保留 raw_id 可回溯到原始填报</td><td>fact_sales · fact_inventory_snapshot · fact_customer_interaction · fact_store_event</td></tr>
+        <tr><td><b>L5 服务</b></td><td>业务数字一律来自 SQL 查询禁止编造；政策问答必须附来源文档，检索不到则明确拒答</td><td>门店汇总 · LLM 简报 · 政策 RAG · 以图搜图 · 陈列合规审查</td></tr>
+        <tr class="zero"><td>支撑域</td><td>文本与图片向量用 pgvector 与业务数据同库，不引入独立向量数据库</td><td>kb_chunk · asset_image · display_rule · display_review</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>与本周报的直接关联</b>　这套底座建成后，本报告中最难取数的两块可以自动化：① Walk-in 五件套目前靠门店手工填报、币种混填、约 30 家未提交 —— L0 表单带 store_id 与币种字段、L2 汇率表统一折算，可从源头根治；② Sell-out 目前依赖终端激活数据反查订单金额，只能得到近似值 —— L3 fact_sales 直接记录门店终销明细，可得真实值。换句话说，门店 Agent 投产之日，就是 Walk-in / Sell-out 两个板块不再需要人工核对之时。</div>
+  </div>
+
+  <div class="band">
+    <h3>自动化获客系统 v0.2.0（付汪阳）</h3>
+    <div class="sub" style="margin-bottom:14px">本周完成俄罗斯 / 东南亚 / 印度 / 伊朗四类区域特化，形成 104 封可核验邮件触达 · GitHub 提交 4d77aec</div>
+    <table>
+      <thead><tr><th>区域</th><th>获客与处理</th><th class="n">可核验触达</th><th>使用邮箱</th></tr></thead>
+      <tbody>
+        <tr><td><b>东南亚</b></td><td>以马来西亚为重点处理 30 家公司，60 条搜索结果，新入库 35 个联系人（20 个达可发送标准）</td><td class="n">47 封</td><td>覆盖马来、印尼、越南、菲律宾</td></tr>
+        <tr><td><b>印度</b></td><td>完成招聘平台、商会、零售渠道、酒店、腕表珠宝及豪车渠道本地化处理</td><td class="n">37 封</td><td>Haiwen 邮箱 · 失败 0 封</td></tr>
+        <tr><td><b>伊朗</b></td><td>处理 1,000 条公司名单，提取 312 个邮箱、去重 285 个，55 个满足官网域名匹配且有 MX</td><td class="n">20 封</td><td>Viki 邮箱新增 14 封</td></tr>
+        <tr class="zero"><td>俄罗斯</td><td>接入 hh.ru 等本地招聘信号；Caviar 销售/市场/设计/管理候选人完成公开资料与邮箱核验</td><td class="n">未计入</td><td>旧发送方式，无结构化日志</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>工程质量与业务价值</b>　Python 自动化测试 222 项全部通过、React 生产构建通过、敏感信息扫描未发现密钥或客户名单入库。关键能力：按登录销售账号选择个人 SMTP 发件身份并用个人 IMAP 收回复（谁登录谁发送、客户回复给对应销售）；清理邮件中的 CRM 内部字段与评分标签，防止内部信息外泄；外部搜索失败不再阻塞整批导入。接入的招聘信号源：hh.ru、Naukri、Indeed India、Foundit、IranTalent、JobVision、Jobinja——通过招聘动态判断公司扩张与渠道合作机会。下周：v0.2.0 部署生产并真实账号验收；监控送达/退信/打开/回复回流；统一所有发送入口，禁止绕过系统直发。</div>
+  </div>
+
+  <div class="band">
+    <h3>招聘漏斗与人才交付（张倩提报）</h3>
+    <div class="sub" style="margin-bottom:14px">三条招聘线并行，汽车事业部已出 offer</div>
+    <table>
+      <thead><tr><th>岗位线</th><th class="n">触达</th><th class="n">简历</th><th class="n">面试</th><th>结果</th></tr></thead>
+      <tbody>
+        <tr><td><b>海外 BD 岗位</b></td><td class="n">沟通 98 人</td><td class="n">11 份</td><td class="n">初面 3 人</td><td>推送 3 份、邀约 3 人、复试 1 人（因对方收到其他 offer 取消）</td></tr>
+        <tr class="zero"><td>AI 招聘（累计）</td><td class="n">—</td><td class="n">95 份</td><td class="n">—</td><td>截至目前推送 95 份简历，暂无合适人选</td></tr>
+        <tr><td><b>海外经销商拓展</b></td><td class="n">覆盖 2 国 / 沟通 3 人</td><td class="n">—</td><td class="n">—</td><td>土耳其 1 人、摩洛哥 2 人深度沟通，推进本地化渠道布局</td></tr>
+        <tr><td><b>汽车事业部关键岗位</b></td><td class="n">深度沟通 34 人</td><td class="n">6 份</td><td class="n">邀约 3 / 到面 3</td><td>通过 1 人，待入职 2 人、Offer 1 人</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>运营与行政支撑</b>　协议：完成汽车事业部总监 + 海外商务助理 Sana 共 2 份兼职协议拟定，并明确 Sana 试用期考核指标。培训：组织海外经销商 AI 生图工具专项培训；新人邢哲夫入职培训考核 65 分。法务：跟进 Lina 海外工作签证申请；对接法务启动美国公司注册。</div>
+  </div>
+
+  <div class="band">
+    <h3>本周订单流水</h3>
+    <table>
+      <thead><tr><th>日期</th><th>参与人</th><th>类型</th><th>时长（分）</th><th>会议主题</th></tr></thead>
+      <tbody>
+        <tr><td>7-22</td><td>王宇彤</td><td>外部</td><td>277</td><td>Training on AI-Generated Social Media Content（本周最长会议）</td></tr>
+        <tr><td>7-23</td><td>王宇彤</td><td>外部</td><td>239</td><td>India Market Distribution, BIS Compliance</td></tr>
+        <tr><td>7-20</td><td>王宇彤</td><td>外部</td><td>119</td><td>Overseas Dealer Expansion, AI Workflow Strategy（7 项待办）</td></tr>
+        <tr><td>7-23</td><td>张倩</td><td>面试</td><td>98</td><td>印度市场拓展、售后沟通与内部流程推进会议（10 项待办）</td></tr>
+        <tr><td>7-24</td><td>刘春梅</td><td>外部</td><td>86</td><td>俄罗斯奢侈品与高端手机渠道布局评审</td></tr>
+        <tr><td>7-20</td><td>刘春梅</td><td>外部</td><td>75</td><td>沙特与土耳其高端礼赠市场的产品与渠道策略讨论</td></tr>
+        <tr><td>7-23</td><td>刘春梅</td><td>外部</td><td>72</td><td>俄罗斯高端品牌渠道与三年拓展方案讨论（5 项待办）</td></tr>
+        <tr><td>7-21</td><td>刘春梅</td><td>外部</td><td>62</td><td>沙特中东市场进入与代理打法汇报（4 项待办）</td></tr>
+        <tr><td>7-21</td><td>张倩</td><td>面试</td><td>54</td><td>东南亚与印度业务推进及周报规范会议（18 项待办，本周待办最多）</td></tr>
+        <tr><td>7-21</td><td>张倩</td><td>外部</td><td>61</td><td>沙特中东高端礼赠市场与拓店方案评审</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="band">
+    <h3>会议与出勤</h3>
+    <table>
+      <thead><tr><th>人员</th><th class="n">会议场次</th><th class="n">总时长</th><th class="n">产生待办</th><th class="n">待办占比</th><th>主责方向</th></tr></thead>
+      <tbody>
+        <tr><td><b>刘春梅</b></td><td class="n">32</td><td class="n">19.2 h</td><td class="n">110</td><td class="n">68%</td><td>俄罗斯 / 沙特 / 土耳其渠道评审、市场进入方案</td></tr>
+        <tr><td><b>张倩</b></td><td class="n">10</td><td class="n">6.5 h</td><td class="n">34</td><td class="n">21%</td><td>招聘与 HRBP 转岗、周报规范（不考核日报）</td></tr>
+        <tr><td><b>王宇彤</b></td><td class="n">5</td><td class="n">11.2 h</td><td class="n">18</td><td class="n">11%</td><td>印度分销与 BIS 合规、AI 内容与工作流培训</td></tr>
+        <tr class="zero"><td><b>付汪阳</b></td><td class="n">0</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td>本周无 Vemory 记录</td></tr>
+        <tr class="zero"><td><b>冯磊-1</b></td><td class="n">0</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td>本周无 Vemory 记录</td></tr>
+        <tr class="zero"><td><b>刘雪梅</b></td><td class="n">0</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td>本周无 Vemory 记录（月内 7-16 前有 4 场）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="band">
+    <h3>区域进展</h3>
+    <div class="cols">
+      <div>
+        <div class="who-name">外部协同<span>刘春梅 / 王宇彤 · 21 场</span></div>
+        <ul>
+          <li>俄罗斯：奢侈品与高端手机渠道布局评审（7-24，86 分钟）、高端品牌渠道与三年拓展方案（7-23，72 分钟，5 待办）</li>
+          <li>沙特 / 土耳其：高端礼赠市场产品与渠道策略（7-20，75 分钟）、中东市场进入与代理打法汇报（7-21，62 分钟，4 待办）</li>
+          <li>印度：分销与 BIS 合规（王宇彤 7-23，239 分钟）——与二部何海文印度线、三部中东线均有交叉</li>
+          <li>AI 赋能：AI 生成社媒内容培训（王宇彤 7-22，277 分钟，本周最长会议，5 待办）、海外经销商拓展与 AI 工作流（7-20，119 分钟，7 待办）</li>
+        </ul>
+      </div>
+      <div>
+        <div class="who-name">招聘与流程<span>张倩 · 19 场面试类 + 周报规范</span></div>
+        <ul>
+          <li>招聘专员转岗 HRBP 面试沟通（7-23，40 分钟）；汽车出口与高端定制业务面试（7-25，38 分钟）</li>
+          <li>东南亚与印度业务推进及周报规范会议（7-21，54 分钟，18 待办，为本周单场待办最多）</li>
+          <li>印度市场拓展、售后沟通与内部流程推进（7-23，98 分钟，10 待办）</li>
+          <li>张倩不考核日报，以会议记录体现工作量</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="band">
+    <h3>下周计划</h3>
+    <div class="cols">
+      <div>
+        <div class="who-name">张倩 · 招聘推进</div>
+        <ul>
+          <li>定向筛选海外 BD 经理（摩洛哥 / 土耳其籍）及汽车出口业务总监</li>
+          <li>核心交付：完成 1 位汽车事业部总监入职手续，待发 offer 1 人</li>
+          <li>制定海外 BD 经理试用期量化考核方案（业绩、跨文化适应力、市场开拓）</li>
+          <li>跟进海外 BD 出差进度，协调供应链与法务资源</li>
+        </ul>
+      </div>
+      <div>
+        <div class="who-name">中台其他 · 承接本周</div>
+        <ul>
+          <li>刘春梅 110 项待办的消化与分派（占部门 68%，单点瓶颈）</li>
+          <li>付汪阳、冯磊-1 会议记录补位（本周 Vemory 零记录）</li>
+          <li>付汪阳：推动运维安装 pgvector、向业务方索取门店与 SKU 主数据，解除门店 Agent 投产阻塞</li>
+          <li>付汪阳：会议智能两个决策点拍板（声纹注册库支持与否、项目维度来源）</li>
+          <li>获客系统 v0.2.0 部署生产并完成真实账号验收，统一所有发送入口</li>
+          <li>会议分类 classify() 逻辑修正，避免业务会误判为面试</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="band">
+    <h3>亮点和不足</h3>
+    <div style="font-size:13.5px;font-weight:800;letter-spacing:-.01em;margin-bottom:14px;padding-left:13px;border-left:2px solid var(--ink)">周报自动化规则落地会（7-23）召开，生成链路打通</div>
+    <div class="cols">
+      <div>
+        <div class="who-name">亮点</div>
+        <ul>
+          <li>付汪阳四条技术线并行：获客系统 v0.2.0 发布（104 封可核验触达 / 222 项测试通过）、门店 Agent 全链路本地跑通（32 项测试 / 07-23 端到端验证）</li>
+          <li>周报自动化规则落地会（7-23）召开，业绩、会议、日报三源打通</li>
+          <li>刘雪梅 3.5 万美元录单（协同支持类）</li>
+          <li>张倩本周 6 场面试，招聘链路持续推进，含 HRBP 转岗沟通</li>
+          <li>王宇彤 AI 生成社媒内容培训（277 分钟）+ 印度分销与 BIS 合规（239 分钟），赋能三个业务部门</li>
+          <li>刘春梅 32 场会议覆盖俄罗斯、沙特、土耳其三个市场的渠道评审与进入方案</li>
+        </ul>
+      </div>
+      <div>
+        <div class="who-name">不足</div>
+        <ul>
+          <li>协同负载高度集中：刘春梅一人占部门待办 68%、场次 68%，是单点瓶颈</li>
+          <li>付汪阳、冯磊-1、刘雪梅本周 Vemory 零记录，半数成员无过程凭证</li>
+          <li>日报库（10.100.0.176）连接被拒，本周出勤维度无法取数</li>
+          <li>会议分类靠关键词判定，「招聘/面试」优先级最高会误判业务会，占比数字仅供参考</li>
+          <li>经销商 PDCA 系统尚无查询接口，待打通</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="risks">
+    <ol>
+      <li><b>门店 Agent 卡在两个外部依赖，代码已就绪却无法投用</b>　六个开发阶段全部完成、32 项自动化测试通过、07-23 本地端到端验证走通，但被两件事挡住：① 生产库未安装 pgvector 扩展，属系统层面缺失而非权限问题，需运维安装后重跑初始化脚本；② 经销商、门店、SKU、汇率四张主数据表各仅 1 条演示数据，需业务方提供真实门店清单与 SKU 目录，否则表单链接无法下发给代理商。这两项不解决，Walk-in / Sell-out 的自动化也就无从谈起。</li>
+      <li><b>会议智能方案有两个待拍板决策</b>　① 底层引擎是否支持声纹注册库持久化——支持则做硬匹配，不支持走「一次确认 + 习惯匹配」软方案；② 项目维度来源——手动建项目，还是从现有任务 / CRM 系统同步项目清单。方案 P0 部分两周即可上线，但决策不定就无法启动。</li>
+      <li><b>协同投入高度集中在一人</b>　刘春梅一人 32 场 / 19.2 小时 / 110 待办，占部门待办 68%、场次 68%。中台作为支持职能，负载集中意味着单点瓶颈——其待办积压会直接拖慢三个业务部门。</li>
+      <li><b>半数成员本周零会议记录</b>　冯磊-1、刘雪梅本周 Vemory 零记录（刘雪梅月内 7-16 前有 4 场，本周确实无会议），需确认是未开会还是未录音。付汪阳虽同样零会议记录，但本周产出四条技术线的实质成果，属开发型投入，用会议场次衡量并不合适——建议中台按岗位性质区分考核方式：协同岗看会议与待办，开发岗看交付物与测试通过率。</li>
+      <li><b>王宇彤会议时长异常集中</b>　5 场却有 11.2 小时，场均 134 分钟，单场最长 277 分钟（AI 社媒内容培训）。长会是培训性质还是录音未及时结束，建议核对。</li>
+    </ol>
+  </div>
+
+  <div class="band" style="border-top:none;padding-top:14px">
+    <div style="font-size:10px;color:var(--faint);letter-spacing:.06em;line-height:1.7">
+      中台无销售指标，下周关注：刘春梅待办 110 项的消化与分派；付汪阳、冯磊-1 会议记录补位；日报库连通性恢复后补齐出勤维度；classify() 分类逻辑修正。<br>
+      海外渠道经销商周报 · 2026 年第 30 周 · 生成于 2026-07-27
+    </div>
+  </div>
+<!--SEC-END-->
+
+</div>
+
+<script>
+
+const INK='#1C1C1A', PAPER='#F0EFEB', MUTED='#8F8E88', GRID='#DEDDD6';
+const LAD=["#1C1C1A", "#4A4944", "#6A6963", "#8F8E88", "#B0AFA9", "#C6C5BF", "#D8D7D1"];
+const rnd=(i,k)=>Math.abs(((i*73856093)^(k*19349663))%1000)/1000;
+const D2R=Math.PI/180;
+const pol=(cx,cy,r,deg)=>[cx+r*Math.cos(deg*D2R), cy+r*Math.sin(deg*D2R)];
+const NS='http://www.w3.org/2000/svg';
+const el=(p,t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);p.appendChild(n);return n;};
+const txt=(p,a,s)=>{const n=el(p,'text',a);n.textContent=s;return n;};
+const tip=(n,s)=>{const t=document.createElementNS(NS,'title');t.textContent=s;n.appendChild(t);};
+// 立即渲染，不依赖 IntersectionObserver —— 保证打印 PDF / 静态快照 / 预览面板都出图
+const obsReveal=(id,fn)=>{const n=document.getElementById(id);if(!n)return;
+  const go=()=>{n.innerHTML='';fn(n);};go();n.style.cursor='pointer';n.addEventListener('click',go);};
+
+const PFX="mid_";
+const GAUGE=null;
+const TREND=null;
+const PEOPLE=null;
+const LINES={"title": "刘春梅一人扛了一半会议时长", "sub": "1 tick = 0.5 小时 · 本周 07/20–07/26 · 行尾为小时数与会议场次", "unit": 0.5, "px": 5.6, "x0": 112, "src": "TICK ROWS · MONO-BASIC · Vemory 会议时长 07/20–07/26", "rows": [["刘春梅", 19.2, "52%", "32 场", "外部 17 / 面试 10 / 内部 5 · 产生 110 项待办 · 俄罗斯、沙特、土耳其渠道评审为主"], ["王宇彤", 11.2, "30%", "5 场", "外部 3 / 面试 1 / 内部 1 · 产生 18 项待办 · 场均 134 分钟，单场最长 277 分钟"], ["张倩", 6.5, "18%", "10 场", "面试 8 / 外部 1 / 内部 1 · 产生 34 项待办 · 招聘与 HRBP 转岗为主"], ["付汪阳", 0.0, "0%", "0 场", "本周无 Vemory 会议记录"], ["冯磊-1", 0.0, "0%", "0 场", "本周无 Vemory 会议记录"], ["刘雪梅", 0.0, "0%", "0 场", "本周无 Vemory 会议记录（月内 7-16 前有 4 场）"]]};
+const CUST={"title": "外部协同与招聘面试几乎平分", "sub": "1 点 = 1%（约 0.47 场）· 按会议标题与摘要关键词自动分类 · 内部会议仅占 15%", "unit_note": "ONE DOT = 1% (约0.47场) · 45 + 40 + 15 = 100", "src": "HUNDRED FIELD · MONO-LUPI · 会议类型构成 07/20–07/26", "total": 47, "rows": [["外部协同", 45, 0, 21, 0, "中台", "21 场", "", "—", "—", "外部协同：渠道评审、市场进入方案、经销商支持、培训（刘春梅 17 / 王宇彤 3 / 张倩 1）"], ["招聘面试", 40, 1, 19, 0, "中台", "19 场", "", "—", "—", "招聘面试：含 HRBP 转岗、汽车出口与高端定制岗位（张倩 8 / 刘春梅 10 / 王宇彤 1）"], ["内部会议", 15, 3, 7, 0, "中台", "7 场", "", "—", "—", "内部会议：流程推进、周报规范、内部对齐（刘春梅 5 / 张倩 1 / 王宇彤 1）"]], "pos": [[126, 148], [286, 130], [200, 258]], "links": [[0, 1], [0, 2], [1, 2]]};
+const COVER={"title": "六人里三人本周零会议记录", "sub": "左列 = 中台 6 人 · 实线 = 本周有 Vemory 记录 · 虚线 = 零记录 · 右侧按主责会议类型归集 · 数字为会议时长（小时）", "foot": "实线 = 本周有记录 · 虚线 = 零记录", "unit": "小时", "zerolab": "本周无 Vemory 记录", "dec": 1, "owlab": "有记录", "src": "TYPE COLONNADE · MONO-LUPI · 中台会议记录覆盖 07/20–07/26", "rows": [["刘春梅", "", "外部为主", "—", "32 场", "外部协同", 19.2], ["王宇彤", "", "外部为主", "—", "5 场", "外部协同", 11.2], ["张倩", "", "面试为主", "—", "10 场", "招聘面试", 6.5], ["付汪阳", "", "—", "—", "0 场", "本周无记录", 0], ["冯磊-1", "", "—", "—", "0 场", "本周无记录", 0], ["刘雪梅", "", "—", "—", "0 场", "本周无记录", 0]], "owners": [["外部协同", 2, 2, 30.4], ["招聘面试", 1, 1, 6.5], ["本周无记录", 0, 3, 0]]};
+
+
+/* F11 · tick gauge —— 1 tick = 目标的 1%；刻度可超 100% 表达超额 */
+(()=>{const G=GAUGE;if(!G)return;obsReveal(PFX+'gauge',s=>{
+  const cx=200,cy=206,R0=142,A0=-195,SW=210,N=G.scale;
+  for(let k=0;k<N;k++){
+    const a=A0+k/N*SW, inked=k<G.rate;
+    const len=inked?18+rnd(k+1,3)*8:7+rnd(k+1,7)*3.5;
+    const [x1,y1]=pol(cx,cy,R0,a),[x2,y2]=pol(cx,cy,R0+len,a);
+    el(s,'line',{x1,y1,x2,y2,stroke:inked?INK:'#CFCEC7','stroke-width':inked?1.2:.7,
+      class:'fade',style:`animation-delay:${k*.008}s`});}
+  // 里程碑
+  const ms=N>120?[50,100,150]:[25,50,75,100];
+  ms.forEach(m=>{if(m>N)return;const a=A0+m/N*SW;
+    const [dx,dy]=pol(cx,cy,R0-10,a),[tx,ty]=pol(cx,cy,R0-26,a);
+    el(s,'circle',{cx:dx,cy:dy,r:1.2,fill:'#B0AFA9',class:'fade',style:'animation-delay:.8s'});
+    txt(s,{x:tx,y:ty+3,'font-size':8,'font-weight':600,fill:'#C6C5BF','text-anchor':'middle',
+      class:'fade',style:'animation-delay:.85s'},m);});
+  // 100% 目标位（仅超额时画）
+  if(N>100){const a=A0+100/N*SW;
+    const [q1x,q1y]=pol(cx,cy,R0-4,a),[q2x,q2y]=pol(cx,cy,R0+34,a);
+    el(s,'line',{x1:q1x,y1:q1y,x2:q2x,y2:q2y,stroke:INK,'stroke-width':1.1,
+      'stroke-dasharray':'3 3',opacity:.75,class:'fade',style:'animation-delay:1.15s'});
+    const [tx,ty]=pol(cx,cy,R0+48,a);
+    // 贴边时改锚点，防止标签被画布裁掉
+    const anc=tx>320?'end':(tx<80?'start':'middle');
+    const lx=anc==='end'?Math.min(tx+22,397):(anc==='start'?Math.max(tx-22,3):tx);
+    txt(s,{x:lx,y:ty+3,'font-size':8,'font-weight':800,fill:INK,'text-anchor':anc,
+      'letter-spacing':'.06em',style:`paint-order:stroke;stroke:${PAPER};stroke-width:3.5px;animation-delay:1.2s`,
+      class:'fade'},'目标 100%');}
+  // 达成收笔珠
+  const aR=A0+Math.min(G.rate,N)/N*SW,[ex,ey]=pol(cx,cy,R0+30,aR);
+  const bead=el(s,'circle',{cx:ex,cy:ey,r:3.2,fill:INK,class:'pop',style:'animation-delay:1.1s'});
+  tip(bead,`达成 ${G.rate}% — ${G.mtd} 万 / ${G.target} 万`);
+  // 时间进度标线
+  const aT=A0+G.timep/N*SW;
+  const [t1x,t1y]=pol(cx,cy,R0+32,aT),[t2x,t2y]=pol(cx,cy,R0+46,aT);
+  el(s,'line',{x1:t1x,y1:t1y,x2:t2x,y2:t2y,stroke:MUTED,'stroke-width':1.2,
+    class:'fade',style:'animation-delay:1.25s'});
+  const tl=txt(s,{x:397,y:t2y+15,'font-size':8.5,'font-weight':700,fill:MUTED,'text-anchor':'end',
+    'letter-spacing':'.06em',class:'fade',
+    style:`paint-order:stroke;stroke:${PAPER};stroke-width:3.5px;animation-delay:1.3s`},'时间进度 84%');
+  tip(tl,'七月已过 26 / 31 天');
+  const num=txt(s,{x:cx,y:cy-2,'font-size':44,'font-weight':800,fill:INK,'text-anchor':'middle',
+    class:'fade',style:'animation-delay:1s'},G.rate+'%');
+  tip(num,`${G.mtd} 万 / 目标 ${G.target} 万`);
+  txt(s,{x:cx,y:cy+22,'font-size':9,'font-weight':600,fill:MUTED,'text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1.05s'},G.note);
+  txt(s,{x:200,y:302,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.12em',class:'fade',style:'animation-delay:1.35s'},G.foot);
+});})();
+
+
+/* F1 · rung bars —— 单系列竖排梯子：一档 = 固定金额，远看是柱，近看可数 */
+(()=>{const T=TREND;if(!T)return;obsReveal(PFX+'trend',s=>{
+  const U=T.unit,step=5.0,base=252,n=T.rows.length;
+  const gap=400/(n+.5), x0=i=>gap*.75+i*gap;
+  const mx=Math.max(...T.rows.map(r=>r[1]));
+  T.rows.forEach(([lab,v,note,peak],i)=>{
+    const x=x0(i), k=Math.round(v/U);
+    for(let j=0;j<k;j++){
+      const y=base-j*step, w=9-1.2+rnd(j+1,i+2)*2.6;
+      el(s,'line',{x1:x-w,y1:y,x2:x+w,y2:y,stroke:peak?INK:'#6A6963','stroke-width':1,
+        opacity:(peak?.65:.5)+rnd(j+2,i+3)*.35,class:'fade',
+        style:`animation-delay:${i*.09+j*.012}s`});}
+    const num=txt(s,{x:x,y:base-(k?(k-1)*step:0)-10,'font-size':peak?12:10,
+      'font-weight':800,fill:peak?INK:'#4A4944','text-anchor':'middle',class:'fade',
+      style:`animation-delay:${.4+i*.09}s`}, v.toFixed(1));
+    tip(num,`${lab} — ${v} 万 · ${note}`);
+    if(peak)el(s,'circle',{cx:x,cy:base-(k-1)*step-22,r:2.6,fill:INK,class:'pop',
+      style:`animation-delay:${.9+i*.09}s`});
+    txt(s,{x:x,y:base+18,'font-size':8.5,'font-weight':700,fill:MUTED,'text-anchor':'middle',
+      'letter-spacing':'.04em',class:'fade',style:`animation-delay:${i*.09}s`},lab);
+    txt(s,{x:x,y:base+29,'font-size':7,'font-weight':600,fill:'#C6C5BF','text-anchor':'middle',
+      class:'fade',style:`animation-delay:${i*.09}s`},note);
+  });
+  el(s,'line',{x1:16,y1:base+4,x2:384,y2:base+4,stroke:GRID,'stroke-width':.8,class:'fade'});
+  txt(s,{x:200,y:306,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1s'},T.foot);
+});})();
+
+
+/* F6 · paired rungs —— 每人两把梯子并肩，上周淡档、本周实档 */
+(()=>{const P=PEOPLE;if(!P)return;obsReveal(PFX+'pairrungs',s=>{
+  const U=P.unit,step=P.step,HW=8,base=P.base,n=P.rows.length;
+  const gap=400/(n+.4), x0=i=>gap*.7+i*gap;
+  P.rows.forEach(([name,was,now,mtd,share],i)=>{
+    const xa=x0(i)-11,xb=x0(i)+11;
+    const nw=Math.round(was/U), nn=Math.round(now/U);
+    for(let k=0;k<nw;k++){const y=base-k*step,w=HW-1.2+rnd(k+1,i+2)*2.4;
+      el(s,'line',{x1:xa-w,y1:y,x2:xa+w,y2:y,stroke:'#B0AFA9','stroke-width':1,
+        opacity:.5+rnd(k+2,i+3)*.4,class:'fade',style:`animation-delay:${i*.06+k*.01}s`});}
+    for(let k=0;k<nn;k++){const y=base-k*step,w=HW-1.2+rnd(k+1,i+7)*2.4;
+      el(s,'line',{x1:xb-w,y1:y,x2:xb+w,y2:y,stroke:INK,'stroke-width':1,
+        opacity:.6+rnd(k+2,i+8)*.4,class:'fade',style:`animation-delay:${.12+i*.06+k*.01}s`});}
+    txt(s,{x:xa,y:(nw?base-(nw-1)*step:base)-9,'font-size':7.5,'font-weight':700,fill:'#B0AFA9',
+      'text-anchor':'middle',class:'fade',style:`animation-delay:${.45+i*.06}s`},
+      was?was.toFixed(1):'0');
+    const num=txt(s,{x:xb,y:(nn?base-(nn-1)*step:base)-9,'font-size':10,'font-weight':800,
+      fill:nn?INK:'#B0AFA9','text-anchor':'middle',class:'fade',
+      style:`animation-delay:${.45+i*.06}s`}, now?now.toFixed(1):'0');
+    tip(num,`${name} — 上周 ${was} 万 → 本周 ${now} 万 · 月累计 ${mtd} 万（${share}）`);
+    txt(s,{x:x0(i),y:base+19,'font-size':8.5,'font-weight':700,fill:MUTED,'text-anchor':'middle',
+      'letter-spacing':'.04em',class:'fade',style:`animation-delay:${i*.06}s`},name);
+    txt(s,{x:x0(i),y:base+30,'font-size':7,'font-weight':600,fill:'#C6C5BF','text-anchor':'middle',
+      class:'fade',style:`animation-delay:${i*.06}s`},`月 ${mtd} · ${share}`);
+  });
+  el(s,'line',{x1:16,y1:base+4,x2:384,y2:base+4,stroke:GRID,'stroke-width':.8,class:'fade'});
+  txt(s,{x:200,y:306,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1s'},P.foot);
+});})();
+
+
+/* F5 · tick rows —— 一行 = 一条产品线，每 5 根一个点标 */
+(()=>{const L=LINES;obsReveal(PFX+'tickrows',s=>{
+  const U=L.unit,X0=L.x0,n=L.rows.length;
+  const gap=Math.min(54,(292-46-16)/Math.max(1,n-1)), y0=i=>46+i*gap;
+  const maxT=Math.max(...L.rows.map(r=>Math.round(r[1]/U)))||1;
+  // 自动收窄 tick 间距，保证最长一行的数字标签不越界（画布 400，右侧留 58px 给数字）
+  const PX=Math.min(L.px,(400-X0-58)/maxT);
+  L.rows.forEach(([name,v,share,note,full],i)=>{
+    const y=y0(i), t=Math.round(v/U);
+    txt(s,{x:X0-9,y:y+2,'font-size':8,'font-weight':700,fill:v>0?'#6A6963':'#B0AFA9',
+      'text-anchor':'end','letter-spacing':'.04em',class:'fade',
+      style:`animation-delay:${i*.07}s`},name);
+    txt(s,{x:X0-9,y:y+12,'font-size':6.8,'font-weight':600,fill:'#B0AFA9','text-anchor':'end',
+      class:'fade',style:`animation-delay:${i*.07}s`},'月占比 '+share);
+    el(s,'line',{x1:X0,y1:y+9,x2:X0+maxT*PX,y2:y+9,stroke:GRID,'stroke-width':.6,
+      class:'fade',style:`animation-delay:${i*.07}s`});
+    for(let k=0;k<t;k++){const x=X0+k*PX+PX/2,h=13+rnd(k+1,i+2)*8;
+      el(s,'line',{x1:x,y1:y+9,x2:x,y2:y+9-h,stroke:INK,'stroke-width':1,
+        opacity:.55+rnd(k+3,i+5)*.45,class:'fade',style:`animation-delay:${i*.07+k*.008}s`});
+      if(k%5===4)el(s,'circle',{cx:x,cy:y+13,r:.8,fill:'#C6C5BF',class:'fade',
+        style:`animation-delay:${i*.07+k*.008}s`});}
+    const lab=txt(s,{x:X0+t*PX+9,y:y+4,'font-size':11,'font-weight':800,fill:v>0?INK:'#B0AFA9',
+      class:'fade',style:`animation-delay:${.35+i*.07}s`},v.toFixed(1));
+    tip(lab,`${name} — 月累计 ${v} 万（${share}）· ${full}`);
+    const nt=txt(s,{x:X0+t*PX+9,y:y+15,'font-size':7,'font-weight':700,fill:'#B0AFA9',
+      class:'fade',style:`animation-delay:${.4+i*.07}s`},note);
+    tip(nt,full);
+  });
+  txt(s,{x:200,y:308,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:.9s'},
+    `ONE TICK = ${U}万元 · DOT MARKS EVERY FIFTH · 尾数四舍五入`);
+});})();
+
+
+/* L14 · hundred field —— 占比摊成 100 个点，phyllotaxis 黄金角散布 */
+(()=>{const C=CUST;obsReveal(PFX+'hundredfield',s=>{
+  C.links.forEach(([a,b],k)=>{
+    el(s,'line',{x1:C.pos[a][0],y1:C.pos[a][1],x2:C.pos[b][0],y2:C.pos[b][1],
+      stroke:GRID,'stroke-width':.7,'stroke-dasharray':'2 5',class:'fade',
+      style:`animation-delay:${.9+k*.08}s`});});
+  const used=[];   // 已放置的标签区域，用于防重叠
+  C.rows.forEach(([name,v,li,amt,lines,owner,country,nick,tier,lvl,full],ci)=>{
+    const [cx,cy]=C.pos[ci], shade=LAD[li];
+    let edge=0;
+    for(let k=0;k<v;k++){
+      const a=k*137.508+ci*55, rr=4+Math.sqrt(k)*5.9+rnd(k+1,ci+2)*3;
+      edge=Math.max(edge,rr);
+      const [x,y]=pol(cx,cy,rr,a);
+      if(k%5===0)el(s,'line',{x1:cx,y1:cy,x2:x,y2:y,stroke:'#CDCCC5','stroke-width':.6,
+        class:'fade',style:`animation-delay:${ci*.1+k*.012}s`});
+      const dot=el(s,'circle',{cx:x,cy:y,r:1.5+rnd(k+2,ci+3)*1.7,fill:shade,opacity:.9,
+        class:'pop',style:`animation-delay:${ci*.1+k*.012}s`});
+      tip(dot,`${full}${nick?'（'+nick+'）':''} · ${country} · ${tier}/${lvl} · ${owner} — ${amt} 万（${v}%）· ${lines} 行`);}
+    el(s,'circle',{cx,cy,r:2.4,fill:INK,class:'pop',style:`animation-delay:${ci*.1}s`});
+    // 标签避让：先向下找空位，放不下再向上找；两行（名称 + 金额）一起判碰撞
+    const txtw=t=>[...t].reduce((a,c)=>a+(c.charCodeAt(0)>255?7.6:4.4),0);
+    const label=`${name}${nick?' · '+nick:''} · ${v}%`;
+    const sub=`${amt} 万 · ${country}`;
+    const HW=Math.max(txtw(label),txtw(sub))/2+4;
+    const clash=y=>used.some(u=>(Math.abs(u.y-y)<10||Math.abs(u.y-(y+9))<10)
+                                && Math.abs(u.x-cx)<(u.hw+HW));
+    let ly=null;
+    for(let y=cy+edge+12;y<=298;y+=10.5){ if(!clash(y)){ly=y;break;} }   // 向下
+    if(ly===null) for(let y=cy-edge-16;y>=12;y-=10.5){ if(!clash(y)){ly=y;break;} }  // 向上
+    if(ly===null) ly=cy+edge+12;                                          // 实在没位置
+    used.push({x:cx,y:ly,hw:HW});
+    used.push({x:cx,y:ly+9,hw:HW});
+    const lb=txt(s,{x:Math.min(Math.max(cx,HW+2),400-HW-2),y:ly,'font-size':7.6,'font-weight':800,fill:INK,
+      'text-anchor':'middle','letter-spacing':'.05em',class:'fade',
+      style:`paint-order:stroke;stroke:${PAPER};stroke-width:3px;animation-delay:${.5+ci*.09}s`},
+      label);
+    tip(lb,`${full} · ${country} · ${tier}/${lvl} · ${owner} — ${amt} 万 · ${lines} 行`);
+    txt(s,{x:Math.min(Math.max(cx,HW+2),400-HW-2),y:ly+9,'font-size':6.4,'font-weight':600,fill:'#B0AFA9',
+      'text-anchor':'middle',class:'fade',
+      style:`paint-order:stroke;stroke:${PAPER};stroke-width:2.5px;animation-delay:${.55+ci*.09}s`},
+      `${amt} 万 · ${country}`);});
+  txt(s,{x:200,y:315,'font-size':6.8,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1.3s'},C.unit_note);
+});})();
+
+
+/* L12 · type colonnade —— 多对一归属 + 逐条名单；实线=动销，虚线=零动销 */
+(()=>{const V=COVER;obsReveal(PFX+'colonnade',s=>{
+  const n=V.rows.length, cp=V.compact, sg=V.single;   // single = 单行超密集（38 家用）
+  const top=cp?14:26, gap=cp?(292/Math.max(1,n-1)):25.6;
+  const rowY=i=>top+i*gap, NX=282;
+  const fs=sg?5.4:(cp?6.2:7.5), fs2=cp?5.2:6.2, fsA=sg?6.2:(cp?7.4:9.5);
+  // 节点 Y = 其名下各行的重心；若两节点过近会重叠，按最小间距推开
+  const pref=V.owners.map(([nm])=>{
+    const idx=V.rows.map((r,i)=>[r[5],i]).filter(([o])=>o===nm).map(([,i])=>i);
+    return {nm, y:rowY(idx.reduce((a,b)=>a+b,0)/idx.length)};});
+  pref.sort((a,b)=>a.y-b.y);
+  const MINGAP=48;
+  for(let i=1;i<pref.length;i++)
+    if(pref[i].y-pref[i-1].y<MINGAP) pref[i].y=pref[i-1].y+MINGAP;
+  const over=pref.length?pref[pref.length-1].y-296:0;   // 超出画布则整体上移
+  if(over>0) pref.forEach(p=>p.y-=over);
+  const oy={}; pref.forEach(p=>oy[p.nm]=Math.max(28,p.y));
+  V.rows.forEach(([name,nick,tier,lvl,country,owner,amt],i)=>{
+    const y=rowY(i), live=amt>0, yj=oy[owner];
+    txt(s,{x:6,y:y+1,'font-size':fs,'font-weight':live?700:500,
+      fill:live?INK:'#B0AFA9','letter-spacing':'.03em',class:'fade',
+      style:`animation-delay:${i*.03}s`},
+      sg?`${name}${nick?' · '+nick:''}　${country}`:(name+(nick?' · '+nick:'')));
+    if(!sg)txt(s,{x:6,y:y+(cp?8:10),'font-size':fs2,'font-weight':600,fill:live?'#8F8E88':'#C6C5BF',
+      'letter-spacing':'.03em',class:'fade',style:`animation-delay:${i*.03}s`},
+      `${tier} · ${lvl} · ${country}`);
+    const am=txt(s,{x:172,y:y+2,'font-size':live?fsA:fsA-1.5,'font-weight':live?800:600,
+      fill:live?INK:'#C6C5BF','text-anchor':'end',class:'fade',
+      style:`animation-delay:${.18+i*.03}s`}, live?amt.toFixed(V.dec===undefined?2:V.dec):'0');
+    tip(am,`${name}${nick?'（'+nick+'）':''} · ${country} · ${tier}/${lvl} · ${owner} — ${live?amt+' '+(V.unit||'万'):(V.zerolab||'本月零动销')}`);
+    el(s,'path',{d:`M180 ${y} C 232 ${y} 246 ${yj} ${NX-6} ${yj}`,fill:'none',
+      stroke:live?'#6A6963':'#CFCEC7','stroke-width':live?1:.7,
+      'stroke-dasharray':live?'none':'2 4',opacity:live?.85:.9,pathLength:1,
+      class:'draw',style:`animation-delay:${.22+i*.03}s;animation-duration:.7s`});});
+  V.owners.forEach(([nm,act,tot,amt],j)=>{
+    const y=oy[nm], r=4+Math.min(act,8)*1.9;
+    el(s,'circle',{cx:NX,cy:y,r:r,fill:act>=3?INK:'#6A6963',class:'pop',
+      style:`animation-delay:${.7+j*.1}s`});
+    txt(s,{x:NX+r+8,y:y-1,'font-size':8.5,'font-weight':800,fill:INK,class:'fade',
+      style:`animation-delay:${.75+j*.1}s`},`${nm} · ${act}/${tot} ${V.owlab||'动销'}`);
+    txt(s,{x:NX+r+8,y:y+9,'font-size':6.8,'font-weight':600,fill:MUTED,'letter-spacing':'.03em',
+      class:'fade',style:`animation-delay:${.8+j*.1}s`},`${amt} ${V.unit||'万'}`);});
+  txt(s,{x:200,y:316,'font-size':6.8,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1.2s'},V.foot);
+});})();
+
+</script>
+</body>
+</html>

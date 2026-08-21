@@ -1,0 +1,1072 @@
+{
+  "week": [
+    {
+      "dealer": "HASSIB ABDALLAH AMIR ALLAH",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": 255462.2577,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "SIGNATURE S",
+      "amount": 179960.88,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 168508.824,
+      "lines": 4,
+      "orders": 0
+    },
+    {
+      "dealer": "Sidd Senthil",
+      "salesperson": "何海文",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 131100.44535,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 120907.8079,
+      "lines": 3,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 100846.2598,
+      "lines": 4,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 79154.43363,
+      "lines": 3,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 76130.21682,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Veysel Sevis Ltd",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 65658.4544,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 38277.202007,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "耳机",
+      "series": "VERTU PHANTOM",
+      "amount": 11820.1578,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机辅料",
+      "series": "VERTU AGENT Q",
+      "amount": 4867,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "钢笔",
+      "series": "灵蛇钢笔",
+      "amount": 2378.94165,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "Signature 4G",
+      "amount": 2215.4275,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "耳机",
+      "series": "VERTU PHANTOM",
+      "amount": 1967.1363000000001,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "VERTU QUANTUM",
+      "amount": 1107.71375,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "VERTU AGENT Q",
+      "amount": 1063.4052,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "电子产品配件",
+      "series": "数据线",
+      "amount": 722.5702,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "腕表辅料",
+      "series": "VERTU WATCH",
+      "amount": 310.15985,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "CONTINENTAL PLUS LLC.",
+      "salesperson": "Zolotar Yuliia",
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "My Shops Electronics Trading LLC",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "CONTINENTAL PLUS LLC.",
+      "salesperson": "杨晶晶",
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "Sidd Senthil",
+      "salesperson": "何海文",
+      "major": "电子配件辅料",
+      "series": "充电器",
+      "amount": 0,
+      "lines": 1,
+      "orders": 1
+    },
+    {
+      "dealer": "CONTINENTAL PLUS LLC.",
+      "salesperson": "陈玉霞",
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "其他",
+      "series": "杜邦纸手提袋",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "戒指",
+      "series": "VERTU AI 水晶智能戒指",
+      "amount": 0,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "METAVERTU 2",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机辅料",
+      "series": "VERTU IRONFLIP",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "服饰",
+      "series": "领带",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Sidd Senthil",
+      "salesperson": "何海文",
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": -1939.9095,
+      "lines": 1,
+      "orders": 1
+    }
+  ],
+  "mtd": [
+    {
+      "dealer": "HASSIB ABDALLAH AMIR ALLAH",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": 255462.2577,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "SIGNATURE S",
+      "amount": 179960.88,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 168508.824,
+      "lines": 4,
+      "orders": 0
+    },
+    {
+      "dealer": "Sidd Senthil",
+      "salesperson": "何海文",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 131100.44535,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 120907.8079,
+      "lines": 3,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 100846.2598,
+      "lines": 4,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 79154.43363000001,
+      "lines": 3,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 76130.21682,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Veysel Sevis Ltd",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 65658.4544,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 38277.202007,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "耳机",
+      "series": "VERTU PHANTOM",
+      "amount": 11820.1578,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机辅料",
+      "series": "VERTU AGENT Q",
+      "amount": 4867,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "钢笔",
+      "series": "灵蛇钢笔",
+      "amount": 2378.94165,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "Signature 4G",
+      "amount": 2215.4275,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "耳机",
+      "series": "VERTU PHANTOM",
+      "amount": 1967.1363000000001,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "VERTU QUANTUM",
+      "amount": 1107.71375,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "VERTU AGENT Q",
+      "amount": 1063.4052,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "电子产品配件",
+      "series": "数据线",
+      "amount": 722.5702,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "腕表辅料",
+      "series": "VERTU WATCH",
+      "amount": 310.15985,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "CONTINENTAL PLUS LLC.",
+      "salesperson": "Zolotar Yuliia",
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "My Shops Electronics Trading LLC",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "CONTINENTAL PLUS LLC.",
+      "salesperson": "杨晶晶",
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "Sidd Senthil",
+      "salesperson": "何海文",
+      "major": "电子配件辅料",
+      "series": "充电器",
+      "amount": 0,
+      "lines": 1,
+      "orders": 1
+    },
+    {
+      "dealer": "CONTINENTAL PLUS LLC.",
+      "salesperson": "陈玉霞",
+      "major": "腕表",
+      "series": "METAWATCH S1",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "其他",
+      "series": "杜邦纸手提袋",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "戒指",
+      "series": "VERTU AI 水晶智能戒指",
+      "amount": 0,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "METAVERTU 2",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机辅料",
+      "series": "VERTU IRONFLIP",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "服饰",
+      "series": "领带",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Sidd Senthil",
+      "salesperson": "何海文",
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": -1939.9095,
+      "lines": 1,
+      "orders": 1
+    }
+  ],
+  "prev_month": [
+    {
+      "dealer": "My Shops Electronics Trading LLC",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 402757.9028000001,
+      "lines": 16,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 299363.35429999995,
+      "lines": 11,
+      "orders": 1
+    },
+    {
+      "dealer": "Safiranhamrah",
+      "salesperson": "尤文静",
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": 274512,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "salesperson": "杨晶晶",
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": 169817.63039999997,
+      "lines": 5,
+      "orders": 1
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 147731.52240000002,
+      "lines": 5,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 127680.85115,
+      "lines": 4,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 127431.38979999999,
+      "lines": 3,
+      "orders": 0
+    },
+    {
+      "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "salesperson": "杨晶晶",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 98896.6836,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "SIGNATURE S",
+      "amount": 83477.3082,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "Veysel Sevis Ltd",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 71575.35,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "My Shops Electronics Trading LLC",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "VERTU QUANTUM",
+      "amount": 59816.5425,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "HASSIB ABDALLAH AMIR ALLAH",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 46967.063,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "腕表",
+      "series": "VERTU Legacy",
+      "amount": 44255.37974,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "salesperson": "杨晶晶",
+      "major": "手机",
+      "series": "METAVERTU 2",
+      "amount": 38173.52,
+      "lines": 1,
+      "orders": 1
+    },
+    {
+      "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "salesperson": "杨晶晶",
+      "major": "手机",
+      "series": "iVERTU",
+      "amount": 36578.4251,
+      "lines": 7,
+      "orders": 1
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "郑丽苹",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 36022.85115,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "salesperson": "杨晶晶",
+      "major": "手机",
+      "series": "METAVERTU",
+      "amount": 26140.495000000003,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "VERTU AGENT Q",
+      "amount": 25874,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "戒指",
+      "series": "VERTU AI 智能戒指",
+      "amount": 15378.475199999999,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "salesperson": "杨晶晶",
+      "major": "其他",
+      "series": "维修物料",
+      "amount": 4485.3886,
+      "lines": 1,
+      "orders": 1
+    },
+    {
+      "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "salesperson": "杨晶晶",
+      "major": "手机辅料",
+      "series": "VERTU QUANTUM",
+      "amount": 4294.521,
+      "lines": 1,
+      "orders": 1
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "电子配件辅料",
+      "series": "充电器",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "salesperson": "杨晶晶",
+      "major": "包材",
+      "series": "包装物料",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "LLC \"TC Azimut\"",
+      "salesperson": "杨晶晶",
+      "major": "手机辅料",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "LLC \"TC Azimut\"",
+      "salesperson": "杨晶晶",
+      "major": "手机",
+      "series": "VERTU ALPHAFOLD",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "salesperson": "杨晶晶",
+      "major": "电子配件辅料",
+      "series": "充电器",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "METAVERTU 2",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "VERTU QUANTUM",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VERTU LONDON LTD",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "耳机",
+      "series": "VERTU PHANTOM",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Veysel Sevis Ltd",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "其他",
+      "series": "预售虚拟类",
+      "amount": 0,
+      "lines": 2,
+      "orders": 1
+    },
+    {
+      "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "salesperson": "于冰",
+      "major": "钢笔",
+      "series": "灵蛇钢笔",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "salesperson": "杨晶晶",
+      "major": "皮具",
+      "series": "iVERTU皮套",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Veysel Sevis Ltd",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "电子配件辅料",
+      "series": "充电器",
+      "amount": 0,
+      "lines": 1,
+      "orders": 1
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "METAVERTU 2",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Luxem Store",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机辅料",
+      "series": "VERTU AGENT Q",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    }
+  ],
+  "yoy_mtd": [
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "Signature 4G",
+      "amount": 437087.6190720001,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "手机",
+      "series": "VERTU IRONFLIP",
+      "amount": 32655.488463360005,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "Veysel Sevis Ltd",
+      "salesperson": "DEHDAHOUMAIMA",
+      "major": "手机",
+      "series": "VERTU QUANTUM",
+      "amount": 26467.58,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "LLC \"TC Azimut\"",
+      "salesperson": "杨晶晶",
+      "major": "手机辅料",
+      "series": "VERTU IRONFLIP",
+      "amount": 24900.985399999998,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机辅料",
+      "series": "Signature 4G",
+      "amount": 23028,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "手机",
+      "series": "Signature 4G",
+      "amount": 9284.540928,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "手机辅料",
+      "series": "METAVERTU",
+      "amount": 2861.3599999999997,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "手机",
+      "series": "VERTU IRONFLIP",
+      "amount": 693.66233664,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "珠宝",
+      "series": "耳饰",
+      "amount": 0,
+      "lines": 3,
+      "orders": 1
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "生活电器",
+      "series": "咖啡机",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "皮具",
+      "series": "METAVERTU皮套",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "皮具",
+      "series": "VERTU IRONFLIP皮套",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "美妆",
+      "series": "香水",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VMG Communication and Technology Joint Stock Company",
+      "salesperson": "于冰",
+      "major": "手机辅料",
+      "series": "VERTU IRONFLIP",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "服饰",
+      "series": "T恤",
+      "amount": 0,
+      "lines": 4,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "服饰",
+      "series": "T恤",
+      "amount": 0,
+      "lines": 4,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "服饰",
+      "series": "领带",
+      "amount": 0,
+      "lines": 2,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "珠宝",
+      "series": "耳饰",
+      "amount": 0,
+      "lines": 3,
+      "orders": 1
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "生活电器",
+      "series": "咖啡机",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "皮具",
+      "series": "METAVERTU皮套",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "皮具",
+      "series": "VERTU IRONFLIP皮套",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "毛涵",
+      "major": "美妆",
+      "series": "香水",
+      "amount": 0,
+      "lines": 1,
+      "orders": 0
+    },
+    {
+      "dealer": "VST ECS (Thailand) Co., Ltd.",
+      "salesperson": "于冰",
+      "major": "服饰",
+      "series": "领带",
+      "amount": 0,
+      "lines": 2,
+      "orders": 0
+    }
+  ]
+}

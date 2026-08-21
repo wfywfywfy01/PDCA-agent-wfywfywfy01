@@ -103,6 +103,7 @@ def main() -> int:
         ("GET", "/api/logistics/summary"),
         ("GET", "/api/logistics/shipments"),
         ("GET", "/api/logistics/dates"),
+        ("GET", "/api/logistics/freight"),
         ("GET", "/api/meeting-center/meetings"),
         ("GET", "/api/meeting-center/summary"),
         ("GET", "/api/signalseller/summary"),

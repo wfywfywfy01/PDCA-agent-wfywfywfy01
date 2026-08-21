@@ -193,6 +193,50 @@ def logistics_tracking_refresh_job() -> None:
         notify("物流状态自动刷新失败", str(exc)[:300])
 
 
+def logibot_run_job() -> None:
+    """日升货代跟踪机器人：拉群预报/面单、匹配录单人、官网轨迹、飞书。
+
+    09:00 / 15:00 各跑一轮。LOGIBOT_ENABLED!=1 时跳过。
+    """
+    import subprocess
+    import sys
+
+    if os.environ.get("LOGIBOT_ENABLED", "0") != "1":
+        logger.info("logibot 未启用 (LOGIBOT_ENABLED!=1)")
+        return
+    root = Path(os.environ.get("LOGIBOT_ROOT", "/app/logibot"))
+    bot = root / "bot.py"
+    if not bot.is_file():
+        logger.warning("logibot 未部署: {}", bot)
+        notify("logibot 未部署", str(bot))
+        return
+    env = os.environ.copy()
+    env.setdefault("VPS_IM_APP_ID", env.get("PDCA_VPS_BOT_APP_ID", ""))
+    env.setdefault("VPS_IM_APP_SECRET", env.get("PDCA_VPS_BOT_APP_SECRET", ""))
+    env.setdefault("VPS_IM_CHANNEL_ID", env.get("PDCA_VPS_BOT_CHANNEL_ID", ""))
+    env.setdefault("LOGIBOT_DATA_DIR", str(get_settings().data_dir / "logibot"))
+    logger.info("logibot 开始 root={}", root)
+    try:
+        result = subprocess.run(
+            [sys.executable, str(bot), "run"],
+            cwd=str(root),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+    except Exception as exc:
+        logger.exception("logibot 执行异常: {}", exc)
+        notify("logibot 执行失败", str(exc)[:300])
+        return
+    if result.returncode != 0:
+        tail = (result.stderr or result.stdout or "")[-400:]
+        logger.error("logibot 退出码 {} {}", result.returncode, tail)
+        notify("logibot 退出失败", tail[:300])
+        return
+    logger.info("logibot 完成 {}", (result.stdout or "")[-300:])
+
+
 def todo_remind_job(round_label: str) -> None:
     """待办催办：未完成待办 -> VPS IM 私聊本人。
 
@@ -318,7 +362,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         coalesce=True,
     )
 
-    # 07:30 — 物流状态自动刷新（UPS/FedEx/DHL 官网）
+    # 07:30 — 经销商运单官网刷新（UPS/FedEx/DHL）
     _scheduler.add_job(
         logistics_tracking_refresh_job,
         trigger="cron",
@@ -328,6 +372,18 @@ def start_scheduler() -> BackgroundScheduler | None:
         max_instances=1,
         coalesce=True,
     )
+
+    # 09:00 / 15:00 — 日升货代 logibot（预报/面单/飞书/官网）
+    for hour, job_id in ((9, "logibot_morning"), (15, "logibot_afternoon")):
+        _scheduler.add_job(
+            logibot_run_job,
+            trigger="cron",
+            hour=hour,
+            minute=0,
+            id=job_id,
+            max_instances=1,
+            coalesce=True,
+        )
 
     # 08:30 — 每日经营日报推送（服务器自跑，不依赖部署机网络）
     if getattr(settings, "daily_report_enabled", True):
@@ -383,8 +439,8 @@ def start_scheduler() -> BackgroundScheduler | None:
 
     _scheduler.start()
     logger.info(
-        "调度器已启动 cron={} logistics_tracking=07:30 vps_sellin=20:00 "
-        "kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00",
+        "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
+        "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
     )

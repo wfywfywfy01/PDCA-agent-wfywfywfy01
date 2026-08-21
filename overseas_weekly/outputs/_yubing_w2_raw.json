@@ -1,0 +1,291 @@
+{
+  "ok": true,
+  "result": {
+    "validation": {
+      "ok": true,
+      "issues": []
+    },
+    "execution": {
+      "result": {
+        "week": [
+          {
+            "dealer": "VMG",
+            "d": "2026-07-10",
+            "major": "其他",
+            "series": "权益服务",
+            "sku": "海外经销商尾款",
+            "amount": 171462.13434,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "VMG",
+            "d": "2026-07-10",
+            "major": "其他",
+            "series": "权益服务",
+            "sku": "海外经销商尾款",
+            "amount": 143960.34365999998,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "手机",
+            "series": "VERTU ALPHAFOLD",
+            "sku": "VERTU ALPHAFOLD-黑基础套装款-小牛皮-黑色X绗缝(纯色)-无Logo-1TB-海外",
+            "amount": 30439.562400000003,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "手机",
+            "series": "VERTU ALPHAFOLD",
+            "sku": "VERTU ALPHAFOLD-黑基础套装款-小牛皮-黑色X绗缝(纯色)-无Logo-1TB-海外",
+            "amount": 30439.562400000003,
+            "order_no": "",
+            "salesperson": "郑丽苹"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-08",
+            "major": "手机",
+            "series": "VERTU AGENT Q",
+            "sku": "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉黑-1TB-海外",
+            "amount": 25661.259000000002,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-08",
+            "major": "手机",
+            "series": "VERTU AGENT Q",
+            "sku": "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗线(撞色)-1TB-海外",
+            "amount": 23803.0299,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-08",
+            "major": "手机",
+            "series": "VERTU AGENT Q",
+            "sku": "VERTU AGENT Q-黑基础套装款-小牛皮-酒红绗线(撞色)-1TB-海外",
+            "amount": 23803.0299,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "手机",
+            "series": "VERTU ALPHAFOLD",
+            "sku": "VERTU ALPHAFOLD-黑品质套装款-鳄鱼皮-玄铁黑-1TB-海外",
+            "amount": 19467.162,
+            "order_no": "",
+            "salesperson": "郑丽苹"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "手机",
+            "series": "VERTU ALPHAFOLD",
+            "sku": "VERTU ALPHAFOLD-黑品质套装款-鳄鱼皮-玄铁黑-1TB-海外",
+            "amount": 19467.162,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-08",
+            "major": "手机",
+            "series": "VERTU AGENT Q",
+            "sku": "VERTU AGENT Q-银基础套装款-碳纤纹牛皮(XGY)-棕色-1TB-海外",
+            "amount": 19378.6749,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "手机",
+            "series": "VERTU ALPHAFOLD",
+            "sku": "VERTU ALPHAFOLD-黑基础套装款-小牛皮-棕色X绗缝(撞色)-无Logo-1TB-海外",
+            "amount": 15219.781200000001,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "手机",
+            "series": "VERTU ALPHAFOLD",
+            "sku": "VERTU ALPHAFOLD-黑基础套装款-小牛皮-棕色X绗缝(撞色)-无Logo-1TB-海外",
+            "amount": 15219.781200000001,
+            "order_no": "",
+            "salesperson": "郑丽苹"
+          },
+          {
+            "dealer": "VMG",
+            "d": "2026-07-07",
+            "major": "手机辅料",
+            "series": "VERTU AGENT Q",
+            "sku": "META3-紫光檀木背盖套件(组装点胶)",
+            "amount": 4867,
+            "order_no": "XSD-DL26070202189",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-08",
+            "major": "钢笔",
+            "series": "灵蛇钢笔",
+            "sku": "VERTU 灵蛇权杖钢笔-HW",
+            "amount": 2654.6130000000003,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "VMG",
+            "d": "2026-07-07",
+            "major": "手机辅料",
+            "series": "VERTU QUANTUM",
+            "sku": "VTL-202402 喷胶件(TP/LCD+上/下中框组件/黑色/123448301001)售后专用",
+            "amount": 0,
+            "order_no": "XSD-DL26070202189",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "其他",
+            "series": "杜邦纸手提袋",
+            "sku": "杜邦纸手提袋-黄色-海外",
+            "amount": 0,
+            "order_no": "",
+            "salesperson": "郑丽苹"
+          },
+          {
+            "dealer": "VMG",
+            "d": "2026-07-07",
+            "major": "电子配件",
+            "series": "充电器",
+            "sku": "中规充电器(含二维码-65W-型号:FC498C)-HW",
+            "amount": 0,
+            "order_no": "XSD-DL26070202189",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "BIN BIN",
+            "d": "2026-07-10",
+            "major": "其他",
+            "series": "杜邦纸手提袋",
+            "sku": "杜邦纸手提袋-黄色-海外",
+            "amount": 0,
+            "order_no": "",
+            "salesperson": "于冰"
+          },
+          {
+            "dealer": "VMG",
+            "d": "2026-07-07",
+            "major": "手机辅料",
+            "series": "VERTU AGENT Q",
+            "sku": "META3-紫光檀木背盖套件(组装点胶)",
+            "amount": -4867,
+            "order_no": "XSD-DL26070202189",
+            "salesperson": "于冰"
+          }
+        ],
+        "week_sum": 540976.0959000001,
+        "mtd_sum": 705473.8243000002
+      },
+      "truncated": false,
+      "error": null,
+      "permission": [
+        {
+          "type": "data_access_filtered",
+          "scope": "sql_read",
+          "model": null,
+          "tables": [
+            "odoo_sale"
+          ],
+          "row_rules": [
+            {
+              "source": "ai.sql.row.rule",
+              "name": "海外渠道",
+              "condition": "部门id child_of hr.department(1569)",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "\"部门id\" IN (2130, 2132, 2131, 2227, 2033, 2102, 2104, 2112, 2085, 2114, 2115, 1579, 2039, 1586, 1569, 1577, 2155, 2030, 2059, 2040, 2154, 2166, 2228, 2231, 2223, 2230, 2129)",
+              "effect": "filter"
+            },
+            {
+              "source": "ai.sql.row.rule",
+              "name": "AI业务",
+              "condition": "部门id child_of hr.department(2219)",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "\"部门id\" IN (2243, 2253, 2259, 2268, 2219, 2265, 2266, 2267, 2250, 2251, 2244, 2191, 2254, 2255)",
+              "effect": "filter"
+            },
+            {
+              "source": "ai.sql.row.rule",
+              "name": "个人",
+              "condition": "销售人员 = @name OR 销售人员 = @login",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "(\"销售人员\" = '付汪阳' OR \"销售人员\" = 'frank.fu@vertu.cn')",
+              "effect": "filter"
+            }
+          ],
+          "redacted_fields": [],
+          "message": "本次查询受数据权限约束：存在生效的行级访问规则，空结果或偏少的结果未必代表系统中没有数据。 可用 `vertu odoo sql_read rules` 查看 sql_read 限制，或联系管理员调整 SQL 白名单、行级规则、ir.rule / ai.sql.sensitive.model 配置。"
+        }
+      ]
+    }
+  },
+  "notices": [
+    {
+      "type": "data_access_filtered",
+      "scope": "sql_read",
+      "model": null,
+      "tables": [
+        "odoo_sale"
+      ],
+      "row_rules": [
+        {
+          "source": "ai.sql.row.rule",
+          "name": "海外渠道",
+          "condition": "部门id child_of hr.department(1569)",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "\"部门id\" IN (2130, 2132, 2131, 2227, 2033, 2102, 2104, 2112, 2085, 2114, 2115, 1579, 2039, 1586, 1569, 1577, 2155, 2030, 2059, 2040, 2154, 2166, 2228, 2231, 2223, 2230, 2129)",
+          "effect": "filter"
+        },
+        {
+          "source": "ai.sql.row.rule",
+          "name": "AI业务",
+          "condition": "部门id child_of hr.department(2219)",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "\"部门id\" IN (2243, 2253, 2259, 2268, 2219, 2265, 2266, 2267, 2250, 2251, 2244, 2191, 2254, 2255)",
+          "effect": "filter"
+        },
+        {
+          "source": "ai.sql.row.rule",
+          "name": "个人",
+          "condition": "销售人员 = @name OR 销售人员 = @login",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "(\"销售人员\" = '付汪阳' OR \"销售人员\" = 'frank.fu@vertu.cn')",
+          "effect": "filter"
+        }
+      ],
+      "redacted_fields": [],
+      "message": "本次查询受数据权限约束：存在生效的行级访问规则，空结果或偏少的结果未必代表系统中没有数据。 可用 `vertu odoo sql_read rules` 查看 sql_read 限制，或联系管理员调整 SQL 白名单、行级规则、ir.rule / ai.sql.sensitive.model 配置。"
+    }
+  ]
+}

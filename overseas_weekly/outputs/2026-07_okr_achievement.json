@@ -1,0 +1,65 @@
+{
+  "period": "2026-07-01 ~ 2026-07-12",
+  "filter": "产成品+非定金+排除Inpayment/partial_payment+二级部门经销商一二三部",
+  "qty_field": "数量",
+  "okr_target": 6950000,
+  "status_before_exclude": [
+    {
+      "st": "sale",
+      "cnt": 92,
+      "amt": 3004429.86
+    },
+    {
+      "st": "partial_payment",
+      "cnt": 7,
+      "amt": 319443.4
+    }
+  ],
+  "total": {
+    "amount": 3004429.86,
+    "lines": 92,
+    "qty": 148,
+    "rate": 43.2
+  },
+  "phone": {
+    "amount": 2228771.23,
+    "lines": 59,
+    "qty": 73
+  },
+  "alphafold": {
+    "amount": 1278581.61,
+    "lines": 23,
+    "qty": 33
+  },
+  "iot": {
+    "amount": 96465.68,
+    "lines": 14,
+    "qty": 24,
+    "breakdown": [
+      {
+        "major": "腕表",
+        "amount": 49661.68,
+        "lines": 5,
+        "qty": 4
+      },
+      {
+        "major": "钢笔",
+        "amount": 23575.01,
+        "lines": 3,
+        "qty": 8
+      },
+      {
+        "major": "耳机",
+        "amount": 23228.99,
+        "lines": 4,
+        "qty": 10
+      },
+      {
+        "major": "戒指",
+        "amount": 0,
+        "lines": 2,
+        "qty": 2
+      }
+    ]
+  }
+}

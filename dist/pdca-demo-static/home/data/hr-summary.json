@@ -1,0 +1,27 @@
+[
+  {
+    "key": "resume",
+    "label": "简历数",
+    "value": 0
+  },
+  {
+    "key": "interview",
+    "label": "面试数",
+    "value": 0
+  },
+  {
+    "key": "onboard",
+    "label": "到岗数",
+    "value": 0
+  },
+  {
+    "key": "leave",
+    "label": "离职数",
+    "value": 0
+  },
+  {
+    "key": "leaveRate",
+    "label": "离职率",
+    "value": "—"
+  }
+]
