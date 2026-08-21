@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Sha = "",
     [string]$DockerHost = "",
@@ -424,7 +424,7 @@ if ($currentInspectResult.ExitCode -eq 0 -and $currentInspect) {
     $currentObject = ($currentInspect | ConvertFrom-Json)[0]
     $currentRevision = $currentObject.Config.Labels.'com.vertu.pdca.revision'
 }
-if ($currentRevision -eq $Sha) {
+if ($currentRevision -eq $Sha -and -not $Force) {
     $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 20
     if ($health.status -eq "ok") {
         Write-Output "Already deployed and healthy: $Sha"
@@ -432,6 +432,7 @@ if ($currentRevision -eq $Sha) {
         exit 0
     }
 }
+if ($Force) { Write-Output "Force redeploy requested; recreating container with current env" }
 
 if ($SkipImagePull) {
     Write-Output "Using preloaded tested image $image"
