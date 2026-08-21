@@ -148,6 +148,12 @@ class Settings:
         cors = os.environ.get("PDCA_CORS_ORIGINS", "").strip()
         self.cors_origins = [o.strip() for o in cors.split(",") if o.strip()] if cors else []
         self.odoo_sso_secret = os.environ.get("PDCA_ODOO_SSO_SECRET", "").strip()
+        parsed_odoo = urlparse(os.environ.get("PDCA_ODOO_BASE_URL", "https://admin.vertu.cn").strip())
+        self.odoo_base_url = (
+            f"{parsed_odoo.scheme}://{parsed_odoo.netloc}"
+            if parsed_odoo.scheme == "https" and parsed_odoo.netloc
+            else "https://admin.vertu.cn"
+        )
         self.ssl_cert = os.environ.get("PDCA_SSL_CERT", "")
         self.ssl_key = os.environ.get("PDCA_SSL_KEY", "")
         self.pg_host = os.environ.get("PDCA_PG_HOST", "")

@@ -193,6 +193,16 @@ async def auth_redirect_middleware(request: Request, call_next):
         return await call_next(request)
 
     settings = get_settings()
+    if request.query_params.get("session_id") and path.rstrip("/") == "/walkin-submit":
+        from sqlmodel import Session as DbSession
+
+        from app.auth.router import redirect_from_odoo_query_session
+        from app.database import get_engine
+
+        with DbSession(get_engine()) as db:
+            return _apply_security_headers(
+                request, await redirect_from_odoo_query_session(request, db)
+            )
     # vps/hybrid：页面放行，由路由 Depends(get_current_user) 鉴权
     if settings.auth_mode in ("vps", "hybrid"):
         return await call_next(request)

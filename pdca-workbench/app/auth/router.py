@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.auth.odoo_login_map import should_refuse_odoo_sso_create
-from app.auth.odoo_sso import parse_odoo_ticket, resolve_odoo_sso_secret
+from app.auth.odoo_sso import identity_from_odoo_session, parse_odoo_ticket, resolve_odoo_sso_secret
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
 from app.auth.security import create_access_token, hash_password, revoke_token, verify_password
@@ -252,6 +252,56 @@ def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False) ->
     )
 
 
+async def finish_odoo_sso_login(
+    request: Request,
+    session: Session,
+    identity: dict,
+    next_path: str,
+) -> RedirectResponse:
+    """验身通过后发 iframe 可用的 pdca_token 并跳业务页。"""
+    next_path = _safe_next_path(next_path)
+    if should_refuse_odoo_sso_create(identity.get("login") or ""):
+        return RedirectResponse(f"/login?next={next_path}", status_code=302)
+    user = await asyncio.to_thread(ensure_vps_user, session, identity)
+    ensure_portal_access(user)
+    log_action(user.username, "odoo_sso", ip=_client_ip(request))
+    pwd_v = getattr(user, "pwd_version", 0) or 0
+    settings = get_settings()
+    token = create_access_token(
+        {"sub": user.username, "role": user.role, "pwd_v": pwd_v},
+        timedelta(minutes=settings.access_token_expire_minutes),
+    )
+    redirect = RedirectResponse(next_path, status_code=302)
+    _set_pdca_cookie(redirect, token, framed=True)
+    return redirect
+
+
+async def redirect_from_odoo_query_session(request: Request, session: Session) -> RedirectResponse:
+    """消费 iframe URL 上的 session_id，种 cookie 后跳到不带密钥的 walkin 页。"""
+    from urllib.parse import urlencode
+
+    session_id = (request.query_params.get("session_id") or "").strip()
+    claimed_uid = request.query_params.get("user_id")
+    payload = await asyncio.to_thread(identity_from_odoo_session, session_id, claimed_uid)
+    kept = [(k, v) for k, v in request.query_params.items() if k not in {"session_id", "user_id"}]
+    next_path = "/walkin-submit"
+    if kept:
+        next_path = f"/walkin-submit?{urlencode(kept)}"
+    if not payload:
+        return RedirectResponse("/login?next=/walkin-submit", status_code=302)
+    identity = {
+        "login": payload["login"],
+        "name": payload["name"],
+        "employee_name": payload["name"],
+        "display_name": payload["name"],
+        "job_title": payload.get("job_title") or "",
+        "department_name": payload.get("department_name") or "",
+        "user_id": payload["uid"],
+        "_source": "odoo-session",
+    }
+    return await finish_odoo_sso_login(request, session, identity, next_path)
+
+
 @router.get("/odoo-sso")
 async def odoo_sso(
     request: Request,
@@ -266,9 +316,6 @@ async def odoo_sso(
     next_path = _safe_next_path(next)
     if not payload:
         return RedirectResponse(f"/login?next={next_path}", status_code=302)
-    if should_refuse_odoo_sso_create(payload["login"]):
-        return RedirectResponse(f"/login?next={next_path}", status_code=302)
-
     identity = {
         "login": payload["login"],
         "name": payload["name"],
@@ -279,18 +326,7 @@ async def odoo_sso(
         "user_id": payload["uid"],
         "_source": "odoo-sso",
     }
-    user = await asyncio.to_thread(ensure_vps_user, session, identity)
-    ensure_portal_access(user)
-    log_action(user.username, "odoo_sso", ip=_client_ip(request))
-    pwd_v = getattr(user, "pwd_version", 0) or 0
-    settings = get_settings()
-    token = create_access_token(
-        {"sub": user.username, "role": user.role, "pwd_v": pwd_v},
-        timedelta(minutes=settings.access_token_expire_minutes),
-    )
-    redirect = RedirectResponse(next_path, status_code=302)
-    _set_pdca_cookie(redirect, token, framed=True)
-    return redirect
+    return await finish_odoo_sso_login(request, session, identity, next_path)
 
 
 @router.post("/vps-bootstrap")

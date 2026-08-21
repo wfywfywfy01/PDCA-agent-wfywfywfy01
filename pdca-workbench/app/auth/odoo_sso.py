@@ -6,10 +6,16 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import time
 from typing import Any
 
+import httpx
+from loguru import logger
+
 from app.config import get_settings
+
+_SESSION_ID_RE = re.compile(r"^[0-9a-f]{20,64}$")
 
 _TICKET_TTL_SECONDS = 120
 _BLOCKED_LOGINS = {"public", "__system__", "portaltemplateuser"}
@@ -90,3 +96,50 @@ def parse_odoo_ticket(ticket: str, secret: str) -> dict[str, Any] | None:
     payload["job_title"] = str(payload.get("job_title") or "").strip()
     payload["department_name"] = str(payload.get("department_name") or "").strip()
     return payload
+
+
+def identity_from_odoo_session(session_id: str, claimed_uid: str | int | None = None) -> dict[str, Any] | None:
+    """用 Odoo `session_id` 向 admin 验身。不把 URL 里的 user_id 当身份。
+
+    @param session_id Odoo cookie/query 中的 session_id（40 位 hex）
+    @param claimed_uid 可选；若带了且与 Odoo uid 不一致则拒绝
+    @returns 与 HMAC 票据同形的 identity，失败返回 None
+    """
+    token = (session_id or "").strip().lower()
+    if not _SESSION_ID_RE.fullmatch(token):
+        return None
+    url = f"{get_settings().odoo_base_url}/web/session/get_session_info"
+    try:
+        response = httpx.post(
+            url,
+            json={"jsonrpc": "2.0", "method": "call", "params": {}, "id": 1},
+            headers={"Cookie": f"session_id={token}", "Content-Type": "application/json"},
+            timeout=8.0,
+        )
+        payload = response.json()
+    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("Odoo session 校验失败: {}", type(exc).__name__)
+        return None
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        return None
+    try:
+        uid = int(result.get("uid") or 0)
+    except (TypeError, ValueError):
+        return None
+    login = str(result.get("username") or result.get("login") or "").strip()
+    if uid <= 0 or not login or login.lower() in _BLOCKED_LOGINS:
+        return None
+    if claimed_uid not in (None, ""):
+        try:
+            if int(claimed_uid) != uid:
+                return None
+        except (TypeError, ValueError):
+            return None
+    return {
+        "login": login,
+        "uid": uid,
+        "name": str(result.get("name") or login).strip(),
+        "job_title": "",
+        "department_name": "",
+    }

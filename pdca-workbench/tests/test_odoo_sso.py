@@ -60,3 +60,36 @@ class OdooDealerLoginMapTests(unittest.TestCase):
 
     def test_vps_username_uses_map(self):
         self.assertEqual(vps_username({"login": "Luxem", "name": "Luxem Store"}), "LuxemStore")
+
+
+class OdooSessionIdentityTests(unittest.TestCase):
+    def test_rejects_bad_session_id_shape(self):
+        from app.auth.odoo_sso import identity_from_odoo_session
+
+        self.assertIsNone(identity_from_odoo_session("not-a-session"))
+        self.assertIsNone(identity_from_odoo_session(""))
+
+    def test_reads_login_from_odoo_session_info(self):
+        from app.auth.odoo_sso import identity_from_odoo_session
+
+        class _Resp:
+            def json(self):
+                return {
+                    "jsonrpc": "2.0",
+                    "result": {"uid": 13365, "username": "frank.fu@vertu.cn", "name": "付汪阳"},
+                }
+
+        with patch("app.auth.odoo_sso.httpx.post", return_value=_Resp()):
+            payload = identity_from_odoo_session("a" * 40, claimed_uid="13365")
+        self.assertEqual(payload["login"], "frank.fu@vertu.cn")
+        self.assertEqual(payload["uid"], 13365)
+
+    def test_rejects_claimed_uid_mismatch(self):
+        from app.auth.odoo_sso import identity_from_odoo_session
+
+        class _Resp:
+            def json(self):
+                return {"result": {"uid": 13365, "username": "frank.fu@vertu.cn", "name": "付汪阳"}}
+
+        with patch("app.auth.odoo_sso.httpx.post", return_value=_Resp()):
+            self.assertIsNone(identity_from_odoo_session("b" * 40, claimed_uid="1"))
