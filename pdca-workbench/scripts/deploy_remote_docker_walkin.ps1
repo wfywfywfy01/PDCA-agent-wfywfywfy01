@@ -247,6 +247,7 @@ function Start-PdcaWalkinContainer {
         "-e", "PDCA_SECURE_COOKIES=1",
         "-e", "PDCA_TRUST_PROXY_HEADERS=0",
         "-e", "PDCA_CORS_ORIGINS=https://pdca-workbench.vertu.cn",
+        "-e", "PDCA_FRAME_ANCESTORS=https://admin.vertu.cn",
         "-e", "PDCA_REQUIRE_VERTU=0",
         "-e", "PDCA_INCLUDE_DEMO_DATA=0",
         "-e", "PDCA_MAX_REPORTED_REVENUE_USD=5000000",
@@ -396,6 +397,13 @@ try {
     }
     $login = Invoke-WebRequest -Uri "$PublicUrl/login" -UseBasicParsing -TimeoutSec 20
     if ($login.StatusCode -ne 200) { throw "Public login page smoke test failed" }
+    $csp = [string]$login.Headers['Content-Security-Policy']
+    if ($csp -notmatch "frame-ancestors 'self' https://admin\.vertu\.cn") {
+        throw "CSP missing Odoo frame-ancestors whitelist; walkin iframe would break"
+    }
+    if ([string]$login.Headers['X-Frame-Options'] -eq 'SAMEORIGIN') {
+        throw "X-Frame-Options SAMEORIGIN would block admin.vertu.cn iframe"
+    }
     $walkinSubmit = Invoke-WebRequest -Uri "$PublicUrl/walkin-submit" -UseBasicParsing -TimeoutSec 20
     if ($walkinSubmit.StatusCode -ne 200 -and $walkinSubmit.StatusCode -ne 307) {
         throw "Public walkin-submit page smoke test failed"

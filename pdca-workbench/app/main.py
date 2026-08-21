@@ -42,6 +42,7 @@ PUBLIC_PATHS = {
     "/api/auth/login",
     "/api/auth/config",
     "/api/auth/vps-check",
+    "/api/auth/odoo-sso",
     "/health",
     "/metrics",
     "/dashboard-theme.css",
@@ -133,16 +134,22 @@ app.add_middleware(
 def _apply_security_headers(request: Request, response):
     """为正常响应及中间件提前返回统一补齐浏览器安全头。"""
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = (
         "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     )
-    acquisition_origin = getattr(get_settings(), "acquisition_frame_origin", "")
+    settings = get_settings()
+    extra_ancestors = getattr(settings, "frame_ancestors", []) or []
+    ancestor_policy = "'self'" + ((" " + " ".join(extra_ancestors)) if extra_ancestors else "")
+    # 有跨站白名单时不能再发 SAMEORIGIN，否则会把 CSP 允许的父页面继续拦掉。
+    if not extra_ancestors:
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    acquisition_origin = getattr(settings, "acquisition_frame_origin", "")
     frame_sources = "'self'" + (f" {acquisition_origin}" if acquisition_origin else "")
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "base-uri 'self'; form-action 'self'; frame-ancestors 'self'; "
+        "base-uri 'self'; form-action 'self'; "
+        f"frame-ancestors {ancestor_policy}; "
         "object-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
         f"font-src 'self' data:; connect-src 'self'; frame-src {frame_sources}"

@@ -102,6 +102,18 @@ class Settings:
             f"{parsed_acquisition.scheme}://{parsed_acquisition.netloc}"
             if valid_acquisition_url else ""
         )
+        # 允许把本站嵌进 iframe 的来源。未设时默认 admin.vertu.cn；显式空字符串则只允许同源。
+        raw_frame_ancestors = os.environ.get("PDCA_FRAME_ANCESTORS")
+        if raw_frame_ancestors is None:
+            raw_frame_ancestors = "https://admin.vertu.cn"
+        ancestor_schemes = {"https"} if self.environment == "production" else {"http", "https"}
+        self.frame_ancestors: list[str] = []
+        for item in raw_frame_ancestors.split(","):
+            parsed = urlparse(item.strip().rstrip("/"))
+            if parsed.scheme in ancestor_schemes and parsed.netloc:
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+                if origin not in self.frame_ancestors:
+                    self.frame_ancestors.append(origin)
         self.workers = int(os.environ.get("PDCA_WORKERS", "2"))
         self.secure_cookies = os.environ.get("PDCA_SECURE_COOKIES", "0") == "1"
         raw_mode = os.environ.get("PDCA_AUTH_MODE", "local").strip().lower()
@@ -135,6 +147,7 @@ class Settings:
         self.home_redirect = os.environ.get("PDCA_HOME_REDIRECT", "").strip()
         cors = os.environ.get("PDCA_CORS_ORIGINS", "").strip()
         self.cors_origins = [o.strip() for o in cors.split(",") if o.strip()] if cors else []
+        self.odoo_sso_secret = os.environ.get("PDCA_ODOO_SSO_SECRET", "").strip()
         self.ssl_cert = os.environ.get("PDCA_SSL_CERT", "")
         self.ssl_key = os.environ.get("PDCA_SSL_KEY", "")
         self.pg_host = os.environ.get("PDCA_PG_HOST", "")

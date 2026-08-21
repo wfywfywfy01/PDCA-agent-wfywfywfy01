@@ -288,8 +288,11 @@ class ProductionHardeningTests(unittest.TestCase):
             with self.subTest(path=path):
                 response = client.get(path, follow_redirects=False)
                 self.assertEqual(response.headers["x-content-type-options"], "nosniff")
-                self.assertEqual(response.headers["x-frame-options"], "SAMEORIGIN")
-                self.assertIn("frame-ancestors 'self'", response.headers["content-security-policy"])
+                self.assertNotIn("x-frame-options", response.headers)
+                self.assertIn(
+                    "frame-ancestors 'self' https://admin.vertu.cn",
+                    response.headers["content-security-policy"],
+                )
         auth_response = client.get("/api/auth/config")
         self.assertEqual(auth_response.headers["cache-control"], "no-store, max-age=0")
         self.assertEqual(auth_response.headers["pragma"], "no-cache")

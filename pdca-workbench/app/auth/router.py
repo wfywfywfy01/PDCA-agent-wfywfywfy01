@@ -9,12 +9,20 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.auth.odoo_sso import parse_odoo_ticket, resolve_odoo_sso_secret
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
 from app.auth.security import create_access_token, hash_password, revoke_token, verify_password
+from app.auth.vps_identity import (
+    ensure_vps_user,
+    fetch_vps_me_payload,
+    identity_from_headers,
+    vps_display_name,
+)
 from app.audit import log_action
 from app.config import get_settings
 from app.database import get_session
@@ -187,12 +195,6 @@ async def vps_check(request: Request):
 
     仅返回是否可用与脱敏姓名，不暴露 login / role 细节。
     """
-    from app.auth.vps_identity import (
-        fetch_vps_me_payload,
-        identity_from_headers,
-        vps_display_name,
-    )
-
     settings = get_settings()
     proxy_client_host = request.client.host if request.client else None
     if (
@@ -226,6 +228,66 @@ async def vps_check(request: Request):
         "source": "vertu-cli-hr-me",
         "profile": {"display_name": vps_display_name(vps)},
     }
+
+
+def _safe_next_path(raw: str | None) -> str:
+    value = (raw or "/").strip() or "/"
+    if not value.startswith("/") or value.startswith("//"):
+        return "/"
+    return value
+
+
+def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False) -> None:
+    settings = get_settings()
+    samesite = "none" if framed else "lax"
+    secure = bool(settings.secure_cookies or samesite == "none")
+    response.set_cookie(
+        key="pdca_token",
+        value=token,
+        httponly=True,
+        secure=secure,
+        samesite=samesite,
+        max_age=settings.access_token_expire_minutes * 60,
+    )
+
+
+@router.get("/odoo-sso")
+async def odoo_sso(
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+    ticket: str = "",
+    next: str = "/",
+):
+    """消费 Odoo 短时票据，签发 pdca_token 后跳回业务页（供 iframe 免登）。"""
+    secret = resolve_odoo_sso_secret()
+    payload = parse_odoo_ticket(ticket, secret) if secret else None
+    next_path = _safe_next_path(next)
+    if not payload:
+        return RedirectResponse(f"/login?next={next_path}", status_code=302)
+
+    identity = {
+        "login": payload["login"],
+        "name": payload["name"],
+        "employee_name": payload["name"],
+        "display_name": payload["name"],
+        "job_title": payload.get("job_title") or "",
+        "department_name": payload.get("department_name") or "",
+        "user_id": payload["uid"],
+        "_source": "odoo-sso",
+    }
+    user = await asyncio.to_thread(ensure_vps_user, session, identity)
+    ensure_portal_access(user)
+    log_action(user.username, "odoo_sso", ip=_client_ip(request))
+    pwd_v = getattr(user, "pwd_version", 0) or 0
+    settings = get_settings()
+    token = create_access_token(
+        {"sub": user.username, "role": user.role, "pwd_v": pwd_v},
+        timedelta(minutes=settings.access_token_expire_minutes),
+    )
+    redirect = RedirectResponse(next_path, status_code=302)
+    _set_pdca_cookie(redirect, token, framed=True)
+    return redirect
 
 
 @router.post("/vps-bootstrap")
