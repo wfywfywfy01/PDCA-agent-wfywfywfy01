@@ -175,6 +175,7 @@ def build_person_message(
     today: str,
     entry_url: str,
     has_vemory: bool = False,
+    evidence_checked: bool = False,
 ) -> str:
     """一人一条消息，列出其全部待催任务（逾期标日期、今日标今日）。"""
     lines = [
@@ -189,10 +190,14 @@ def build_person_message(
         "",
         f"处理入口：{entry_url}",
     ]
-    if has_vemory:
+    if has_vemory and evidence_checked:
         lines.append(
             "（以上事项已比对日报、未检出明确跟进记录；在 Vemory 更新状态"
             "或日报注明进展，可停止提醒）"
+        )
+    elif has_vemory:
+        lines.append(
+            "（日报系统暂不可用，未做跟进比对；在 Vemory 更新状态可停止提醒）"
         )
     else:
         lines.append("（系统自动提醒，完成后无需回复）")
@@ -262,10 +267,12 @@ def run_todo_reminders(
     skipped_owners: list[dict] = []
     failed: list[dict] = []
     evidence_skipped: list[dict] = []
+    evidence_unavailable: list[dict] = []
     user_cache: dict[str, Optional[dict]] = {}
 
-    # 日报证据抑制（仅 Vemory 待办）：有跟进证据的不催；日报不可用时
-    # 该人 Vemory 待办保守跳过（与 todo-tracker 语义一致）。
+    # 日报证据抑制（仅 Vemory 待办）：有跟进证据的不催。日报源不可用时
+    # 不抑制、照常催（fail-open），并如实标注"未做跟进比对"——避免
+    # 日报接口故障把催办整体变成静默不发。
     vps_map = load_vps_user_map()
     report_cache: dict[int, Optional[str]] = {}
     report_start, report_end = report_window_days(today)
@@ -273,6 +280,7 @@ def run_todo_reminders(
     for owner in sorted(by_owner, key=str.casefold):
         owned = by_owner[owner]
         keep: list[PdcaTask] = []
+        evidence_checked = False
         vemory_tasks = [task for task in owned if task.source == "vemory"]
         if vemory_tasks:
             vps_id = vps_map.get(owner)
@@ -282,14 +290,12 @@ def run_todo_reminders(
                 else None
             )
             if report is None:
-                skipped_owners.append(
-                    {
-                        "owner": owner,
-                        "reason": "daily_report_unavailable",
-                        "tasks": len(vemory_tasks),
-                    }
+                evidence_unavailable.append(
+                    {"owner": owner, "tasks": len(vemory_tasks)}
                 )
+                keep += vemory_tasks
             else:
+                evidence_checked = True
                 for task in vemory_tasks:
                     if has_followup(task.title, report):
                         evidence_skipped.append(
@@ -315,7 +321,12 @@ def run_todo_reminders(
             continue
         has_vemory = any(task.source == "vemory" for task in owned)
         body = build_person_message(
-            owner, owned, today, entry_url, has_vemory=has_vemory
+            owner,
+            owned,
+            today,
+            entry_url,
+            has_vemory=has_vemory,
+            evidence_checked=evidence_checked,
         )
         if dry_run:
             sent.append(
@@ -358,11 +369,13 @@ def run_todo_reminders(
         "sent": sent,
         "skipped_owners": skipped_owners,
         "evidence_skipped": evidence_skipped,
+        "evidence_unavailable": evidence_unavailable,
         "failed": failed,
         "summary": (
             "待办 " + str(len(tasks)) + " 项，本轮催办 " + str(len(sent)) + " 人"
             " / 跳过 " + str(len(skipped_owners)) + " 人 / 证据暂缓 "
-            + str(len(evidence_skipped)) + " 项 / 失败 " + str(len(failed)) + " 人"
+            + str(len(evidence_skipped)) + " 项 / 证据不可用 "
+            + str(len(evidence_unavailable)) + " 人 / 失败 " + str(len(failed)) + " 人"
         ),
     }
     _write_outbox(result)

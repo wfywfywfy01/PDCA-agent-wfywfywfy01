@@ -132,28 +132,29 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
         self.assertEqual(result["sent"][0]["titles"], ["催九六二零机器款项"])
         self.assertIn("已比对日报", result["sent"][0].get("preview", ""))
 
-    def test_vemory_report_unavailable_skipped(self):
+    def test_vemory_report_unavailable_still_sent_with_marker(self):
+        # 日报不可用：fail-open，照常催并标注 evidence_unavailable
         self._seed_vemory("推进迈凯伦配件报价")
         with patch(
             "app.todos.evidence.run_vertu_sync", return_value=(1, "", "timeout")
         ):
-            result = run_todo_reminders(round_label="manual", force=True)
-        self.assertEqual(result["sent"], [])
-        self.assertEqual(
-            result["skipped_owners"][0]["reason"], "daily_report_unavailable"
-        )
+            result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
+        self.assertEqual(len(result["sent"]), 1)
+        self.assertEqual(len(result["evidence_unavailable"]), 1)
+        self.assertIn("日报系统暂不可用", result["sent"][0].get("preview", ""))
 
-    def test_vemory_unmapped_owner_skipped(self):
-        self._seed_vemory("推进迈凯伦配件报价", owner="查无映射")
+    def test_vemory_unmapped_owner_still_sent(self):
+        # IM 可匹配但名单里无 VPS 映射（取不到日报）→ 照常催 + 标注
+        self._seed_vemory("推进迈凯伦配件报价")
+        self.patch_vps_map.stop()
         with patch(
-            "app.todos.evidence.run_vertu_sync",
-            return_value=(0, "今日处理门店日常沟通", ""),
+            "app.todos.evidence.load_vemory_users",
+            return_value=[{"name": "杨晶晶", "vmemoryUserId": 69, "vpsUserId": 13122}],
         ):
-            result = run_todo_reminders(round_label="manual", force=True)
-        self.assertEqual(result["sent"], [])
-        self.assertEqual(
-            result["skipped_owners"][0]["reason"], "daily_report_unavailable"
-        )
+            result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
+        self.patch_vps_map.start()
+        self.assertEqual(len(result["sent"]), 1)
+        self.assertEqual(len(result["evidence_unavailable"]), 1)
 
     def test_non_vemory_unaffected_by_evidence(self):
         self._seed_plain("工作台手工待办")
