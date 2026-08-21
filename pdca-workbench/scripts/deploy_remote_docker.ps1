@@ -184,7 +184,7 @@ function Initialize-DeploymentLog {
 
 function Read-DotEnvValue {
     param([string]$Name)
-    $line = Get-Content -LiteralPath $EnvFile |
+    $line = Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
         Where-Object { $_ -match "^$([regex]::Escape($Name))=" } |
         Select-Object -Last 1
     if (-not $line) { throw "Missing $Name in $EnvFile" }
@@ -200,7 +200,7 @@ function Read-DotEnvValue {
 
 function Read-OptionalDotEnvValue {
     param([string]$Name)
-    $line = Get-Content -LiteralPath $EnvFile |
+    $line = Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
         Where-Object { $_ -match "^$([regex]::Escape($Name))=" } |
         Select-Object -Last 1
     if (-not $line) { return "" }

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Sha = "",
     [string]$DockerHost = "tcp://10.100.0.176:2375",
@@ -189,7 +189,7 @@ function Initialize-DeploymentLog {
 
 function Read-DotEnvValue {
     param([string]$Name)
-    $line = Get-Content -LiteralPath $EnvFile |
+    $line = Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
         Where-Object { $_ -match "^$([regex]::Escape($Name))=" } |
         Select-Object -Last 1
     if (-not $line) { throw "Missing $Name in $EnvFile" }
