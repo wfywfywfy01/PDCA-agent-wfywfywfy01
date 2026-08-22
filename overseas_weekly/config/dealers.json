@@ -1,0 +1,545 @@
+{
+  "version": 2,
+  "updated_at": "2026-07-26",
+  "notes": [
+    "Lina 系统名 = DEHDAHOUMAIMA",
+    "汇报分组对齐周报 PPT：Lina组 / 于冰组 / 杨晶晶组",
+    "三套口径：dealer_owner=OKR；ppt=经销商归组剔除非团队记名(对齐PPT组数)；salesperson_aligned=个人贡献",
+    "2026-07-26 补充字段：nickname / tier(一档~三档/其他) / level(L1/L2)，来源业务方经销商主数据表",
+    "Viki = 尤文静（同一人，系统双名）；2026-07-26 已合并",
+    "部门归属（业务方 2026-07-26 确认）：一部=于冰；二部=杨晶晶/何海文；三部=尤文静/Lina(DEHDAHOUMAIMA)；新部=Safae/陈鹏飞/邢哲夫/李浩然-1；中台=付汪阳/冯磊-1/刘春梅/刘雪梅/张倩/王宇彤",
+    "刘彦麟属 AI渠道-AI业务，非经销商编制；其业绩计入分摊方，人员不列入部门名单"
+  ],
+  "attribution": {
+    "primary": "dealer_owner",
+    "ppt": "dealer_minus_non_team",
+    "aligned": "salesperson_aligned",
+    "empty_salesperson_fallback": "dealer_owner",
+    "include_virtual_in_okr": true,
+    "virtual_series": [
+      "权益服务",
+      "预售虚拟类"
+    ],
+    "furniture_majors": [
+      "家具"
+    ],
+    "non_team_salespeople": {
+      "郑丽苹": {
+        "action": "exclude_from_ppt",
+        "note": "商务/跟单记名；从 ppt 口径剔除；dealer_owner 仍归 BIN BIN→于冰组"
+      },
+      "陈晓霜": {
+        "action": "exclude_from_ppt",
+        "note": "非销售记名；W2 落在 Azimut≈1.8万；从 ppt 口径剔除；dealer_owner 仍归杨晶晶组"
+      }
+    }
+  },
+  "salespeople": {
+    "Lina": {
+      "system_names": [
+        "DEHDAHOUMAIMA",
+        "Lina"
+      ],
+      "report_group": "Lina组"
+    },
+    "尤文静": {
+      "system_names": [
+        "Viki",
+        "viki",
+        "尤文静"
+      ],
+      "report_group": "Lina组"
+    },
+    "刘彦麟": {
+      "system_names": [
+        "刘彦麟"
+      ],
+      "report_group": "Lina组"
+    },
+    "于冰": {
+      "system_names": [
+        "于冰"
+      ],
+      "report_group": "于冰组"
+    },
+    "杨晶晶": {
+      "system_names": [
+        "杨晶晶"
+      ],
+      "report_group": "杨晶晶组"
+    },
+    "何海文": {
+      "system_names": [
+        "何海文"
+      ],
+      "report_group": "杨晶晶组"
+    },
+    "Vivi": {
+      "system_names": [
+        "Vivi",
+        "vivi"
+      ],
+      "report_group": "杨晶晶组"
+    }
+  },
+  "okr_monthly": {
+    "2026-07": {
+      "total": 6950000,
+      "groups": {
+        "Lina组": 2900000,
+        "于冰组": 1100000,
+        "杨晶晶组": 2350000
+      },
+      "note": "目标来自 2026年7月第二周周报 PPT；三组合计 635万，总目标 695万，差额 60万待确认"
+    }
+  },
+  "dealers": [
+    {
+      "region": "中东",
+      "country": "伊拉克",
+      "name": "AI-SARAF CO",
+      "sales": "Lina",
+      "match": [
+        "AI-SARAF",
+        "AI SARAF"
+      ],
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "伊拉克",
+      "name": "Behzadi Boutique",
+      "sales": "Lina",
+      "match": [
+        "Behzadi"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "阿联酋",
+      "name": "Billionaire Collections",
+      "sales": "Lina",
+      "match": [
+        "Billionaire"
+      ],
+      "tier": "一档",
+      "level": "L2"
+    },
+    {
+      "region": "中东",
+      "country": "卡塔尔",
+      "name": "CLICK TECH SERVICES",
+      "sales": "Lina",
+      "match": [
+        "CLICK TECH"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "科威特",
+      "name": "Dar Al Sabaek",
+      "sales": "尤文静",
+      "match": [
+        "Dar Al Sabaek",
+        "Sabaek"
+      ],
+      "tier": "二档",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "伊拉克",
+      "name": "HASSIB ABDALLAH AMIR ALLAH",
+      "sales": "Lina",
+      "match": [
+        "HASSIB"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "伊拉克",
+      "name": "Taher Jasem",
+      "sales": "Lina",
+      "match": [
+        "Taher Jasem",
+        "Taher"
+      ]
+    },
+    {
+      "region": "中东",
+      "country": "伊朗",
+      "name": "Luxem Store",
+      "sales": "Lina",
+      "match": [
+        "Luxem"
+      ],
+      "tier": "二档",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "约旦",
+      "name": "Mkateb for e-commerce",
+      "sales": "Lina",
+      "match": [
+        "Mkateb"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "阿塞拜疆",
+      "name": "My Shops Electronics Trading LLC",
+      "sales": "Lina",
+      "match": [
+        "My Shops",
+        "MyShops"
+      ],
+      "tier": "二档",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "伊拉克",
+      "name": "Rashid lukman rashid",
+      "sales": "Lina",
+      "match": [
+        "Rashid lukman",
+        "Rashid"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "伊朗",
+      "name": "Safiranhamrah",
+      "sales": "尤文静",
+      "match": [
+        "Safiranhamrah",
+        "Safiran"
+      ],
+      "tier": "二档",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "伊朗",
+      "name": "TİVALİ Commercial Broker LLC",
+      "sales": "Lina",
+      "match": [
+        "TIVAL",
+        "TİVALİ",
+        "Tivali"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中东",
+      "country": "土耳其",
+      "name": "Veysel Sevis Ltd",
+      "sales": "Lina",
+      "match": [
+        "Veysel"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "乌克兰",
+      "name": "Bestcom",
+      "sales": "Lina",
+      "match": [
+        "Bestcom"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "乌克兰",
+      "name": "FRONTANA GIDA DIS TICARET LIMITED",
+      "sales": "Lina",
+      "match": [
+        "FRONTANA"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "波兰",
+      "name": "IQ-QUEST SP. Z O.O.",
+      "sales": "Lina",
+      "match": [
+        "IQ-QUEST",
+        "IQ QUEST"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "斯洛文尼亚",
+      "name": "Optimizers d.o.o.",
+      "sales": "Lina",
+      "match": [
+        "Optimizers"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "保加利亚",
+      "name": "Robo Trading Ltd",
+      "sales": "Lina",
+      "match": [
+        "Robo Trading"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "英国",
+      "name": "VERTU LONDON LTD",
+      "sales": "Lina",
+      "match": [
+        "VERTU LONDON"
+      ],
+      "nickname": "Wiji",
+      "tier": "一档",
+      "level": "L2"
+    },
+    {
+      "region": "欧洲",
+      "country": "德国",
+      "name": "vipconnect.de",
+      "sales": "Lina",
+      "match": [
+        "vipconnect"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "瑞士",
+      "name": "Quantum Reserve",
+      "sales": "尤文静",
+      "match": [
+        "Quantum Reserve"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "欧洲",
+      "country": "瑞士",
+      "name": "ECN GmbH",
+      "sales": "Lina",
+      "match": [
+        "ECN GmbH",
+        "ECN"
+      ],
+      "tier": "其他"
+    },
+    {
+      "region": "南亚",
+      "country": "印度",
+      "name": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "sales": "杨晶晶",
+      "match": [
+        "GURU ELECTRONICS"
+      ],
+      "nickname": "3C",
+      "tier": "三档",
+      "level": "L1"
+    },
+    {
+      "region": "南亚",
+      "country": "印度",
+      "name": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "sales": "杨晶晶",
+      "match": [
+        "LZB INDIA"
+      ],
+      "nickname": "高山",
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "南亚",
+      "country": "印度",
+      "name": "Sidd Senthil",
+      "sales": "何海文",
+      "match": [
+        "Sidd Senthil",
+        "Senthil"
+      ],
+      "nickname": "Ankit Jain",
+      "tier": "三档",
+      "level": "L1"
+    },
+    {
+      "region": "南亚",
+      "country": "印度",
+      "name": "Parth Kamlesh Doshi",
+      "sales": "何海文",
+      "match": [
+        "Parth Kamlesh",
+        "Parth"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "南亚",
+      "country": "印度",
+      "name": "Sun International General Trading",
+      "sales": "杨晶晶",
+      "match": [
+        "Sun International"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "东南亚",
+      "country": "柬埔寨",
+      "name": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "sales": "于冰",
+      "match": [
+        "BIN BIN"
+      ],
+      "tier": "三档",
+      "level": "L1"
+    },
+    {
+      "region": "东南亚",
+      "country": "越南",
+      "name": "VMG Communication and Technology Joint Stock Company",
+      "sales": "于冰",
+      "match": [
+        "VMG Communication",
+        "VMG"
+      ],
+      "tier": "一档",
+      "level": "L2"
+    },
+    {
+      "region": "东南亚",
+      "country": "泰国",
+      "name": "VST ECS (Thailand) Co., Ltd.",
+      "sales": "于冰",
+      "match": [
+        "VST ECS",
+        "VST"
+      ],
+      "nickname": "yuemai",
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "东南亚",
+      "country": "新加坡",
+      "name": "Zmc automotive Pte Ltd",
+      "sales": "于冰",
+      "match": [
+        "Zmc automotive",
+        "Zmc"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中亚",
+      "country": "土库曼斯坦",
+      "name": "Altyn Zaman H.J.",
+      "sales": "杨晶晶",
+      "match": [
+        "Altyn Zaman"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中亚",
+      "country": "乌兹别克斯坦",
+      "name": "Bizcon Group",
+      "sales": "杨晶晶",
+      "match": [
+        "Bizcon"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中亚",
+      "country": "俄罗斯",
+      "name": "CONTINENTAL PLUS LLC.",
+      "sales": "杨晶晶",
+      "match": [
+        "CONTINENTAL PLUS"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中亚",
+      "country": "俄罗斯",
+      "name": "LLC \"TC Azimut\"",
+      "sales": "杨晶晶",
+      "match": [
+        "Azimut",
+        "TC Azimut"
+      ],
+      "tier": "一档",
+      "level": "L2"
+    },
+    {
+      "region": "中亚",
+      "country": "哈萨克斯坦",
+      "name": "LYZHINA OLGA",
+      "sales": "杨晶晶",
+      "match": [
+        "LYZHINA"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中亚",
+      "country": "俄罗斯",
+      "name": "reStore",
+      "sales": "杨晶晶",
+      "match": [
+        "reStore",
+        "restore"
+      ],
+      "tier": "其他",
+      "level": "L1"
+    },
+    {
+      "region": "中亚",
+      "country": "哈萨克斯坦",
+      "name": "ТОО \"VERTU AZIA KZ\"",
+      "sales": "Vivi",
+      "match": [
+        "VERTU AZIA",
+        "AZIA KZ"
+      ],
+      "tier": "其他"
+    }
+  ]
+}

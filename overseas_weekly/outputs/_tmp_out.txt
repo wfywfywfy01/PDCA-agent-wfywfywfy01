@@ -1,0 +1,208 @@
+{
+  "ok": true,
+  "result": {
+    "validation": {
+      "ok": true,
+      "issues": []
+    },
+    "execution": {
+      "result": {
+        "period": "2026-07-01 ~ 2026-07-12",
+        "filter": "product=finished_goods",
+        "total": 3208658.51,
+        "chart": [
+          {
+            "label": "???",
+            "amount": 2178682.99
+          },
+          {
+            "label": "??????????????,
+            "amount": 596234.45
+          },
+          {
+            "label": "?????????",
+            "amount": 315422.48
+          },
+          {
+            "label": "???",
+            "amount": 49661.68
+          },
+          {
+            "label": "???",
+            "amount": 23575.01
+          },
+          {
+            "label": "???",
+            "amount": 23228.99
+          },
+          {
+            "label": "???",
+            "amount": 12609.41
+          },
+          {
+            "label": "???",
+            "amount": 9243.5
+          }
+        ],
+        "series_top": [
+          {
+            "major": "???",
+            "series": "VERTU ALPHAFOLD",
+            "amount": 1236373.27,
+            "lines": 26
+          },
+          {
+            "major": "???",
+            "series": "VERTU AGENT Q",
+            "amount": 647736.68,
+            "lines": 25
+          },
+          {
+            "major": "???",
+            "series": "????????,
+            "amount": 596234.45,
+            "lines": 12
+          },
+          {
+            "major": "???",
+            "series": "??????",
+            "amount": 315422.48,
+            "lines": 2
+          },
+          {
+            "major": "???",
+            "series": "SIGNATURE S",
+            "amount": 179960.88,
+            "lines": 1
+          },
+          {
+            "major": "???",
+            "series": "VERTU QUANTUM",
+            "amount": 60834.88,
+            "lines": 2
+          },
+          {
+            "major": "???",
+            "series": "iVERTU",
+            "amount": 53777.29,
+            "lines": 8
+          },
+          {
+            "major": "???",
+            "series": "METAWATCH S1",
+            "amount": 49661.68,
+            "lines": 7
+          },
+          {
+            "major": "???",
+            "series": "??????",
+            "amount": 23575.01,
+            "lines": 3
+          },
+          {
+            "major": "???",
+            "series": "VERTU PHANTOM",
+            "amount": 23228.99,
+            "lines": 4
+          },
+          {
+            "major": "???",
+            "series": "VERTU?????????",
+            "amount": 12609.41,
+            "lines": 3
+          },
+          {
+            "major": "???",
+            "series": "?????,
+            "amount": 9243.5,
+            "lines": 1
+          }
+        ]
+      },
+      "truncated": false,
+      "error": null,
+      "permission": [
+        {
+          "type": "data_access_filtered",
+          "scope": "sql_read",
+          "model": null,
+          "tables": [
+            "odoo_sale"
+          ],
+          "row_rules": [
+            {
+              "source": "ai.sql.row.rule",
+              "name": "??????",
+              "condition": "???id child_of hr.department(1569)",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "\"???id\" IN (2130, 2132, 2131, 2227, 2033, 2102, 2104, 2112, 2085, 2114, 2115, 1579, 2039, 1586, 1569, 1577, 2155, 2030, 2059, 2040, 2154, 2166, 2228, 2231, 2223, 2230, 2129)",
+              "effect": "filter"
+            },
+            {
+              "source": "ai.sql.row.rule",
+              "name": "AI???",
+              "condition": "???id child_of hr.department(2219)",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "\"???id\" IN (2243, 2253, 2259, 2268, 2219, 2265, 2266, 2267, 2251, 2250, 2191, 2244, 2254, 2255)",
+              "effect": "filter"
+            },
+            {
+              "source": "ai.sql.row.rule",
+              "name": "???",
+              "condition": "???????= @name OR ???????= @login",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "(\"???????" = '????? OR \"???????" = 'frank.fu@vertu.cn')",
+              "effect": "filter"
+            }
+          ],
+          "redacted_fields": [],
+          "message": "??????????????????????????????????????????????????????????????????????? `vertu odoo sql_read rules` ??? sql_read ?????????????????SQL ???????????????r.rule / ai.sql.sensitive.model ?????
+        }
+      ]
+    }
+  },
+  "notices": [
+    {
+      "type": "data_access_filtered",
+      "scope": "sql_read",
+      "model": null,
+      "tables": [
+        "odoo_sale"
+      ],
+      "row_rules": [
+        {
+          "source": "ai.sql.row.rule",
+          "name": "??????",
+          "condition": "???id child_of hr.department(1569)",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "\"???id\" IN (2130, 2132, 2131, 2227, 2033, 2102, 2104, 2112, 2085, 2114, 2115, 1579, 2039, 1586, 1569, 1577, 2155, 2030, 2059, 2040, 2154, 2166, 2228, 2231, 2223, 2230, 2129)",
+          "effect": "filter"
+        },
+        {
+          "source": "ai.sql.row.rule",
+          "name": "AI???",
+          "condition": "???id child_of hr.department(2219)",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "\"???id\" IN (2243, 2253, 2259, 2268, 2219, 2265, 2266, 2267, 2251, 2250, 2191, 2244, 2254, 2255)",
+          "effect": "filter"
+        },
+        {
+          "source": "ai.sql.row.rule",
+          "name": "???",
+          "condition": "???????= @name OR ???????= @login",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "(\"???????" = '????? OR \"???????" = 'frank.fu@vertu.cn')",
+          "effect": "filter"
+        }
+      ],
+      "redacted_fields": [],
+      "message": "??????????????????????????????????????????????????????????????????????? `vertu odoo sql_read rules` ??? sql_read ?????????????????SQL ???????????????r.rule / ai.sql.sensitive.model ?????
+    }
+  ]
+}

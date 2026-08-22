@@ -47,6 +47,7 @@ async function logout() {
         <router-link to="/dashboard">数据看板</router-link>
         <router-link to="/logistics">物流中心</router-link>
         <router-link to="/meetings">会议中心</router-link>
+        <router-link to="/knowledge">资料库</router-link>
         <router-link to="/signalseller">获客指挥</router-link>
         <router-link to="/walkin">客流五件套</router-link>
         <router-link to="/tasks">任务中心</router-link>
@@ -95,6 +96,12 @@ async function logout() {
   display: flex;
   gap: 4px;
   flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.links a {
+  flex: 0 0 auto;
 }
 
 .links a {

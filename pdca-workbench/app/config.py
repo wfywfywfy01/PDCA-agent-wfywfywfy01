@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 from functools import lru_cache
 from pathlib import Path
@@ -84,6 +85,37 @@ class Settings:
         )
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
+        self.knowledge_hub_enabled = os.environ.get("PDCA_KNOWLEDGE_HUB_ENABLED", "0") == "1"
+        raw_knowledge_url = os.environ.get(
+            "PDCA_KNOWLEDGE_HUB_URL", "http://127.0.0.1:8080"
+        ).strip().rstrip("/")
+        parsed_knowledge = urlparse(raw_knowledge_url)
+        allowed_knowledge_schemes = {"https"} if self.environment == "production" else {"http", "https"}
+        self.knowledge_hub_url = (
+            raw_knowledge_url
+            if parsed_knowledge.scheme in allowed_knowledge_schemes and parsed_knowledge.netloc
+            else ""
+        )
+        self.knowledge_hub_token_key_file = os.environ.get(
+            "PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE", ""
+        ).strip()
+        self.knowledge_hub_token_secret = os.environ.get(
+            "PDCA_KNOWLEDGE_HUB_TOKEN_SECRET", ""
+        ).strip()
+        self.knowledge_hub_timeout_seconds = float(
+            os.environ.get("PDCA_KNOWLEDGE_HUB_TIMEOUT_SECONDS", "45")
+        )
+        try:
+            team_map = json.loads(os.environ.get(
+                "PDCA_KNOWLEDGE_HUB_TEAM_MAP", '{"overseas":"overseas-sales"}'
+            ))
+            self.knowledge_hub_team_map = {
+                str(key).strip(): str(value).strip()
+                for key, value in team_map.items()
+                if str(key).strip() and str(value).strip()
+            }
+        except (TypeError, ValueError, AttributeError):
+            self.knowledge_hub_team_map = {}
         acquisition_url = os.environ.get(
             "PDCA_ACQUISITION_URL",
             "https://global-autoleads.vertu.cn",

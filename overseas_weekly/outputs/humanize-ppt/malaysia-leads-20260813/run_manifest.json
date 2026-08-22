@@ -1,0 +1,121 @@
+{
+  "version": "1.1.2",
+  "generated_at": "2026-08-13T09:22:52+00:00",
+  "title": "马来西亚市场：线索全生命周期，不是客户管理",
+  "source": "d:\\经销商PDCA\\overseas_weekly\\inputs\\malaysia\\2026-08-13_humanize_source.md",
+  "primary_renderer": "guizang",
+  "routes": [
+    {
+      "id": "guizang",
+      "stage": "produce",
+      "purpose": "根据Humanize PPT契约生成主deck或候选预览。",
+      "reason": "用户指定 renderer=guizang。",
+      "command_file": "commands/guizang-agent.md",
+      "status": "brief-written",
+      "display_name": "Guizang PPT Skill",
+      "skill_name": "guizang-ppt-skill",
+      "expected_inputs": [
+        "deck_brief.md",
+        "ast_outline.md",
+        "slide_plan.json",
+        "speaker_intent.md",
+        "asset_manifest.md",
+        "video_slots.json",
+        "style_brief.md"
+      ],
+      "expected_outputs": [
+        "outputs/guizang-rendered/index.html",
+        "outputs/guizang-rendered/render_manifest.json"
+      ],
+      "actual_output": "D:\\经销商PDCA\\overseas_weekly\\outputs\\humanize-ppt\\malaysia-leads-20260813\\guizang-production-prompt.md",
+      "theme": "ink-classic"
+    },
+    {
+      "id": "html-ppt",
+      "stage": "complete",
+      "purpose": "在最终deck确定后增加演讲者模式和speaker notes。",
+      "reason": "presenter=True。",
+      "command_file": "commands/html-ppt-agent.md",
+      "status": "planned",
+      "display_name": "HTML PPT Studio",
+      "skill_name": "html-ppt",
+      "expected_inputs": [
+        "deck_brief.md",
+        "slide_plan.json",
+        "speaker_intent.md",
+        "asset_manifest.md"
+      ],
+      "expected_outputs": [
+        "outputs/html-ppt/index.html",
+        "outputs/html-ppt/render_report.md"
+      ]
+    },
+    {
+      "id": "presenter-adapter",
+      "stage": "complete",
+      "purpose": "为最终deck生成独立 presenter shell 和逐页 speaker notes。",
+      "reason": "presenter_adapter=True。",
+      "command_file": "commands/presenter-adapter-agent.md",
+      "status": "rendered",
+      "display_name": "Humanize PPT Presenter Shell",
+      "skill_name": "humanize-ppt",
+      "expected_inputs": [
+        "slide_plan.json",
+        "speaker_intent.md"
+      ],
+      "expected_outputs": [
+        "outputs/presenter/presenter-shell.html",
+        "outputs/presenter/presenter_manifest.json",
+        "outputs/presenter/render_report.md"
+      ],
+      "actual_output": "D:\\经销商PDCA\\overseas_weekly\\outputs\\humanize-ppt\\malaysia-leads-20260813\\outputs\\presenter\\presenter-shell.html",
+      "presenter_shell": "D:\\经销商PDCA\\overseas_weekly\\outputs\\humanize-ppt\\malaysia-leads-20260813\\outputs\\presenter\\presenter-shell.html",
+      "manifest": "D:\\经销商PDCA\\overseas_weekly\\outputs\\humanize-ppt\\malaysia-leads-20260813\\outputs\\presenter\\presenter_manifest.json"
+    },
+    {
+      "id": "qa",
+      "stage": "control",
+      "purpose": "检查契约、路径、人感、AI草稿痕迹和交付完整性。",
+      "reason": "所有Humanize PPT运行必须经过QA。",
+      "command_file": "commands/qa-agent.md",
+      "status": "pass",
+      "display_name": "Humanize PPT Brief-Mode QA",
+      "skill_name": "humanize-ppt",
+      "expected_inputs": [
+        "router_plan.json",
+        "run_manifest.json",
+        "outputs/"
+      ],
+      "expected_outputs": [
+        "outputs/qa/qa_report.md",
+        "outputs/qa/fix_list.md",
+        "outputs/qa/final_manifest.json"
+      ],
+      "actual_output": "D:\\经销商PDCA\\overseas_weekly\\outputs\\humanize-ppt\\malaysia-leads-20260813\\outputs\\qa\\qa_report.md"
+    }
+  ],
+  "qa_status": "pass",
+  "files": [
+    "asset_manifest.md",
+    "ast_outline.md",
+    "commands\\guizang-agent.md",
+    "commands\\html-ppt-agent.md",
+    "commands\\presenter-adapter-agent.md",
+    "commands\\qa-agent.md",
+    "deck_brief.md",
+    "guizang-production-prompt.md",
+    "outputs\\presenter\\presenter-shell.html",
+    "outputs\\presenter\\presenter_manifest.json",
+    "outputs\\presenter\\render_report.md",
+    "outputs\\qa\\final_manifest.json",
+    "outputs\\qa\\fix_list.md",
+    "outputs\\qa\\qa_report.md",
+    "renderer_registry.json",
+    "router_plan.json",
+    "run_manifest.json",
+    "slide_plan.json",
+    "speaker_intent.md",
+    "style_brief.md",
+    "video_slots.json"
+  ]
+}

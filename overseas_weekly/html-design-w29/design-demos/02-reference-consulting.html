@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>方向二 · Two-Font Consulting · W29</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --navy: #051c2c;
+    --ink: #1a2332;
+    --paper: #f4f1ea;
+    --card: #ffffff;
+    --accent: #00805a;
+    --line: #d9d2c5;
+    --muted: #5c6570;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif; background: #222; color: var(--ink); }
+  .slide {
+    width: 1920px; height: 1080px;
+    background: var(--paper);
+    margin: 0 auto 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .pattern {
+    position: absolute; top: 0; right: 0; width: 42%; height: 100%;
+    background:
+      repeating-linear-gradient(
+        -18deg,
+        transparent,
+        transparent 18px,
+        rgba(5, 28, 44, 0.04) 18px,
+        rgba(5, 28, 44, 0.04) 19px
+      );
+    border-left: 1px solid var(--line);
+  }
+  .pad { position: relative; z-index: 1; padding: 80px 100px; height: 100%; display: flex; flex-direction: column; }
+  .serif { font-family: Fraunces, "Songti SC", serif; }
+  .kicker {
+    font-size: 15px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1.serif {
+    font-size: 78px;
+    font-weight: 700;
+    line-height: 1.12;
+    color: var(--navy);
+    margin-top: 28px;
+    max-width: 11ch;
+  }
+  .lede {
+    margin-top: 36px;
+    font-size: 24px;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 36ch;
+  }
+  .cover-stat {
+    margin-top: auto;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 40px;
+    align-items: end;
+    max-width: 720px;
+  }
+  .big {
+    font-family: Fraunces, serif;
+    font-size: 140px;
+    font-weight: 700;
+    color: var(--navy);
+    letter-spacing: -0.03em;
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+  }
+  .big-note { font-size: 20px; color: var(--muted); line-height: 1.5; padding-bottom: 12px; }
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 20px;
+  }
+  .logo-word {
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    font-size: 18px;
+    color: var(--navy);
+  }
+
+  /* overview */
+  .action-title {
+    font-family: Fraunces, serif;
+    font-size: 40px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-top: 28px;
+    max-width: 28ch;
+    line-height: 1.25;
+  }
+  .split {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 48px;
+    margin-top: 48px;
+    flex: 1;
+  }
+  .metric-stack { display: flex; flex-direction: column; gap: 18px; }
+  .metric {
+    background: var(--card);
+    border: 1px solid var(--line);
+    padding: 22px 28px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+  .metric .l { font-size: 16px; color: var(--muted); }
+  .metric .v {
+    font-size: 36px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--navy);
+  }
+  .metric .v.good { color: var(--accent); }
+  .insight {
+    background: var(--navy);
+    color: #f4f1ea;
+    padding: 40px 36px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .insight h3 {
+    font-family: Fraunces, serif;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .insight ul {
+    list-style: none;
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .insight li {
+    font-size: 20px;
+    line-height: 1.45;
+    padding-left: 18px;
+    border-left: 3px solid var(--accent);
+  }
+  .foot {
+    margin-top: auto;
+    padding-top: 24px;
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+</style>
+</head>
+<body>
+  <section class="slide" id="cover">
+    <div class="pattern"></div>
+    <div class="pad">
+      <div class="topbar" style="max-width:58%">
+        <div class="logo-word">VERTU OVERSEAS</div>
+        <div class="kicker">Weekly Business Review</div>
+      </div>
+      <div class="kicker" style="margin-top:56px">2026 · July · Week 3</div>
+      <h1 class="serif">海外经销商周报：MTD 已达目标八成五</h1>
+      <p class="lede">本周 SI 240.83 万；三部率先破百达成，二部领先时间进度，一部在途待转。</p>
+      <div class="cover-stat">
+        <div class="big">85.8%</div>
+        <div class="big-note">596.41 / 695 万<br />窗口 7/13–7/19 · as of 7/19</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="overview">
+    <div class="pad">
+      <div class="topbar">
+        <div class="logo-word">VERTU OVERSEAS</div>
+        <div class="kicker">01 · Performance Overview</div>
+      </div>
+      <p class="action-title">三部拉高全盘：中东主力成交，一部本周零入账但在途约 49 万。</p>
+      <div class="split">
+        <div class="metric-stack">
+          <div class="metric"><span class="l">月目标（万）</span><span class="v">695</span></div>
+          <div class="metric"><span class="l">MTD SI（万）</span><span class="v">596.41</span></div>
+          <div class="metric"><span class="l">达成率</span><span class="v good">85.8%</span></div>
+          <div class="metric"><span class="l">本周 SI（万）</span><span class="v">240.83</span></div>
+          <div class="metric"><span class="l">AlphaFold MTD（万）</span><span class="v">232.32</span></div>
+        </div>
+        <div class="insight">
+          <h3>组间节奏</h3>
+          <ul>
+            <li>三部：336.7 万 · 116% · 本周 172.1 · 待收约 143.1</li>
+            <li>二部：195.68 万 · 83.3% · 本周 68.73 · 杨/何分劈</li>
+            <li>一部：64.03 万 · 58.2% · 本周 0 · 在途约 49</li>
+          </ul>
+          <div class="foot">参照：Wolff Olins × McKinsey 双字体咨询版式迁移</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

@@ -1,0 +1,1820 @@
+{
+  "meta": {
+    "month": "2026-07",
+    "periodLabel": "2026-07",
+    "generatedAt": "2026-07-02T16:05:52",
+    "source": "vietnam_reference+dealer_distribution",
+    "vietnamStore": null,
+    "storeCount": 33,
+    "dealerCount": 33,
+    "regionOrder": [
+      "东南亚",
+      "欧洲"
+    ]
+  },
+  "stores": [
+    {
+      "id": "d001",
+      "name": "AI-SARAF CO",
+      "city": "伊拉克",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.321,
+      "totalSalesAmount": 345700,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.494,
+      "avgUseRate": 0.42,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d002",
+      "name": "Behzadi Boutique",
+      "city": "伊拉克",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.349,
+      "totalSalesAmount": 430358,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.514,
+      "avgUseRate": 0.358,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d003",
+      "name": "Billionaire Collections",
+      "city": "阿联酋",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.372,
+      "totalSalesAmount": 408950,
+      "anomalies": [],
+      "avgTouchRate": 0.456,
+      "avgUseRate": 0.396,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d004",
+      "name": "CLICK TECH SERVICES（VERTU）",
+      "city": "卡塔尔",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.282,
+      "totalSalesAmount": 415748,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.458,
+      "avgUseRate": 0.36,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d005",
+      "name": "Dar Al Sabaek（VERTU）",
+      "city": "科威特",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.357,
+      "totalSalesAmount": 428868,
+      "anomalies": [],
+      "avgTouchRate": 0.488,
+      "avgUseRate": 0.359,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d006",
+      "name": "HASSIB ABDALLAH AMIR ALLAH",
+      "city": "伊拉克",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.282,
+      "totalSalesAmount": 418794,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.442,
+      "avgUseRate": 0.408,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d007",
+      "name": "Luxem Store",
+      "city": "伊朗",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.309,
+      "totalSalesAmount": 355312,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.49,
+      "avgUseRate": 0.412,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d008",
+      "name": "Mkateb for e-commerce",
+      "city": "约旦",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.353,
+      "totalSalesAmount": 352871,
+      "anomalies": [],
+      "avgTouchRate": 0.506,
+      "avgUseRate": 0.39,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d009",
+      "name": "My Shops Electronics Trading LLC",
+      "city": "阿塞拜疆",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.293,
+      "totalSalesAmount": 326658,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.514,
+      "avgUseRate": 0.409,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d010",
+      "name": "Rashid lukman rashid",
+      "city": "伊拉克",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.281,
+      "totalSalesAmount": 372443,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.512,
+      "avgUseRate": 0.389,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d011",
+      "name": "Safiranhamrah（SAFIRANHAMRAH）",
+      "city": "伊朗",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.376,
+      "totalSalesAmount": 347070,
+      "anomalies": [],
+      "avgTouchRate": 0.484,
+      "avgUseRate": 0.341,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d012",
+      "name": "TİVALİ Commercial Broker LLC",
+      "city": "伊朗",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.289,
+      "totalSalesAmount": 359118,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.515,
+      "avgUseRate": 0.398,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d013",
+      "name": "Veysel Sevis Ltd",
+      "city": "土耳其",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.321,
+      "totalSalesAmount": 380834,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.503,
+      "avgUseRate": 0.369,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d014",
+      "name": "Bestcom",
+      "city": "乌克兰",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.294,
+      "totalSalesAmount": 377584,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.485,
+      "avgUseRate": 0.394,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d015",
+      "name": "FRONTANA GIDA DIS TICARET LIMITED",
+      "city": "乌克兰",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.313,
+      "totalSalesAmount": 422178,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.44,
+      "avgUseRate": 0.376,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d016",
+      "name": "IQ-QUEST SP. Z O.O.",
+      "city": "波兰",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.305,
+      "totalSalesAmount": 392328,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.451,
+      "avgUseRate": 0.365,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d017",
+      "name": "Optimizers d.o.o.",
+      "city": "斯洛文尼亚",
+      "region": "欧洲",
+      "class": "Class 1",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.482,
+      "totalSalesAmount": 1152686,
+      "anomalies": [],
+      "avgTouchRate": 0.632,
+      "avgUseRate": 0.47,
+      "dealerTeam": "Lina",
+      "customerType": "A",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d018",
+      "name": "Robo Trading Ltd",
+      "city": "保加利亚",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.289,
+      "totalSalesAmount": 363735,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.519,
+      "avgUseRate": 0.351,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d019",
+      "name": "VERTU LONDON LTD（Vertu）",
+      "city": "英国",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.349,
+      "totalSalesAmount": 396313,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.456,
+      "avgUseRate": 0.364,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d020",
+      "name": "vipconnect.de",
+      "city": "德国",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.298,
+      "totalSalesAmount": 324519,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.454,
+      "avgUseRate": 0.388,
+      "dealerTeam": "Lina",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d021",
+      "name": "Altyn Zaman H.J.",
+      "city": "土库曼斯坦",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.353,
+      "totalSalesAmount": 332052,
+      "anomalies": [],
+      "avgTouchRate": 0.509,
+      "avgUseRate": 0.413,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d022",
+      "name": "Bizcon Group",
+      "city": "乌兹别克斯坦",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.329,
+      "totalSalesAmount": 431611,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.501,
+      "avgUseRate": 0.379,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d023",
+      "name": "CONTINENTAL PLUS LLC.",
+      "city": "俄罗斯",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.351,
+      "totalSalesAmount": 706140,
+      "anomalies": [],
+      "avgTouchRate": 0.504,
+      "avgUseRate": 0.427,
+      "dealerTeam": "杨晶晶",
+      "customerType": "B",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d024",
+      "name": "Yakimaka",
+      "city": "俄罗斯",
+      "region": "欧洲",
+      "class": "Class 1",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.462,
+      "totalSalesAmount": 1022967,
+      "anomalies": [],
+      "avgTouchRate": 0.61,
+      "avgUseRate": 0.532,
+      "dealerTeam": "杨晶晶",
+      "customerType": "A",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d025",
+      "name": "LLC “TC Azimut”",
+      "city": "俄罗斯",
+      "region": "欧洲",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.323,
+      "totalSalesAmount": 329399,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.496,
+      "avgUseRate": 0.39,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d026",
+      "name": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "city": "印度",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.308,
+      "totalSalesAmount": 363717,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.443,
+      "avgUseRate": 0.397,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d027",
+      "name": "LZB INDIA ELECTRIC PRIVATE LIMITED（办公室）",
+      "city": "印度",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.291,
+      "totalSalesAmount": 355617,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.441,
+      "avgUseRate": 0.381,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d028",
+      "name": "Sidd Senthil（无店铺）",
+      "city": "印度",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.328,
+      "totalSalesAmount": 356601,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.457,
+      "avgUseRate": 0.349,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d029",
+      "name": "Parth Kamlesh Doshi（无店铺）",
+      "city": "印度",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.312,
+      "totalSalesAmount": 352785,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.44,
+      "avgUseRate": 0.345,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d030",
+      "name": "Sun International General Trading（迪拜办公室）",
+      "city": "印度",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.3,
+      "totalSalesAmount": 344085,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.449,
+      "avgUseRate": 0.414,
+      "dealerTeam": "杨晶晶",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d031",
+      "name": "BIN BIN INVESTMENT(CAMBODIA) COLTD（柬埔寨欧洲街）",
+      "city": "柬埔寨",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.298,
+      "totalSalesAmount": 436103,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.458,
+      "avgUseRate": 0.381,
+      "dealerTeam": "于冰",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d032",
+      "name": "VMG Communication and Technology Joint Stock Company（第一郡）",
+      "city": "越南",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.358,
+      "totalSalesAmount": 431751,
+      "anomalies": [],
+      "avgTouchRate": 0.444,
+      "avgUseRate": 0.387,
+      "dealerTeam": "于冰",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    },
+    {
+      "id": "d033",
+      "name": "VST ECS (Thailand) Co., Ltd.（SIAM PARAGON）",
+      "city": "泰国",
+      "region": "东南亚",
+      "class": "Class 2",
+      "totalVisitGroups": 40,
+      "avgAddRate": 0.334,
+      "totalSalesAmount": 336279,
+      "anomalies": [
+        "留资率偏低"
+      ],
+      "avgTouchRate": 0.487,
+      "avgUseRate": 0.397,
+      "dealerTeam": "于冰",
+      "customerType": "S",
+      "dataSource": "dealer_distribution"
+    }
+  ],
+  "staff": [
+    {
+      "id": "d001-S1",
+      "name": "Omar1",
+      "storeId": "d001",
+      "workingDays": 21,
+      "monthlySales": 190903,
+      "threeMonthTrend": [
+        171812,
+        181357,
+        190903
+      ],
+      "addRate": 0.389,
+      "visitGroups": 18,
+      "avgAov": 19090,
+      "crmReachRate": 0.94,
+      "anomalies": []
+    },
+    {
+      "id": "d001-S2",
+      "name": "Li2",
+      "storeId": "d001",
+      "workingDays": 22,
+      "monthlySales": 179297,
+      "threeMonthTrend": [
+        161367,
+        170332,
+        179297
+      ],
+      "addRate": 0.268,
+      "visitGroups": 18,
+      "avgAov": 17929,
+      "crmReachRate": 0.82,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d002-S3",
+      "name": "Li1",
+      "storeId": "d002",
+      "workingDays": 18,
+      "monthlySales": 263509,
+      "threeMonthTrend": [
+        237158,
+        250333,
+        263509
+      ],
+      "addRate": 0.316,
+      "visitGroups": 20,
+      "avgAov": 26350,
+      "crmReachRate": 0.87,
+      "anomalies": []
+    },
+    {
+      "id": "d002-S4",
+      "name": "Kim2",
+      "storeId": "d002",
+      "workingDays": 22,
+      "monthlySales": 231935,
+      "threeMonthTrend": [
+        208741,
+        220338,
+        231935
+      ],
+      "addRate": 0.298,
+      "visitGroups": 20,
+      "avgAov": 23193,
+      "crmReachRate": 0.85,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d003-S5",
+      "name": "Kim1",
+      "storeId": "d003",
+      "workingDays": 21,
+      "monthlySales": 237190,
+      "threeMonthTrend": [
+        213471,
+        225330,
+        237190
+      ],
+      "addRate": 0.391,
+      "visitGroups": 19,
+      "avgAov": 23719,
+      "crmReachRate": 0.94,
+      "anomalies": []
+    },
+    {
+      "id": "d003-S6",
+      "name": "Alex2",
+      "storeId": "d003",
+      "workingDays": 20,
+      "monthlySales": 214161,
+      "threeMonthTrend": [
+        192744,
+        203452,
+        214161
+      ],
+      "addRate": 0.364,
+      "visitGroups": 20,
+      "avgAov": 21416,
+      "crmReachRate": 0.91,
+      "anomalies": []
+    },
+    {
+      "id": "d004-S7",
+      "name": "Alex1",
+      "storeId": "d004",
+      "workingDays": 20,
+      "monthlySales": 166903,
+      "threeMonthTrend": [
+        150212,
+        158557,
+        166903
+      ],
+      "addRate": 0.287,
+      "visitGroups": 17,
+      "avgAov": 16690,
+      "crmReachRate": 0.84,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d004-S8",
+      "name": "Omar2",
+      "storeId": "d004",
+      "workingDays": 22,
+      "monthlySales": 170263,
+      "threeMonthTrend": [
+        153236,
+        161749,
+        170263
+      ],
+      "addRate": 0.229,
+      "visitGroups": 22,
+      "avgAov": 17026,
+      "crmReachRate": 0.78,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d005-S9",
+      "name": "Omar1",
+      "storeId": "d005",
+      "workingDays": 22,
+      "monthlySales": 221842,
+      "threeMonthTrend": [
+        199657,
+        210749,
+        221842
+      ],
+      "addRate": 0.426,
+      "visitGroups": 22,
+      "avgAov": 22184,
+      "crmReachRate": 0.98,
+      "anomalies": []
+    },
+    {
+      "id": "d005-S10",
+      "name": "Li2",
+      "storeId": "d005",
+      "workingDays": 19,
+      "monthlySales": 191221,
+      "threeMonthTrend": [
+        172098,
+        181659,
+        191221
+      ],
+      "addRate": 0.297,
+      "visitGroups": 18,
+      "avgAov": 19122,
+      "crmReachRate": 0.85,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d006-S11",
+      "name": "Li1",
+      "storeId": "d006",
+      "workingDays": 22,
+      "monthlySales": 192009,
+      "threeMonthTrend": [
+        172808,
+        182408,
+        192009
+      ],
+      "addRate": 0.346,
+      "visitGroups": 21,
+      "avgAov": 19200,
+      "crmReachRate": 0.9,
+      "anomalies": []
+    },
+    {
+      "id": "d006-S12",
+      "name": "Kim2",
+      "storeId": "d006",
+      "workingDays": 21,
+      "monthlySales": 216741,
+      "threeMonthTrend": [
+        195066,
+        205903,
+        216741
+      ],
+      "addRate": 0.23,
+      "visitGroups": 22,
+      "avgAov": 21674,
+      "crmReachRate": 0.78,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d007-S13",
+      "name": "Kim1",
+      "storeId": "d007",
+      "workingDays": 18,
+      "monthlySales": 135129,
+      "threeMonthTrend": [
+        121616,
+        128372,
+        135129
+      ],
+      "addRate": 0.355,
+      "visitGroups": 22,
+      "avgAov": 13512,
+      "crmReachRate": 0.91,
+      "anomalies": []
+    },
+    {
+      "id": "d007-S14",
+      "name": "Alex2",
+      "storeId": "d007",
+      "workingDays": 22,
+      "monthlySales": 135243,
+      "threeMonthTrend": [
+        121718,
+        128480,
+        135243
+      ],
+      "addRate": 0.353,
+      "visitGroups": 22,
+      "avgAov": 13524,
+      "crmReachRate": 0.9,
+      "anomalies": []
+    },
+    {
+      "id": "d008-S15",
+      "name": "Alex1",
+      "storeId": "d008",
+      "workingDays": 20,
+      "monthlySales": 201880,
+      "threeMonthTrend": [
+        181692,
+        191786,
+        201880
+      ],
+      "addRate": 0.37,
+      "visitGroups": 20,
+      "avgAov": 20188,
+      "crmReachRate": 0.92,
+      "anomalies": []
+    },
+    {
+      "id": "d008-S16",
+      "name": "Omar2",
+      "storeId": "d008",
+      "workingDays": 21,
+      "monthlySales": 176046,
+      "threeMonthTrend": [
+        158441,
+        167243,
+        176046
+      ],
+      "addRate": 0.279,
+      "visitGroups": 19,
+      "avgAov": 17604,
+      "crmReachRate": 0.83,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d009-S17",
+      "name": "Omar1",
+      "storeId": "d009",
+      "workingDays": 20,
+      "monthlySales": 143168,
+      "threeMonthTrend": [
+        128851,
+        136009,
+        143168
+      ],
+      "addRate": 0.218,
+      "visitGroups": 20,
+      "avgAov": 14316,
+      "crmReachRate": 0.77,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d009-S18",
+      "name": "Li2",
+      "storeId": "d009",
+      "workingDays": 20,
+      "monthlySales": 164297,
+      "threeMonthTrend": [
+        147867,
+        156082,
+        164297
+      ],
+      "addRate": 0.234,
+      "visitGroups": 17,
+      "avgAov": 16429,
+      "crmReachRate": 0.78,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d010-S19",
+      "name": "Li1",
+      "storeId": "d010",
+      "workingDays": 19,
+      "monthlySales": 154866,
+      "threeMonthTrend": [
+        139379,
+        147122,
+        154866
+      ],
+      "addRate": 0.215,
+      "visitGroups": 19,
+      "avgAov": 15486,
+      "crmReachRate": 0.76,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d010-S20",
+      "name": "Kim2",
+      "storeId": "d010",
+      "workingDays": 23,
+      "monthlySales": 153854,
+      "threeMonthTrend": [
+        138468,
+        146161,
+        153854
+      ],
+      "addRate": 0.333,
+      "visitGroups": 21,
+      "avgAov": 15385,
+      "crmReachRate": 0.88,
+      "anomalies": []
+    },
+    {
+      "id": "d011-S21",
+      "name": "Kim1",
+      "storeId": "d011",
+      "workingDays": 21,
+      "monthlySales": 202910,
+      "threeMonthTrend": [
+        182619,
+        192764,
+        202910
+      ],
+      "addRate": 0.324,
+      "visitGroups": 19,
+      "avgAov": 20291,
+      "crmReachRate": 0.87,
+      "anomalies": []
+    },
+    {
+      "id": "d011-S22",
+      "name": "Alex2",
+      "storeId": "d011",
+      "workingDays": 21,
+      "monthlySales": 143936,
+      "threeMonthTrend": [
+        129542,
+        136739,
+        143936
+      ],
+      "addRate": 0.339,
+      "visitGroups": 19,
+      "avgAov": 14393,
+      "crmReachRate": 0.89,
+      "anomalies": []
+    },
+    {
+      "id": "d012-S23",
+      "name": "Alex1",
+      "storeId": "d012",
+      "workingDays": 19,
+      "monthlySales": 176518,
+      "threeMonthTrend": [
+        158866,
+        167692,
+        176518
+      ],
+      "addRate": 0.341,
+      "visitGroups": 20,
+      "avgAov": 17651,
+      "crmReachRate": 0.89,
+      "anomalies": []
+    },
+    {
+      "id": "d012-S24",
+      "name": "Omar2",
+      "storeId": "d012",
+      "workingDays": 22,
+      "monthlySales": 146876,
+      "threeMonthTrend": [
+        132188,
+        139532,
+        146876
+      ],
+      "addRate": 0.253,
+      "visitGroups": 19,
+      "avgAov": 14687,
+      "crmReachRate": 0.8,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d013-S25",
+      "name": "Omar1",
+      "storeId": "d013",
+      "workingDays": 20,
+      "monthlySales": 230787,
+      "threeMonthTrend": [
+        207708,
+        219247,
+        230787
+      ],
+      "addRate": 0.375,
+      "visitGroups": 17,
+      "avgAov": 23078,
+      "crmReachRate": 0.92,
+      "anomalies": []
+    },
+    {
+      "id": "d013-S26",
+      "name": "Li2",
+      "storeId": "d013",
+      "workingDays": 22,
+      "monthlySales": 235510,
+      "threeMonthTrend": [
+        211959,
+        223734,
+        235510
+      ],
+      "addRate": 0.285,
+      "visitGroups": 21,
+      "avgAov": 23551,
+      "crmReachRate": 0.83,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d014-S27",
+      "name": "Li1",
+      "storeId": "d014",
+      "workingDays": 21,
+      "monthlySales": 161059,
+      "threeMonthTrend": [
+        144953,
+        153006,
+        161059
+      ],
+      "addRate": 0.318,
+      "visitGroups": 21,
+      "avgAov": 16105,
+      "crmReachRate": 0.87,
+      "anomalies": []
+    },
+    {
+      "id": "d014-S28",
+      "name": "Kim2",
+      "storeId": "d014",
+      "workingDays": 20,
+      "monthlySales": 183721,
+      "threeMonthTrend": [
+        165348,
+        174534,
+        183721
+      ],
+      "addRate": 0.241,
+      "visitGroups": 21,
+      "avgAov": 18372,
+      "crmReachRate": 0.79,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d015-S29",
+      "name": "Kim1",
+      "storeId": "d015",
+      "workingDays": 18,
+      "monthlySales": 194217,
+      "threeMonthTrend": [
+        174795,
+        184506,
+        194217
+      ],
+      "addRate": 0.381,
+      "visitGroups": 20,
+      "avgAov": 19421,
+      "crmReachRate": 0.93,
+      "anomalies": []
+    },
+    {
+      "id": "d015-S30",
+      "name": "Alex2",
+      "storeId": "d015",
+      "workingDays": 23,
+      "monthlySales": 248216,
+      "threeMonthTrend": [
+        223394,
+        235805,
+        248216
+      ],
+      "addRate": 0.385,
+      "visitGroups": 18,
+      "avgAov": 24821,
+      "crmReachRate": 0.93,
+      "anomalies": []
+    },
+    {
+      "id": "d016-S31",
+      "name": "Alex1",
+      "storeId": "d016",
+      "workingDays": 22,
+      "monthlySales": 234836,
+      "threeMonthTrend": [
+        211352,
+        223094,
+        234836
+      ],
+      "addRate": 0.253,
+      "visitGroups": 18,
+      "avgAov": 23483,
+      "crmReachRate": 0.8,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d016-S32",
+      "name": "Omar2",
+      "storeId": "d016",
+      "workingDays": 20,
+      "monthlySales": 208865,
+      "threeMonthTrend": [
+        187978,
+        198421,
+        208865
+      ],
+      "addRate": 0.238,
+      "visitGroups": 21,
+      "avgAov": 20886,
+      "crmReachRate": 0.79,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d017-S33",
+      "name": "Omar1",
+      "storeId": "d017",
+      "workingDays": 19,
+      "monthlySales": 344083,
+      "threeMonthTrend": [
+        309674,
+        326878,
+        344083
+      ],
+      "addRate": 0.437,
+      "visitGroups": 14,
+      "avgAov": 57347,
+      "crmReachRate": 0.99,
+      "anomalies": []
+    },
+    {
+      "id": "d017-S34",
+      "name": "Li2",
+      "storeId": "d017",
+      "workingDays": 19,
+      "monthlySales": 394154,
+      "threeMonthTrend": [
+        354738,
+        374446,
+        394154
+      ],
+      "addRate": 0.409,
+      "visitGroups": 13,
+      "avgAov": 65692,
+      "crmReachRate": 0.96,
+      "anomalies": []
+    },
+    {
+      "id": "d017-S35",
+      "name": "Kim3",
+      "storeId": "d017",
+      "workingDays": 21,
+      "monthlySales": 343337,
+      "threeMonthTrend": [
+        309003,
+        326170,
+        343337
+      ],
+      "addRate": 0.505,
+      "visitGroups": 13,
+      "avgAov": 57222,
+      "crmReachRate": 0.99,
+      "anomalies": []
+    },
+    {
+      "id": "d018-S36",
+      "name": "Chen1",
+      "storeId": "d018",
+      "workingDays": 18,
+      "monthlySales": 204361,
+      "threeMonthTrend": [
+        183924,
+        194142,
+        204361
+      ],
+      "addRate": 0.343,
+      "visitGroups": 17,
+      "avgAov": 20436,
+      "crmReachRate": 0.89,
+      "anomalies": []
+    },
+    {
+      "id": "d018-S37",
+      "name": "Noah2",
+      "storeId": "d018",
+      "workingDays": 22,
+      "monthlySales": 188863,
+      "threeMonthTrend": [
+        169976,
+        179419,
+        188863
+      ],
+      "addRate": 0.272,
+      "visitGroups": 22,
+      "avgAov": 18886,
+      "crmReachRate": 0.82,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d019-S38",
+      "name": "Noah1",
+      "storeId": "d019",
+      "workingDays": 21,
+      "monthlySales": 202364,
+      "threeMonthTrend": [
+        182127,
+        192245,
+        202364
+      ],
+      "addRate": 0.274,
+      "visitGroups": 20,
+      "avgAov": 20236,
+      "crmReachRate": 0.82,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d019-S39",
+      "name": "Mina2",
+      "storeId": "d019",
+      "workingDays": 20,
+      "monthlySales": 240254,
+      "threeMonthTrend": [
+        216228,
+        228241,
+        240254
+      ],
+      "addRate": 0.376,
+      "visitGroups": 17,
+      "avgAov": 24025,
+      "crmReachRate": 0.93,
+      "anomalies": []
+    },
+    {
+      "id": "d020-S40",
+      "name": "Mina1",
+      "storeId": "d020",
+      "workingDays": 18,
+      "monthlySales": 153003,
+      "threeMonthTrend": [
+        137702,
+        145352,
+        153003
+      ],
+      "addRate": 0.265,
+      "visitGroups": 20,
+      "avgAov": 15300,
+      "crmReachRate": 0.81,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d020-S41",
+      "name": "Sara2",
+      "storeId": "d020",
+      "workingDays": 21,
+      "monthlySales": 174662,
+      "threeMonthTrend": [
+        157195,
+        165928,
+        174662
+      ],
+      "addRate": 0.237,
+      "visitGroups": 22,
+      "avgAov": 17466,
+      "crmReachRate": 0.79,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d021-S42",
+      "name": "Sara1",
+      "storeId": "d021",
+      "workingDays": 22,
+      "monthlySales": 138922,
+      "threeMonthTrend": [
+        125029,
+        131975,
+        138922
+      ],
+      "addRate": 0.386,
+      "visitGroups": 17,
+      "avgAov": 13892,
+      "crmReachRate": 0.94,
+      "anomalies": []
+    },
+    {
+      "id": "d021-S43",
+      "name": "Chen2",
+      "storeId": "d021",
+      "workingDays": 22,
+      "monthlySales": 135296,
+      "threeMonthTrend": [
+        121766,
+        128531,
+        135296
+      ],
+      "addRate": 0.327,
+      "visitGroups": 17,
+      "avgAov": 13529,
+      "crmReachRate": 0.88,
+      "anomalies": []
+    },
+    {
+      "id": "d022-S44",
+      "name": "Chen1",
+      "storeId": "d022",
+      "workingDays": 22,
+      "monthlySales": 266605,
+      "threeMonthTrend": [
+        239944,
+        253274,
+        266605
+      ],
+      "addRate": 0.302,
+      "visitGroups": 22,
+      "avgAov": 26660,
+      "crmReachRate": 0.85,
+      "anomalies": []
+    },
+    {
+      "id": "d022-S45",
+      "name": "Noah2",
+      "storeId": "d022",
+      "workingDays": 20,
+      "monthlySales": 226633,
+      "threeMonthTrend": [
+        203969,
+        215301,
+        226633
+      ],
+      "addRate": 0.363,
+      "visitGroups": 20,
+      "avgAov": 22663,
+      "crmReachRate": 0.91,
+      "anomalies": []
+    },
+    {
+      "id": "d023-S46",
+      "name": "Noah1",
+      "storeId": "d023",
+      "workingDays": 21,
+      "monthlySales": 236809,
+      "threeMonthTrend": [
+        213128,
+        224968,
+        236809
+      ],
+      "addRate": 0.291,
+      "visitGroups": 13,
+      "avgAov": 39468,
+      "crmReachRate": 0.84,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d023-S47",
+      "name": "Mina2",
+      "storeId": "d023",
+      "workingDays": 18,
+      "monthlySales": 235798,
+      "threeMonthTrend": [
+        212218,
+        224008,
+        235798
+      ],
+      "addRate": 0.285,
+      "visitGroups": 11,
+      "avgAov": 39299,
+      "crmReachRate": 0.84,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d023-S48",
+      "name": "Sara3",
+      "storeId": "d023",
+      "workingDays": 19,
+      "monthlySales": 283889,
+      "threeMonthTrend": [
+        255500,
+        269694,
+        283889
+      ],
+      "addRate": 0.419,
+      "visitGroups": 12,
+      "avgAov": 47314,
+      "crmReachRate": 0.97,
+      "anomalies": []
+    },
+    {
+      "id": "d024-S49",
+      "name": "Omar1",
+      "storeId": "d024",
+      "workingDays": 18,
+      "monthlySales": 399616,
+      "threeMonthTrend": [
+        359654,
+        379635,
+        399616
+      ],
+      "addRate": 0.439,
+      "visitGroups": 12,
+      "avgAov": 66602,
+      "crmReachRate": 0.99,
+      "anomalies": []
+    },
+    {
+      "id": "d024-S50",
+      "name": "Li2",
+      "storeId": "d024",
+      "workingDays": 23,
+      "monthlySales": 389420,
+      "threeMonthTrend": [
+        350478,
+        369949,
+        389420
+      ],
+      "addRate": 0.409,
+      "visitGroups": 11,
+      "avgAov": 64903,
+      "crmReachRate": 0.96,
+      "anomalies": []
+    },
+    {
+      "id": "d024-S51",
+      "name": "Kim3",
+      "storeId": "d024",
+      "workingDays": 19,
+      "monthlySales": 289300,
+      "threeMonthTrend": [
+        260370,
+        274835,
+        289300
+      ],
+      "addRate": 0.522,
+      "visitGroups": 13,
+      "avgAov": 48216,
+      "crmReachRate": 0.99,
+      "anomalies": []
+    },
+    {
+      "id": "d025-S52",
+      "name": "Chen1",
+      "storeId": "d025",
+      "workingDays": 18,
+      "monthlySales": 181694,
+      "threeMonthTrend": [
+        163524,
+        172609,
+        181694
+      ],
+      "addRate": 0.361,
+      "visitGroups": 20,
+      "avgAov": 18169,
+      "crmReachRate": 0.91,
+      "anomalies": []
+    },
+    {
+      "id": "d025-S53",
+      "name": "Noah2",
+      "storeId": "d025",
+      "workingDays": 18,
+      "monthlySales": 133364,
+      "threeMonthTrend": [
+        120027,
+        126695,
+        133364
+      ],
+      "addRate": 0.309,
+      "visitGroups": 18,
+      "avgAov": 13336,
+      "crmReachRate": 0.86,
+      "anomalies": []
+    },
+    {
+      "id": "d026-S54",
+      "name": "Noah1",
+      "storeId": "d026",
+      "workingDays": 18,
+      "monthlySales": 195083,
+      "threeMonthTrend": [
+        175574,
+        185328,
+        195083
+      ],
+      "addRate": 0.297,
+      "visitGroups": 19,
+      "avgAov": 19508,
+      "crmReachRate": 0.85,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d026-S55",
+      "name": "Mina2",
+      "storeId": "d026",
+      "workingDays": 23,
+      "monthlySales": 183458,
+      "threeMonthTrend": [
+        165112,
+        174285,
+        183458
+      ],
+      "addRate": 0.233,
+      "visitGroups": 17,
+      "avgAov": 18345,
+      "crmReachRate": 0.78,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d027-S56",
+      "name": "Mina1",
+      "storeId": "d027",
+      "workingDays": 22,
+      "monthlySales": 179680,
+      "threeMonthTrend": [
+        161712,
+        170696,
+        179680
+      ],
+      "addRate": 0.323,
+      "visitGroups": 21,
+      "avgAov": 17968,
+      "crmReachRate": 0.87,
+      "anomalies": []
+    },
+    {
+      "id": "d027-S57",
+      "name": "Sara2",
+      "storeId": "d027",
+      "workingDays": 19,
+      "monthlySales": 200767,
+      "threeMonthTrend": [
+        180690,
+        190728,
+        200767
+      ],
+      "addRate": 0.351,
+      "visitGroups": 18,
+      "avgAov": 20076,
+      "crmReachRate": 0.9,
+      "anomalies": []
+    },
+    {
+      "id": "d028-S58",
+      "name": "Sara1",
+      "storeId": "d028",
+      "workingDays": 20,
+      "monthlySales": 193862,
+      "threeMonthTrend": [
+        174475,
+        184168,
+        193862
+      ],
+      "addRate": 0.351,
+      "visitGroups": 19,
+      "avgAov": 19386,
+      "crmReachRate": 0.9,
+      "anomalies": []
+    },
+    {
+      "id": "d028-S59",
+      "name": "Chen2",
+      "storeId": "d028",
+      "workingDays": 18,
+      "monthlySales": 182051,
+      "threeMonthTrend": [
+        163845,
+        172948,
+        182051
+      ],
+      "addRate": 0.282,
+      "visitGroups": 20,
+      "avgAov": 18205,
+      "crmReachRate": 0.83,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d029-S60",
+      "name": "Chen1",
+      "storeId": "d029",
+      "workingDays": 18,
+      "monthlySales": 212100,
+      "threeMonthTrend": [
+        190890,
+        201495,
+        212100
+      ],
+      "addRate": 0.378,
+      "visitGroups": 21,
+      "avgAov": 21210,
+      "crmReachRate": 0.93,
+      "anomalies": []
+    },
+    {
+      "id": "d029-S61",
+      "name": "Noah2",
+      "storeId": "d029",
+      "workingDays": 21,
+      "monthlySales": 209957,
+      "threeMonthTrend": [
+        188961,
+        199459,
+        209957
+      ],
+      "addRate": 0.329,
+      "visitGroups": 17,
+      "avgAov": 20995,
+      "crmReachRate": 0.88,
+      "anomalies": []
+    },
+    {
+      "id": "d030-S62",
+      "name": "Noah1",
+      "storeId": "d030",
+      "workingDays": 21,
+      "monthlySales": 181417,
+      "threeMonthTrend": [
+        163275,
+        172346,
+        181417
+      ],
+      "addRate": 0.356,
+      "visitGroups": 22,
+      "avgAov": 18141,
+      "crmReachRate": 0.91,
+      "anomalies": []
+    },
+    {
+      "id": "d030-S63",
+      "name": "Mina2",
+      "storeId": "d030",
+      "workingDays": 21,
+      "monthlySales": 185452,
+      "threeMonthTrend": [
+        166906,
+        176179,
+        185452
+      ],
+      "addRate": 0.271,
+      "visitGroups": 20,
+      "avgAov": 18545,
+      "crmReachRate": 0.82,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d031-S64",
+      "name": "Mina1",
+      "storeId": "d031",
+      "workingDays": 20,
+      "monthlySales": 226372,
+      "threeMonthTrend": [
+        203734,
+        215053,
+        226372
+      ],
+      "addRate": 0.367,
+      "visitGroups": 19,
+      "avgAov": 22637,
+      "crmReachRate": 0.92,
+      "anomalies": []
+    },
+    {
+      "id": "d031-S65",
+      "name": "Sara2",
+      "storeId": "d031",
+      "workingDays": 23,
+      "monthlySales": 232756,
+      "threeMonthTrend": [
+        209480,
+        221118,
+        232756
+      ],
+      "addRate": 0.267,
+      "visitGroups": 22,
+      "avgAov": 23275,
+      "crmReachRate": 0.82,
+      "anomalies": [
+        "低添加率"
+      ]
+    },
+    {
+      "id": "d032-S66",
+      "name": "Sara1",
+      "storeId": "d032",
+      "workingDays": 19,
+      "monthlySales": 245323,
+      "threeMonthTrend": [
+        220790,
+        233056,
+        245323
+      ],
+      "addRate": 0.315,
+      "visitGroups": 19,
+      "avgAov": 24532,
+      "crmReachRate": 0.87,
+      "anomalies": []
+    },
+    {
+      "id": "d032-S67",
+      "name": "Chen2",
+      "storeId": "d032",
+      "workingDays": 18,
+      "monthlySales": 236316,
+      "threeMonthTrend": [
+        212684,
+        224500,
+        236316
+      ],
+      "addRate": 0.344,
+      "visitGroups": 19,
+      "avgAov": 23631,
+      "crmReachRate": 0.89,
+      "anomalies": []
+    },
+    {
+      "id": "d033-S68",
+      "name": "Chen1",
+      "storeId": "d033",
+      "workingDays": 19,
+      "monthlySales": 143323,
+      "threeMonthTrend": [
+        128990,
+        136156,
+        143323
+      ],
+      "addRate": 0.413,
+      "visitGroups": 19,
+      "avgAov": 14332,
+      "crmReachRate": 0.96,
+      "anomalies": []
+    },
+    {
+      "id": "d033-S69",
+      "name": "Noah2",
+      "storeId": "d033",
+      "workingDays": 18,
+      "monthlySales": 161254,
+      "threeMonthTrend": [
+        145128,
+        153191,
+        161254
+      ],
+      "addRate": 0.411,
+      "visitGroups": 17,
+      "avgAov": 16125,
+      "crmReachRate": 0.96,
+      "anomalies": []
+    }
+  ]
+}

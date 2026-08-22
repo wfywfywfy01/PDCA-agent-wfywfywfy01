@@ -68,7 +68,7 @@ jobs:
         run: python -m unittest discover -s tests -p "test_*.py" -q
 
       - name: Compile Python sources
-        run: python -m compileall -q app scripts tests run.py
+        run: python -m compileall -q app scripts tests run.py logibot
 
       - name: Validate deployment scripts
         run: bash -n scripts/deploy_internal.sh scripts/docker_up.sh scripts/deploy_release.sh scripts/docker_smoke_test.sh

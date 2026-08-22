@@ -1,0 +1,2216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>经销商海外客流分析台</title>
+  <link rel="stylesheet" href="vertu-reskin.css" />
+  <link rel="stylesheet" href="online-merged-insights.css" />
+  <script src="online-merged-insights.js"></script>
+  <style>
+    :root {
+      --brand-primary: #0f172a;
+      --brand-accent: #3b82f6;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-400: #94a3b8;
+      --slate-500: #64748b;
+      --slate-600: #475569;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+      --emerald-50: #ecfdf5;
+      --emerald-500: #10b981;
+      --emerald-600: #059669;
+      --rose-50: #fff1f2;
+      --rose-400: #fb7185;
+      --rose-500: #f43f5e;
+      --rose-600: #e11d48;
+      --amber-50: #fffbeb;
+      --amber-100: #fef3c7;
+      --amber-700: #b45309;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--slate-50);
+      color: var(--slate-900);
+      -webkit-font-smoothing: antialiased;
+    }
+    .font-display { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .h-screen { height: 100vh; }
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .flex-1 { flex: 1; }
+    .items-center { align-items: center; }
+    .items-start { align-items: flex-start; }
+    .justify-between { justify-content: space-between; }
+    .justify-center { justify-content: center; }
+    .justify-end { justify-content: flex-end; }
+    .gap-1 { gap: 0.25rem; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-3 { gap: 0.75rem; }
+    .gap-4 { gap: 1rem; }
+    .gap-6 { gap: 1.5rem; }
+    .overflow-hidden { overflow: hidden; }
+    .overflow-y-auto { overflow-y: auto; }
+    .overflow-x-auto { overflow-x: auto; }
+    .w-full { width: 100%; }
+    .h-16 { height: 4rem; }
+    .h-8 { height: 2rem; }
+    .h-10 { height: 2.5rem; }
+    .w-8 { width: 2rem; }
+    .w-10 { width: 2.5rem; }
+    .w-64 { width: 16rem; }
+    .rounded-xl { border-radius: 0.75rem; }
+    .rounded-2xl { border-radius: 1rem; }
+    .rounded-3xl { border-radius: 1.5rem; }
+    .rounded-full { border-radius: 9999px; }
+    .rounded-lg { border-radius: 0.5rem; }
+    .rounded-sm { border-radius: 0.125rem; }
+    .border { border: 1px solid var(--slate-200); }
+    .border-b { border-bottom: 1px solid var(--slate-200); }
+    .border-t { border-top: 1px solid var(--slate-100); }
+    .border-slate-100 { border-color: var(--slate-100); }
+    .bg-white { background: #fff; }
+    .bg-slate-50 { background: var(--slate-50); }
+    .bg-slate-100 { background: var(--slate-100); }
+    .bg-slate-900 { background: var(--slate-900); }
+    .text-white { color: #fff; }
+    .text-xs { font-size: 0.75rem; }
+    .text-sm { font-size: 0.875rem; }
+    .text-lg { font-size: 1.125rem; }
+    .text-xl { font-size: 1.25rem; }
+    .text-2xl { font-size: 1.5rem; }
+    .font-bold { font-weight: 700; }
+    .font-semibold { font-weight: 600; }
+    .font-medium { font-weight: 500; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .text-left { text-align: left; }
+    .text-slate-400 { color: var(--slate-400); }
+    .text-slate-500 { color: var(--slate-500); }
+    .text-slate-600 { color: var(--slate-600); }
+    .text-slate-700 { color: #334155; }
+    .text-slate-800 { color: var(--slate-800); }
+    .text-slate-900 { color: var(--slate-900); }
+    .text-brand-accent { color: var(--brand-accent); }
+    .text-emerald-500 { color: var(--emerald-500); }
+    .text-emerald-600 { color: var(--emerald-600); }
+    .text-rose-500 { color: var(--rose-500); }
+    .text-rose-600 { color: var(--rose-600); }
+    .p-2 { padding: 0.5rem; }
+    .p-3 { padding: 0.75rem; }
+    .p-4 { padding: 1rem; }
+    .p-6 { padding: 1.5rem; }
+    .p-8 { padding: 2rem; }
+    .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+    .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+    .px-4 { padding-left: 1rem; padding-right: 1rem; }
+    .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+    .px-8 { padding-left: 2rem; padding-right: 2rem; }
+    .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+    .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+    .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+    .py-12 { padding-top: 3rem; padding-bottom: 3rem; }
+    .mb-1 { margin-bottom: 0.25rem; }
+    .mb-2 { margin-bottom: 0.5rem; }
+    .mb-3 { margin-bottom: 0.75rem; }
+    .mb-6 { margin-bottom: 1.5rem; }
+    .mb-8 { margin-bottom: 2rem; }
+    .mt-1 { margin-top: 0.25rem; }
+    .mt-2 { margin-top: 0.5rem; }
+    .mt-4 { margin-top: 1rem; }
+    .mt-auto { margin-top: auto; }
+    .ml-4 { margin-left: 1rem; }
+    .ml-auto { margin-left: auto; }
+    .pl-6 { padding-left: 1.5rem; }
+    .pb-4 { padding-bottom: 1rem; }
+    .shadow-sm { box-shadow: 0 1px 2px rgb(0 0 0 / 0.05); }
+    .shadow-lg { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
+    .shadow-2xl { box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); }
+    .ring-1 { box-shadow: 0 0 0 1px var(--slate-200); }
+    .cursor-pointer { cursor: pointer; }
+    .select-none { user-select: none; }
+    .outline-none { outline: none; }
+    .border-none { border: none; }
+    .bg-transparent { background: transparent; }
+    .uppercase { text-transform: uppercase; }
+    .tracking-tight { letter-spacing: -0.025em; }
+    .tracking-widest { letter-spacing: 0.2em; }
+    .leading-none { line-height: 1; }
+    .leading-relaxed { line-height: 1.625; }
+    .whitespace-pre-wrap { white-space: pre-wrap; }
+    .max-w-lg { max-width: 32rem; }
+    .max-w-full { max-width: 100%; }
+    .max-h-60vh { max-height: 60vh; }
+    .z-10 { z-index: 10; }
+    .z-50 { z-index: 50; }
+    .fixed { position: fixed; }
+    .absolute { position: absolute; }
+    .relative { position: relative; }
+    .inset-0 { inset: 0; }
+    .top-2 { top: 0.5rem; }
+    .right-2 { right: 0.5rem; }
+    .top-1 { top: 0.25rem; }
+    .right-1 { right: 0.25rem; }
+    .grid { display: grid; }
+    .grid-cols-1 { grid-template-columns: 1fr; }
+    .grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .space-y-2 > * + * { margin-top: 0.5rem; }
+    .space-y-4 > * + * { margin-top: 1rem; }
+    .space-y-6 > * + * { margin-top: 1.5rem; }
+    .divide-y > * + * { border-top: 1px solid var(--slate-50); }
+    .flex-wrap { flex-wrap: wrap; }
+    .flex-shrink-0 { flex-shrink: 0; }
+    .w-96 { width: 24rem; }
+    .h-300 { height: 300px; }
+    .h-chart-bar { height: 380px; min-height: 300px; }
+    .h-180 { height: 180px; }
+    .h-8-spark { height: 2rem; }
+    .w-16-spark { width: 4rem; }
+    .backdrop-blur { backdrop-filter: blur(12px); }
+    .bg-white-50 { background: rgba(255,255,255,0.5); }
+    .hover-bg-slate-50:hover { background: var(--slate-50); }
+    .hover-bg-slate-100:hover { background: var(--slate-100); }
+    .hover-bg-slate-200:hover { background: var(--slate-200); }
+    .hover-opacity:hover { opacity: 0.9; }
+    .transition { transition: all 0.2s ease; }
+    .glass-card {
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--slate-200);
+      border-radius: 1rem;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+    }
+    .gauge-bar-bg {
+      height: 0.5rem;
+      width: 100%;
+      background: var(--slate-100);
+      border-radius: 9999px;
+      overflow: hidden;
+    }
+    .gauge-bar-fill {
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.5s ease-out;
+    }
+    .pm-overview {
+      background: linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.98) 50%, rgba(241, 245, 249, 0.9) 100%);
+      border: 1px solid var(--slate-200);
+      border-radius: 1rem;
+      padding: 1.25rem 1.25rem 1rem;
+      box-shadow: 0 4px 24px rgb(15 23 42 / 0.06);
+    }
+    .pm-overview-kpi {
+      display: flex; flex-wrap: wrap; gap: 0.75rem;
+    }
+    .pm-overview-kpi-item {
+      min-width: 5.5rem;
+      padding: 0.65rem 0.85rem;
+      border-radius: 0.75rem;
+      background: #fff;
+      border: 1px solid var(--slate-100);
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    }
+    .pm-overview-kpi-item .pm-kpi-val {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--slate-900);
+      line-height: 1.1;
+    }
+    .pm-overview-kpi-item .pm-kpi-lab {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--slate-400);
+      margin-top: 0.2rem;
+    }
+    .pm-store-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.65rem;
+      margin-top: 1rem;
+    }
+    .pm-store-card {
+      position: relative;
+      padding: 0.85rem 0.9rem;
+      border-radius: 0.85rem;
+      border: 1px solid var(--slate-200);
+      background: #fff;
+      overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .pm-store-card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--slate-200);
+      border-radius: 3px 0 0 3px;
+    }
+    .pm-store-card.pm-risk-high::before { background: linear-gradient(180deg, #fb7185, #e11d48); }
+    .pm-store-card.pm-risk-mid::before { background: linear-gradient(180deg, #fbbf24, #f59e0b); }
+    .pm-store-card.pm-risk-low::before { background: linear-gradient(180deg, #34d399, #10b981); }
+    .pm-store-card:hover {
+      border-color: #cbd5e1;
+      box-shadow: 0 8px 20px rgb(15 23 42 / 0.07);
+    }
+    .pm-store-name {
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: var(--slate-800);
+      line-height: 1.25;
+      padding-left: 0.35rem;
+      margin-bottom: 0.35rem;
+    }
+    .pm-store-meta {
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--slate-400);
+      padding-left: 0.35rem;
+      margin-bottom: 0.65rem;
+    }
+    .pm-store-stats {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding-left: 0.35rem;
+    }
+    .pm-stat-block { text-align: center; flex: 1; }
+    .pm-stat-num { font-size: 1.1rem; font-weight: 800; color: var(--slate-900); }
+    .pm-stat-num.pm-warn { color: #e11d48; }
+    .pm-stat-lab { font-size: 0.6rem; font-weight: 700; color: var(--slate-400); margin-top: 0.1rem; }
+    .pm-rate-wrap { margin-top: 0.55rem; padding-left: 0.35rem; padding-right: 0.15rem; }
+    .pm-rate-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
+    .pm-rate-val { font-size: 0.75rem; font-weight: 800; }
+    .pm-rate-bar {
+      height: 0.35rem;
+      border-radius: 9999px;
+      background: var(--slate-100);
+      overflow: hidden;
+    }
+    .pm-rate-bar > i {
+      display: block;
+      height: 100%;
+      border-radius: 9999px;
+      background: linear-gradient(90deg, #3b82f6, #6366f1);
+    }
+    .pm-rate-bar.pm-bar-warn > i { background: linear-gradient(90deg, #fb7185, #e11d48); }
+    .pm-rate-bar.pm-bar-mid > i { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+    .sidebar-desktop { display: none; }
+    @media (min-width: 1024px) {
+      .sidebar-desktop { display: flex; }
+      .lg-col-span-2 { grid-column: span 2; }
+      .lg-col-span-1 { grid-column: span 1; }
+      .grid-cols-lg-3 { grid-template-columns: repeat(3, 1fr); }
+      .grid-cols-lg-2 { grid-template-columns: repeat(2, 1fr); }
+      .grid-cols-lg-4 { grid-template-columns: repeat(4, 1fr); }
+    }
+    @media (max-width: 1023px) {
+      .mobile-tabs { display: flex; }
+    }
+    @media (min-width: 1024px) {
+      .mobile-tabs { display: none; }
+    }
+    .mobile-tabs {
+      border-bottom: 1px solid var(--slate-200);
+      background: #fff;
+      padding: 0.5rem 1rem;
+      gap: 0.5rem;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 0.5rem 1rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 700;
+      border: none;
+      background: var(--slate-100);
+      color: var(--slate-500);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tab-btn.active {
+      background: var(--slate-900);
+      color: #fff;
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: var(--slate-200);
+      border-radius: 4px;
+    }
+    .spin {
+      width: 3rem;
+      height: 3rem;
+      border: 4px solid var(--slate-100);
+      border-top-color: var(--brand-accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .modal-backdrop { background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px); }
+    svg.icon { width: 1rem; height: 1rem; flex-shrink: 0; }
+    svg.icon-lg { width: 1.25rem; height: 1.25rem; }
+    .badge-dot {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      width: 0.5rem;
+      height: 0.5rem;
+      background: var(--rose-500);
+      border-radius: 50%;
+      border: 2px solid #fff;
+    }
+    .anomaly-chip-list { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; flex: 1; min-width: 0; }
+    .anomaly-chip {
+      font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 0.375rem;
+      background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; line-height: 1.25; max-width: 100%;
+    }
+    .wb-funnel-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.5rem; justify-content: flex-start; }
+    .wb-funnel-card {
+      flex: 1; min-width: 6.5rem; max-width: 10.5rem; padding: 0.65rem 0.5rem; border-radius: 0.75rem;
+      border: 1px solid var(--slate-200); background: #fff; text-align: center;
+    }
+    .wb-funnel-connector { color: var(--slate-300); font-size: 1.1rem; align-self: center; padding: 0 0.15rem; }
+    .wb-pct-pill {
+      display: inline-block; margin-top: 0.25rem; padding: 0.1rem 0.4rem; border-radius: 9999px; font-size: 0.65rem; font-weight: 700;
+      background: #ecfdf5; color: #047857; border: 1px solid #bbf7d0;
+    }
+  </style>
+</head>
+<body><p style="font-size:12px;color:#64748b;margin:8px 0 0">静态演示包 · 数据快照 2026-06-05 · 仅读 data/*.json</p>
+  <div id="root" class="flex h-screen overflow-hidden"></div>
+
+  <script src="scripts/walkin-guojin-browser.js"></script>
+  <script>
+(function () {
+  const StoreClass = { CLASS_1: 'Class 1', CLASS_2: 'Class 2' };
+
+  /** 离线兜底：不再使用国内门店 demo，需加载 data/walkin-YYYY-MM.json */
+  const FALLBACK_STORES = [];
+  const FALLBACK_STAFF = [];
+
+  var mockStores = FALLBACK_STORES;
+  var mockStaff = FALLBACK_STAFF;
+
+  /** 实时接口：同域走相对路径；file:// 默认连本机 API（npm run walkin:api） */
+  var WALKIN_API_BASE = (function () {
+    var q = new URLSearchParams(location.search).get('api');
+    if (q) return String(q).replace(/\/$/, '');
+    if (location.protocol === 'http:' || location.protocol === 'https:') return '';
+    return '';
+  })();
+
+  function walkinApiUrl(ym) {
+    var b = WALKIN_API_BASE;
+    return (b ? b : '') + '/api/walkin?month=' + encodeURIComponent(ym);
+  }
+
+  function walkinStaticUrl(ym) {
+    return 'data/walkin-' + ym + '.json';
+  }
+
+  var walkinPollTimer = null;
+
+  const state = {
+    activeTab: 'dashboard',
+    globalSearch: '',
+    storeRegionFilter: 'All',
+    storeFilterId: 'All',
+    staffFilterId: 'All',
+    storeTypeFilter: 'All',
+    anomalyOnly: false,
+    selectedMonth: '2026-05',
+    dateRange: { start: '2026-05-01', end: '2026-05-31' },
+    isCustomDate: false,
+    modal: { open: false, title: '', loading: false, content: '' },
+    dataSource: 'loading',
+    dataSourceDetail: '正在尝试读取 data/walkin-dashboard.json …',
+    walkinBasics: null,
+  };
+
+  function computeWalkinBasicsHtml(stores, staff) {
+    function pn() {
+      var a = arguments;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != null && a[i] !== '') {
+          var n = Number(a[i]);
+          if (!isNaN(n)) return n;
+        }
+      }
+      return 0;
+    }
+    var walkinGroups = stores.reduce(function (x, s) {
+      return x + pn(s.totalVisitGroups);
+    }, 0);
+    function sumSS(sk, skSt) {
+      var sv = stores.reduce(function (x, s) {
+        return x + pn(s[sk]);
+      }, 0);
+      if (sv > 0) return sv;
+      return staff.reduce(function (x, s) {
+        return x + pn(s[skSt]);
+      }, 0);
+    }
+    var dealGroups = sumSS('dealGroups', 'dealGroups');
+    var walkinPeople = sumSS('walkinPeople', 'walkinPeople');
+    var wechatAdd = sumSS('wechatAddCount', 'wechatAddCount');
+    var effC = sumSS('effectiveCustomers', 'effectiveCustomers');
+    var effA = sumSS('effectiveAdded', 'effectiveAdded');
+    var activationCnt = sumSS('activationQty', 'activationQty');
+    var offsiteActivationCnt = sumSS('offsiteActivationQty', 'offsiteActivationQty');
+    var touchCnt = sumSS('touchCount', 'touchCount');
+    var useCnt = sumSS('useCount', 'useCount');
+    var dealWan =
+      Math.round(
+        (stores.reduce(function (x, s) {
+          return x + pn(s.totalSalesAmount);
+        }, 0) /
+          10000) *
+          10
+      ) / 10;
+    var pct = function (n, d) {
+      return d > 0 ? Math.round((1000 * n) / d) / 10 : 0;
+    };
+    var addW = 0;
+    for (var si = 0; si < stores.length; si++) {
+      var s = stores[si];
+      addW += pn(s.totalVisitGroups) * pn(s.avgAddRate);
+    }
+    var addedGrp = Math.round(addW);
+    var totalSalesAmt = stores.reduce(function (x, s) {
+      return x + pn(s.totalSalesAmount);
+    }, 0);
+    var estParts = [];
+    if (walkinPeople <= 0 && walkinGroups > 0) {
+      walkinPeople = Math.round(walkinGroups * 1.66);
+      estParts.push('进店人数按约1.66人/组估算（缺画像字段时）');
+    }
+    if (wechatAdd <= 0 && walkinGroups > 0) {
+      if (addedGrp > 0) {
+        wechatAdd = addedGrp;
+        estParts.push('微信添加按各店组×组添加率聚合估算');
+      } else if (walkinPeople > 0) {
+        wechatAdd = Math.round(walkinPeople * 0.3);
+        estParts.push('微信添加按进店人数比例粗估');
+      }
+    }
+    if (dealGroups <= 0 && totalSalesAmt > 0 && walkinGroups > 0) {
+      var aovSum = 0;
+      var aovN = 0;
+      for (var ai = 0; ai < staff.length; ai++) {
+        var stf = staff[ai];
+        var ms = pn(stf.monthlySales);
+        if (ms > 0) {
+          aovSum += ms;
+          aovN++;
+        }
+      }
+      var aov = aovN > 0 ? aovSum / aovN : 42000;
+      if (aov < 15000) aov = 15000;
+      if (aov > 200000) aov = 200000;
+      dealGroups = Math.min(walkinGroups, Math.max(0, Math.round(totalSalesAmt / aov)));
+      if (dealGroups > 0) estParts.push('成交组数按销额÷导购件均粗估（缺画像字段时）');
+    }
+    if (effC <= 0 && walkinPeople > 0) {
+      effC = Math.round(walkinPeople * 0.41);
+      estParts.push('有效客户按进店人数约41%估算');
+    }
+    if (effA <= 0 && effC > 0) {
+      effA = Math.round(effC * 0.79);
+      estParts.push('已添加有效按有效客户约79%估算');
+    }
+    if (activationCnt <= 0) {
+      var activationBase = wechatAdd > 0 ? wechatAdd : effA;
+      activationCnt = Math.round(activationBase * 0.085);
+      if (activationBase > 0) estParts.push('激活数按已添加客户约8.5%估算');
+    }
+    if (offsiteActivationCnt <= 0 && activationCnt > 0) {
+      offsiteActivationCnt = Math.max(0, Math.round(activationCnt * 0.062));
+      estParts.push('异地激活按激活数约6.2%估算');
+    }
+    var denomPeople = walkinPeople > 0 ? walkinPeople : walkinGroups;
+    var touchRatePct = pct(touchCnt, denomPeople);
+    var useRatePct = pct(useCnt, denomPeople);
+    if (touchCnt <= 0 && walkinGroups > 0) {
+      var tw = 0;
+      for (var tj = 0; tj < stores.length; tj++) {
+        var st = stores[tj];
+        tw += pn(st.totalVisitGroups) * pn(st.avgTouchRate);
+      }
+      touchRatePct = Math.round((1000 * tw) / walkinGroups) / 10;
+    }
+    if (useCnt <= 0 && walkinGroups > 0) {
+      var uw = 0;
+      for (var uj = 0; uj < stores.length; uj++) {
+        var su = stores[uj];
+        uw += pn(su.totalVisitGroups) * pn(su.avgUseRate);
+      }
+      useRatePct = Math.round((1000 * uw) / walkinGroups) / 10;
+    }
+    return {
+      walkinGroups: walkinGroups,
+      dealGroups: dealGroups,
+      walkinPeople: walkinPeople,
+      wechatAdd: wechatAdd,
+      effectiveCustomers: effC,
+      effectiveAdded: effA,
+      activationCnt: activationCnt,
+      offsiteActivationCnt: offsiteActivationCnt,
+      touchRatePct: touchRatePct,
+      useRatePct: useRatePct,
+      groupAddRatePct: pct(addedGrp, walkinGroups),
+      dealRatePct: pct(dealGroups, walkinGroups),
+      wechatRatePct: pct(wechatAdd, walkinPeople),
+      validToAddedPct: pct(effA, effC),
+      activationRatePct: pct(activationCnt, wechatAdd > 0 ? wechatAdd : effA),
+      offsiteActivationRatePct: pct(offsiteActivationCnt, activationCnt),
+      dealTotalWan: dealWan,
+      storeCount: stores.length,
+      estimatedNote:
+        estParts.length > 0
+          ? '部分指标：' + estParts.join('；') + '。数据源补齐后将与 VPS 完全一致。'
+          : '',
+    };
+  }
+
+  function renderWalkinBasicsBlock() {
+    var b = state.walkinBasics;
+    if (!b) return '';
+    var dash =
+      '<p class="text-xs text-slate-500 mb-4">数据口径：本月累计（按代理商汇总），共 <strong class="text-slate-700">' +
+      b.storeCount +
+      '</strong> 家代理商；率类指标已约束在 0～100%。环比/同比以「—」表示（本页未接历史窗口）。' +
+      (b.estimatedNote
+        ? '<br/><span class="text-amber-800 font-medium">' +
+          escapeHtml(b.estimatedNote) +
+          '</span>'
+        : '') +
+      '</p>';
+    function kpi(title, val, sub, warn) {
+      return (
+        '<div class="p-4 rounded-xl border bg-white" style="border-color:' +
+        (warn ? '#f87171' : 'var(--slate-200)') +
+        ';background:' +
+        (warn ? '#fff7f7' : '#fff') +
+        '">' +
+        '<p class="text-xs font-bold text-slate-500 mb-1">' +
+        escapeHtml(title) +
+        '</p>' +
+        '<p class="text-2xl font-bold text-slate-900 tracking-tight">' +
+        val +
+        '</p>' +
+        (sub
+          ? '<p class="text-xs ' +
+            (warn ? 'text-red-600 font-bold' : 'text-slate-500') +
+            ' mt-1">' +
+            sub +
+            '</p>'
+          : '') +
+        '</div>'
+      );
+    }
+    function fc(title, main, sub) {
+      return (
+        '<div class="wb-funnel-card">' +
+        '<p class="text-xs font-bold text-slate-500">' +
+        escapeHtml(title) +
+        '</p>' +
+        '<p class="text-lg font-bold text-slate-900 mt-1">' +
+        main +
+        '</p>' +
+        (sub ? '<p class="text-xs text-slate-400 mt-0.5">' + escapeHtml(sub) + '</p>' : '') +
+        '</div>'
+      );
+    }
+    return (
+      '<div class="glass-card p-6 mb-2">' +
+      '<div class="flex flex-wrap items-start justify-between gap-2 mb-2">' +
+      '<div><h2 class="font-display font-semibold text-slate-900 tracking-tight text-lg">客流转化总览</h2>' +
+      '<p class="text-xs text-slate-500 mt-0.5">本月累计 · 总—大区—代理商三级汇总（进店 / 留资 / 成交 / 触达）</p></div>' +
+      '<span class="text-xs font-bold text-slate-500 shrink-0">成交金额单位：万</span></div>' +
+      dash +
+      '<div class="grid grid-cols-2 grid-cols-lg-4 gap-3 mb-3">' +
+      kpi('本期进店组数', String(b.walkinGroups), '组添加率 ' + b.groupAddRatePct + '% · 环比 — · 同比 —') +
+      kpi('本期成交组数', String(b.dealGroups), '现场成交率 ' + b.dealRatePct + '% · 环比 — · 同比 —') +
+      kpi('本期进店人数', String(b.walkinPeople), '用于微信添加率 · 环比 — · 同比 —') +
+      kpi('本期微信添加数', String(b.wechatAdd), '按画像条数 · 环比 — · 同比 —') +
+      '</div>' +
+      '<div class="grid grid-cols-2 grid-cols-lg-4 gap-3 mb-4">' +
+      kpi('触摸率', b.touchRatePct + '%', '触摸人次 / 进店人数') +
+      kpi('使用率', b.useRatePct + '%', '试用人次 / 进店人数') +
+      kpi(
+        '激活数',
+        String(b.activationCnt),
+        (b.activationRatePct < 10 ? '异常提醒：' : '') + '激活率 ' + b.activationRatePct + '%',
+        b.activationRatePct < 10
+      ) +
+      kpi(
+        '异地激活数',
+        String(b.offsiteActivationCnt),
+        (b.offsiteActivationRatePct > 5 ? '异常提醒：' : '') + '异地激活率 ' + b.offsiteActivationRatePct + '%',
+        b.offsiteActivationRatePct > 5
+      ) +
+      '</div>' +
+      '<div class="border-t border-slate-100 pt-4">' +
+      '<div class="flex items-center justify-between mb-3">' +
+      '<h3 class="text-sm font-bold text-slate-800">关键转化链路</h3>' +
+      '<span class="text-xs text-slate-400">成交金额单位：万</span></div>' +
+      '<div class="wb-funnel-row">' +
+      fc('组数添加率', b.groupAddRatePct + '%', '已添加组 / 进店组') +
+      '<span class="wb-funnel-connector">· ·</span>' +
+      fc('现场成交率', b.dealRatePct + '%', '成交组 / 进店组') +
+      '<span class="wb-funnel-connector">· ·</span>' +
+      fc('成交总计(万)', String(b.dealTotalWan), '各接待类型现场成交额合计÷1万') +
+      '<span class="wb-funnel-connector">· ·</span>' +
+      fc('微信添加率', b.wechatRatePct + '%', '微信添加 / 进店人数') +
+      '<span class="wb-funnel-connector">· ·</span>' +
+      fc('有效客户数', String(b.effectiveCustomers), 'is_valid_customer=yes') +
+      '<span class="wb-funnel-connector">· ·</span>' +
+      fc('添加有效客户数', String(b.effectiveAdded), '有效且已加微') +
+      '<span class="wb-funnel-connector">· ·</span>' +
+      '<div class="wb-funnel-card" style="min-width:4rem;border-style:dashed">' +
+      '<span class="wb-pct-pill">' +
+      b.validToAddedPct +
+      '%</span><p class="text-xs text-slate-500 mt-1">有效→已添加</p></div>' +
+      '</div></div></div>'
+    );
+  }
+
+  function storeById(id) {
+    return mockStores.find(function (s) { return s.id === id; });
+  }
+
+  function stats() {
+    var totalStores = mockStores.length;
+    var okStores = mockStores.filter(function (s) { return s.avgAddRate >= 0.35; }).length;
+    var totalSales = mockStores.reduce(function (a, s) { return a + s.totalSalesAmount; }, 0);
+    var avgAddRate = totalStores ? mockStores.reduce(function (a, s) { return a + s.avgAddRate; }, 0) / totalStores : 0;
+    return {
+      totalStores: totalStores,
+      okStores: okStores,
+      totalSales: totalSales,
+      avgAddRate: (avgAddRate * 100).toFixed(1) + '%',
+      riskCount: mockStaff.filter(function (s) { return (s.anomalies || []).length > 0; }).length,
+    };
+  }
+
+  function filteredStores() {
+    return mockStores.filter(function (s) {
+      var matchesText = s.name.indexOf(state.globalSearch) !== -1 || s.city.indexOf(state.globalSearch) !== -1;
+      var matchesRegion = state.storeRegionFilter === 'All' || s.region === state.storeRegionFilter;
+      var matchesStore = state.storeFilterId === 'All' || s.id === state.storeFilterId;
+      var matchesType = state.storeTypeFilter === 'All' || s.class === state.storeTypeFilter;
+      var matchesAnomaly = !state.anomalyOnly || s.anomalies.length > 0;
+      return matchesText && matchesRegion && matchesStore && matchesType && matchesAnomaly;
+    });
+  }
+
+  function filteredStaff() {
+    return mockStaff.filter(function (s) {
+      var staffStore = storeById(s.storeId);
+      var staffRegion = s.region || (staffStore && staffStore.region);
+      var matchesText = s.name.indexOf(state.globalSearch) !== -1 || s.id.indexOf(state.globalSearch) !== -1;
+      var matchesRegion =
+        state.storeRegionFilter === 'All' ||
+        (staffStore && staffStore.region === state.storeRegionFilter) ||
+        (!staffStore && staffRegion === state.storeRegionFilter);
+      var matchesStore = state.storeFilterId === 'All' || s.storeId === state.storeFilterId;
+      var matchesStaff = state.staffFilterId === 'All' || s.id === state.staffFilterId;
+      var matchesAnomaly = !state.anomalyOnly || s.anomalies.length > 0;
+      return matchesText && matchesRegion && matchesStore && matchesStaff && matchesAnomaly;
+    });
+  }
+
+  function storeRankingData() {
+    return mockStores.slice().sort(function (a, b) { return b.totalSalesAmount - a.totalSalesAmount; }).map(function (s) {
+      return {
+        name: s.name,
+        sales: s.totalSalesAmount / 10000,
+        addRate: (s.avgAddRate * 100).toFixed(1),
+      };
+    });
+  }
+
+  function escapeHtml(t) {
+    var d = document.createElement('div');
+    d.textContent = t;
+    return d.innerHTML;
+  }
+
+  /** 元 → 万（字符串带「万」） */
+  function fmtWan(yuan) {
+    var n = Number(yuan) || 0;
+    if (n === 0) return '0万';
+    var w = n / 10000;
+    var s = w >= 100 ? w.toFixed(0) : w >= 10 ? w.toFixed(1) : w.toFixed(2);
+    s = s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+    return s + '万';
+  }
+
+  function sparklineYuanAsWan(vals, stroke) {
+    var wan = (vals || []).map(function (v) {
+      return (Number(v) || 0) / 10000;
+    });
+    return sparkline(wan, stroke);
+  }
+
+  function mockAiAnalysis(title, data) {
+    if (title.indexOf('个案') !== -1 || title.indexOf('诊断') !== -1) {
+      var name = title.replace(/个案诊断|个案深度分析|诊断/g, '').trim();
+      var staff = mockStaff.find(function (s) { return name.indexOf(s.name) !== -1; });
+      if (staff) {
+        return (
+          '【离线演示】针对「' + staff.name + '」的要点：\n\n' +
+          '1) 当月Walk-in成交 ' + fmtWan(staff.monthlySales) + '，接待 ' + staff.visitGroups + ' 组，组添加率 ' + (staff.addRate * 100).toFixed(0) + '%。\n' +
+          '2) ' +
+          (staff.crmReachRate == null
+            ? 'CRM 闭环率未接入（当前为 Walk-in 数据包）。\n'
+            : 'CRM 闭环率 ' + (staff.crmReachRate * 100).toFixed(0) + '%，建议对照门店均值做差距分析。\n') +
+          (staff.anomalies.length
+            ? '3) 异常标签：' + staff.anomalies.join('、') + ' — 建议现场复核流程与录入口径。\n'
+            : '3) 当前无系统标注异常，可继续保持触达与复盘节奏。\n') +
+          '\n（真实环境可接入 Gemini 等模型生成更长报告。）'
+        );
+      }
+    }
+    if (title.indexOf('门店') !== -1 && title.indexOf('异常') !== -1) {
+      return (
+        '【离线演示】' + title + '\n\n' +
+        '建议优先核查：接待分配、微信添加口径、CRM 漏登。\n' +
+        '可将该门店近 7 日接待明细与成交明细做交叉比对。'
+      );
+    }
+    if (title.indexOf('全店') !== -1) {
+      return (
+        '【离线演示】全店业绩与添加率概览：\n\n' +
+        '· 添加率低于 35% 的门店在柱状图中以粉色标识，建议按区域督导跟进。\n' +
+        '· 高成交但添加率偏低的门店，重点排查「只成交未沉淀私域」的行为模式。\n\n' +
+        '（接入 API 后可自动生成根因假设与行动清单。）'
+      );
+    }
+    if (title.indexOf('CRM') !== -1) {
+      return (
+        '【离线演示】CRM 触达结构为示例数据（1-3 日 / 7 日 / 14 日 / 待触达）。\n\n' +
+        '建议：把「待触达/异常」占比压到目标线以下，并校验自动化提醒是否生效。'
+      );
+    }
+    if (title.indexOf('今日') !== -1 && title.indexOf('异常报告') !== -1) {
+      var d = data || {};
+      var lowAdd = d.lowAdd || [];
+      var noDeal = d.noDeal || [];
+      var anomStaff = d.anomStaff || [];
+      var out = [];
+      out.push('【离线演示】今日 Walk-in 异常报告（规则与左侧「核心预警」一致）');
+      out.push('数据范围：当前页已加载的门店与导购；自然月以数据源 meta 为准。');
+      out.push('');
+      if (lowAdd.length) {
+        out.push('一、低添加率门店（组添加率低于35% 且接待不少于5组）');
+        for (var li = 0; li < lowAdd.length; li++) {
+          var s = lowAdd[li];
+          out.push(
+            '  · ' +
+              s.name +
+              ' — 组添加率 ' +
+              Math.round((s.avgAddRate || 0) * 1000) / 10 +
+              '%，接待 ' +
+              (s.totalVisitGroups || 0) +
+              ' 组'
+          );
+        }
+        out.push('');
+      }
+      if (noDeal.length) {
+        out.push('二、有接待、门店 Walk-in 销额为零（建议对齐 POS / 看板）');
+        for (var ni = 0; ni < noDeal.length; ni++) {
+          var nd = noDeal[ni];
+          out.push('  · ' + nd.name + ' — 接待 ' + (nd.totalVisitGroups || 0) + ' 组');
+        }
+        out.push('');
+      }
+      if (anomStaff.length) {
+        out.push('三、导购系统异常标签');
+        for (var ai = 0; ai < anomStaff.length; ai++) {
+          var st = anomStaff[ai];
+          var tags = (st.anomalies || []).join('、');
+          out.push(
+            '  · ' + st.name + '（接待 ' + (st.visitGroups || 0) + ' 组）— ' + tags
+          );
+        }
+        out.push('');
+      }
+      if (!lowAdd.length && !noDeal.length && !anomStaff.length) {
+        out.push('当前数据未命中上述规则项，暂无结构化异常清单。');
+        out.push('建议继续用柱状图与名单下钻关注边际风险。');
+        out.push('');
+      }
+      out.push('建议行动（摘要）：');
+      var acted = false;
+      if (lowAdd.length) {
+        out.push('  · 对低添加率门店抽查添加凭证与培训闭环');
+        acted = true;
+      }
+      if (noDeal.length) {
+        out.push('  · 对高接待零成交门店做成交归因与现场辅导');
+        acted = true;
+      }
+      if (anomStaff.length) {
+        out.push('  · 对异常标签导购做数据核对与一对一复盘');
+        acted = true;
+      }
+      if (!acted) {
+        out.push('  · 周会对齐 Walk-in 添加率与成交口径');
+        out.push('  · 保持 KPI 与 VPS 同源数据刷新');
+      }
+      out.push('');
+      out.push('（接入大模型 API 后可自动生成更长段落与整改工单。）');
+      return out.join('\n');
+    }
+    return '【离线演示】已根据「' + title + '」生成占位洞察。\n\n真实部署时请配置 API Key 与后端代理。';
+  }
+
+  function openAnalysis(title, data) {
+    state.modal = { open: true, title: title, loading: true, content: '' };
+    render();
+    setTimeout(function () {
+      state.modal.loading = false;
+      state.modal.content = mockAiAnalysis(title, data);
+      render();
+    }, 700);
+  }
+
+  function closeModal() {
+    state.modal = { open: false, title: '', loading: false, content: '' };
+    render();
+  }
+
+  /** 门店异常条展示：短标签 + title 悬停全文 */
+  function formatAnomalyChipLabel(txt) {
+    var t = String(txt || '');
+    if (t.indexOf('添加率预警') === 0) return '添加率＜35%（组）';
+    if (t.indexOf('有接待无成交') === 0) return '有接待·无成交';
+    if (t.indexOf('低添加率') === 0) return '低添加率';
+    if (t.indexOf('窗口内无成交') === 0) return '窗口内无成交';
+    return t.length > 14 ? t.slice(0, 14) + '…' : t;
+  }
+
+  /** 柱状图顶：销额（万）短格式 */
+  function fmtBarSalesWan(salesWan) {
+    var v = Number(salesWan) || 0;
+    if (v <= 0) return '0';
+    var s = v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+    s = s.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+    return s;
+  }
+
+  function escSvgTitle(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderBarChart(rows) {
+    if (!rows || rows.length === 0) {
+      return (
+        '<svg viewBox="0 0 400 120" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">' +
+        '<text x="200" y="64" text-anchor="middle" font-size="12" fill="#94a3b8">暂无门店数据</text></svg>'
+      );
+    }
+    var salesVals = rows.map(function (r) { return r.sales; });
+    var maxVal = Math.max.apply(null, salesVals.concat([1]));
+    var n = rows.length;
+    var w = Math.min(1680, Math.max(760, Math.round(n * 78)));
+    var h = 328;
+    var pad = { l: 48, r: 24, t: 36, b: 118 };
+    var innerW = w - pad.l - pad.r;
+    var innerH = h - pad.t - pad.b;
+    var slot = innerW / n;
+    var barW = slot * 0.56;
+    var gap = slot * 0.44;
+    var pivotY = pad.t + innerH + 12;
+    var svg =
+      '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">';
+    svg += '<rect x="0" y="0" width="' + w + '" height="' + h + '" fill="transparent"/>';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var bh = (r.sales / maxVal) * innerH;
+      var x = pad.l + i * slot + gap / 2;
+      var y = pad.t + innerH - bh;
+      var tx = x + barW / 2;
+      var fill = parseFloat(r.addRate) < 35 ? '#c45c52' : '#2d7a62';
+      var tip =
+        r.name + ' · 月销 ' + fmtBarSalesWan(r.sales) + '万 · 组添加率 ' + r.addRate + '%';
+      svg += '<g>';
+      svg += '<title>' + escSvgTitle(tip) + '</title>';
+      svg += '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + bh + '" rx="6" fill="' + fill + '"/>';
+      var valStr = fmtBarSalesWan(r.sales) + '万';
+      var tyVal = bh >= 26 ? y + 15 : y - 5;
+      if (tyVal < pad.t + 12) tyVal = pad.t + 12;
+      svg +=
+        '<text x="' +
+        tx +
+        '" y="' +
+        tyVal +
+        '" text-anchor="middle" font-size="11" font-weight="700" fill="' +
+        (bh >= 26 ? '#ffffff' : '#0f172a') +
+        '" style="pointer-events:none">' +
+        escapeHtml(valStr) +
+        '</text>';
+      svg +=
+        '<text x="' +
+        tx +
+        '" y="' +
+        pivotY +
+        '" text-anchor="middle" font-size="9.5" fill="#64748b" transform="rotate(-52 ' +
+        tx +
+        ' ' +
+        pivotY +
+        ')" style="pointer-events:none">' +
+        escapeHtml(r.name) +
+        '</text>';
+      svg += '</g>';
+    }
+    svg += '</svg>';
+    return svg;
+  }
+
+  function renderDonut() {
+    var data = [
+      { name: '1-3日已触达', value: 85, color: '#10b981' },
+      { name: '7日已触达', value: 65, color: '#2d7a62' },
+      { name: '14日+已触达', value: 45, color: '#f59e0b' },
+      { name: '待触达/异常', value: 15, color: '#f43f5e' },
+    ];
+    var total = data.reduce(function (a, d) { return a + d.value; }, 0);
+    var cx = 90;
+    var cy = 90;
+    var r = 52;
+    var ir = 36;
+    var start = -Math.PI / 2;
+    var paths = '';
+    for (var i = 0; i < data.length; i++) {
+      var frac = data[i].value / total;
+      var end = start + frac * 2 * Math.PI;
+      var x1 = cx + r * Math.cos(start);
+      var y1 = cy + r * Math.sin(start);
+      var x2 = cx + r * Math.cos(end);
+      var y2 = cy + r * Math.sin(end);
+      var x1i = cx + ir * Math.cos(start);
+      var y1i = cy + ir * Math.sin(start);
+      var x2i = cx + ir * Math.cos(end);
+      var y2i = cy + ir * Math.sin(end);
+      var large = end - start > Math.PI ? 1 : 0;
+      paths +=
+        '<path d="M ' +
+        x1 +
+        ' ' +
+        y1 +
+        ' A ' +
+        r +
+        ' ' +
+        r +
+        ' 0 ' +
+        large +
+        ' 1 ' +
+        x2 +
+        ' ' +
+        y2 +
+        ' L ' +
+        x2i +
+        ' ' +
+        y2i +
+        ' A ' +
+        ir +
+        ' ' +
+        ir +
+        ' 0 ' +
+        large +
+        ' 0 ' +
+        x1i +
+        ' ' +
+        y1i +
+        ' Z" fill="' +
+        data[i].color +
+        '" stroke="#fff" stroke-width="2"/>';
+      start = end;
+    }
+    return (
+      '<svg viewBox="0 0 180 180" width="100%" height="100%">' +
+      paths +
+      '</svg>'
+    );
+  }
+
+  function sparkline(vals, stroke) {
+    var w = 64;
+    var h = 32;
+    var max = Math.max.apply(null, vals.concat([1]));
+    var min = Math.min.apply(null, vals.concat([0]));
+    var range = max - min || 1;
+    var pts = vals
+      .map(function (v, i) {
+        var x = (i / (vals.length - 1 || 1)) * (w - 4) + 2;
+        var y = h - 2 - ((v - min) / range) * (h - 4);
+        return x + ',' + y;
+      })
+      .join(' ');
+    return (
+      '<svg width="' +
+      w +
+      '" height="' +
+      h +
+      '" viewBox="0 0 ' +
+      w +
+      ' ' +
+      h +
+      '"><polyline fill="none" stroke="' +
+      stroke +
+      '" stroke-width="2" points="' +
+      pts +
+      '"/></svg>'
+    );
+  }
+
+  function getAiAlertBuckets(maxLow, maxNoDeal, maxStaff) {
+    var ml = maxLow == null ? 8 : maxLow;
+    var mn = maxNoDeal == null ? 8 : maxNoDeal;
+    var ms = maxStaff == null ? 12 : maxStaff;
+    var lowAdd = mockStores
+      .filter(function (s) {
+        return (s.avgAddRate || 0) < 0.35 && (s.totalVisitGroups || 0) >= 5;
+      })
+      .slice()
+      .sort(function (a, b) {
+        return (a.avgAddRate || 0) - (b.avgAddRate || 0);
+      })
+      .slice(0, ml);
+    var noDeal = mockStores
+      .filter(function (s) {
+        var g = s.totalVisitGroups || 0;
+        var sales = s.totalSalesAmount || 0;
+        return g >= 12 && (!sales || sales === 0);
+      })
+      .slice(0, mn);
+    var anomStaff = mockStaff
+      .filter(function (s) {
+        return s.anomalies && s.anomalies.length;
+      })
+      .slice()
+      .sort(function (a, b) {
+        return (b.visitGroups || 0) - (a.visitGroups || 0);
+      })
+      .slice(0, ms);
+    return { lowAdd: lowAdd, noDeal: noDeal, anomStaff: anomStaff };
+  }
+
+  function renderAiAlertBlock() {
+    var snap = getAiAlertBuckets(4, 3, 4);
+    var lowAdd = snap.lowAdd;
+    var noDeal = snap.noDeal;
+    var anomStaff = snap.anomStaff;
+    var parts = [];
+    if (lowAdd.length) {
+      parts.push(
+        '组添加率低于35%且接待不少于5组：' +
+          lowAdd
+            .map(function (s) {
+              return (
+                escapeHtml(s.name) +
+                '（' +
+                Math.round((s.avgAddRate || 0) * 1000) / 10 +
+                '%）'
+              );
+            })
+            .join('、') +
+          '。建议复核接待与添加登记一致性。'
+      );
+    }
+    if (noDeal.length) {
+      parts.push(
+        '有接待、门店 Walk-in 销额为零：' +
+          noDeal.map(function (s) { return escapeHtml(s.name); }).join('、') +
+          '。建议对齐 POS 与看板口径。'
+      );
+    }
+    if (anomStaff.length) {
+      parts.push(
+        '导购系统标注：' +
+          anomStaff
+            .map(function (s) {
+              return (
+                escapeHtml(s.name) +
+                '（' +
+                (s.anomalies || [])
+                  .map(function (t) {
+                    return escapeHtml(t);
+                  })
+                  .join('，') +
+                '）'
+              );
+            })
+            .join('；') +
+          '。'
+      );
+    }
+    if (!parts.length) {
+      parts.push(
+        '当前窗口未命中「低于35%添加率」「高接待零成交」「导购异常标签」等组合规则；可结合门店柱状图与名单下钻持续关注。'
+      );
+    }
+    var coreHtml =
+      '<p class="text-xs text-slate-600 leading-relaxed">' + parts.join(' ') + '</p>';
+    var actions = [];
+    if (lowAdd.length) actions.push('对低添加率门店抽查一周添加凭证与培训');
+    if (noDeal.length) actions.push('对高接待零成交门店做成交归因与现场辅导');
+    if (anomStaff.length) actions.push('对异常标签导购做数据核对与一对一复盘');
+    if (actions.length < 2) actions.push('周会对齐 Walk-in 添加率与成交口径');
+    if (actions.length < 2) actions.push('保持 KPI 与 VPS 同源数据刷新（walkin:api 或 data 包）');
+    actions = actions.slice(0, 4);
+    var ul = actions
+      .map(function (a) {
+        return (
+          '<li class="flex gap-2"><span class="rounded-full flex-shrink-0" style="width:6px;height:6px;background:#fb7185;margin-top:4px"></span>' +
+          escapeHtml(a) +
+          '</li>'
+        );
+      })
+      .join('');
+    return (
+      '<div class="space-y-4">' +
+      '<div class="p-4 rounded-xl bg-white-50 border" style="border-color:rgba(59,130,246,0.1)">' +
+      '<h4 class="text-sm font-bold mb-2" style="color:#1a3c34">核心提醒</h4>' +
+      coreHtml +
+      '</div>' +
+      '<div class="p-4 rounded-xl bg-white-50 border border-slate-100">' +
+      '<h4 class="text-sm font-bold text-slate-800 mb-3">AI 建议行动</h4>' +
+      '<ul class="space-y-2 text-xs text-slate-500">' +
+      ul +
+      '</ul></div>' +
+      '<button type="button" class="data-ai-daily-anomaly-report w-full py-2 text-white text-xs font-bold rounded-xl transition hover-opacity" style="background:var(--brand-primary);border:none;cursor:pointer">💬 生成今日异常报告</button>' +
+      '</div>'
+    );
+  }
+
+  function renderOnlineMergedBlock() {
+    if (typeof WalkinOnlineMerged === 'undefined') return '';
+    var mk = state.isCustomDate ? String(state.dateRange.start || '').slice(0, 7) : state.selectedMonth;
+    if (!/^\d{4}-\d{2}$/.test(mk)) mk = '2026-06';
+    return WalkinOnlineMerged.renderHtml({ monthKey: mk, dealerStores: mockStores });
+  }
+
+  function renderDashboard(st) {
+    var rank = storeRankingData();
+    var topStaff = mockStaff.slice().sort(function (a, b) { return b.monthlySales - a.monthlySales; }).slice(0, 5);
+    return (
+      '<div class="space-y-6">' +
+      renderWalkinBasicsBlock() +
+      renderOnlineMergedBlock() +
+      '<div class="grid grid-cols-1 grid-cols-lg-4 gap-4">' +
+      statCard('留资达标代理商', st.okStores + '/' + st.totalStores, '—', 'up') +
+      statCard('月累计成交额', fmtWan(st.totalSales), '—', 'up') +
+      statCard('平均留资率', st.avgAddRate, '—', 'down') +
+      statCard('待关注异常', String(st.riskCount), '—', 'up') +
+      '</div>' +
+      '<div class="grid grid-cols-1 grid-cols-lg-3 gap-6">' +
+      '<div class="glass-card p-6 flex flex-col lg-col-span-2">' +
+      '<div class="flex items-center justify-between mb-6">' +
+      '<h3 class="font-display font-semibold text-slate-800 tracking-tight">代理商业绩与留资表现</h3>' +
+      '<span class="text-slate-400 text-xs">›</span></div>' +
+      '<div class="h-chart-bar w-full overflow-x-auto">' +
+      renderBarChart(rank) +
+      '</div>' +
+      '<div class="mt-4 flex items-center justify-between flex-wrap gap-2">' +
+      '<div class="flex items-center gap-4 text-xs font-bold text-slate-500">' +
+      '<div class="flex items-center gap-1"><div class="rounded-sm" style="width:12px;height:12px;background:#2d7a62"></div> 达标 (留资率 &gt;= 35%)</div>' +
+      '<div class="flex items-center gap-1"><div class="rounded-sm" style="width:12px;height:12px;background:#c45c52"></div> 关注 (留资率 &lt; 35%)</div></div>' +
+      '<button type="button" class="data-ai-dash flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold transition" style="background:var(--brand-accent-soft);color:#8a6b1e;border:none;cursor:pointer">智能解读</button>' +
+      '</div></div>' +
+      '<div class="glass-card p-6 flex flex-col lg-col-span-1" style="border-color:rgba(201,162,39,0.25);background:rgba(243,234,208,0.35)">' +
+      '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-slate-800 tracking-tight">风险提醒</h3><span class="text-slate-400 text-xs"></span></div>' +
+      renderAiAlertBlock() +
+      '</div>' +
+      '<div class="glass-card p-6 flex flex-col lg-col-span-1">' +
+      '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-slate-800 tracking-tight">客户触达健康度</h3><span class="text-slate-400 text-xs"></span></div>' +
+      '<div class="h-180">' +
+      renderDonut() +
+      '</div>' +
+      '<div class="mt-2 space-y-2 text-xs font-bold text-slate-500">' +
+      '<div class="flex justify-between"><span>平均转化周期</span><span class="text-brand-accent">2.4 天</span></div>' +
+      '<div class="flex justify-between"><span>CRM 1-3-7-14 执行率</span><span class="text-emerald-500">92%</span></div></div>' +
+      '<button type="button" class="data-ai-crm w-full mt-4 py-1 border text-xs font-bold rounded-lg transition hover-bg-slate-50" style="border-color:var(--slate-100);color:var(--slate-600);cursor:pointer;background:#fff">转化诊断</button>' +
+      '</div></div>' +
+      renderTopTable(topStaff) +
+      '</div>'
+    );
+  }
+
+  function statCard(label, value, trend, trendType) {
+    var trendClass = trendType === 'up' ? 'background:#ecfdf5;color:#059669' : 'background:#fff1f2;color:#e11d48';
+    var arrow = trendType === 'up' ? '↗' : '↘';
+    return (
+      '<div class="flex flex-col gap-1 p-4 rounded-xl border" style="background:rgba(248,250,252,0.5);border-color:var(--slate-100)">' +
+      '<div class="flex items-center justify-between mb-2">' +
+      '<div class="p-2 rounded-lg bg-white shadow-sm ring-1" style="box-shadow:0 1px 2px rgb(0 0 0 / 0.05);--tw-ring-color:var(--slate-100)"><span style="color:#c9a227">◆</span></div>' +
+      (trend
+        ? '<span class="text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5" style="' +
+          trendClass +
+          '">' +
+          arrow +
+          ' ' +
+          escapeHtml(trend) +
+          '</span>'
+        : '') +
+      '</div>' +
+      '<span class="text-sm font-medium text-slate-500">' +
+      escapeHtml(label) +
+      '</span>' +
+      '<span class="text-2xl font-bold font-display text-slate-900 tracking-tight">' +
+      escapeHtml(value) +
+      '</span></div>'
+    );
+  }
+
+  function renderTopTable(topStaff) {
+    var rows = topStaff
+      .map(function (staff) {
+        var sn = storeById(staff.storeId);
+        var stroke = staff.monthlySales === 0 ? '#f43f5e' : '#10b981';
+        return (
+          '<tr class="hover-bg-slate-50 transition">' +
+          '<td class="py-4 px-2"><div class="flex items-center gap-3">' +
+          '<div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold">' +
+          escapeHtml(staff.name[0]) +
+          '</div><div><div class="text-sm font-bold">' +
+          escapeHtml(staff.name) +
+          '</div><div class="text-xs text-slate-400">' +
+          escapeHtml(staff.id) +
+          '</div></div></div></td>' +
+          '<td class="py-4 px-2 text-xs font-medium text-slate-500">' +
+          escapeHtml(sn ? sn.name : staff.storeName || staff.storeId || '—') +
+          '</td>' +
+          '<td class="py-4 px-2 font-bold text-sm">' +
+          escapeHtml(fmtWan(staff.monthlySales)) +
+          '</td>' +
+          '<td class="py-4 px-2 text-sm font-medium">' +
+          staff.workingDays +
+          ' 天</td>' +
+          '<td class="py-4 px-2"><div class="text-sm font-bold">' +
+          staff.visitGroups +
+          ' 组</div><div class="text-xs text-brand-accent">组添加率: ' +
+          (staff.addRate * 100).toFixed(0) +
+          '%</div></td>' +
+          '<td class="py-4 px-2 text-right">' +
+          '<button type="button" class="data-ai-staff p-1 rounded-lg transition hover-bg-slate-100 text-slate-400" style="border:none;cursor:pointer" data-staff-id="' +
+          escapeHtml(staff.id) +
+          '">📱</button></td></tr>'
+        );
+      })
+      .join('');
+    return (
+      '<div class="glass-card p-6 flex flex-col">' +
+      '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-slate-800 tracking-tight">导购业绩排行 Top 5</h3><span class="text-slate-400 text-xs"></span></div>' +
+      '<div class="overflow-x-auto"><table class="w-full text-left">' +
+      '<thead><tr class="border-b border-slate-100">' +
+      '<th class="pb-4 text-xs font-bold text-slate-400 px-2">销售员</th>' +
+      '<th class="pb-4 text-xs font-bold text-slate-400 px-2">所属代理商</th>' +
+      '<th class="pb-4 text-xs font-bold text-slate-400 px-2">本月Walk-in成交</th>' +
+      '<th class="pb-4 text-xs font-bold text-slate-400 px-2">接待日</th>' +
+      '<th class="pb-4 text-xs font-bold text-slate-400 px-2">接待量/组添加率</th>' +
+      '<th class="pb-4 text-xs font-bold text-slate-400 px-2 text-right">AI 诊断</th></tr></thead>' +
+      '<tbody class="divide-y">' +
+      rows +
+      '</tbody></table></div></div>'
+    );
+  }
+
+  function renderStores() {
+    var list = filteredStores();
+    var regionOpts = ['北区', '东区', '西区', '南区', '越南区']
+      .map(function (r) {
+        return '<option value="' + r + '"' + (state.storeRegionFilter === r ? ' selected' : '') + '>' + r + '</option>';
+      })
+      .join('');
+    var storeOpts =
+      '<option value="All">全部代理商</option>' +
+      mockStores
+        .filter(function (s) {
+          return state.storeRegionFilter === 'All' || s.region === state.storeRegionFilter;
+        })
+        .map(function (s) {
+          return '<option value="' + s.id + '"' + (state.storeFilterId === s.id ? ' selected' : '') + '>' + escapeHtml(s.name) + '</option>';
+        })
+        .join('');
+    var cards = list
+      .map(function (store) {
+        var ok = store.avgAddRate >= 0.35;
+        var badgeStyle = ok
+          ? 'background:#ecfdf5;color:#059669;box-shadow:inset 0 0 0 1px rgba(16,185,129,0.2)'
+          : 'background:#fff1f2;color:#e11d48;box-shadow:inset 0 0 0 1px rgba(244,63,94,0.2)';
+        var anomalyChips =
+          store.anomalies.length > 0
+            ? store.anomalies
+                .map(function (txt) {
+                  return (
+                    '<span class="anomaly-chip" title="' +
+                    escapeHtml(txt) +
+                    '">' +
+                    escapeHtml(formatAnomalyChipLabel(txt)) +
+                    '</span>'
+                  );
+                })
+                .join('')
+            : '';
+        var anomaly =
+          store.anomalies.length > 0
+            ? '<div class="bg-amber-50 border border-amber-100 p-3 rounded-xl flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">' +
+              '<div class="flex items-start gap-2 min-w-0">' +
+              '<span class="text-amber-700 text-xs font-bold shrink-0 mt-0.5">异常</span>' +
+              '<div class="anomaly-chip-list">' +
+              anomalyChips +
+              '</div></div>' +
+              '<button type="button" class="data-store-ai px-3 py-1 rounded-lg text-xs font-bold border-none cursor-pointer shrink-0 self-end sm:self-start" style="background:#fef3c7;color:#b45309" data-store-id="' +
+              store.id +
+              '">详情</button></div>'
+            : '';
+        return (
+          '<div class="glass-card p-6 flex flex-col">' +
+          '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-slate-800 tracking-tight">' +
+          escapeHtml(store.name) +
+          '</h3><span class="text-slate-400 text-xs">›</span></div>' +
+          '<div class="space-y-4">' +
+          '<div class="flex justify-between items-start">' +
+          '<div><p class="text-xs font-bold text-slate-400 uppercase">' +
+          (store.dealerTeam ? escapeHtml(store.dealerTeam) + ' · ' : '') +
+          escapeHtml(store.city) +
+          (store.customerType ? ' · ' + escapeHtml(store.customerType) + '类' : '') +
+          '</p><p class="text-xl font-bold tracking-tight">' +
+          escapeHtml(fmtWan(store.totalSalesAmount)) +
+          '</p></div>' +
+          '<div class="px-3 py-1 rounded-full text-xs font-bold" style="' +
+          badgeStyle +
+          '">添加率 ' +
+          (store.avgAddRate * 100).toFixed(1) +
+          '%</div></div>' +
+          '<div class="grid grid-cols-3 gap-2">' +
+          '<div class="p-3 bg-slate-50 rounded-xl text-center"><p class="text-xs text-slate-400 font-bold mb-1">接待组数</p><p class="text-sm font-bold">' +
+          store.totalVisitGroups +
+          '</p></div>' +
+          '<div class="p-3 bg-slate-50 rounded-xl text-center"><p class="text-xs text-slate-400 font-bold mb-1">触摸率</p><p class="text-sm font-bold">' +
+          (store.avgTouchRate * 100).toFixed(0) +
+          '%</p></div>' +
+          '<div class="p-3 bg-slate-50 rounded-xl text-center"><p class="text-xs text-slate-400 font-bold mb-1">试用率</p><p class="text-sm font-bold">' +
+          (store.avgUseRate * 100).toFixed(0) +
+          '%</p></div></div>' +
+          anomaly +
+          '</div></div>'
+        );
+      })
+      .join('');
+    return (
+      '<div class="space-y-6">' +
+      '<div class="flex flex-wrap gap-4 items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">' +
+      '<div class="flex items-center gap-2 text-xs font-bold text-slate-400 mr-4">⏷ 结构化筛选</div>' +
+      '<select class="filter-region bg-slate-50 px-3 py-1 rounded-lg text-xs font-bold border-none outline-none ring-1 cursor-pointer">' +
+      '<option value="All"' +
+      (state.storeRegionFilter === 'All' ? ' selected' : '') +
+      '>全部区域</option>' +
+      regionOpts +
+      '</select>' +
+      '<select class="filter-store-id bg-slate-50 px-3 py-1 rounded-lg text-xs font-bold border-none outline-none ring-1 cursor-pointer">' +
+      storeOpts +
+      '</select>' +
+      '<select class="filter-store-type bg-slate-50 px-3 py-1 rounded-lg text-xs font-bold border-none outline-none ring-1 cursor-pointer">' +
+      '<option value="All"' +
+      (state.storeTypeFilter === 'All' ? ' selected' : '') +
+      '>店等分类</option>' +
+      '<option value="' +
+      StoreClass.CLASS_1 +
+      '"' +
+      (state.storeTypeFilter === StoreClass.CLASS_1 ? ' selected' : '') +
+      '>核心 A 类店</option>' +
+      '<option value="' +
+      StoreClass.CLASS_2 +
+      '"' +
+      (state.storeTypeFilter === StoreClass.CLASS_2 ? ' selected' : '') +
+      '>主力 B 类店</option></select>' +
+      '<label class="flex items-center gap-2 cursor-pointer select-none ml-4">' +
+      '<input type="checkbox" class="filter-anomaly-only w-4 h-4"' +
+      (state.anomalyOnly ? ' checked' : '') +
+      '/>' +
+      '<span class="text-xs font-bold text-slate-600">仅显示异常</span></label>' +
+      '<div class="ml-auto text-xs font-bold text-slate-400">结果: ' +
+      list.length +
+      ' 家</div></div>' +
+      '<div class="grid grid-cols-1 grid-cols-lg-2 gap-6">' +
+      cards +
+      '</div></div>'
+    );
+  }
+
+  function renderPersonalStoreOverview() {
+    var stores = mockStores.filter(function (s) {
+      if (state.storeRegionFilter !== 'All' && s.region !== state.storeRegionFilter) return false;
+      if (state.storeFilterId !== 'All' && s.id !== state.storeFilterId) return false;
+      return true;
+    });
+    var rows = stores.map(function (store) {
+      var people = mockStaff.filter(function (m) {
+        return m.storeId === store.id;
+      });
+      var total = people.length;
+      var anom = people.filter(function (m) {
+        return m.anomalies && m.anomalies.length > 0;
+      }).length;
+      var rate = total > 0 ? Math.round((1000 * anom) / total) / 10 : 0;
+      return { store: store, total: total, anom: anom, rate: rate };
+    });
+    rows.sort(function (a, b) {
+      if (b.rate !== a.rate) return b.rate - a.rate;
+      if (b.anom !== a.anom) return b.anom - a.anom;
+      return String(a.store.name).localeCompare(String(b.store.name), 'zh-CN');
+    });
+    var sumSt = rows.length;
+    var sumP = 0;
+    var sumA = 0;
+    for (var ri = 0; ri < rows.length; ri++) {
+      sumP += rows[ri].total;
+      sumA += rows[ri].anom;
+    }
+    var gRate = sumP > 0 ? Math.round((1000 * sumA) / sumP) / 10 : 0;
+    var cards = rows
+      .map(function (r) {
+        var sk = r.rate >= 30 ? 'pm-risk-high' : r.rate >= 10 ? 'pm-risk-mid' : 'pm-risk-low';
+        var br = r.rate >= 30 ? 'pm-bar-warn' : r.rate >= 10 ? 'pm-bar-mid' : '';
+        var rw = Math.min(100, r.rate);
+        var tip = r.store.name + ' · 在册 ' + r.total + ' 人 · 异常 ' + r.anom + ' 人 · 异常率 ' + r.rate + '%';
+        return (
+          '<div class="pm-store-card ' +
+          sk +
+          '" title="' +
+          escSvgTitle(tip) +
+          '">' +
+          '<div class="pm-store-name">' +
+          escapeHtml(r.store.name) +
+          '</div>' +
+          '<div class="pm-store-meta">' +
+          escapeHtml(r.store.region) +
+          ' · ' +
+          escapeHtml(r.store.class || '') +
+          '</div>' +
+          '<div class="pm-store-stats">' +
+          '<div class="pm-stat-block"><div class="pm-stat-num">' +
+          r.total +
+          '</div><div class="pm-stat-lab">在册人数</div></div>' +
+          '<div class="pm-stat-block"><div class="pm-stat-num ' +
+          (r.anom > 0 ? 'pm-warn' : '') +
+          '">' +
+          r.anom +
+          '</div><div class="pm-stat-lab">异常人数</div></div></div>' +
+          '<div class="pm-rate-wrap">' +
+          '<div class="pm-rate-row"><span style="font-size:0.7rem;font-weight:700;color:#64748b">异常率</span><span class="pm-rate-val" style="color:' +
+          (r.rate >= 30 ? '#e11d48' : r.rate >= 10 ? '#b45309' : '#64748b') +
+          '">' +
+          r.rate +
+          '%</span></div>' +
+          '<div class="pm-rate-bar ' +
+          br +
+          '"><i style="width:' +
+          rw +
+          '%"></i></div></div></div>'
+        );
+      })
+      .join('');
+    return (
+      '<div class="pm-overview mb-1">' +
+      '<div class="flex flex-wrap items-start justify-between gap-4">' +
+      '<div>' +
+      '<h3 class="text-sm font-bold text-slate-800 tracking-tight">团队编制与异常一览</h3>' +
+      '<p class="text-xs text-slate-500 mt-1 max-w-xl">与下方「区域 / 代理商」筛选项联动，按限定范围汇总在册人数与异常占比；与搜索及「仅高风险」独立。</p></div>' +
+      '<div class="pm-overview-kpi">' +
+      '<div class="pm-overview-kpi-item"><div class="pm-kpi-val">' +
+      sumSt +
+      '</div><div class="pm-kpi-lab">代理商</div></div>' +
+      '<div class="pm-overview-kpi-item"><div class="pm-kpi-val">' +
+      sumP +
+      '</div><div class="pm-kpi-lab">在册人数</div></div>' +
+      '<div class="pm-overview-kpi-item"><div class="pm-kpi-val" style="color:#e11d48">' +
+      sumA +
+      '</div><div class="pm-kpi-lab">异常人数</div></div>' +
+      '<div class="pm-overview-kpi-item"><div class="pm-kpi-val" style="color:' +
+      (gRate >= 30 ? '#e11d48' : gRate >= 10 ? '#b45309' : '#059669') +
+      '">' +
+      gRate +
+      '%</div><div class="pm-kpi-lab">总异常率</div></div></div></div>' +
+      (rows.length
+        ? '<div class="pm-store-grid">' + cards + '</div>'
+        : '<p class="text-xs text-slate-500 mt-3">当前筛选下无代理商数据。</p>') +
+      '</div>'
+    );
+  }
+
+  function renderPersonal() {
+    var list = filteredStaff();
+    var regionOpts = ['北区', '东区', '西区', '南区', '越南区']
+      .map(function (r) {
+        return '<option value="' + r + '"' + (state.storeRegionFilter === r ? ' selected' : '') + '>' + r + '</option>';
+      })
+      .join('');
+    var storeOpts =
+      '<option value="All">全部代理商</option>' +
+      mockStores
+        .filter(function (s) {
+          return state.storeRegionFilter === 'All' || s.region === state.storeRegionFilter;
+        })
+        .map(function (s) {
+          return '<option value="' + s.id + '"' + (state.storeFilterId === s.id ? ' selected' : '') + '>' + escapeHtml(s.name) + '</option>';
+        })
+        .join('');
+    var staffOpts =
+      '<option value="All">特定销售员</option>' +
+      mockStaff
+        .filter(function (s) {
+          return state.storeFilterId === 'All' || s.storeId === state.storeFilterId;
+        })
+        .map(function (s) {
+          return '<option value="' + s.id + '"' + (state.staffFilterId === s.id ? ' selected' : '') + '>' + escapeHtml(s.name) + '</option>';
+        })
+        .join('');
+    var cards = list
+      .map(function (staff) {
+        var sn = storeById(staff.storeId);
+        var stroke = staff.monthlySales === 0 ? '#f43f5e' : '#10b981';
+        var danger = staff.anomalies.length > 3;
+        var cardStyle = danger ? 'border-color:#fecdd3;background:rgba(255,241,242,0.1)' : '';
+        var bottom =
+          staff.anomalies.length > 0
+            ? '<div class="pt-4 border-t border-slate-100">' +
+              '<div class="flex items-center justify-between mb-2">' +
+              '<div class="flex items-center gap-1 text-xs font-bold text-rose-500">⚠ 接待异常标签 (' +
+              staff.anomalies.length +
+              ')</div>' +
+              '<button type="button" class="data-personal-ai px-2 py-1 rounded text-xs font-bold border-none cursor-pointer" style="background:#fff1f2;color:#e11d48" data-staff-id="' +
+              staff.id +
+              '">AI 断案</button></div>' +
+              '<div class="flex flex-wrap gap-1">' +
+              staff.anomalies
+                .map(function (a) {
+                  return (
+                    '<span class="px-2 py-0.5 rounded-md text-xs font-medium border" style="background:#fff1f2;color:#e11d48;border-color:#fecdd3">' +
+                    escapeHtml(a) +
+                    '</span>'
+                  );
+                })
+                .join('') +
+              '</div></div>'
+            : '<div class="pt-4 border-t border-slate-100 flex items-center justify-center">' +
+              '<div class="flex items-center gap-1 text-xs font-bold text-emerald-500">✓ 数据状态健康</div></div>';
+        return (
+          '<div class="glass-card p-6 flex flex-col" style="' +
+          cardStyle +
+          '">' +
+          '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-slate-800 tracking-tight">' +
+          escapeHtml(staff.name) +
+          '</h3><span class="text-slate-400 text-xs">›</span></div>' +
+          '<div class="space-y-6">' +
+          '<div class="flex justify-between items-center bg-slate-50 p-3 rounded-xl">' +
+          '<div><p class="text-xs font-bold text-slate-400">所属代理商</p><p class="text-xs font-bold text-slate-700">' +
+          escapeHtml(sn ? sn.name : staff.storeName || '—') +
+          '</p></div>' +
+          '<div class="text-right"><p class="text-xs font-bold text-slate-400">接待日(去重)</p><p class="text-xs font-bold text-slate-700">' +
+          staff.workingDays +
+          ' 天</p></div></div>' +
+          '<div class="flex justify-between items-start">' +
+          '<div><p class="text-xs font-bold text-slate-400">当月业绩产出</p><p class="text-xl font-bold ' +
+          (staff.monthlySales > 50000 ? 'text-emerald-500' : 'text-rose-500') +
+          '">' +
+          escapeHtml(fmtWan(staff.monthlySales)) +
+          '</p></div>' +
+          '<div class="text-right"><p class="text-xs font-bold text-slate-400 uppercase">趋势</p><div class="h-8-spark w-16-spark">' +
+          sparklineYuanAsWan(staff.threeMonthTrend, stroke) +
+          '</div></div></div>' +
+          '<div class="grid grid-cols-2 gap-4">' +
+          '<div class="space-y-2">' +
+          '<div class="flex justify-between text-xs font-bold text-slate-500"><span>组添加率</span><span>' +
+          (staff.addRate * 100).toFixed(0) +
+          '%</span></div>' +
+          '<div class="gauge-bar-bg"><div class="gauge-bar-fill ' +
+          (staff.addRate < 0.35 ? 'bg-rose-400' : '') +
+          '" style="width:' +
+          staff.addRate * 100 +
+          '%;background:' +
+          (staff.addRate < 0.35 ? '#c45c52' : '#2d7a62') +
+          '"></div></div></div>' +
+          (function () {
+            var crm = staff.crmReachRate;
+            var crmLabel = crm == null ? '—' : (crm * 100).toFixed(0) + '%';
+            var crmW = crm == null ? 0 : crm * 100;
+            return (
+          '<div class="space-y-2">' +
+          '<div class="flex justify-between text-xs font-bold text-slate-500"><span>CRM 闭环率</span><span>' +
+          crmLabel +
+          '</span></div>' +
+          '<div class="gauge-bar-bg"><div class="gauge-bar-fill" style="width:' +
+          crmW +
+          '%;background:#34d399"></div></div></div>'
+            );
+          })() +
+          '</div>' +
+          '<div class="grid grid-cols-2 gap-4">' +
+          '<div class="p-3 bg-slate-50 rounded-xl"><p class="text-xs text-slate-400 font-bold">平均客单 (AOV)</p><p class="text-sm font-bold text-slate-800">' +
+          escapeHtml(fmtWan(staff.avgAov)) +
+          '</p></div>' +
+          '<div class="p-3 bg-slate-50 rounded-xl"><p class="text-xs text-slate-400 font-bold">接待组数</p><p class="text-sm font-bold text-slate-800">' +
+          staff.visitGroups +
+          ' 组</p></div></div>' +
+          bottom +
+          '</div></div>'
+        );
+      })
+      .join('');
+    return (
+      '<div class="space-y-6">' +
+      renderPersonalStoreOverview() +
+      '<div class="flex flex-wrap gap-4 items-center bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">' +
+      '<div class="flex items-center gap-2 text-xs font-bold text-slate-400 mr-4">⏷ 绩效/异常排查</div>' +
+      '<select class="filter-region-p bg-slate-50 px-3 py-1 rounded-lg text-xs font-bold border-none outline-none ring-1 cursor-pointer">' +
+      '<option value="All"' +
+      (state.storeRegionFilter === 'All' ? ' selected' : '') +
+      '>全部区域</option>' +
+      regionOpts +
+      '</select>' +
+      '<select class="filter-store-id-p bg-slate-50 px-3 py-1 rounded-lg text-xs font-bold border-none outline-none ring-1 cursor-pointer">' +
+      storeOpts +
+      '</select>' +
+      '<select class="filter-staff-id bg-slate-50 px-3 py-1 rounded-lg text-xs font-bold border-none outline-none ring-1 cursor-pointer">' +
+      staffOpts +
+      '</select>' +
+      '<label class="flex items-center gap-2 cursor-pointer select-none ml-4">' +
+      '<input type="checkbox" class="filter-anomaly-only-p w-4 h-4"' +
+      (state.anomalyOnly ? ' checked' : '') +
+      '/>' +
+      '<span class="text-xs font-bold text-slate-600">仅显示高风险导购</span></label>' +
+      '<div class="ml-auto text-xs font-bold text-slate-400">监控中: ' +
+      list.length +
+      ' / ' +
+      mockStaff.length +
+      ' 人</div></div>' +
+      '<div class="grid grid-cols-1 grid-cols-lg-3 gap-6">' +
+      cards +
+      '</div></div>'
+    );
+  }
+
+  function renderModal() {
+    var m = state.modal;
+    if (!m.open) return '';
+    var body = m.loading
+      ? '<div class="flex flex-col items-center justify-center py-12 gap-4"><div class="spin"></div><p class="text-sm font-medium text-slate-500">AI 正在深度挖掘数据背后的异常原因...</p></div>'
+      : '<div class="whitespace-pre-wrap text-slate-600 leading-relaxed font-medium text-sm">' + escapeHtml(m.content) + '</div>';
+    return (
+      '<div class="fixed inset-0 z-50 flex items-center justify-center p-4">' +
+      '<div class="absolute inset-0 modal-backdrop" data-close-modal></div>' +
+      '<div class="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden">' +
+      '<div class="p-6 border-b border-slate-100 flex items-center justify-between" style="background:rgba(248,250,252,0.5)">' +
+      '<div class="flex items-center gap-2">' +
+      '<div class="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold" style="background:var(--brand-accent);color:#1a3c34">VT</div>' +
+      '<h3 class="font-display font-bold text-slate-900">' +
+      escapeHtml(m.title) +
+      ' · 数据解读</h3></div>' +
+      '<button type="button" class="p-2 rounded-full transition hover-bg-slate-200 border-none bg-transparent cursor-pointer text-slate-400" data-close-modal>✕</button></div>' +
+      '<div class="p-8 max-h-60vh overflow-y-auto custom-scrollbar">' +
+      body +
+      '</div>' +
+      '<div class="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">' +
+      '<button type="button" data-close-modal class="px-6 py-2 text-white text-sm font-bold rounded-xl transition hover-opacity border-none cursor-pointer" style="background:var(--brand-primary)">了解更多</button>' +
+      '</div></div></div>'
+    );
+  }
+
+  function mainContent() {
+    var st = stats();
+    if (state.activeTab === 'dashboard') return renderDashboard(st);
+    if (state.activeTab === 'stores') return renderStores();
+    return renderPersonal();
+  }
+
+  function searchPlaceholder() {
+    if (state.activeTab === 'stores') return '搜索代理商或国家...';
+    if (state.activeTab === 'personal') return '搜索导购姓名或工号...';
+    return '搜索关键词...';
+  }
+
+  function renderDataSourceBanner() {
+    var live = state.dataSource === 'live' || state.dataSource === 'file';
+    var bg = live
+      ? 'background:#ecfdf5;color:#047857;border-color:#bbf7d0'
+      : 'background:#fffbeb;color:#92400e;border-color:#fde68a';
+    var detail = state.dataSourceDetail || '';
+    return (
+      '<div class="px-4 py-2.5 text-xs font-bold border-b flex flex-wrap items-center gap-3" style="' +
+      bg +
+      '"><span style="flex:1;min-width:200px;line-height:1.5">' +
+      escapeHtml(detail) +
+      '</span><label class="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition hover-opacity" style="border:1px solid currentColor;background:rgba(255,255,255,0.35)">导入 JSON<input type="file" accept="application/json,.json" class="import-dashboard-json" style="display:none"/></label></div>'
+    );
+  }
+
+  var didScrollToOnlineMerged = false;
+
+  function scrollToOnlineMergedIfNeeded() {
+    if (didScrollToOnlineMerged || location.hash.indexOf('oi-merged') === -1) return;
+    var el = document.getElementById('oi-merged');
+    if (!el) return;
+    didScrollToOnlineMerged = true;
+    setTimeout(function () {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
+  }
+
+  function render() {
+    var root = document.getElementById('root');
+    root.className = 'vertu-shell';
+    var customDate =
+      state.isCustomDate
+        ? '<span class="text-slate-400">—</span>' +
+          '<input type="date" class="filter-date-start text-xs font-bold text-slate-600 outline-none border rounded-lg px-2 py-1" style="border-color:var(--slate-200)" value="' +
+          state.dateRange.start +
+          '"/>' +
+          '<span class="text-slate-400">至</span>' +
+          '<input type="date" class="filter-date-end text-xs font-bold text-slate-600 outline-none border rounded-lg px-2 py-1" style="border-color:var(--slate-200)" value="' +
+          state.dateRange.end +
+          '"/>'
+        : '';
+    root.innerHTML =
+      renderModal() +
+      '<header class="vertu-topbar">' +
+      '<div class="vertu-brand">' +
+      '<div class="vertu-brand-mark">VT</div>' +
+      '<div><h1>经销商海外客流分析台</h1><p>' +
+      mockStores.length +
+      ' 家代理商 · ' +
+      mockStaff.length +
+      ' 名导购 · 总—大区—代理商</p></div></div>' +
+      '<nav class="vertu-nav">' +
+      navBtn('dashboard', '全局洞察') +
+      navBtn('stores', '代理商') +
+      navBtn('personal', '团队表现') +
+      '</nav></header>' +
+      renderDataSourceBanner() +
+      '<div class="vertu-toolbar">' +
+      '<div class="global-search-wrap">' +
+      '<span class="text-slate-500 text-xs font-bold">搜索</span>' +
+      '<input type="text" class="global-search" placeholder="' +
+      escapeHtml(searchPlaceholder()) +
+      '" value="' +
+      escapeHtml(state.globalSearch) +
+      '"/>' +
+      (state.globalSearch
+        ? '<button type="button" class="clear-search border-none bg-transparent cursor-pointer text-slate-400">×</button>'
+        : '') +
+      '</div>' +
+      '<div class="flex items-center gap-2 flex-wrap">' +
+      '<span class="text-xs font-bold text-slate-500">统计月</span>' +
+      '<select class="filter-month text-xs font-bold text-slate-700 cursor-pointer border rounded-lg px-2 py-1" style="border-color:var(--slate-200);background:#fff">' +
+      '<option value="2026-06"' +
+      (!state.isCustomDate && state.selectedMonth === '2026-06' ? ' selected' : '') +
+      '>2026年6月</option>' +
+      '<option value="2026-05"' +
+      (!state.isCustomDate && state.selectedMonth === '2026-05' ? ' selected' : '') +
+      '>2026年5月</option>' +
+      '<option value="2026-04"' +
+      (!state.isCustomDate && state.selectedMonth === '2026-04' ? ' selected' : '') +
+      '>2026年4月</option>' +
+      '<option value="2026-03"' +
+      (!state.isCustomDate && state.selectedMonth === '2026-03' ? ' selected' : '') +
+      '>2026年3月</option>' +
+      '<option value="2026-Q1"' +
+      (!state.isCustomDate && state.selectedMonth === '2026-Q1' ? ' selected' : '') +
+      '>2026 Q1</option>' +
+      '<option value="custom"' +
+      (state.isCustomDate ? ' selected' : '') +
+      '>自定义区间</option></select>' +
+      customDate +
+      '</div>' +
+      '<div class="text-xs font-bold text-slate-500 ml-auto">海外零售 PDCA</div>' +
+      '</div>' +
+      '<div class="vertu-main custom-scrollbar">' +
+      mainContent() +
+      '</div>';
+    bind();
+    scrollToOnlineMergedIfNeeded();
+  }
+
+  function navBtn(id, label) {
+    var active = state.activeTab === id;
+    return (
+      '<button type="button" class="nav-tab' +
+      (active ? ' active' : '') +
+      '" data-tab="' +
+      id +
+      '">' +
+      escapeHtml(label) +
+      '</button>'
+    );
+  }
+
+  function bind() {
+    document.querySelectorAll('.import-dashboard-json').forEach(function (inp) {
+      inp.addEventListener('change', function (ev) {
+        var f = ev.target.files && ev.target.files[0];
+        if (!f) return;
+        var fr = new FileReader();
+        fr.onload = function () {
+          try {
+            var j = JSON.parse(String(fr.result));
+            stopWalkinPoll();
+            if (applyWalkinBundle(j, 'file')) {
+              state.dataSourceDetail =
+                '已从「' + f.name + '」导入 · ' + state.dataSourceDetail.replace(/^已从文件导入 · /, '');
+            } else {
+              state.dataSourceDetail = '「' + f.name + '」内容无效，未替换数据。';
+            }
+          } catch (e2) {
+            state.dataSource = 'demo';
+            state.dataSourceDetail = 'JSON 解析失败：' + (e2 && e2.message ? e2.message : '格式错误');
+          }
+          render();
+        };
+        fr.readAsText(f, 'utf-8');
+        inp.value = '';
+      });
+    });
+    document.querySelectorAll('[data-tab]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        state.activeTab = el.getAttribute('data-tab');
+        render();
+      });
+    });
+    var gs = document.querySelector('.global-search');
+    if (gs) {
+      gs.addEventListener('input', function () {
+        state.globalSearch = gs.value;
+        render();
+      });
+    }
+    var cs = document.querySelector('.clear-search');
+    if (cs) {
+      cs.addEventListener('click', function () {
+        state.globalSearch = '';
+        render();
+      });
+    }
+    var fm = document.querySelector('.filter-month');
+    if (fm) {
+      fm.addEventListener('change', function () {
+        if (fm.value === 'custom') {
+          state.isCustomDate = true;
+          render();
+          return;
+        }
+        state.isCustomDate = false;
+        state.selectedMonth = fm.value;
+        if (/^\d{4}-\d{2}$/.test(fm.value)) {
+          loadWalkinMonth(fm.value, false);
+          return;
+        }
+        if (fm.value === '2026-Q1') {
+          loadWalkinBundleUrl('data/walkin-2026-Q1.json', '2026-Q1');
+          return;
+        }
+        render();
+      });
+    }
+    var ds = document.querySelector('.filter-date-start');
+    if (ds) {
+      ds.addEventListener('change', function () {
+        state.dateRange.start = ds.value;
+      });
+    }
+    var de = document.querySelector('.filter-date-end');
+    if (de) {
+      de.addEventListener('change', function () {
+        state.dateRange.end = de.value;
+      });
+    }
+    bindSelect('.filter-region', function (v) {
+      state.storeRegionFilter = v;
+      state.storeFilterId = 'All';
+    });
+    bindSelect('.filter-store-id', function (v) {
+      state.storeFilterId = v;
+    });
+    bindSelect('.filter-store-type', function (v) {
+      state.storeTypeFilter = v;
+    });
+    bindCheckbox('.filter-anomaly-only', function (c) {
+      state.anomalyOnly = c;
+    });
+    bindSelect('.filter-region-p', function (v) {
+      state.storeRegionFilter = v;
+      state.storeFilterId = 'All';
+      state.staffFilterId = 'All';
+    });
+    bindSelect('.filter-store-id-p', function (v) {
+      state.storeFilterId = v;
+      state.staffFilterId = 'All';
+    });
+    bindSelect('.filter-staff-id', function (v) {
+      state.staffFilterId = v;
+    });
+    bindCheckbox('.filter-anomaly-only-p', function (c) {
+      state.anomalyOnly = c;
+    });
+    document.querySelectorAll('[data-close-modal]').forEach(function (el) {
+      el.addEventListener('click', closeModal);
+    });
+    var dab = document.querySelector('.data-ai-dash');
+    if (dab) {
+      dab.addEventListener('click', function () {
+        openAnalysis('全店业绩异常分析', storeRankingData());
+      });
+    }
+    var dac = document.querySelector('.data-ai-crm');
+    if (dac) {
+      dac.addEventListener('click', function () {
+        openAnalysis('CRM 触达模型分析', {});
+      });
+    }
+    var dar = document.querySelector('.data-ai-daily-anomaly-report');
+    if (dar) {
+      dar.addEventListener('click', function () {
+        openAnalysis('今日 Walk-in 异常报告', getAiAlertBuckets(8, 6, 16));
+      });
+    }
+    document.querySelectorAll('.data-ai-staff').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-staff-id');
+        var staff = mockStaff.find(function (s) {
+          return s.id === id;
+        });
+        if (staff) openAnalysis(staff.name + ' 个案诊断', staff);
+      });
+    });
+    document.querySelectorAll('.data-store-ai').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-store-id');
+        var store = mockStores.find(function (s) {
+          return s.id === id;
+        });
+        if (store) openAnalysis(store.name + ' 异常预警', store);
+      });
+    });
+    document.querySelectorAll('.data-personal-ai').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-staff-id');
+        var staff = mockStaff.find(function (s) {
+          return s.id === id;
+        });
+        if (staff) openAnalysis(staff.name + ' 个案深度分析', staff);
+      });
+    });
+  }
+
+  function bindSelect(sel, fn) {
+    var el = document.querySelector(sel);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      fn(el.value);
+      render();
+    });
+  }
+
+  function bindCheckbox(sel, fn) {
+    var el = document.querySelector(sel);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      fn(el.checked);
+      render();
+    });
+  }
+
+  function stopWalkinPoll() {
+    if (walkinPollTimer) {
+      clearInterval(walkinPollTimer);
+      walkinPollTimer = null;
+    }
+  }
+
+  function startWalkinPoll() {
+    stopWalkinPoll();
+    walkinPollTimer = setInterval(function () {
+      if (!state.isCustomDate && /^\d{4}-\d{2}$/.test(state.selectedMonth)) {
+        loadWalkinMonth(state.selectedMonth, true);
+      }
+    }, 45000);
+  }
+
+  function applyWalkinBundle(j, source) {
+    if (!(j.stores && j.stores.length && j.staff && j.staff.length)) {
+      state.dataSource = 'demo';
+      state.dataSourceDetail = 'JSON 无有效 stores/staff。';
+      state.walkinBasics = null;
+      return false;
+    }
+    var teamCfg = { hanTeamUserIds: [], liuTeamUserIds: [] };
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', 'scripts/walkin-shanghai-guojin-teams.json', false);
+      xhr.send(null);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var o = JSON.parse(xhr.responseText);
+        teamCfg.hanTeamUserIds = o.hanTeamUserIds || [];
+        teamCfg.liuTeamUserIds = o.liuTeamUserIds || [];
+      }
+    } catch (eCfg) {}
+    var storesIn = (j.stores || []).slice();
+    var staffIn = (j.staff || []).map(function (x) {
+      return Object.assign({}, x);
+    });
+    if (window.walkinGuojinSplit) {
+      try {
+        var sp = window.walkinGuojinSplit(storesIn, staffIn, teamCfg);
+        mockStores = sp.stores;
+        mockStaff = sp.staff;
+      } catch (eSp) {
+        mockStores = j.stores;
+        mockStaff = j.staff;
+      }
+    } else {
+      mockStores = j.stores;
+      mockStaff = j.staff;
+    }
+    state.walkinBasics =
+      j.meta && j.meta.walkinBasics ? j.meta.walkinBasics : computeWalkinBasicsHtml(mockStores, mockStaff);
+    var ym = (j.meta && j.meta.month) || '';
+    var pl = (j.meta && j.meta.periodLabel) || '';
+    var tail = mockStores.length + ' 店 / ' + mockStaff.length + ' 人（所选月 Walk-in）';
+    if (source === 'api' && j.meta && j.meta.dataSourceDetail) {
+      state.dataSourceDetail = String(j.meta.dataSourceDetail);
+    } else if (source === 'file') {
+      state.dataSource = 'file';
+      state.dataSourceDetail = '已从文件导入 · ' + (ym ? '自然月 ' + ym + ' · ' : pl ? pl + ' · ' : '') + tail;
+    } else if (source === 'api') {
+      state.dataSource = 'live';
+      state.dataSourceDetail =
+        '实时接口 · 自然月 ' + (ym || pl || '') + ' · ' + tail + ' · 约 45s 自动刷新';
+    } else {
+      state.dataSource = 'live';
+      state.dataSourceDetail =
+        '静态文件 · ' + (ym ? '自然月 ' + ym + ' · ' : pl ? pl + ' · ' : '') + tail + '（未连实时接口时可 npm run walkin:api）';
+    }
+    return true;
+  }
+
+  function loadWalkinMonth(ym, silent) {
+    stopWalkinPoll();
+    var ctx = { fromApi: false };
+    if (!silent) {
+      state.dataSource = 'loading';
+      state.dataSourceDetail = '正在拉取 ' + ym + '（实时接口优先）…';
+      render();
+    }
+    Promise.reject(new Error('demo-static'))
+      .then(function (r) {
+        if (!r.ok) throw new Error('api');
+        return r.json();
+      })
+      .then(function (j) {
+        if (applyWalkinBundle(j, 'api')) {
+          ctx.fromApi = true;
+          startWalkinPoll();
+        } else {
+          throw new Error('api');
+        }
+      })
+      .catch(function () {
+        return fetch(walkinStaticUrl(ym), { cache: 'no-store' }).then(function (r) {
+          if (!r.ok) throw new Error('static');
+          return r.json();
+        });
+      })
+      .then(function (j) {
+        if (ctx.fromApi) return;
+        if (!applyWalkinBundle(j, 'static')) throw new Error('bad');
+      })
+      .catch(function () {
+        if (!ctx.fromApi) {
+          state.dataSource = 'demo';
+          state.walkinBasics = computeWalkinBasicsHtml(mockStores, mockStaff);
+          state.dataSourceDetail =
+            '无法加载「' +
+            ym +
+            '」。请先在本机运行 npm run walkin:api（实时刷新，无需导入 JSON），再用浏览器打开 http://127.0.0.1:3780/ 下的本页；若用 file:// 打开，请在地址后加 ?api=http://127.0.0.1:3780 。也可 npm run data:walkin 生成 data 文件作离线兜底。';
+        }
+      })
+      .finally(function () {
+        render();
+      });
+  }
+
+  function loadWalkinBundleUrl(url, label) {
+    stopWalkinPoll();
+    state.dataSource = 'loading';
+    state.dataSourceDetail = '正在加载 ' + url + ' …';
+    render();
+    fetch(url, { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('no file');
+        return r.json();
+      })
+      .then(function (j) {
+        if (!applyWalkinBundle(j, 'static')) {
+          state.dataSource = 'demo';
+        } else {
+          state.dataSourceDetail =
+            (label || '数据包') + ' · ' + mockStores.length + ' 店 / ' + mockStaff.length + ' 人';
+        }
+      })
+      .catch(function () {
+        state.dataSource = 'demo';
+        state.dataSourceDetail =
+          '未找到 ' +
+          url +
+          '。季度包需单独导出；可先使用单月（2026-03 / 04 / 05），或扩展 npm run data:walkin 生成季度 JSON。';
+      })
+      .finally(function () {
+        render();
+      });
+  }
+
+  function applyDateFromQuery() {
+    var dateQ = new URLSearchParams(location.search).get('date');
+    if (dateQ && /^\d{4}-\d{2}-\d{2}$/.test(dateQ)) {
+      state.selectedMonth = dateQ.slice(0, 7);
+      state.isCustomDate = false;
+      state.dateRange.start = dateQ;
+      state.dateRange.end = dateQ;
+    }
+  }
+
+  function bootstrap() {
+    applyDateFromQuery();
+    var startWalkin = function () {
+      loadWalkinMonth(state.selectedMonth, false);
+    };
+    if (typeof WalkinOnlineMerged !== 'undefined') {
+      WalkinOnlineMerged.init('data/online_channel_reference.json', 'data/vn_data_collect_reference.json').finally(startWalkin);
+      return;
+    }
+    startWalkin();
+  }
+
+  bootstrap();
+})();
+  </script>
+</body>
+</html>

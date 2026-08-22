@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vertu 马来西亚 · 线索全生命周期</title>
+<style>
+  :root {
+    --ink: #1a1a1a; --muted: #5c5c5c; --line: #e8e6e1; --bg: #f7f6f3;
+    --paper: #ffffff; --accent: #8b6914; --accent-soft: #f5f0e6;
+    --good: #2f6f4e; --warn: #8a6a20; --risk: #8b3a3a; --info: #2a5a8a;
+    --nav-h: 52px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; scroll-padding-top: calc(var(--nav-h) + 16px); }
+  body {
+    font-family: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.6; font-size: 15px;
+  }
+  nav {
+    position: sticky; top: 0; z-index: 100; height: var(--nav-h);
+    background: var(--paper); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; padding: 0 24px; gap: 8px;
+    overflow-x: auto; white-space: nowrap;
+  }
+  nav a { color: var(--muted); text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: 4px; }
+  nav a:hover { color: var(--ink); background: var(--bg); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.hero {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+    padding: 36px 40px; margin-bottom: 28px;
+  }
+  header.hero h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; }
+  header.hero .sub { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .meta-chip {
+    font-size: 12px; padding: 4px 10px; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 4px; color: var(--muted);
+  }
+  section {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+    padding: 28px 32px; margin-bottom: 20px;
+  }
+  section h2 {
+    font-size: 18px; font-weight: 600; margin-bottom: 6px; padding-bottom: 10px;
+    border-bottom: 2px solid var(--accent); display: inline-block;
+  }
+  .sec-desc { color: var(--muted); font-size: 13px; margin-bottom: 20px; margin-top: 4px; }
+  h3 { font-size: 15px; font-weight: 600; margin: 20px 0 10px; }
+  p { margin-bottom: 10px; }
+  ul { padding-left: 20px; margin-bottom: 12px; }
+  li { margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0 16px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--bg); font-weight: 600; font-size: 12px; }
+  tr:nth-child(even) td { background: #fafaf8; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin: 16px 0; }
+  .stat-box { border: 1px solid var(--line); border-radius: 6px; padding: 14px; background: var(--bg); }
+  .stat-box .val { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .stat-box.risk .val { color: var(--risk); }
+  .stat-box.good .val { color: var(--good); }
+  .stat-box .lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 3px; }
+  .b-p0 { background: #fde8e8; color: var(--risk); }
+  .b-done { background: #e8f5ee; color: var(--good); }
+  .b-wip { background: #fef3dc; color: var(--warn); }
+  .b-todo { background: #eef2f7; color: var(--info); }
+  .b-hot { background: #fde8e8; color: var(--risk); }
+  .callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; margin: 16px 0; font-size: 13px; }
+  .callout-warn { border-color: var(--warn); background: #fef9ec; }
+  .callout-risk { border-color: var(--risk); background: #fdf5f5; }
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .filter-bar button {
+    font-size: 12px; padding: 5px 12px; border: 1px solid var(--line);
+    background: var(--paper); border-radius: 4px; cursor: pointer; color: var(--muted);
+  }
+  .filter-bar button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .flow { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
+  .flow-step {
+    flex: 1; min-width: 88px; background: var(--accent-soft);
+    border: 1px solid var(--line); padding: 10px 8px;
+  }
+  .flow-step.empty { background: #fdf5f5; }
+  .flow-step .num { font-size: 10px; font-weight: 700; color: var(--accent); }
+  .flow-step .title { font-size: 12px; font-weight: 600; }
+  .flow-step .desc { font-size: 18px; font-weight: 700; }
+  .action-item {
+    display: grid; grid-template-columns: 72px 1fr; gap: 12px;
+    padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13px;
+  }
+  .action-when { font-weight: 600; color: var(--accent); font-size: 12px; }
+  input#search {
+    width: 100%; padding: 8px 12px; border: 1px solid var(--line);
+    border-radius: 4px; margin-bottom: 12px; font-size: 13px;
+  }
+  details { margin: 8px 0; font-size: 13px; }
+  summary { cursor: pointer; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="#rule">口径</a>
+  <a href="#funnel">漏斗</a>
+  <a href="#board">看板</a>
+  <a href="#evidence">证据链</a>
+  <a href="#actions">本周动作</a>
+  <a href="#gaps">缺口</a>
+</nav>
+<div class="wrap">
+  <header class="hero">
+    <h1>马来西亚线索全生命周期</h1>
+    <p class="sub">管理对象是线索，不是客户。每人一条、下一跳写死。公司有会议 ≠ 该联系人已触达。</p>
+    <div class="meta-row">
+      <span class="meta-chip">汇报人 于冰 Ivan · 海外经销商一部</span>
+      <span class="meta-chip">证据截止 2026-08-13</span>
+      <span class="meta-chip">Cursor 17 天 · Vemory 8 场 · VPS 马来 SI=0</span>
+      <span class="meta-chip">合同/LOI 需人工复核，本页非法务意见</span>
+    </div>
+  </header>
+
+  <section id="rule">
+    <h2>一、管理口径（线索，不是客户）</h2>
+    <p class="sec-desc">S7 试铺/签约前不得改口叫客户。DirectD 到 S4 只算 Amy；Ezwan 仍是 S1。SWITCH 到 S5 只算 John。</p>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="val">32</div><div class="lbl">可跟进线索（联系人级）</div></div>
+      <div class="stat-box"><div class="val">183+</div><div class="lbl">未清洗名单（CSV 原件缺失）</div></div>
+      <div class="stat-box"><div class="val">6</div><div class="lbl">S4–S6 进行中</div></div>
+      <div class="stat-box good"><div class="val">1</div><div class="lbl">书面 仅 KLCC</div></div>
+      <div class="stat-box risk"><div class="val">0</div><div class="lbl">已转化客户 / 马来 SI</div></div>
+    </div>
+    <div class="callout callout-risk">
+      <strong>VPS 硬证据：</strong>经销商主数据无马来。于冰 7 月 ¥1,265,468.52、8/1–13 ¥968,982.06，订单客户几乎全「未知客户」+ 越南手机号。检索 DirectD / SWITCH / KLCC = 0。H2 stretch 155 万不能用这 220 万证明。
+    </div>
+    <h3>三类对象禁止混池</h3>
+    <table>
+      <thead><tr><th>类</th><th>管什么</th><th>晋级产物</th><th>现在最高</th></tr></thead>
+      <tbody>
+        <tr><td>承接方线索</td><td>谁卖</td><td>发出 → 回复 → 谈判 → MOU → 试铺后才变客户</td><td>Amy S4 · John S5 · 其余 SWITCH/DirectD 联系人仍 S1</td></tr>
+        <tr><td>场地方线索</td><td>在哪卖</td><td>尽调 → 发出 → 谈判 → 书面 → 进场（仍非代理客户）</td><td>KLCC S6 · Pavilion/Genting S5 · TRX S2</td></tr>
+        <tr><td>生态线索</td><td>腕表 / 豪车 / 华商</td><td>入库 → 尽调 → probe</td><td>Valiram/Damien S2 · 其余 S1</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">混池后果：KLCC 82 分会被读成「代理已成」。KLCC 是场地方，不是 L2 代理。</p>
+  </section>
+
+  <section id="funnel">
+    <h2>二、线索漏斗（32 条联系人）</h2>
+    <p class="sec-desc">S1 入库 → S2 尽调 → S3 发出 → S4 回复 → S5 谈判 → S6 书面 → 毕业成客户。晋级只认发送记录 / 对方回复 / 会议纪要 / 书面。</p>
+    <div class="flow">
+      <div class="flow-step"><div class="num">S1</div><div class="title">入库未触达</div><div class="desc">22</div></div>
+      <div class="flow-step"><div class="num">S2</div><div class="title">尽调未发</div><div class="desc">3</div></div>
+      <div class="flow-step"><div class="num">S3</div><div class="title">已发未回</div><div class="desc">1</div></div>
+      <div class="flow-step"><div class="num">S4</div><div class="title">有效回复</div><div class="desc">1</div></div>
+      <div class="flow-step"><div class="num">S5</div><div class="title">谈判</div><div class="desc">4</div></div>
+      <div class="flow-step"><div class="num">S6</div><div class="title">书面</div><div class="desc">1</div></div>
+      <div class="flow-step empty"><div class="num">S7+</div><div class="title">转化成客户</div><div class="desc">0</div></div>
+    </div>
+    <table>
+      <thead><tr><th>阶段</th><th>晋级门槛</th><th>马来现状</th></tr></thead>
+      <tbody>
+        <tr><td>S0 市场验证</td><td>激活/客单/窗口可陈述</td><td>会议口述 200+ 台/年、USD 3.5–5K；VPS 无法复核</td></tr>
+        <tr><td>S1 入库未触达</td><td>有公司+联系人，0 发出记录</td><td>22 条（含 Ezwan / Lawrence / Marcus / Chin）</td></tr>
+        <tr><td>S2 尽调未发</td><td>Cursor/公开一页纸，尚未发出</td><td>TRX Delia · Valiram · Damien Woo</td></tr>
+        <tr><td>S3 已发未回</td><td>邮件/WA 有发送记录</td><td>Machines Andrew 失联</td></tr>
+        <tr><td>S4 有效回复</td><td>对方主动回复</td><td>DirectD Amy 7/24</td></tr>
+        <tr><td>S5 深度谈判</td><td>见面或 ≥30min + 商务条件</td><td>SWITCH 95min · SWAP · Pavilion · Genting</td></tr>
+        <tr><td>S6 商务书面</td><td>LOI / 租赁书面 / MOU 草稿</td><td>仅 KLCC RM70k 或 15% GTO</td></tr>
+        <tr><td>S7 试铺（线索毕业成客户）</td><td>库存/pop-up 真实发生</td><td>0 · 此前一律叫线索</td></tr>
+        <tr><td>S8 签约 L1</td><td>MOU/合同签署</td><td>0</td></tr>
+        <tr><td>S9 开店运营</td><td>五件套可报</td><td>无马来店</td></tr>
+        <tr><td>S10 90 天终销 L2</td><td>sell-out 验证</td><td>0</td></tr>
+      </tbody>
+    </table>
+    <h3>100 分权重</h3>
+    <table>
+      <thead><tr><th>维度</th><th>权重</th><th>马来怎么打</th></tr></thead>
+      <tbody>
+        <tr><td>渠道能力</td><td>25</td><td>SWITCH 80+ 店 / DirectD 20+ 店有分；腕表未触达无分</td></tr>
+        <tr><td>资金与投入意愿</td><td>20</td><td>SWITCH 问装修上限（未锁）；DirectD 倾向线上先试</td></tr>
+        <tr><td>商务进展</td><td>20</td><td>有回复/会议/书面才给分；名单不算</td></tr>
+        <tr><td>位置/商场资源</td><td>15</td><td>SWITCH 有 KLCC/云顶情报；KLCC 本身是场地方</td></tr>
+        <tr><td>利润/模式契合</td><td>10</td><td>SWAP 当地手机毛利 7–8 点，扣分</td></tr>
+        <tr><td>合规本地化</td><td>10</td><td>主体未定，全员暂扣</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">草案。WhatsApp 全文、财务尽调、90 天 sell-out 未计入。≥70 进试铺；≥85 才谈 L2。</p>
+  </section>
+
+  <section id="board">
+    <h2>三、线索看板（32 条）</h2>
+    <p class="sec-desc">下一跳 = 这条线索怎样升一级。冻结 = 本周不发，避免 32 条一起喷。183+ 未清洗名单另簿。</p>
+    <input type="text" id="search" placeholder="搜索公司、联系人、阶段…" oninput="render()" />
+    <div class="filter-bar" id="filters"></div>
+    <table id="board-table">
+      <thead>
+        <tr>
+          <th>公司</th><th>联系人</th><th>池</th><th>阶段</th><th>P</th>
+          <th>下一跳</th><th>本周动作</th><th>证据</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p class="muted" id="board-count"></p>
+  </section>
+
+  <section id="evidence">
+    <h2>四、证据链</h2>
+    <p class="sec-desc">事前 Cursor（Ivan 本机 yubin）→ 事中 Vemory → 事后 VPS。6/12 日报是 API 测试样例，不当业务证据。</p>
+    <table>
+      <thead><tr><th>日期</th><th>层</th><th>动作</th><th>产出</th></tr></thead>
+      <tbody>
+        <tr><td>6/17–22</td><td>事前</td><td>Ivan Cursor：Switch / Valiram / 云顶 / 豪车</td><td>尽调种子</td></tr>
+        <tr><td>6/23</td><td>事前</td><td>渠道联系人</td><td>118 条 / 63 邮箱</td></tr>
+        <tr><td>6/26</td><td>事前</td><td>211 人压缩</td><td>117 公司；MY 48</td></tr>
+        <tr><td>6/29</td><td>事前</td><td>Ital Auto</td><td>Ferrari 全国总代</td></tr>
+        <tr><td>7/03</td><td>事前</td><td>合并 CSV</td><td>日报写 260；线索盘点写 1,949（原件缺失）</td></tr>
+        <tr><td>7/08</td><td>事前</td><td>H2 OKR</td><td>Genting+Pavilion stretch 155 万</td></tr>
+        <tr><td>7/14–16</td><td>事中</td><td>出差 8 场 ≈502min（Cursor 空）</td><td>SWAP / Pavilion / 云顶×2 / SWITCH / KLCC</td></tr>
+        <tr><td>7/20–24</td><td>事后</td><td>6 套话术 · TRX · Amy 回邮终稿 · 腕表 CSV</td><td>Cursor 有；CSV 仓库无</td></tr>
+        <tr><td>7/31</td><td>事后</td><td>KLCC 书面终版</td><td>RM70k/月或 15% GTO · 10/12 进场</td></tr>
+        <tr><td>8/1–13</td><td>系统</td><td>VPS 于冰订单 19 张</td><td>马来命中 0；Ivan Cursor 最新停在 7/24</td></tr>
+      </tbody>
+    </table>
+    <details>
+      <summary>7/14–16 会议原文锚点（Vemory）</summary>
+      <ul>
+        <li>7/14 56min 内部：双店布局；boutique vs pop-up；库存 20–30 万 special</li>
+        <li>7/14 59min 客户：Pavilion/KLCC/Genting 排期；越南销售作 sell-in 背书（非马来 sell-out）</li>
+        <li>7/15 Pavilion：主体未定 + 需书面材料；28–30㎡ pop-up；旧 VR 退出阴影</li>
+        <li>7/15 云顶：口头 USD 4k+/月或 GTO 15%；无 LOI</li>
+        <li>7/16 SWITCH 95min：位置情报（KLCC 转角/芬迪门口）；关心装修/ROI；未签约</li>
+        <li>7/16 内部：无店仍 200+ 台/年激活（口述，系统未拆国）</li>
+        <li>DirectD Amy 7/24：「Kindly send me the relevant info」——回邮已起草，发送记录待确认</li>
+      </ul>
+    </details>
+    <details>
+      <summary>当地难点（会议口径，非感觉）</summary>
+      <ul>
+        <li>高价机心理门槛；印度裔需教育（SWAP 7/14）</li>
+        <li>当地手机毛利约 7–8 点（SWAP 7/14）</li>
+        <li>经营主体未定，卡 Pavilion 材料与 KLCC 签约</li>
+        <li>KLCC：RM70k/月或 15% GTO、300SF、书面 10/12</li>
+        <li>提袋率/转化率无官方数</li>
+      </ul>
+    </details>
+  </section>
+
+  <section id="actions">
+    <h2>五、本周动作（2026-08-13 起）</h2>
+    <p class="sec-desc">完成 = 这条线索升一级。做不到就停，不口头改叫客户。</p>
+    <div class="action-item"><div class="action-when">Amy→S5</div><div><strong>DirectD 资料包 + 线上 MOU</strong><br/>完成：Amy 确认 SKU/分成/区域</div></div>
+    <div class="action-item"><div class="action-when">KLCC</div><div><strong>ROI + 经营主体</strong><br/>完成：押金可批。进场筹备仍是场地方线索，不是代理客户</div></div>
+    <div class="action-item"><div class="action-when">Delia→S3</div><div><strong>TRX 租赁邮件发出</strong><br/>完成：发送记录入库</div></div>
+    <div class="action-item"><div class="action-when">John→S6</div><div><strong>SWITCH 30min ROI 会</strong><br/>完成：初步测算或明确放弃。Lawrence/Marcus/Chin 会后 Cc 才从 S1 升 S3</div></div>
+    <div class="action-item"><div class="action-when">Lovell→S6</div><div><strong>Pavilion 书面材料</strong><br/>完成：leasing 回 pop-up 条款</div></div>
+    <div class="action-item"><div class="action-when">Genting→S6</div><div><strong>云顶书面 LOI</strong><br/>完成：正式报价进仓库</div></div>
+    <div class="action-item"><div class="action-when">S2→S3</div><div><strong>Damien Woo + Valiram probe</strong><br/>完成：有发出记录。Zahir 等 Damien 后再发</div></div>
+    <div class="callout callout-warn">
+      8 月必须拍板三件事：① DirectD 线上先行 vs SWITCH 双店承接 ② 市区店以 KLCC 已锁为准、Pavilion 并行 ③ 经营主体。主体不拍，Pavilion/KLCC 都卡死。
+    </div>
+  </section>
+
+  <section id="gaps">
+    <h2>六、数据缺口</h2>
+    <p class="sec-desc">补了才能叫管理。未补之前，评分保持草案。</p>
+    <table>
+      <thead><tr><th>缺口</th><th>影响</th><th>谁补</th></tr></thead>
+      <tbody>
+        <tr><td>WhatsApp / 邮件原文（Amy 以外）</td><td>合作意愿无法原文举证</td><td>于冰导出</td></tr>
+        <tr><td>CSV 原件：118 / 260 / 117 / 1949 / 7-23 30 行</td><td>池总量只能写 183+</td><td>于冰本机 / 获客系统</td></tr>
+        <tr><td>KLCC floor plan</td><td>进场筹备缺图纸</td><td>7/13 会称已提供</td></tr>
+        <tr><td>TRX 邮件是否已发</td><td>阶段可能仍停 S2</td><td>发送日志</td></tr>
+        <tr><td>于冰 8 月 Vemory</td><td>出差后跟进无会议层</td><td>刘春梅账号</td></tr>
+        <tr><td>激活按国拆马来</td><td>200+ 台/年无法系统复核</td><td>activation.report</td></tr>
+        <tr><td>8/1 后 Ivan Cursor</td><td>KLCC 10/12 之后动作未入库</td><td>日报补交</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">基线手册（截止 8/5）：桌面「马来西亚市场拓展_客户池与行动手册.html」。仓库整理稿：overseas_weekly/outputs/马来西亚_全量数据整理_2026-08-13.md</p>
+  </section>
+</div>
+<script>
+const LEADS = [
+  {c:"DirectD", p:"Amy Tan · CEO", k:"承接方", s:"S4有效回复", pri:"进行中", pr:"P0", g:"S5 谈判：30min 视频", n:"发资料包 + 线上 MOU", e:"7/24 Kindly send me the relevant info"},
+  {c:"DirectD", p:"Ezwan Rais · Head of Product", k:"承接方", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：Amy 会 Cc", n:"线上框架会 Cc", e:"名单在册，0 触达"},
+  {c:"SWITCH", p:"John Cheah · GM BD", k:"承接方", s:"S5谈判", pri:"进行中", pr:"P0", g:"S6：ROI 书面 or 放弃", n:"话术#1 · 先接云顶还是 KLCC", e:"7/16 现场 95min"},
+  {c:"SWITCH", p:"Lawrence Seng · BR GM", k:"承接方", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：与 John 同步发", n:"会后 LinkedIn", e:"0 触达"},
+  {c:"SWITCH", p:"Marcus Wong · GM", k:"承接方", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：陈列对接发出", n:"会后对接陈列", e:"0 触达"},
+  {c:"SWITCH", p:"Chin Ing Heng · BD", k:"承接方", s:"S1入库", pri:"S1入库", pr:"P1", g:"S3：落位协同发出", n:"KLCC/Pavilion 租约", e:"0 触达"},
+  {c:"SWAP / Brightstar", p:"内部渠道", k:"承接方", s:"S5谈判", pri:"进行中", pr:"P1", g:"S6：利润点书面", n:"锁 IoT vs 手机 boutique", e:"7/14 双店定调"},
+  {c:"Machines", p:"Andrew Cheng · CEO", k:"承接方", s:"S3已发未回", pri:"搁置", pr:"P2", g:"冻结", n:"前两家未死不重启", e:"历史回复后失联"},
+  {c:"Suria KLCC", p:"Leasing · Ampang Rotunda G", k:"场地方", s:"S6书面", pri:"进行中", pr:"P0", g:"ROI+主体（仍非客户）", n:"ROI 一页纸 + 主体书面", e:"7/31 RM70k 或 15% GTO · 10/12"},
+  {c:"Pavilion KL", p:"Lovell Ho · Senior Director", k:"场地方", s:"S5谈判", pri:"进行中", pr:"P0", g:"S6：pop-up 书面", n:"交品牌/财务/主体材料", e:"7/15 2–3 楼腕表区"},
+  {c:"Sky Avenue Genting", p:"Leasing", k:"场地方", s:"S5谈判", pri:"进行中", pr:"P0", g:"S6：口头转 LOI", n:"书面租金 + 谁承接", e:"7/15 口头 USD 4k+ 或 GTO 15%"},
+  {c:"The Exchange TRX", p:"Delia Yap · Leasing Director", k:"场地方", s:"S2尽调", pri:"S2尽调", pr:"P1", g:"S3：邮件发出", n:"发英文稿并记日志", e:"Cursor 7/20、7/30；发送记录未入库"},
+  {c:"Mid Valley / The Gardens", p:"Leasing Team", k:"场地方", s:"S1入库", pri:"S1入库", pr:"P2", g:"冻结", n:"双店后再触达", e:"名单储备"},
+  {c:"Valiram Group", p:"Swiss Watch Gallery", k:"生态", s:"S2尽调", pri:"S2尽调", pr:"P0", g:"S3：VIP probe 发出", n:"跨界 VIP · 邻店对标", e:"Cursor 6/17–22；0 触达"},
+  {c:"The Hour Glass MY", p:"Corporate / Pavilion 店", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：联合营销 probe", n:"本周可发", e:"0 触达"},
+  {c:"Cortina Watch", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：交叉引流评估", n:"本周可发", e:"0 触达"},
+  {c:"Sincere Fine Watches", p:"Pavilion L2", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"冻结至 Pavilion 落位", n:"邻店参考不先发", e:"0 触达"},
+  {c:"Red Army Watches", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：生活方式跨界", n:"双店后再发", e:"0 触达"},
+  {c:"Watatime", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"冻结", n:"中端非首要", e:"0 触达"},
+  {c:"A.D. Time", p:"YY Kwan / Junyi Kwan", k:"生态", s:"S1入库", pri:"S1入库", pr:"P1", g:"S3：对接 Junyi", n:"分销网络参考", e:"0 触达"},
+  {c:"Tomei Consolidated", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P1", g:"S3：华商+珠宝", n:"可与 ACCCIM 同批", e:"0 触达"},
+  {c:"Ingram Micro MY", p:"Ricky Tan · MD", k:"生态", s:"S1入库", pri:"S1入库", pr:"P1", g:"冻结", n:"分销模式未选", e:"名单储备"},
+  {c:"Senheng Electric", p:"Mobile Category", k:"生态", s:"S1入库", pri:"S1入库", pr:"P2", g:"淘汰观察", n:"调性不匹配", e:"名单储备"},
+  {c:"VSTECS Berhad", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P2", g:"S2：核实 V-STARS 名称", n:"名称待核实", e:"名单储备"},
+  {c:"Ital Auto", p:"Damien Woo · Dealer Principal", k:"生态", s:"S2尽调", pri:"S2尽调", pr:"P0", g:"S3：VIP probe", n:"Ferrari 交叉营销", e:"Cursor 6/29；0 触达"},
+  {c:"Ital Auto", p:"Zahir Kelvin Ong Abdullah", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"等 Damien 后再发", n:"不同周双发", e:"0 触达"},
+  {c:"SunAgata Supercars", p:"Nicole Perreau", k:"生态", s:"S1入库", pri:"S1入库", pr:"P1", g:"S3：超跑圈层", n:"双店后再发", e:"0 触达"},
+  {c:"Wearnes / Quest", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P1", g:"S2：补 LinkedIn", n:"联系人待补", e:"LinkedIn 待补"},
+  {c:"ACCCIM", p:"秘书处", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：引荐邮件", n:"本周可发", e:"0 触达"},
+  {c:"MCCC", p:"秘书处", k:"生态", s:"S1入库", pri:"S1入库", pr:"P0", g:"S3：筛承接方邮件", n:"本周可发", e:"0 触达"},
+  {c:"KLSCCCI 隆雪中总", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P1", g:"S3：本地零售商", n:"可与 ACCCIM 同批", e:"0 触达"},
+  {c:"KLSCAH 隆雪华堂", p:"—", k:"生态", s:"S1入库", pri:"S1入库", pr:"P1", g:"冻结", n:"社团非本周", e:"0 触达"}
+];
+const FILTERS = ["全部","进行中","S1入库","S2尽调","承接方","场地方","生态"];
+let current = "全部";
+function badge(s) {
+  if (s === "S6书面") return '<span class="badge b-done">'+s+'</span>';
+  if (s === "S4有效回复" || s === "S5谈判") return '<span class="badge b-hot">'+s+'</span>';
+  if (s === "S3已发未回") return '<span class="badge b-p0">'+s+'</span>';
+  if (s === "S2尽调") return '<span class="badge b-wip">'+s+'</span>';
+  return '<span class="badge b-todo">'+s+'</span>';
+}
+function render() {
+  const q = (document.getElementById("search").value || "").toLowerCase();
+  const rows = LEADS.filter(a => {
+    if (current === "全部") { /* keep */ }
+    else if (current === "进行中") { if (a.pri !== "进行中") return false; }
+    else if (current === "S1入库" || current === "S2尽调") { if (a.s !== current) return false; }
+    else if (a.k !== current) return false;
+    if (!q) return true;
+    return (a.c+a.p+a.s+a.n+a.e+a.g).toLowerCase().indexOf(q) >= 0;
+  });
+  document.querySelector("#board-table tbody").innerHTML = rows.map(a =>
+    "<tr><td><strong>"+a.c+"</strong></td><td>"+a.p+"</td><td>"+a.k+"</td><td>"+badge(a.s)+
+    "</td><td>"+a.pr+"</td><td>"+a.g+"</td><td>"+a.n+"</td><td>"+a.e+"</td></tr>"
+  ).join("");
+  document.getElementById("board-count").textContent = "显示 "+rows.length+" / "+LEADS.length+" 条线索";
+}
+document.getElementById("filters").innerHTML = FILTERS.map(f =>
+  "<button"+(f===current?" class='active'":"")+" onclick='setF(\""+f+"\",this)'>"+f+"</button>"
+).join("");
+function setF(f, btn) {
+  current = f;
+  document.querySelectorAll("#filters button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  render();
+}
+render();
+</script>
+</body>
+</html>

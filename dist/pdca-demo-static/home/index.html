@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>数据岗位 PDCA 工作台</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif; background: #f5f7fb; color: #1f2937; }
+    .page { padding: 20px; max-width: 1680px; margin: 0 auto; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04); }
+    .toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab { border: 1px solid #dbe1ea; background: #fff; padding: 8px 18px; border-radius: 999px; cursor: pointer; font-weight: 600; }
+    .tab.active { background: #111827; color: #fff; border-color: #111827; }
+    .quick-links { display: flex; gap: 8px; flex-wrap: wrap; }
+    .quick-links a { text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 8px; background: #f3f4f6; color: #111827; font-weight: 600; }
+    .quick-links a:hover { background: #e5e7eb; }
+    .flash { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 14px; display: none; }
+    .top-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .metric-card,
+    .stat { padding: 22px; min-height: 120px; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; }
+    .metric-body,
+    .stat-body { width: 100%; display: flex; flex-direction: column; align-items: flex-start; text-align: left; flex: 1; }
+    .metric-label,
+    .label { color: #6b7280; font-size: 14px; margin: 0 0 10px; width: 100%; line-height: 1.35; font-weight: 400; }
+    .metric-value,
+    .value { font-size: 28px; font-weight: 800; width: 100%; margin: 0; line-height: 1.15; font-variant-numeric: tabular-nums; color: #111827; flex: 1; display: flex; align-items: center; min-height: 36px; }
+    .amount-num { display: block; text-align: left; letter-spacing: -0.02em; }
+    .amount-unit { font-size: 0.72em; font-weight: 800; margin-left: 2px; }
+    .metric-foot,
+    .stat-foot { margin-top: 10px; font-size: 12px; color: #9ca3af; line-height: 1.35; width: 100%; }
+    .metric-foot:empty { display: none; }
+    .metric-link { cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .metric-link:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08); }
+    .metric-link .metric-foot.action::after,
+    .stat-link .stat-foot.action::after { content: '点击进入'; }
+    .metric-link .metric-foot.action,
+    .stat-link .stat-foot.action { font-size: 0; }
+    .metric-link .metric-foot.action::after,
+    .stat-link .stat-foot.action::after { font-size: 12px; }
+    .grid-main { display: grid; grid-template-columns: 0.9fr 1.3fr; gap: 16px; margin-bottom: 16px; }
+    .left-stack, .right-stack { display: grid; gap: 16px; }
+    .section { padding: 18px; }
+    .section-title { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 800; margin-bottom: 14px; gap: 8px; flex-wrap: wrap; }
+    .score-box { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: center; }
+    .score { width: 110px; height: 110px; border-radius: 50%; border: 10px solid #111827; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 900; }
+    .todo-list, .scroll-list { max-height: 210px; overflow: auto; display: grid; gap: 10px; }
+    .todo-source-hint { margin: 0 0 10px; font-size: 12px; color: #6b7280; line-height: 1.45; }
+    .todo-item, .list-row { border: 1px solid #eef2f7; border-radius: 10px; padding: 10px 12px; background: #fafafa; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .todo-item .todo-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .todo-item .todo-sub { font-size: 11px; color: #9ca3af; }
+    .tag { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: #eef2ff; color: #3730a3; white-space: nowrap; }
+    .btn { border: 0; border-radius: 8px; padding: 7px 12px; background: #111827; color: #fff; cursor: pointer; font-size: 13px; text-decoration: none; display: inline-block; }
+    .btn.ghost { background: #f3f4f6; color: #111827; }
+    .customer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .customer-grid .metric-card { min-height: 110px; padding: 16px 18px; background: #fff; }
+    .human-grid, .task-grid, .meeting-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .human-grid .metric-card,
+    .task-grid .metric-card,
+    .meeting-grid .metric-card { min-height: 100px; padding: 16px 18px; background: #fff; }
+    .progress { margin-top: 8px; height: 6px; background: #e5e7eb; border-radius: 999px; overflow: hidden; width: 100%; }
+    .progress span { display: block; height: 100%; background: #111827; }
+    .exception-grid, .footer-modules { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .footer-modules .task-center-section .task-grid { grid-template-columns: repeat(3, 1fr); }
+    .exception-item { padding: 10px 12px; border-left: 4px solid #111827; background: #fafafa; border-radius: 8px; margin-bottom: 10px; }
+    .important-row { display: grid; grid-template-columns: 1.1fr 1.2fr 180px; gap: 12px; align-items: start; border: 1px solid #eef2f7; border-radius: 12px; padding: 12px; margin-bottom: 10px; background: #fafafa; }
+    textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; font-family: inherit; }
+    .empty-hint { color: #9ca3af; font-size: 13px; padding: 8px 0; }
+    @media (max-width: 1000px) {
+      .top-stats, .grid-main, .exception-grid, .footer-modules { grid-template-columns: 1fr; }
+      .customer-grid, .human-grid, .task-grid, .meeting-grid { grid-template-columns: repeat(2, 1fr); }
+      .important-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div id="flashMsg" class="flash"></div>
+    <div class="toolbar">
+      <div class="tabs" id="periodTabs">
+        <button type="button" class="tab active" data-period="day">日</button>
+        <button type="button" class="tab" data-period="week">周</button>
+        <button type="button" class="tab" data-period="month">月</button>
+        <button type="button" class="tab" data-period="quarter">季</button>
+      </div>
+      <div class="quick-links" id="quickLinks"></div>
+      <button type="button" class="btn ghost" onclick="refreshDashboard()">刷新数据</button>
+    </div>
+
+    <div class="top-stats">
+      <div class="card stat metric-card">
+        <div class="metric-body stat-body">
+          <div class="metric-label label">姓名 / 权限</div>
+          <div class="metric-value value" id="managerName"><span class="amount-num">—</span></div>
+          <div class="metric-foot stat-foot" id="managerRole">加载中…</div>
+        </div>
+      </div>
+      <div class="card stat metric-card metric-link stat-link" role="link" tabindex="0" title="打开数据看板" onclick="location.href=withDate('/dashboard')" onkeydown="if(event.key==='Enter')location.href=withDate('/dashboard')">
+        <div class="metric-body stat-body">
+          <div class="metric-label label">经销商提货金额 Sell In</div>
+          <div class="metric-value value" id="sellInAmount"><span class="amount-num">—</span></div>
+          <div class="metric-foot stat-foot action"></div>
+        </div>
+      </div>
+      <div class="card stat metric-card metric-link stat-link sell-out-card" role="link" tabindex="0" title="打开客流分析台（海外客流与线上经营）" onclick="location.href='../walkin-cockpit/index.html?date=' + encodeURIComponent(workDate()) + '#oi-merged'" onkeydown="if(event.key==='Enter')location.href='../walkin-cockpit/index.html?date=' + encodeURIComponent(workDate()) + '#oi-merged'">
+        <div class="metric-body stat-body">
+          <div class="metric-label label">经销商终销金额 Sell Out</div>
+          <div class="metric-value value" id="sellOutAmount"><span class="amount-num">—</span></div>
+          <div class="metric-foot stat-foot action" id="sellOutFoot"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-main">
+      <div class="left-stack">
+        <section class="card section">
+          <div class="section-title">昨日表现打分 <span class="tag">Agent 综合评判</span></div>
+          <div class="score-box"><div class="score" id="agentScore">—</div><div><b>综合评价</b><p id="scoreComment"></p></div></div>
+        </section>
+        <section class="card section">
+          <div class="section-title">今日 ToDo</div>
+          <p class="todo-source-hint" id="todayTodoHint"></p>
+          <div class="todo-list" id="todayTodoList"></div>
+        </section>
+        <section class="card section"><div class="section-title">Hermes Agent 分配任务</div><div class="todo-list" id="agentTaskList"></div></section>
+      </div>
+
+      <div class="right-stack">
+        <section class="card section"><div class="section-title">客户管理中心 <button type="button" class="btn ghost" onclick="goDetail('customer')">详情</button></div><div class="customer-grid" id="customerCenter"></div></section>
+        <section class="card section"><div class="section-title">人力中心 <button type="button" class="btn ghost" onclick="goDetail('hr')">详情</button></div><div class="human-grid" id="humanCenter"></div></section>
+      </div>
+    </div>
+
+    <div class="exception-grid">
+      <section class="card section"><div class="section-title">异常情况 - 业务板块</div><div class="scroll-list" id="businessExceptions"></div></section>
+      <section class="card section"><div class="section-title">异常情况 - 事务板块</div><div class="scroll-list" id="affairExceptions"></div></section>
+    </div>
+
+    <section class="card section" style="margin-bottom:16px;">
+      <div class="section-title">重要事项与 Agent 处理建议</div>
+      <div id="importantMatters"></div>
+    </section>
+
+    <div class="footer-modules">
+      <section class="card section task-center-section">
+        <div class="section-title">任务中心 <button type="button" class="btn ghost" onclick="goDetail('pdca')">详情</button></div>
+        <div class="task-grid" id="taskCenter"></div>
+      </section>
+      <section class="card section"><div class="section-title">会议中心 <button type="button" class="btn ghost" onclick="goDetail('vemory')">跳转 Vemory</button></div><div class="meeting-grid" id="meetingCenter"></div></section>
+    </div>
+  </div>
+
+  <script>
+    const API = {
+      dashboard: 'data/dashboard-overview.json',
+      sellIn: 'data/sell-in.json',
+      sellOut: 'data/sell-out.json',
+      todo: 'data/todos-today.json',
+      agentTasks: 'data/hermes-agent-tasks.json',
+      customerCenter: 'data/customer-center-summary.json',
+      humanCenter: 'data/hr-summary.json',
+      exceptions: 'data/exceptions.json',
+      importantMatters: 'data/important-matters.json',
+      taskCenter: 'data/task-center-summary.json',
+      meetingCenter: 'data/meeting-center-summary.json',
+      processSuggestion: 'data/process-suggestion-stub.json'
+    };
+
+    let currentPeriod = 'day';
+
+    function workDate() {
+      const q = new URLSearchParams(location.search).get('date');
+      if (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) return q;
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    }
+
+    function withDate(url) {
+      const sep = url.indexOf('?') >= 0 ? '&' : '?';
+      return url + sep + 'date=' + encodeURIComponent(workDate());
+    }
+
+    function buildQuickLinks() {
+      const links = [
+        ['数据看板', '/dashboard']
+      ];
+      document.getElementById('quickLinks').innerHTML = links
+        .map(([label, href]) => '<a href="' + withDate(href) + '">' + label + '</a>')
+        .join('');
+    }
+
+    function showFlash() {
+      const msg = new URLSearchParams(location.search).get('message');
+      if (!msg) return;
+      const el = document.getElementById('flashMsg');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    /** @param {number|string|null} wan */
+    function formatWanHtml(wan) {
+      if (wan == null || wan === '') return '<span class="amount-num">—</span>';
+      return '<span class="amount-num">' + wan + '<span class="amount-unit">万</span></span>';
+    }
+
+    function formatTextHtml(text) {
+      return '<span class="amount-num">' + escapeHtml(text || '—') + '</span>';
+    }
+
+    /**
+     * 统一 KPI 小卡片：标题 / 主数值 / 底部说明（可选「点击进入」）
+     * @param {{ label: string, valueHtml: string, foot?: string, link?: boolean, onClick?: string }} opts
+     */
+    function metricTileHtml(opts) {
+      var link = opts.link ? ' metric-card metric-link' : ' metric-card';
+      var click = opts.onClick ? ' onclick="' + opts.onClick + '"' : '';
+      var footClass = 'metric-foot' + (opts.link ? ' action' : '');
+      var foot = opts.foot != null && opts.foot !== '' ? escapeHtml(opts.foot) : '';
+      return (
+        '<div class="card' + link + '"' + click + '>' +
+        '<div class="metric-body">' +
+        '<div class="metric-label">' + escapeHtml(opts.label) + '</div>' +
+        '<div class="metric-value">' + opts.valueHtml + '</div>' +
+        '<div class="' + footClass + '">' + foot + '</div>' +
+        '</div></div>'
+      );
+    }
+
+    function shortRoleText(role) {
+      var parts = String(role || '').split('·').map(function (s) { return s.trim(); }).filter(Boolean);
+      if (parts.length >= 2) return parts.slice(-2).join(' · ');
+      return parts[0] || '';
+    }
+
+    async function request(url, params) {
+      params = params || {};
+      params.period = currentPeriod;
+      params.date = workDate();
+      const query = new URLSearchParams(params).toString();
+      const res = await fetch(url + '?' + query, { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    }
+
+    async function loadSection(label, loader) {
+      try {
+        await loader();
+      } catch (err) {
+        console.error(label, err);
+      }
+    }
+
+    async function refreshDashboard() {
+      const params = { managerId: 'default' };
+      await loadSection('overview', async function () {
+        const overview = await request(API.dashboard, params);
+        managerName.innerHTML = formatTextHtml(overview.managerName);
+        managerRole.textContent = shortRoleText(overview.managerRole);
+        if (overview.sellInWan != null && overview.sellInWan !== '') {
+          sellInAmount.innerHTML = formatWanHtml(overview.sellInWan);
+        } else {
+          sellInAmount.innerHTML = '<span class="amount-num">' + escapeHtml(overview.sellInAmount || '¥ 0') + '</span>';
+        }
+        if (overview.sellOutWan != null && overview.sellOutWan !== '') {
+          sellOutAmount.innerHTML = formatWanHtml(overview.sellOutWan);
+        } else {
+          sellOutAmount.innerHTML = '<span class="amount-num">' + escapeHtml(overview.sellOutAmount || '¥ 0') + '</span>';
+        }
+        var sellOutCard = document.querySelector('.sell-out-card');
+        if (sellOutCard) {
+          sellOutCard.title = (overview.sellOutSub || '客流分析台：海外客流与线上经营') + ' · 点击进入';
+        }
+        agentScore.textContent = overview.agentScore != null ? overview.agentScore : '—';
+        scoreComment.textContent = overview.scoreComment || '';
+      });
+      await loadSection('todo', async function () {
+        renderTodos(await request(API.todo, params));
+      });
+      await loadSection('taskCenter', async function () {
+        renderTaskCenter(await request(API.taskCenter, params));
+      });
+      await loadSection('agentTasks', async function () {
+        renderAgentTasks(await request(API.agentTasks, params));
+      });
+      await loadSection('customers', async function () {
+        renderCustomers(await request(API.customerCenter, params));
+      });
+      await loadSection('human', async function () {
+        renderHuman(await request(API.humanCenter, params));
+      });
+      await loadSection('exceptions', async function () {
+        renderExceptions(await request(API.exceptions, params));
+      });
+      await loadSection('important', async function () {
+        renderImportant(await request(API.importantMatters, params));
+      });
+      await loadSection('meeting', async function () {
+        renderMeetingCenter(await request(API.meetingCenter, params));
+      });
+    }
+
+    function renderTodos(data) {
+      var hint = document.getElementById('todayTodoHint');
+      var yesterday = (data && data[0] && data[0].yesterday) ? data[0].yesterday : '';
+      if (hint) {
+        hint.textContent = yesterday
+          ? '来源：vertu odoo daily-report · 昨日（' + yesterday + '）群日报「明日计划」'
+          : '';
+      }
+      if (!data || !data.length) {
+        todayTodoList.innerHTML = '<div class="empty-hint">暂无今日计划，请补交昨日群日报</div>';
+        return;
+      }
+      todayTodoList.innerHTML = data.map(function (item) {
+        var sub = item.deadline ? '截止 ' + item.deadline : '';
+        if (item.progress > 0 && item.progress < 100) {
+          sub = (sub ? sub + ' · ' : '') + '进度 ' + item.progress + '%';
+        }
+        return (
+          '<div class="todo-item">' +
+          '<div class="todo-meta"><span>' + escapeHtml(item.title) + '</span>' +
+          (sub ? '<span class="todo-sub">' + escapeHtml(sub) + '</span>' : '') +
+          '</div><span class="tag">' + escapeHtml(item.status || '待办') + '</span></div>'
+        );
+      }).join('');
+    }
+
+    function renderTaskCenter(data) {
+      var statsEl = document.getElementById('taskCenter');
+      if (!statsEl) return;
+      var rows = Array.isArray(data) ? data : (data && data.summary) || [];
+      statsEl.innerHTML = rows.map(function (item) {
+        return metricTileHtml({
+          label: item.label,
+          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
+          link: true,
+          onClick: "goDetail('pdca')"
+        });
+      }).join('');
+    }
+
+    function renderAgentTasks(data) {
+      if (!data || !data.length) {
+        agentTaskList.innerHTML = '<div class="empty-hint">暂无 Agent 任务</div>';
+        return;
+      }
+      agentTaskList.innerHTML = data.map(function (item) {
+        return '<div class="todo-item"><span>' + escapeHtml(item.title) + '</span><button type="button" class="btn" onclick="goDetail(\'agent-task-' + item.id + '\')">处理</button></div>';
+      }).join('');
+    }
+
+    function renderCustomers(data) {
+      if (!data || !data.length) {
+        customerCenter.innerHTML = '<div class="empty-hint">暂无客户分层数据</div>';
+        return;
+      }
+      customerCenter.innerHTML = data.map(function (item) {
+        const width = item.target > 0 ? Math.min(item.touched / item.target * 100, 100) : 0;
+        return (
+          '<div class="card metric-card metric-link" onclick="goDetail(\'customer-' + item.level + '\')">' +
+          '<div class="metric-body">' +
+          '<div class="metric-label">' + escapeHtml(item.level) + ' 类客户</div>' +
+          '<div class="metric-value"><span class="amount-num">' + item.total + '<span class="amount-unit">家</span></span></div>' +
+          '<div class="metric-foot">触达 ' + item.touched + '/' + item.target + '</div>' +
+          '<div class="progress"><span style="width:' + width + '%"></span></div>' +
+          '</div></div>'
+        );
+      }).join('');
+    }
+
+    function renderHuman(data) {
+      humanCenter.innerHTML = (data || []).map(function (item) {
+        return metricTileHtml({
+          label: item.label,
+          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
+          link: true,
+          onClick: "goDetail('hr-" + item.key + "')"
+        });
+      }).join('');
+    }
+
+    function renderExceptions(data) {
+      const biz = (data && data.business) || [];
+      const aff = (data && data.affair) || [];
+      businessExceptions.innerHTML = biz.length ? biz.map(function (item) {
+        return '<div class="exception-item"><b>' + escapeHtml(item.owner) + '</b>：' + escapeHtml(item.content) + '</div>';
+      }).join('') : '<div class="empty-hint">暂无业务异常</div>';
+      affairExceptions.innerHTML = aff.length ? aff.map(function (item) {
+        return '<div class="exception-item"><b>' + escapeHtml(item.owner) + '</b>：' + escapeHtml(item.content) + '</div>';
+      }).join('') : '<div class="empty-hint">暂无事务异常</div>';
+    }
+
+    function renderImportant(data) {
+      if (!data || !data.length) {
+        importantMatters.innerHTML = '<div class="empty-hint">暂无重要事项</div>';
+        return;
+      }
+      importantMatters.innerHTML = data.map(function (item) {
+        return '<div class="important-row"><div><b>' + escapeHtml(item.title) + '</b><p>' + escapeHtml(item.desc) + '</p></div><textarea id="suggestion-' + item.id + '">' + escapeHtml(item.suggestion) + '</textarea><div><button type="button" class="btn" onclick="processSuggestion(\'' + item.id + '\', \'agent\')">一键处理</button><button type="button" class="btn ghost" style="margin-top:8px;" onclick="processSuggestion(\'' + item.id + '\', \'custom\')">按我的建议处理</button></div></div>';
+      }).join('');
+    }
+
+    function renderMeetingCenter(data) {
+      meetingCenter.innerHTML = (data || []).map(function (item) {
+        return metricTileHtml({
+          label: item.label,
+          valueHtml: '<span class="amount-num">' + escapeHtml(String(item.value)) + '</span>',
+          link: true,
+          onClick: "goDetail('vemory-" + item.key + "')"
+        });
+      }).join('');
+    }
+
+    function escapeHtml(text) {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function processSuggestion(id, mode) {
+      const el = document.getElementById('suggestion-' + id);
+      const suggestion = el ? el.value : '';
+      await fetch(API.processSuggestion, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id, suggestion: suggestion, mode: mode, date: workDate() })
+      });
+      alert(mode === 'agent' ? '已记录 Agent 处理建议' : '已记录你的处理建议，Agent 将学习');
+    }
+
+    function goDetail(type) {
+      const date = workDate();
+      const q = '?date=' + encodeURIComponent(date);
+      if (type === 'pdca' || type === 'todo' || type.indexOf('agent-task-') === 0) {
+        location.href = '../walkin-cockpit/index.html' + q + '#oi-merged';
+        return;
+      }
+      if (type.indexOf('vemory') === 0) {
+        location.href = '../meeting-center/index.html' + q;
+        return;
+      }
+      if (type.indexOf('customer') === 0 || type === 'customer' || type.indexOf('hr') === 0 || type === 'hr') {
+        alert('演示包未包含客户/人力详情页');
+        return;
+      }
+      alert('演示包：' + type);
+    }
+
+    document.querySelectorAll('.tab').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('.tab').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        currentPeriod = btn.dataset.period;
+        refreshDashboard();
+      });
+    });
+
+    buildQuickLinks();
+    showFlash();
+    refreshDashboard();
+  </script>
+</body>
+</html>

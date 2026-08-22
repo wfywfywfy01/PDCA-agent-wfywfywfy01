@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>海外经销商业绩驾驶舱</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+<script>
+// Debug: patch echarts.init to log
+const _origInit = echarts.init;
+echarts.init = function(dom, ...args) {
+  if(!dom) { console.error('echarts.init called with null dom'); return null; }
+  const inst = _origInit.call(this, dom, ...args);
+  console.log('[ECharts init]', dom.id, 'size:', dom.offsetWidth, 'x', dom.offsetHeight);
+  return inst;
+};
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'PingFang SC','Microsoft YaHei',-apple-system,sans-serif;background:#f0f2f7;color:#1a1d2e;font-size:13px}
+.topnav{height:44px;background:#0d0f1a;display:flex;align-items:center;padding:0 14px;gap:1px;position:fixed;top:0;left:0;right:0;z-index:300;box-shadow:0 2px 12px rgba(0,0,0,.5)}
+.nav-brand{font-size:13px;font-weight:700;color:#fff;white-space:nowrap;margin-right:8px}
+.ni{display:flex;align-items:center;gap:3px;padding:4px 9px;color:#a0a8be;font-size:12px;border-radius:5px;cursor:pointer;white-space:nowrap;transition:all .15s;user-select:none}
+.ni:hover{background:rgba(255,255,255,.08);color:#fff}
+.ni.active{background:rgba(59,110,248,.25);color:#fff;border:1px solid rgba(59,110,248,.45)}
+.ni.period.cur{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border:1px solid rgba(255,255,255,.2)}
+.ni.dealer-btn{margin-left:4px;border-left:1px solid rgba(255,255,255,.12);padding-left:13px}
+.ni.dealer-btn.cur{background:rgba(255,200,50,.18);color:#ffe57a;font-weight:600;border:1px solid rgba(255,200,50,.35)}
+.nsep{width:1px;height:18px;background:rgba(255,255,255,.1);margin:0 3px;flex-shrink:0}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:1px}
+.rbar{position:fixed;top:44px;left:0;right:0;z-index:299;background:linear-gradient(90deg,#eef2ff,#f5f0ff);border-bottom:1px solid #dde3f5;text-align:center;padding:4px;font-size:11.5px;color:#6b7a9e}
+.rbar b{color:#7c5cbf;font-weight:600}
+.layout{display:flex;padding-top:68px;min-height:100vh}
+.sidebar{width:188px;flex-shrink:0;background:#fff;border-right:1px solid #e8ebf2;position:fixed;top:68px;bottom:0;left:0;overflow-y:auto;overflow-x:hidden;z-index:200;transition:width .22s ease}
+.sidebar.collapsed{width:0}
+.sidebar::-webkit-scrollbar{width:3px}
+.sidebar::-webkit-scrollbar-thumb{background:#dde3f2;border-radius:2px}
+.s-lbl{padding:7px 12px 2px;font-size:10px;font-weight:700;color:#b0b8c8;letter-spacing:.07em;text-transform:uppercase}
+.s-hint{padding:2px 12px 6px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tnode{display:flex;align-items:center;padding:5px 10px;cursor:pointer;transition:background .12s;min-height:32px;border-left:3px solid transparent}
+.tnode:hover{background:#f5f7fb}
+.tnode.sel-dir{background:#eff3ff;border-left-color:#3b6ef8}
+.tnode.sel-dir .nn{color:#3b6ef8;font-weight:700}
+.tnode.sel-person{background:#e8f5e9;border-left-color:#22c55e}
+.tnode.sel-person .nn{color:#16a34a;font-weight:700}
+.tarr{width:12px;height:12px;flex-shrink:0;color:#c0c8d8;font-size:9px;display:flex;align-items:center;justify-content:center;transition:transform .18s;margin-right:2px;user-select:none}
+.tarr.open{transform:rotate(90deg)}
+.av{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;margin-right:6px}
+.av.t{background:#fef9c3;color:#a16207}.av.p{background:#ede9fe;color:#7c3aed}
+.nn{font-size:12px;color:#1a1d2e;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nc{font-size:10px;color:#b0b8c8;flex-shrink:0;margin-left:2px}
+.nsb{font-size:10px;color:#b0b8c8;display:block;line-height:1.4;white-space:nowrap}
+.i1{padding-left:16px}.i2{padding-left:30px}
+.tc{overflow:hidden;transition:max-height .22s ease}
+.cbtn{position:fixed;bottom:80px;left:176px;width:22px;height:38px;background:#fff;border:1px solid #e0e4ee;border-radius:0 20px 20px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:250;color:#9ca3af;font-size:11px;box-shadow:2px 0 5px rgba(0,0,0,.07);transition:left .22s ease}
+.cbtn:hover{color:#3b6ef8}.cbtn.out{left:0}
+.main{margin-left:188px;flex:1;padding:14px 18px 40px;transition:margin-left .22s ease;min-width:0}
+.main.full{margin-left:0}
+/* shared */
+.card{background:#fff;border:1px solid #e8ebf2;border-radius:12px;padding:14px 16px}
+.sec{font-size:13px;font-weight:700;color:#1a1d2e;display:flex;align-items:center;gap:7px;margin:16px 0 10px}
+.sec::before{content:'';display:block;width:3px;height:14px;background:#3b6ef8;border-radius:2px;flex-shrink:0}
+.sec .stag{font-size:11px;font-weight:400;color:#9ca3af}
+.sec .lnk{font-size:11px;font-weight:500;color:#3b6ef8;margin-left:auto;cursor:pointer}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+.g1{margin-bottom:12px}
+.badge{display:inline-flex;align-items:center;font-size:11px;padding:2px 7px;border-radius:10px;font-weight:700}
+.bg{background:#dcfce7;color:#15803d}.br{background:#fee2e2;color:#b91c1c}.bn{background:#f3f4f6;color:#6b7280}
+/* tvy */
+.tvy{background:#fff;border:1px solid #e8ebf2;border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.tvy-hd{font-size:12px;font-weight:700;color:#1a1d2e;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.tvy-hd::before{content:'';width:3px;height:13px;background:#3b6ef8;border-radius:2px;display:block}
+.tvy-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.tvy-col{border-radius:10px;padding:12px 14px;position:relative;min-height:110px}
+.tvy-col.td{background:linear-gradient(135deg,#f0f4ff,#e8f0ff);border:1px solid #c7d7fb}
+.tvy-col.yd{background:#fafafa;border:1px solid #e8ebf2}
+.tvy-tag{font-size:11px;font-weight:600;margin-bottom:4px}
+.tvy-tag.blue{color:#3b6ef8}.tvy-tag.gray{color:#6b7280}
+.tvy-big{font-size:20px;font-weight:800;color:#1a1d2e;margin-bottom:2px}
+.tvy-tgt{font-size:11px;margin-bottom:4px}
+.tvy-sub{font-size:11px;color:#9ca3af;margin-bottom:4px}
+.tvy-badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+/* week kpi */
+.wkpi{background:linear-gradient(135deg,#f5f0ff,#ede9fe);border:1px solid #ddd5f5;border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.wkpi-hd{font-size:12px;font-weight:700;color:#1a1d2e;margin-bottom:3px}
+.wkpi-date{font-size:10px;color:#9ca3af;margin-bottom:8px}
+.wkpi-big{font-size:22px;font-weight:800;color:#1a1d2e;margin-bottom:2px}
+.wkpi-tgt{font-size:11px;color:#3b6ef8;margin-bottom:6px}
+.wkpi-subs{display:flex;gap:18px;margin-bottom:8px}
+.wkpi-si label{font-size:11px;color:#9ca3af;display:block}
+.wkpi-si .v{font-size:13px;font-weight:700;color:#1a1d2e}
+.wkpi-si .v.red{color:#ef4444}
+.pb-row{margin-bottom:6px}
+.pb-label{font-size:11px;color:#1a1d2e;display:flex;justify-content:space-between;margin-bottom:3px}
+.pb{height:8px;border-radius:4px;background:#e8ebf2;overflow:hidden}
+.pb-fill{height:100%;border-radius:4px;transition:width .5s}
+.pb-note{font-size:10px;color:#9ca3af;text-align:center;margin-top:3px}
+/* wm right */
+.wm{background:linear-gradient(135deg,#f0fff4,#e8f5e9);border:1px solid #bbf7d0;border-radius:12px;padding:14px 16px;height:100%}
+.wm-sec{margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #d1fae5}
+.wm-sec:last-child{margin-bottom:0;padding-bottom:0;border:none}
+.wm-lbl{font-size:11px;font-weight:700;color:#16a34a;margin-bottom:2px}
+.wm-date{font-size:10px;color:#9ca3af;margin-bottom:6px}
+.wm-big{font-size:20px;font-weight:800;color:#1a1d2e;margin-bottom:2px}
+.wm-tgt{font-size:11px;margin-bottom:4px}
+.wm-subs{font-size:11px;color:#9ca3af;margin-bottom:5px}
+.wm-badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.wm-pk{font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.rk-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.rk-name{width:90px;font-size:11px;color:#1a1d2e;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk-bw{flex:1;height:12px;background:#f0f2f7;border-radius:6px;overflow:hidden}
+.rk-bf{height:100%;border-radius:6px;transition:width .5s}
+.rk-val{width:48px;font-size:11px;font-weight:600;color:#1a1d2e;flex-shrink:0}
+/* month org */
+.org-wrap{background:linear-gradient(135deg,#f5f0ff,#ede9fe);border:1px solid #ddd5f5;border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.org-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.org-card{border-radius:10px;padding:12px 14px;border:1px solid #ddd5f5;background:#fff}
+.org-card.main{background:linear-gradient(135deg,#f0f4ff,#e8f0ff);border-color:#c7d7fb}
+.org-card-label{font-size:10px;font-weight:600;color:#7c5cbf;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+.org-card-tag{font-size:10px;color:#9ca3af;margin-bottom:3px}
+.org-big{font-size:18px;font-weight:800;color:#1a1d2e;margin-bottom:2px}
+.org-sub{font-size:11px;color:#9ca3af;margin-bottom:4px}
+.org-donut{position:relative;width:60px;height:60px;margin-bottom:4px}
+.org-donut svg{transform:rotate(-90deg)}
+.org-donut-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#7c5cbf}
+/* charts shared */
+.chart-card{background:#fff;border:1px solid #e8ebf2;border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.chart-title{font-size:12px;font-weight:700;color:#1a1d2e;margin-bottom:2px}
+.chart-sub{font-size:10.5px;color:#9ca3af;margin-bottom:8px}
+.double{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+/* arc */
+.arc-wrap{position:absolute;top:10px;right:12px;width:44px;height:44px}
+.arc-wrap svg{transform:rotate(-90deg)}
+.arc-txt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+@media(max-width:1100px){.g2,.tvy-cols,.double,.org-grid{grid-template-columns:1fr}}
+<style>
+.back-to-workbench{display:flex;align-items:center;gap:5px;color:#a8b4d8;text-decoration:none;font-size:12px;padding:3px 10px;border-radius:5px;border:1px solid rgba(255,255,255,.15);transition:background .15s;white-space:nowrap;margin-right:4px}
+.back-to-workbench:hover{background:rgba(255,255,255,.12);color:#fff}
+</style>
+<style id="wb-unified-skin">
+/**
+ * 数据看板与 PDCA 主页统一视觉（浅灰底、白卡片、墨黑强调色）
+ */
+html,
+body {
+  background: #f5f7fb !important;
+  color: #1f2937 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif !important;
+}
+
+.topnav {
+  height: 52px !important;
+  background: #fff !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04) !important;
+  padding: 0 20px !important;
+  gap: 8px !important;
+}
+
+.nav-brand {
+  color: #111827 !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+}
+
+.ni {
+  color: #6b7280 !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-weight: 600 !important;
+  border: 1px solid transparent !important;
+}
+
+.ni:hover {
+  background: #f3f4f6 !important;
+  color: #111827 !important;
+}
+
+.ni.active,
+.ni.period.cur {
+  background: #111827 !important;
+  color: #fff !important;
+  border-color: #111827 !important;
+}
+
+.ni.dealer-btn.cur {
+  background: #f3f4f6 !important;
+  color: #111827 !important;
+  border-color: #e5e7eb !important;
+}
+
+.nsep {
+  background: #e5e7eb !important;
+}
+
+.back-to-workbench {
+  color: #111827 !important;
+  background: #f3f4f6 !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+}
+
+.back-to-workbench:hover {
+  background: #e5e7eb !important;
+  color: #111827 !important;
+}
+
+.rbar {
+  background: #fff !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  color: #6b7280 !important;
+  top: 52px !important;
+  padding: 8px !important;
+  font-size: 13px !important;
+}
+
+.rbar b {
+  color: #111827 !important;
+}
+
+.rbar button {
+  background: #111827 !important;
+  border-radius: 8px !important;
+}
+
+.layout {
+  padding-top: 76px !important;
+}
+
+.sidebar {
+  top: 76px !important;
+  border-right-color: #e5e7eb !important;
+  border-radius: 0 !important;
+}
+
+.main {
+  padding: 20px !important;
+}
+
+.card,
+.tvy,
+.chart-card,
+.wkpi,
+.org-wrap {
+  border: 1px solid #e5e7eb !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04) !important;
+}
+
+.sec::before,
+.tvy-hd::before {
+  background: #111827 !important;
+}
+
+.sec .lnk,
+.wkpi-tgt,
+.tvy-tag.blue,
+.tnode.sel-dir .nn,
+#selHint {
+  color: #111827 !important;
+}
+
+.tnode.sel-dir {
+  background: #f3f4f6 !important;
+  border-left-color: #111827 !important;
+}
+
+.tvy-col.td,
+.org-card.main,
+.wkpi,
+.org-wrap {
+  background: #fff !important;
+  border-color: #e5e7eb !important;
+}
+
+.wm {
+  background: #fff !important;
+  border-color: #e5e7eb !important;
+}
+
+.cbtn:hover {
+  color: #111827 !important;
+}
+
+</style>
+<link rel="stylesheet" href="/dashboard-theme.css?v=1">
+</head>
+<body>
+<nav class="topnav">
+  <a class="back-to-workbench" href="/?date=2026-06-04" title="返回中台PDCA工作台">← 工作台</a>
+  <div class="nsep"></div>
+  <div class="nav-brand">海外经销商业绩驾驶舱</div>
+  <div class="nsep"></div>
+  <div class="ni period" id="pt-d" onclick="setPeriod('daily',this)">日报</div>
+  <div class="ni period" id="pt-w" onclick="setPeriod('weekly',this)">周报</div>
+  <div class="ni period" id="pt-m" onclick="setPeriod('monthly',this)">月报</div>
+  <div class="ni dealer-btn" id="pt-dealer" onclick="showDealerView(this)">🏪 门店</div>
+</nav>
+<div class="rbar">数据来源：VPS/Odoo · sale_order_line_report · 海外事业部 / 经销商
+<button onclick="forceRender()" style="margin-left:16px;padding:2px 10px;font-size:11px;background:#3b6ef8;color:#fff;border:none;border-radius:4px;cursor:pointer">🔄 刷新图表</button>&nbsp;&nbsp;上次：<b>2026-05-28 17:23:11</b>（1分钟前）</div>
+<div class="layout">
+<aside class="sidebar" id="sidebar">
+  <div class="s-lbl">有员工的部门 3</div>
+  <div class="s-hint" id="selHint" style="color:#3b6ef8">已选择：经销商（全部）</div>
+  <div class="s-lbl">组织架构</div>
+  <div class="tnode sel-dir" data-id="dir-dealer" data-type="director" data-name="经销商" onclick="clickNode(this)">
+    <span class="tarr open" onclick="toggleTC(event,this)">▶</span>
+    <span class="av t">经</span><span class="nn">经销商</span><span class="nc">♀7</span>
+  </div>
+  <div class="tc">
+    <div class="tnode i1" data-id="tl-yang" data-type="teamlead" data-name="杨晶晶" onclick="clickNode(this)">
+      <span class="tarr open" onclick="toggleTC(event,this)">▶</span>
+      <span class="av t">杨</span><span class="nn">杨晶晶</span><span class="nc">♀3</span>
+    </div>
+    <div class="tc">
+      <div class="tnode i2" data-id="p-yangjj" data-type="person" data-name="杨晶晶" data-emp="2258" data-dept="杨晶晶" onclick="clickNode(this)">
+        <span class="tarr"></span><span class="av p">杨</span>
+        <div><span class="nn">杨晶晶</span><span class="nsb">工号:2258·海外经销商</span></div>
+      </div>
+      <div class="tnode i2" data-id="p-wangyt" data-type="person" data-name="王宇彤" data-emp="3568" data-dept="杨晶晶" onclick="clickNode(this)">
+        <span class="tarr"></span><span class="av p">王</span>
+        <div><span class="nn">王宇彤</span><span class="nsb">工号:3568·海外经销商</span></div>
+      </div>
+      <div class="tnode i2" data-id="p-hehai" data-type="person" data-name="何海文" data-emp="3371" data-dept="杨晶晶" onclick="clickNode(this)">
+        <span class="tarr"></span><span class="av p">何</span>
+        <div><span class="nn">何海文</span><span class="nsb">工号:3371·海外经销商</span></div>
+      </div>
+    </div>
+    <div class="tnode i1" data-id="tl-yubing" data-type="teamlead" data-name="于冰" onclick="clickNode(this)">
+      <span class="tarr open" onclick="toggleTC(event,this)">▶</span>
+      <span class="av t">于</span><span class="nn">于冰</span><span class="nc">♀2</span>
+    </div>
+    <div class="tc">
+      <div class="tnode i2" data-id="p-yubing" data-type="person" data-name="于冰" data-emp="72" data-dept="于冰" onclick="clickNode(this)">
+        <span class="tarr"></span><span class="av p">于</span>
+        <div><span class="nn">于冰</span><span class="nsb">工号:72·海外经销商</span></div>
+      </div>
+      <div class="tnode i2" data-id="p-lydia" data-type="person" data-name="Lydia" data-emp="3615" data-dept="于冰" onclick="clickNode(this)">
+        <span class="tarr"></span><span class="av p">L</span>
+        <div><span class="nn">Lydia</span><span class="nsb">工号:3615·海外经销商</span></div>
+      </div>
+    </div>
+    <div class="tnode i1" data-id="tl-deh" data-type="teamlead" data-name="Lina" onclick="clickNode(this)">
+      <span class="tarr open" onclick="toggleTC(event,this)">▶</span>
+      <span class="av t">D</span><span class="nn">Lina</span><span class="nc">♀2</span>
+    </div>
+    <div class="tc">
+      <div class="tnode i2" data-id="p-deh" data-type="person" data-name="Lina" data-emp="1176" data-dept="Lina" onclick="clickNode(this)">
+        <span class="tarr"></span><span class="av p">D</span>
+        <div><span class="nn">Lina</span><span class="nsb">工号:1176·海外经销商</span></div>
+      </div>
+      <div class="tnode i2" data-id="p-youwj" data-type="person" data-name="尤文静" data-emp="3071" data-dept="Lina" onclick="clickNode(this)">
+        <span class="tarr"></span><span class="av p">尤</span>
+        <div><span class="nn">尤文静</span><span class="nsb">工号:3071·海外经销商</span></div>
+      </div>
+    </div>
+  </div>
+</aside>
+<div class="cbtn" id="cbtn" onclick="toggleSidebar()">«</div>
+<main class="main" id="main"><div id="view"></div></main>
+</div>
+<script>
+// ═══ HELPERS ═══
+const DAYS21=[];
+const MONTHS=['1月','2月','3月','4月','5月'];
+function rnd(b,n=0.18){return parseFloat((b||0).toFixed(2));}
+function line(p1,p2,n=21){return Array.from({length:n},()=>0);}
+function monthLine(vals){return vals.map(v=>parseFloat((v||0).toFixed(2)));}
+const CH={};
+function ec(id){
+  const dom=document.getElementById(id);
+  if(!dom){ console.warn('ec: no dom for',id); return null; }
+  // Always dispose and reinit to avoid stale instances after innerHTML swap
+  if(CH[id]){ try{CH[id].dispose();}catch(e){} delete CH[id]; }
+  try{
+    CH[id]=echarts.init(dom);
+    return CH[id];
+  }catch(e){
+    console.error('echarts.init failed for',id,e);
+    return null;
+  }
+}
+function dispAll(){Object.keys(CH).forEach(k=>{try{CH[k].dispose();}catch(e){}delete CH[k];});}
+window.addEventListener('resize',()=>Object.values(CH).forEach(c=>{try{c.resize();}catch(e){}}) );
+const AX={axisLine:{lineStyle:{color:'#e8ebf2'}},axisTick:{show:false},axisLabel:{color:'#9ca3af',fontSize:10},splitLine:{lineStyle:{color:'#f0f2f7',type:'dashed'}}};
+
+// arc svg
+function arc(pct,color,r=18){
+  const c=2*Math.PI*r,off=c*(1-Math.min(pct,999)/1000);
+  return `<div class="arc-wrap"><svg width="44" height="44"><circle cx="22" cy="22" r="${r}" fill="none" stroke="#e8ebf2" stroke-width="5"/><circle cx="22" cy="22" r="${r}" fill="none" stroke="${color}" stroke-width="5" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" stroke-linecap="round"/></svg><div class="arc-txt" style="color:${color}">${pct}%</div></div>`;
+}
+function donut(pct,color){
+  const r=24,c=2*Math.PI*r,off=c*(1-pct/100);
+  return `<div class="org-donut"><svg width="60" height="60"><circle cx="30" cy="30" r="${r}" fill="none" stroke="#e8ebf2" stroke-width="7"/><circle cx="30" cy="30" r="${r}" fill="none" stroke="${color}" stroke-width="7" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" stroke-linecap="round"/></svg><div class="org-donut-lbl">${pct}%</div></div>`;
+}
+function bp(v,label,color,pct,note=''){
+  return `<div class="pb-row"><div class="pb-label"><span>${label}</span><b style="color:${color}">${v}</b></div><div class="pb"><div class="pb-fill" style="width:${Math.min(pct,100)}%;background:${color}"></div></div>${note?`<div class="pb-note">${note}</div>`:''}</div>`;
+}
+function badge(v,label){if(v===0||v==null)return `<span class="badge bn">0% ${label||''}</span>`;const cl=v>0?'bg':'br';return `<span class="badge ${cl}">${v>0?'+':''}${v}% ${label||''}</span>`;}
+function rkBars(list){if(!list||!list.length)return '';const mx=Math.max(...list.map(r=>r.v),.01);return list.map(r=>`<div class="rk-row"><div class="rk-name">${r.n}</div><div class="rk-bw"><div class="rk-bf" style="width:${(r.v/mx*100).toFixed(0)}%;background:${r.c}"></div></div><div class="rk-val">${r.v}</div></div>`).join('');}
+
+// ── Chart renderers ──
+function renderTrend(id,series,xdata,yFmt){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis'},legend:{data:series.map(s=>s.name),top:0,right:0,textStyle:{color:'#6b7280',fontSize:11},itemWidth:20,itemHeight:8,type:'scroll'},grid:{top:32,bottom:36,left:60,right:20},xAxis:{type:'category',data:xdata||DAYS21,...AX},yAxis:{type:'value',...AX,axisLabel:{...AX.axisLabel,formatter:v=>v+(yFmt||'万')}},series:series.map(s=>({name:s.name,type:'line',data:s.data,lineStyle:{color:s.color,width:2,type:s.dash?'dashed':'solid'},itemStyle:{color:s.color},symbol:'circle',symbolSize:4,areaStyle:s.area?{color:s.color,opacity:.08}:undefined}))},true);},0);}
+
+function renderBar(id,cats,vals,color,opts){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis'},grid:{top:20,bottom:opts?.rot?72:40,left:44,right:10},xAxis:{type:'category',data:cats,...AX,axisLabel:{...AX.axisLabel,rotate:opts?.rot||0,fontSize:9,interval:0,overflow:'truncate',width:opts?.w||80}},yAxis:{type:'value',...AX},series:[{type:'bar',data:vals.map?vals.map((v,i)=>({value:v,itemStyle:{color:Array.isArray(color)?color[i%color.length]:color,borderRadius:[3,3,0,0]}})):vals,barMaxWidth:opts?.maxW||36,label:{show:true,position:'top',color:'#6b7280',fontSize:9,formatter:p=>p.value>0?p.value:''}}]},true);},0);}
+
+function renderDualBar(id,cats,qty,amt,opts){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis',axisPointer:{type:'cross'}},legend:{data:['销量','销额'],top:0,right:0,textStyle:{color:'#6b7280',fontSize:11},itemWidth:12,itemHeight:8},grid:{top:28,bottom:opts?.rot?58:46,left:44,right:50},xAxis:{type:'category',data:cats,...AX,axisLabel:{...AX.axisLabel,rotate:opts?.rot||0}},yAxis:[{type:'value',name:'销量',nameTextStyle:{color:'#9ca3af',fontSize:10},...AX},{type:'value',name:'销额(万)',...AX,splitLine:{show:false}}],series:[{name:'销量',type:'bar',data:qty,barMaxWidth:40,itemStyle:{color:'#3b6ef8',borderRadius:[4,4,0,0]},label:{show:true,position:'top',color:'#6b7280',fontSize:9}},{name:'销额',type:'line',yAxisIndex:1,data:amt,symbol:'circle',symbolSize:5,lineStyle:{color:'#f97316',width:2},itemStyle:{color:'#f97316'}}]},true);},0);}
+
+function renderPie(id,data,colors){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'item',formatter:'{b}: {d}%'},legend:{orient:'horizontal',bottom:0,left:'center',textStyle:{color:'#6b7280',fontSize:10},itemWidth:10,itemHeight:8,type:'scroll'},series:[{type:'pie',radius:['36%','62%'],center:['50%','44%'],label:{fontSize:10,color:'#6b7280',formatter:p=>p.percent>5?`${p.name}\n${p.percent.toFixed(1)}%`:''},labelLine:{length:5,length2:6},data,itemStyle:{borderWidth:2,borderColor:'#fff'},color:colors||['#3b6ef8','#22c55e','#f97316','#ef4444','#a855f7','#06b6d4','#f59e0b','#ec4899','#14b8a6']}]},true);},0);}
+
+function renderIotCombo(id,cats,qty,amt){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis',axisPointer:{type:'cross'}},legend:{data:['销量','销额'],top:0,right:0,textStyle:{color:'#6b7280',fontSize:11},itemWidth:12,itemHeight:8},grid:{top:28,bottom:46,left:44,right:50},xAxis:{type:'category',data:cats,...AX},yAxis:[{type:'value',name:'销量',...AX},{type:'value',name:'销额',...AX,splitLine:{show:false}}],series:[{name:'销量',type:'bar',data:qty,barMaxWidth:36,itemStyle:{color:'#f97316',borderRadius:[4,4,0,0]}},{name:'销额',type:'line',yAxisIndex:1,data:amt,symbol:'circle',symbolSize:5,lineStyle:{color:'#ef4444',width:2},itemStyle:{color:'#ef4444'}}]},true);},0);}
+
+function render7Day(id,p7){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis',axisPointer:{type:'cross'}},legend:{data:['Top1销售额','Top2销售额','Top1销量(件)','Top2销量(件)'],bottom:0,textStyle:{color:'#6b7280',fontSize:10},itemWidth:12,itemHeight:8,type:'scroll'},grid:{top:16,bottom:56,left:56,right:42},xAxis:{type:'category',data:p7.dates,...AX},yAxis:[{type:'value',name:'万',...AX},{type:'value',name:'件',...AX,splitLine:{show:false}}],series:[{name:'Top1销售额',type:'bar',data:p7.t1,barMaxWidth:36,itemStyle:{color:'#3b6ef8'},label:{show:true,position:'top',fontSize:9,color:'#6b7280',formatter:p=>p.value>0?p.value.toFixed(2):''}},{name:'Top2销售额',type:'bar',data:p7.t2,barMaxWidth:36,itemStyle:{color:'#f97316'},label:{show:true,position:'top',fontSize:9,color:'#6b7280',formatter:p=>p.value>0?p.value.toFixed(2):''}},{name:'Top1销量(件)',type:'line',yAxisIndex:1,data:p7.t1p,lineStyle:{color:'#3b6ef8',type:'dashed',width:1.5},symbol:'diamond',symbolSize:5,itemStyle:{color:'#3b6ef8'}},{name:'Top2销量(件)',type:'line',yAxisIndex:1,data:p7.t2p,lineStyle:{color:'#f97316',type:'dashed',width:1.5},symbol:'diamond',symbolSize:5,itemStyle:{color:'#f97316'}}]},true);},0);}
+
+function renderPhoneIot(pid,iid,ph,iot){
+  [[pid,ph],[iid,iot]].forEach(([cid,src],ix)=>{defer(()=>{const c=ec(cid);if(!c)return;c.setOption({tooltip:{trigger:'axis',axisPointer:{type:'cross'}},legend:{data:['今日销售额','昨日销售额','今日销量','昨日销量'],bottom:0,textStyle:{color:'#6b7280',fontSize:10},itemWidth:12,itemHeight:8,type:'scroll'},grid:{top:16,bottom:56,left:50,right:38},xAxis:{type:'category',data:src.cats,...AX,axisLabel:{...AX.axisLabel,rotate:src.cats.length>2?15:0}},yAxis:[{type:'value',name:'万',...AX},{type:'value',name:'件',...AX,splitLine:{show:false}}],series:[{name:'今日销售额',type:'bar',data:src.today,barMaxWidth:26,itemStyle:{color:'#3b6ef8'},barGap:'5%'},{name:'昨日销售额',type:'bar',data:src.yest,barMaxWidth:26,itemStyle:{color:'#94a3b8'},barGap:'5%'},{name:'今日销量',type:'line',yAxisIndex:1,data:src.tp,lineStyle:{color:'#22c55e',width:1.5},symbol:'circle',symbolSize:4,itemStyle:{color:'#22c55e'}},{name:'昨日销量',type:'line',yAxisIndex:1,data:src.yp,lineStyle:{color:'#22c55e',type:'dashed',width:1.5},symbol:'circle',symbolSize:4,itemStyle:{color:'#22c55e'}}]},true);},80+ix*30);});
+}
+
+function renderStack(id,cats,series){
+  const colors=['#3b6ef8','#22c55e','#f97316','#a855f7','#06b6d4','#f59e0b'];
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},legend:{data:series.map(s=>s.name),top:0,right:0,textStyle:{color:'#6b7280',fontSize:11},itemWidth:12,itemHeight:8,type:'scroll'},grid:{top:32,bottom:60,left:40,right:10},xAxis:{type:'category',data:cats,...AX,axisLabel:{...AX.axisLabel,rotate:15,fontSize:10}},yAxis:{type:'value',...AX},series:series.map((s,i)=>({name:s.name,type:'bar',stack:'total',barMaxWidth:50,itemStyle:{color:colors[i%colors.length]},data:s.data,label:{show:true,color:'#fff',fontSize:9,formatter:p=>p.value>0?p.value:''}}))},true);},0);}
+
+function renderOpenRate(id,cats,vals){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis'},grid:{top:20,bottom:30,left:44,right:10},xAxis:{type:'category',data:cats,...AX},yAxis:{type:'value',max:100,...AX,axisLabel:{...AX.axisLabel,formatter:v=>v+'%'}},series:[{type:'bar',data:vals,barMaxWidth:60,itemStyle:{color:'#3b6ef8',borderRadius:[4,4,0,0]},label:{show:true,position:'top',color:'#6b7280',fontSize:11,formatter:p=>p.value+'%'}}]},true);},0);}
+
+function renderPcDist(id,cats,vals){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis'},grid:{top:20,bottom:30,left:44,right:10},xAxis:{type:'category',data:cats,...AX},yAxis:{type:'value',...AX},series:[{type:'bar',data:vals,barMaxWidth:50,itemStyle:{color:'#3b6ef8',borderRadius:[3,3,0,0]},label:{show:true,position:'top',color:'#6b7280',fontSize:10}}]},true);},0);}
+
+function renderRenChan(id,cats,vals){
+  defer(()=>{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis'},grid:{top:20,bottom:30,left:52,right:10},xAxis:{type:'category',data:cats,...AX},yAxis:{type:'value',...AX,axisLabel:{...AX.axisLabel,formatter:v=>v+'万'}},series:[{type:'bar',data:vals.map((v,i)=>({value:v,itemStyle:{color:i===0?'#22c55e':'#e8ebf2',borderRadius:[3,3,0,0]}})),barMaxWidth:60,label:{show:true,position:'top',color:'#6b7280',fontSize:10,formatter:p=>p.value>0?p.value+'万':'0万'}}]},true);},0);}
+
+function renderHBar(id,names,vals,color,unit){
+  defer(()=>{const c=ec(id);if(!c||!names||!names.length)return;
+  const mx=Math.max(...vals,.01);
+  c.setOption({tooltip:{trigger:'axis',axisPointer:{type:'shadow'},formatter:p=>`${p[0].name}<br/>${p[0].marker}${p[0].value} ${unit||''}`},grid:{top:8,bottom:8,left:8,right:56,containLabel:true},xAxis:{type:'value',splitLine:{lineStyle:{color:'#f0f0f5'}},...AX,axisLabel:{...AX.axisLabel,formatter:v=>v+(unit||'')}},yAxis:{type:'category',data:[...names].reverse(),...AX,axisLabel:{...AX.axisLabel,width:90,overflow:'truncate',fontSize:10}},series:[{type:'bar',data:[...vals].reverse().map((v,i)=>({value:v,itemStyle:{color:Array.isArray(color)?color[i%color.length]:color,borderRadius:[0,4,4,0]}})),barMaxWidth:22,label:{show:true,position:'right',color:'#6b7280',fontSize:9,formatter:p=>p.value>0?p.value+(unit||''):''}}]},true);},0);}
+
+function vpsVal(v,unit=''){
+  return (v===null||v===undefined||v==='')?'<span style="color:#b0b8c8">暂未接入VPS</span>':`${v}${unit}`;
+}
+
+function salesRankHtml(){
+  const rows=(typeof CUSTOMER_DETAIL!=='undefined'&&CUSTOMER_DETAIL.length?CUSTOMER_DETAIL:CUSTOMER_RANK.map(r=>({name:r.n,performance:r.perf,pickupAmount:r.perf,pickupQty:r.qty,orderPerformance:r.perf})));
+  if(!rows||!rows.length)return '<div style="color:#9ca3af;font-size:12px;padding:16px">暂无客户业绩数据</div>';
+  const total=rows.reduce((a,r)=>a+(r.performance||0),0);
+  const mx=Math.max(...rows.map(r=>r.performance||0),.01);
+  return `<div style="display:flex;flex-direction:column;gap:10px">
+    ${rows.map((r,i)=>{
+      const perf=r.performance||0;
+      const bar=Math.round(perf/mx*100);
+      const medal=i<3?['🥇','🥈','🥉'][i]:`<span style="display:inline-block;width:18px;text-align:center;color:#9ca3af;font-size:11px">${i+1}</span>`;
+      const pct=total>0?(perf/total*100).toFixed(1):'0.0';
+      return `<div style="background:#fff;border:1px solid #e8ebf2;border-radius:10px;padding:12px 14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+          <span>${medal}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:700;color:#1a1d2e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.name}">${r.name}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+              <div style="flex:1;height:6px;border-radius:4px;background:#e8ebf2;overflow:hidden"><div style="height:100%;background:#3b6ef8;border-radius:4px;width:${bar}%"></div></div>
+              <span style="font-size:10px;color:#9ca3af;width:36px;text-align:right">${pct}%</span>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:14px;font-weight:800;color:#3b6ef8">${perf}万</div>
+            <div style="font-size:11px;color:#22c55e">${vpsVal(r.pickupQty,'件')}</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-size:11px">
+          <div><span style="color:#9ca3af">提货金额</span><br><b>${vpsVal(r.pickupAmount,'万')}</b></div>
+          <div><span style="color:#9ca3af">提货数量</span><br><b>${vpsVal(r.pickupQty,'件')}</b></div>
+          <div><span style="color:#9ca3af">VPS使用次数</span><br>${vpsVal(r.vpsUsage,'次')}</div>
+          <div><span style="color:#9ca3af">入库数量</span><br>${vpsVal(r.inboundQty,'件')}</div>
+          <div><span style="color:#9ca3af">激活数量</span><br>${vpsVal(r.activationQty,'件')}</div>
+          <div><span style="color:#9ca3af">Walk In</span><br>${vpsVal(r.walkinQty,'次')}</div>
+          <div><span style="color:#9ca3af">录单业绩</span><br><b>${vpsVal(r.orderPerformance,'万')}</b></div>
+          <div><span style="color:#9ca3af">在途业绩</span><br>${vpsVal(r.inTransitPerformance,'万')}</div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function regionHtml(){
+  if(!DEALER_REGION||!DEALER_REGION.length)return '<div style="color:#9ca3af;font-size:12px;padding:12px">暂无大区数据，请确认 config/dealers.json</div>';
+  const totalPerf=DEALER_REGION.reduce((a,r)=>a+r.perf,0);
+  const mxPerf=Math.max(...DEALER_REGION.map(r=>r.perf),.01);
+  const REGION_COLORS={'中东':'#f97316','欧洲':'#3b6ef8','南亚':'#22c55e','东南亚':'#a855f7','中亚':'#06b6d4','其他':'#6b7280'};
+  let html='';
+  for(const rg of DEALER_REGION){
+    const color=REGION_COLORS[rg.region]||'#6b7280';
+    const pct=totalPerf>0?(rg.perf/totalPerf*100).toFixed(1):'0.0';
+    const bar=Math.round(rg.perf/mxPerf*100);
+    html+=`<div style="margin-bottom:16px;background:#fff;border:1px solid #e8ebf2;border-radius:10px;padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8f9fc;border-radius:8px;border-left:4px solid ${color};margin-bottom:6px">
+        <span style="font-size:14px;font-weight:700;color:#1a1d2e;min-width:60px">${rg.region}</span>
+        <div style="flex:1;height:10px;border-radius:5px;background:#e8ebf2;overflow:hidden"><div style="height:100%;background:${color};border-radius:5px;width:${bar}%"></div></div>
+        <span style="font-size:13px;font-weight:700;color:${color};min-width:60px;text-align:right">${rg.perf}万</span>
+        <span style="font-size:11px;color:#6b7280;min-width:36px;text-align:right">${pct}%</span>
+        <span style="font-size:12px;color:#22c55e;font-weight:600;min-width:50px;text-align:right">${rg.qty}件</span>
+      </div>`;
+    for(const ct of rg.countries){
+      const activeRows=ct.dealers.filter(d=>d.perf>0||d.qty>0);
+      const inactiveRows=ct.dealers.filter(d=>d.perf===0&&d.qty===0);
+      const ctPerf=ct.dealers.reduce((a,d)=>a+d.perf,0);
+      const ctQty=ct.dealers.reduce((a,d)=>a+d.qty,0);
+      html+=`<details style="margin-left:12px;margin-bottom:4px" ${activeRows.length?'open':''}>
+        <summary style="cursor:pointer;padding:4px 8px;font-size:12px;color:#374151;display:flex;align-items:center;gap:8px;list-style:none">
+          <span style="font-weight:600">${ct.country}</span>
+          <span style="color:#9ca3af">${ct.dealers.length}家</span>
+          ${ctPerf>0?`<span style="color:#3b6ef8;font-weight:600">${ctPerf.toFixed(2)}万</span>`:''}
+          ${ctQty>0?`<span style="color:#22c55e">${ctQty}件</span>`:''}
+        </summary>
+        <table style="width:100%;border-collapse:collapse;margin:4px 0 4px 8px">
+          <thead><tr style="background:#fafbff;color:#9ca3af;font-size:10px">
+            <th style="text-align:left;padding:5px 6px">门店</th>
+            <th style="text-align:left;padding:5px 4px">销售</th>
+            <th style="text-align:right;padding:5px 4px">提货金额</th>
+            <th style="text-align:right;padding:5px 4px">提货数量</th>
+            <th style="text-align:right;padding:5px 4px">激活</th>
+            <th style="text-align:right;padding:5px 4px">Walk In</th>
+          </tr></thead><tbody>`;
+      for(const d of ct.dealers){
+        const active=d.perf>0||d.qty>0;
+        const nameDisp=d.nickname?`${d.name} <span style="color:#9ca3af;font-size:10px">(${d.nickname})</span>`:d.name;
+        html+=`<tr style="border-bottom:1px solid #f3f4f6${active?'':';opacity:.45'}">
+          <td style="padding:4px 6px;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.name}">${nameDisp}</td>
+          <td style="padding:4px 4px;font-size:11px;color:#6b7280;white-space:nowrap">${d.salesperson}</td>
+          <td style="padding:4px 4px;text-align:right;font-size:12px;font-weight:${active?'600':'400'};color:${active?'#1a1d2e':'#9ca3af'}">${vpsVal(d.pickupAmount,'万')}</td>
+          <td style="padding:4px 4px;text-align:right;font-size:12px;color:${d.qty>0?'#22c55e':'#9ca3af'};font-weight:${d.qty>0?'600':'400'}">${vpsVal(d.pickupQty,'件')}</td>
+          <td style="padding:4px 4px;text-align:right;font-size:11px">${vpsVal(d.activationQty,'件')}</td>
+          <td style="padding:4px 8px;text-align:right;font-size:11px">${vpsVal(d.walkinQty,'次')}</td>
+        </tr>`;
+      }
+      html+=`</tbody></table></details>`;
+    }
+    html+=`</div>`;
+  }
+  return html;
+}
+
+/** 构建门店数据完整页面 */
+function buildDealerPage(){
+  return `<div style="padding:4px 0">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <span style="font-size:16px;font-weight:700;color:#1a1d2e">🏪 门店数据总览</span>
+      <span style="font-size:11px;color:#9ca3af;font-weight:400">当月累计</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button onclick="dpSwitchTab('sales',this)" id="dp-btn-sales"
+        style="padding:6px 18px;font-size:12px;font-weight:600;border-radius:6px;border:none;cursor:pointer;background:#3b6ef8;color:#fff;transition:.15s">销售详情</button>
+      <button onclick="dpSwitchTab('region',this)" id="dp-btn-region"
+        style="padding:6px 18px;font-size:12px;font-weight:600;border-radius:6px;border:none;cursor:pointer;background:#f3f4f6;color:#6b7280;transition:.15s">大区门店分析</button>
+    </div>
+    <div id="dp-tab-sales">${salesRankHtml()}</div>
+    <div id="dp-tab-region" style="display:none">${regionHtml()}</div>
+  </div>`;
+}
+
+function dpSwitchTab(tab,el){
+  ['sales','region'].forEach(t=>{
+    document.getElementById('dp-tab-'+t).style.display=t===tab?'':'none';
+    const btn=document.getElementById('dp-btn-'+t);
+    if(btn){btn.style.background=t===tab?'#3b6ef8':'#f3f4f6';btn.style.color=t===tab?'#fff':'#6b7280';}
+  });
+}
+
+function renderMoTrend(id,cats,series){
+  defer(()=>{try{const c=ec(id);if(!c)return;c.setOption({tooltip:{trigger:'axis'},legend:{data:series.map(s=>s.name),top:0,right:0,textStyle:{color:'#6b7280',fontSize:11},itemWidth:20,itemHeight:8},grid:{top:32,bottom:36,left:58,right:20},xAxis:{type:'category',data:cats,...AX},yAxis:{type:'value',...AX,axisLabel:{...AX.axisLabel,formatter:v=>v+'万'}},series:series.map(s=>({name:s.name,type:'line',data:s.data||[],smooth:true,lineStyle:{color:s.color,width:2},itemStyle:{color:s.color},symbol:'circle',symbolSize:5,areaStyle:{color:s.color,opacity:.08}}))},true);}catch(e){console.warn('renderMoTrend error:',e);}},0);}
+
+// ═══ DATA ═══
+const PIE_COLORS=["#3b6ef8", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f59e0b", "#ef4444", "#14b8a6"];
+const IOT_COLORS=["#3b6ef8", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#f59e0b", "#ef4444", "#14b8a6"];
+const RED_COLORS=Array(10).fill('#ef4444');
+const phoneTop10=["暂无"];
+const iotTop10=["暂无"];
+const defaultMat=[{"value": 0, "name": "暂无"}];
+const weekMat=defaultMat;
+const phoneTops=[0];
+const iotTops=[0];
+const PERSONS={"p-yangjj": {"daily": {"todayVal": 44.86, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 65.44, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 132.25, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 44.86, 65.44, 132.25], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "杨晶晶", "data": [0, 44.86, 65.44, 132.25], "color": "#3b6ef8"}], "openRate": [["杨晶晶"], [100]], "rcData": [["杨晶晶"], [132.25]], "distData": [[1]], "top20Pie": [{"name": "杨晶晶", "value": 132.25}], "orgMonth": {"okrTgt": 0, "actual": 132.25, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 65.44, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 65.44, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 132.25, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 44.86, 65.44, 132.25], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "杨晶晶", "data": [0, 44.86, 65.44, 132.25], "color": "#3b6ef8"}], "openRate": [["杨晶晶"], [100]], "rcData": [["杨晶晶"], [132.25]], "distData": [[1]], "top20Pie": [{"name": "杨晶晶", "value": 132.25}], "orgMonth": {"okrTgt": 0, "actual": 132.25, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 132.25, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 65.44, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 132.25, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 44.86, 65.44, 132.25], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "杨晶晶", "data": [0, 44.86, 65.44, 132.25], "color": "#3b6ef8"}], "openRate": [["杨晶晶"], [100]], "rcData": [["杨晶晶"], [132.25]], "distData": [[1]], "top20Pie": [{"name": "杨晶晶", "value": 132.25}], "orgMonth": {"okrTgt": 0, "actual": 132.25, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "p-wangyt": {"daily": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 0.0, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 0.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 0.0, 0.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "王宇彤", "data": [0, 0.0, 0.0, 0.0], "color": "#3b6ef8"}], "openRate": [["王宇彤"], [0]], "rcData": [["王宇彤"], [0.0]], "distData": [[0]], "top20Pie": [{"name": "王宇彤", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 0.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 0.0, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 0.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 0.0, 0.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "王宇彤", "data": [0, 0.0, 0.0, 0.0], "color": "#3b6ef8"}], "openRate": [["王宇彤"], [0]], "rcData": [["王宇彤"], [0.0]], "distData": [[0]], "top20Pie": [{"name": "王宇彤", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 0.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 0.0, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 0.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 0.0, 0.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "王宇彤", "data": [0, 0.0, 0.0, 0.0], "color": "#3b6ef8"}], "openRate": [["王宇彤"], [0]], "rcData": [["王宇彤"], [0.0]], "distData": [[0]], "top20Pie": [{"name": "王宇彤", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 0.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "p-hehai": {"daily": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 6.86, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 51.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 6.86, 51.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "何海文", "data": [0, 0.0, 6.86, 51.0], "color": "#3b6ef8"}], "openRate": [["何海文"], [100]], "rcData": [["何海文"], [51.0]], "distData": [[1]], "top20Pie": [{"name": "何海文", "value": 51.0}], "orgMonth": {"okrTgt": 0, "actual": 51.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 6.86, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 6.86, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 51.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 6.86, 51.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "何海文", "data": [0, 0.0, 6.86, 51.0], "color": "#3b6ef8"}], "openRate": [["何海文"], [100]], "rcData": [["何海文"], [51.0]], "distData": [[1]], "top20Pie": [{"name": "何海文", "value": 51.0}], "orgMonth": {"okrTgt": 0, "actual": 51.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 51.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 6.86, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 51.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 6.86, 51.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "何海文", "data": [0, 0.0, 6.86, 51.0], "color": "#3b6ef8"}], "openRate": [["何海文"], [100]], "rcData": [["何海文"], [51.0]], "distData": [[1]], "top20Pie": [{"name": "何海文", "value": 51.0}], "orgMonth": {"okrTgt": 0, "actual": 51.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "p-yubing": {"daily": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 26.08, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 66.61, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 26.08, 66.61], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "于冰", "data": [0, 0.0, 26.08, 66.61], "color": "#3b6ef8"}], "openRate": [["于冰"], [100]], "rcData": [["于冰"], [66.61]], "distData": [[1]], "top20Pie": [{"name": "于冰", "value": 66.61}], "orgMonth": {"okrTgt": 0, "actual": 66.61, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 26.08, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 26.08, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 66.61, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 26.08, 66.61], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "于冰", "data": [0, 0.0, 26.08, 66.61], "color": "#3b6ef8"}], "openRate": [["于冰"], [100]], "rcData": [["于冰"], [66.61]], "distData": [[1]], "top20Pie": [{"name": "于冰", "value": 66.61}], "orgMonth": {"okrTgt": 0, "actual": 66.61, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 66.61, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 26.08, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 66.61, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 26.08, 66.61], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "于冰", "data": [0, 0.0, 26.08, 66.61], "color": "#3b6ef8"}], "openRate": [["于冰"], [100]], "rcData": [["于冰"], [66.61]], "distData": [[1]], "top20Pie": [{"name": "于冰", "value": 66.61}], "orgMonth": {"okrTgt": 0, "actual": 66.61, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "p-lydia": {"daily": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 0.0, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 0.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 0.0, 0.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lydia", "data": [0, 0.0, 0.0, 0.0], "color": "#3b6ef8"}], "openRate": [["Lydia"], [0]], "rcData": [["Lydia"], [0.0]], "distData": [[0]], "top20Pie": [{"name": "Lydia", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 0.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 0.0, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 0.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 0.0, 0.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lydia", "data": [0, 0.0, 0.0, 0.0], "color": "#3b6ef8"}], "openRate": [["Lydia"], [0]], "rcData": [["Lydia"], [0.0]], "distData": [[0]], "top20Pie": [{"name": "Lydia", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 0.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 0.0, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 0.0, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 0.0, 0.0], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lydia", "data": [0, 0.0, 0.0, 0.0], "color": "#3b6ef8"}], "openRate": [["Lydia"], [0]], "rcData": [["Lydia"], [0.0]], "distData": [[0]], "top20Pie": [{"name": "Lydia", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 0.0, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "p-deh": {"daily": {"todayVal": 73.7, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 73.7, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 224.99, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 73.7, 73.7, 224.99], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lina", "data": [0, 73.7, 73.7, 224.99], "color": "#3b6ef8"}], "openRate": [["Lina"], [100]], "rcData": [["Lina"], [224.99]], "distData": [[1]], "top20Pie": [{"name": "Lina", "value": 224.99}], "orgMonth": {"okrTgt": 0, "actual": 224.99, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 73.7, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 73.7, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 224.99, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 73.7, 73.7, 224.99], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lina", "data": [0, 73.7, 73.7, 224.99], "color": "#3b6ef8"}], "openRate": [["Lina"], [100]], "rcData": [["Lina"], [224.99]], "distData": [[1]], "top20Pie": [{"name": "Lina", "value": 224.99}], "orgMonth": {"okrTgt": 0, "actual": 224.99, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 224.99, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 73.7, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 224.99, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 73.7, 73.7, 224.99], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lina", "data": [0, 73.7, 73.7, 224.99], "color": "#3b6ef8"}], "openRate": [["Lina"], [100]], "rcData": [["Lina"], [224.99]], "distData": [[1]], "top20Pie": [{"name": "Lina", "value": 224.99}], "orgMonth": {"okrTgt": 0, "actual": 224.99, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "p-youwj": {"daily": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 8.7, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 108.91, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 8.7, 108.91], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "尤文静", "data": [0, 0.0, 8.7, 108.91], "color": "#3b6ef8"}], "openRate": [["尤文静"], [100]], "rcData": [["尤文静"], [108.91]], "distData": [[1]], "top20Pie": [{"name": "尤文静", "value": 108.91}], "orgMonth": {"okrTgt": 0, "actual": 108.91, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 8.7, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 8.7, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 108.91, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 8.7, 108.91], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "尤文静", "data": [0, 0.0, 8.7, 108.91], "color": "#3b6ef8"}], "openRate": [["尤文静"], [100]], "rcData": [["尤文静"], [108.91]], "distData": [[1]], "top20Pie": [{"name": "尤文静", "value": 108.91}], "orgMonth": {"okrTgt": 0, "actual": 108.91, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 108.91, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 8.7, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 108.91, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 8.7, 108.91], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "尤文静", "data": [0, 0.0, 8.7, 108.91], "color": "#3b6ef8"}], "openRate": [["尤文静"], [100]], "rcData": [["尤文静"], [108.91]], "distData": [[1]], "top20Pie": [{"name": "尤文静", "value": 108.91}], "orgMonth": {"okrTgt": 0, "actual": 108.91, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}};
+const TL={"tl-yang": {"daily": {"todayVal": 44.86, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 72.3, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 183.25, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 44.86, 72.3, 183.25], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "杨晶晶", "data": [0, 44.86, 65.44, 132.25], "color": "#3b6ef8"}, {"name": "王宇彤", "data": [0, 0.0, 0.0, 0.0], "color": "#22c55e"}, {"name": "何海文", "data": [0, 0.0, 6.86, 51.0], "color": "#f97316"}], "openRate": [["杨晶晶", "王宇彤", "何海文"], [100, 0, 0]], "rcData": [["杨晶晶", "王宇彤", "何海文"], [44.86, 0.0, 0.0]], "distData": [[1]], "top20Pie": [{"name": "杨晶晶", "value": 132.25}, {"name": "王宇彤", "value": 0.0}, {"name": "何海文", "value": 51.0}], "orgMonth": {"okrTgt": 0, "actual": 183.25, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 72.3, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 72.3, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 183.25, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 44.86, 72.3, 183.25], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "杨晶晶", "data": [0, 44.86, 65.44, 132.25], "color": "#3b6ef8"}, {"name": "王宇彤", "data": [0, 0.0, 0.0, 0.0], "color": "#22c55e"}, {"name": "何海文", "data": [0, 0.0, 6.86, 51.0], "color": "#f97316"}], "openRate": [["杨晶晶", "王宇彤", "何海文"], [100, 0, 100]], "rcData": [["杨晶晶", "王宇彤", "何海文"], [65.44, 0.0, 6.86]], "distData": [[2]], "top20Pie": [{"name": "杨晶晶", "value": 132.25}, {"name": "王宇彤", "value": 0.0}, {"name": "何海文", "value": 51.0}], "orgMonth": {"okrTgt": 0, "actual": 183.25, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 183.25, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 72.3, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 183.25, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 44.86, 72.3, 183.25], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "杨晶晶", "data": [0, 44.86, 65.44, 132.25], "color": "#3b6ef8"}, {"name": "王宇彤", "data": [0, 0.0, 0.0, 0.0], "color": "#22c55e"}, {"name": "何海文", "data": [0, 0.0, 6.86, 51.0], "color": "#f97316"}], "openRate": [["杨晶晶", "王宇彤", "何海文"], [100, 0, 100]], "rcData": [["杨晶晶", "王宇彤", "何海文"], [132.25, 0.0, 51.0]], "distData": [[2]], "top20Pie": [{"name": "杨晶晶", "value": 132.25}, {"name": "王宇彤", "value": 0.0}, {"name": "何海文", "value": 51.0}], "orgMonth": {"okrTgt": 0, "actual": 183.25, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "tl-yubing": {"daily": {"todayVal": 0.0, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 26.08, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 66.61, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 26.08, 66.61], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "于冰", "data": [0, 0.0, 26.08, 66.61], "color": "#3b6ef8"}, {"name": "Lydia", "data": [0, 0.0, 0.0, 0.0], "color": "#22c55e"}], "openRate": [["于冰", "Lydia"], [0, 0]], "rcData": [["于冰", "Lydia"], [0.0, 0.0]], "distData": [[0]], "top20Pie": [{"name": "于冰", "value": 66.61}, {"name": "Lydia", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 66.61, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 26.08, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 26.08, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 66.61, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 26.08, 66.61], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "于冰", "data": [0, 0.0, 26.08, 66.61], "color": "#3b6ef8"}, {"name": "Lydia", "data": [0, 0.0, 0.0, 0.0], "color": "#22c55e"}], "openRate": [["于冰", "Lydia"], [100, 0]], "rcData": [["于冰", "Lydia"], [26.08, 0.0]], "distData": [[1]], "top20Pie": [{"name": "于冰", "value": 66.61}, {"name": "Lydia", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 66.61, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 66.61, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 26.08, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 66.61, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 0.0, 26.08, 66.61], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "于冰", "data": [0, 0.0, 26.08, 66.61], "color": "#3b6ef8"}, {"name": "Lydia", "data": [0, 0.0, 0.0, 0.0], "color": "#22c55e"}], "openRate": [["于冰", "Lydia"], [100, 0]], "rcData": [["于冰", "Lydia"], [66.61, 0.0]], "distData": [[1]], "top20Pie": [{"name": "于冰", "value": 66.61}, {"name": "Lydia", "value": 0.0}], "orgMonth": {"okrTgt": 0, "actual": 66.61, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}, "tl-deh": {"daily": {"todayVal": 73.7, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 82.4, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 333.9, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 73.7, 82.4, 333.9], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lina", "data": [0, 73.7, 73.7, 224.99], "color": "#3b6ef8"}, {"name": "尤文静", "data": [0, 0.0, 8.7, 108.91], "color": "#22c55e"}], "openRate": [["Lina", "尤文静"], [100, 0]], "rcData": [["Lina", "尤文静"], [73.7, 0.0]], "distData": [[1]], "top20Pie": [{"name": "Lina", "value": 224.99}, {"name": "尤文静", "value": 108.91}], "orgMonth": {"okrTgt": 0, "actual": 333.9, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 82.4, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 82.4, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 333.9, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 73.7, 82.4, 333.9], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lina", "data": [0, 73.7, 73.7, 224.99], "color": "#3b6ef8"}, {"name": "尤文静", "data": [0, 0.0, 8.7, 108.91], "color": "#22c55e"}], "openRate": [["Lina", "尤文静"], [100, 100]], "rcData": [["Lina", "尤文静"], [73.7, 8.7]], "distData": [[2]], "top20Pie": [{"name": "Lina", "value": 224.99}, {"name": "尤文静", "value": 108.91}], "orgMonth": {"okrTgt": 0, "actual": 333.9, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 333.9, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 82.4, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 333.9, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 73.7, 82.4, 333.9], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "Lina", "data": [0, 73.7, 73.7, 224.99], "color": "#3b6ef8"}, {"name": "尤文静", "data": [0, 0.0, 8.7, 108.91], "color": "#22c55e"}], "openRate": [["Lina", "尤文静"], [100, 100]], "rcData": [["Lina", "尤文静"], [224.99, 108.91]], "distData": [[2]], "top20Pie": [{"name": "Lina", "value": 224.99}, {"name": "尤文静", "value": 108.91}], "orgMonth": {"okrTgt": 0, "actual": 333.9, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}};
+const DIR={"dir-dealer": {"daily": {"todayVal": 118.56, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 180.78, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 583.76, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 118.56, 180.78, 583.76], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "经销商", "data": [0, 118.56, 180.78, 583.76], "color": "#3b6ef8"}], "openRate": [["Lina", "杨晶晶"], [100, 100]], "rcData": [["Lina", "杨晶晶"], [73.7, 44.86]], "distData": [[2]], "top20Pie": [{"name": "Lina", "value": 73.7}, {"name": "杨晶晶", "value": 44.86}], "orgMonth": {"okrTgt": 0, "actual": 583.76, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "当天无业绩，显示最近有数据日 05-27。", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "weekly": {"todayVal": 180.78, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 180.78, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 583.76, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 118.56, 180.78, 583.76], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "经销商", "data": [0, 118.56, 180.78, 583.76], "color": "#3b6ef8"}], "openRate": [["Lina", "杨晶晶", "于冰", "尤文静", "何海文"], [100, 100, 100, 100, 100]], "rcData": [["Lina", "杨晶晶", "于冰", "尤文静", "何海文"], [73.7, 65.44, 26.08, 8.7, 6.86]], "distData": [[5]], "top20Pie": [{"name": "Lina", "value": 73.7}, {"name": "杨晶晶", "value": 65.44}, {"name": "于冰", "value": 26.08}, {"name": "尤文静", "value": 8.7}, {"name": "何海文", "value": 6.86}], "orgMonth": {"okrTgt": 0, "actual": 583.76, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}, "monthly": {"todayVal": 583.76, "todayTgt": 0, "todayPct": 0, "todayHb": 0, "todayTb": 0, "yesterdayVal": 0, "yesterdayTgt": 0, "yesterdayPct": 0, "yesterdayHb": 0, "yesterdayTb": 0, "weekVal": 180.78, "weekTgt": 0, "weekAr": 0, "weekTp": 0, "monthVal": 583.76, "monthTgt": 0, "monthHb": 0, "monthTb": 0, "monthAr": 0, "monthTp": 0, "rkW": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "rkM": [{"n": "Lina", "v": 224.99, "q": 59}, {"n": "杨晶晶", "v": 132.25, "q": 68}, {"n": "尤文静", "v": 108.91, "q": 89}, {"n": "于冰", "v": 66.61, "q": 24}, {"n": "何海文", "v": 51.0, "q": 22}], "todayRk": [], "yesterdayRk": [], "trend": [0, 118.56, 180.78, 583.76], "p7": {"dates": [], "t1": [], "t2": [], "t1p": [], "t2p": []}, "trendSeries": [{"name": "经销商", "data": [0, 118.56, 180.78, 583.76], "color": "#3b6ef8"}], "openRate": [["Lina", "杨晶晶", "尤文静", "于冰", "何海文"], [100, 100, 100, 100, 100]], "rcData": [["Lina", "杨晶晶", "尤文静", "于冰", "何海文"], [224.99, 132.25, 108.91, 66.61, 51.0]], "distData": [[5]], "top20Pie": [{"name": "Lina", "value": 224.99}, {"name": "杨晶晶", "value": 132.25}, {"name": "尤文静", "value": 108.91}, {"name": "于冰", "value": 66.61}, {"name": "何海文", "value": 51.0}], "orgMonth": {"okrTgt": 0, "actual": 583.76, "ar": 0, "tp": 0, "hb": 0, "tb": 0}, "dailyNote": "", "phone": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "iot": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "phoneBar": {"cats": ["CSIGS-全黄金(长/短边", "VERTU AGENT Q-", "VERTU AGENT Q-", "VERTU 机械腕表-碳纤款", "VERTU AGENT Q-", "CSIGS-黑金-玄铁黑鳄鱼"], "qty": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "amt": [48.51, 39.45, 36.58, 22.65, 19.18, 17.59]}, "matPie": [{"name": "CSIGS-全黄金(长/短边条镶满钻", "value": 1.0}, {"name": "VERTU AGENT Q-银品质套", "value": 18.0}, {"name": "VERTU AGENT Q-黑品质套", "value": 16.0}, {"name": "VERTU 机械腕表-碳纤款-黑色-", "value": 5.0}, {"name": "VERTU AGENT Q-银基础套", "value": 11.0}, {"name": "CSIGS-黑金-玄铁黑鳄鱼皮-UK", "value": 1.0}], "phoneTop": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "phoneTopVals": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0], "iotTop": ["暂未接入VPS"], "iotTopVals": [0], "iotCombo": {"cats": ["暂未接入VPS"], "qty": [0], "amt": [0]}, "iotPie": [{"name": "暂未接入VPS", "value": 0}], "stackPhone": {"cats": ["CSIGS-全黄金(长/短边条镶满钻)-鳄鱼皮-玄铁黑-", "VERTU AGENT Q-银品质套装款-钛银超跑-墨玉", "VERTU AGENT Q-黑品质套装款-钛黑超跑-墨玉", "VERTU 机械腕表-碳纤款-黑色-海外", "VERTU AGENT Q-银基础套装款-小牛皮-黑色绗", "CSIGS-黑金-玄铁黑鳄鱼皮-UK"], "series": [{"name": "销量", "data": [1.0, 18.0, 16.0, 5.0, 11.0, 1.0]}]}, "stackIot": {"cats": ["暂未接入VPS"], "series": [{"name": "销量", "data": [0]}]}, "phoneIotTrend": {"phone": [52.0], "iot": [0]}}}};
+const CUSTOMER_RANK=[{"n": "VERTU LONDON LTD", "perf": 129.01, "qty": 21}, {"n": "Safiranhamrah", "perf": 106.64, "qty": 88}, {"n": "Billionaire Collections", "perf": 71.51, "qty": 20}, {"n": "GURU ELECTRONICS SINGAPORE PTE LTD", "perf": 51.93, "qty": 17}, {"n": "LLC “TC Azimut”", "perf": 51.52, "qty": 25}, {"n": "BIN BIN INVESTMENT(CAMBODIA) COLTD", "perf": 34.49, "qty": 20}, {"n": "VMG Communication and Technology Joint Stock Company", "perf": 32.13, "qty": 4}, {"n": "Bizcon Group", "perf": 28.8, "qty": 26}, {"n": "Parth Kamlesh Doshi", "perf": 25.66, "qty": 12}, {"n": "Sidd Senthil", "perf": 20.19, "qty": 7}];
+const DEALER_REGION=[{"region": "中东", "perf": 178.15, "qty": 108, "countries": [{"country": "伊拉克", "perf": 0.0, "qty": 0, "dealers": [{"name": "AI-SARAF CO", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}, {"name": "Behzadi Boutique", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}, {"name": "HASSIB ABDALLAH AMIR ALLAH", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}, {"name": "Rashid lukman rashid", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "阿联酋", "perf": 71.51, "qty": 20, "dealers": [{"name": "Billionaire Collections", "nickname": "", "salesperson": "Lina", "perf": 71.51, "qty": 20, "pickupAmount": 71.51, "pickupQty": 20, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 71.51, "inTransitPerformance": null}]}, {"country": "卡塔尔", "perf": 0.0, "qty": 0, "dealers": [{"name": "CLICK TECH SERVICES", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "科威特", "perf": 0.0, "qty": 0, "dealers": [{"name": "Dar Al Sabaek", "nickname": "", "salesperson": "Viki", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "伊朗", "perf": 106.64, "qty": 88, "dealers": [{"name": "Safiranhamrah", "nickname": "", "salesperson": "Viki", "perf": 106.64, "qty": 88, "pickupAmount": 106.64, "pickupQty": 88, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 106.64, "inTransitPerformance": null}, {"name": "Luxem Store", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}, {"name": "TİVALİ Commercial Broker LLC", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "约旦", "perf": 0.0, "qty": 0, "dealers": [{"name": "Mkateb for e-commerce", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "阿塞拜疆", "perf": 0.0, "qty": 0, "dealers": [{"name": "My Shops Electronics Trading LLC", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "土耳其", "perf": 0.0, "qty": 0, "dealers": [{"name": "Veysel Sevis Ltd", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}]}, {"region": "欧洲", "perf": 129.01, "qty": 21, "countries": [{"country": "乌克兰", "perf": 0.0, "qty": 0, "dealers": [{"name": "Bestcom", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}, {"name": "FRONTANA GIDA DIS TICARET LIMITED", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "波兰", "perf": 0.0, "qty": 0, "dealers": [{"name": "IQ-QUEST SP. Z O.O.", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "斯洛文尼亚", "perf": 0.0, "qty": 0, "dealers": [{"name": "Optimizers d.o.o.", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "保加利亚", "perf": 0.0, "qty": 0, "dealers": [{"name": "Robo Trading Ltd", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "英国", "perf": 129.01, "qty": 21, "dealers": [{"name": "VERTU LONDON LTD", "nickname": "Wiji", "salesperson": "Lina", "perf": 129.01, "qty": 21, "pickupAmount": 129.01, "pickupQty": 21, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 129.01, "inTransitPerformance": null}]}, {"country": "德国", "perf": 0.0, "qty": 0, "dealers": [{"name": "vipconnect.de", "nickname": "", "salesperson": "Lina", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}]}, {"region": "南亚", "perf": 97.78, "qty": 36, "countries": [{"country": "印度", "perf": 97.78, "qty": 36, "dealers": [{"name": "GURU ELECTRONICS SINGAPORE PTE LTD", "nickname": "3C", "salesperson": "杨晶晶", "perf": 51.93, "qty": 17, "pickupAmount": 51.93, "pickupQty": 17, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 51.93, "inTransitPerformance": null}, {"name": "Parth Kamlesh Doshi", "nickname": "", "salesperson": "何龙承", "perf": 25.66, "qty": 12, "pickupAmount": 25.66, "pickupQty": 12, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 25.66, "inTransitPerformance": null}, {"name": "Sidd Senthil", "nickname": "Ankit Jain", "salesperson": "何海文", "perf": 20.19, "qty": 7, "pickupAmount": 20.19, "pickupQty": 7, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 20.19, "inTransitPerformance": null}, {"name": "LZB INDIA ELECTRIC PRIVATE LIMITED", "nickname": "高山", "salesperson": "杨晶晶", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}, {"name": "Sun International General Trading", "nickname": "", "salesperson": "杨晶晶", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}]}, {"region": "中亚", "perf": 80.32, "qty": 51, "countries": [{"country": "土库曼斯坦", "perf": 0.0, "qty": 0, "dealers": [{"name": "Altyn Zaman H.J.", "nickname": "", "salesperson": "杨晶晶", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "乌兹别克斯坦", "perf": 28.8, "qty": 26, "dealers": [{"name": "Bizcon Group", "nickname": "", "salesperson": "杨晶晶", "perf": 28.8, "qty": 26, "pickupAmount": 28.8, "pickupQty": 26, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 28.8, "inTransitPerformance": null}]}, {"country": "俄罗斯", "perf": 51.52, "qty": 25, "dealers": [{"name": "LLC \"TC Azimut\"", "nickname": "", "salesperson": "杨晶晶", "perf": 51.52, "qty": 25, "pickupAmount": 51.52, "pickupQty": 25, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 51.52, "inTransitPerformance": null}, {"name": "CONTINENTAL PLUS LLC.", "nickname": "", "salesperson": "杨晶晶", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "哈萨克斯坦", "perf": 0.0, "qty": 0, "dealers": [{"name": "LYZHINA OLGA", "nickname": "", "salesperson": "杨晶晶", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}]}, {"region": "东南亚", "perf": 66.62, "qty": 24, "countries": [{"country": "柬埔寨", "perf": 34.49, "qty": 20, "dealers": [{"name": "BIN BIN INVESTMENT(CAMBODIA) COLTD", "nickname": "", "salesperson": "于冰", "perf": 34.49, "qty": 20, "pickupAmount": 34.49, "pickupQty": 20, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 34.49, "inTransitPerformance": null}]}, {"country": "越南", "perf": 32.13, "qty": 4, "dealers": [{"name": "VMG Communication and Technology Joint Stock Company", "nickname": "", "salesperson": "于冰", "perf": 32.13, "qty": 4, "pickupAmount": 32.13, "pickupQty": 4, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": 32.13, "inTransitPerformance": null}]}, {"country": "泰国", "perf": 0.0, "qty": 0, "dealers": [{"name": "VST ECS (Thailand) Co., Ltd.", "nickname": "yuemai", "salesperson": "于冰", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}, {"country": "新加坡", "perf": 0.0, "qty": 0, "dealers": [{"name": "Zmc automotive Pte Ltd", "nickname": "", "salesperson": "何龙承", "perf": 0.0, "qty": 0, "pickupAmount": null, "pickupQty": null, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "orderPerformance": null, "inTransitPerformance": null}]}]}];
+
+const CUSTOMER_DETAIL=[{"name": "VERTU LONDON LTD", "performance": 129.01, "pickupAmount": 129.01, "pickupQty": 21, "orderPerformance": 129.01, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "Safiranhamrah", "performance": 106.64, "pickupAmount": 106.64, "pickupQty": 88, "orderPerformance": 106.64, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "Billionaire Collections", "performance": 71.51, "pickupAmount": 71.51, "pickupQty": 20, "orderPerformance": 71.51, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "GURU ELECTRONICS SINGAPORE PTE LTD", "performance": 51.93, "pickupAmount": 51.93, "pickupQty": 17, "orderPerformance": 51.93, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "LLC “TC Azimut”", "performance": 51.52, "pickupAmount": 51.52, "pickupQty": 25, "orderPerformance": 51.52, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "BIN BIN INVESTMENT(CAMBODIA) COLTD", "performance": 34.49, "pickupAmount": 34.49, "pickupQty": 20, "orderPerformance": 34.49, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "VMG Communication and Technology Joint Stock Company", "performance": 32.13, "pickupAmount": 32.13, "pickupQty": 4, "orderPerformance": 32.13, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "Bizcon Group", "performance": 28.8, "pickupAmount": 28.8, "pickupQty": 26, "orderPerformance": 28.8, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "Parth Kamlesh Doshi", "performance": 25.66, "pickupAmount": 25.66, "pickupQty": 12, "orderPerformance": 25.66, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}, {"name": "Sidd Senthil", "performance": 20.19, "pickupAmount": 20.19, "pickupQty": 7, "orderPerformance": 20.19, "vpsUsage": null, "inboundQty": null, "activationQty": null, "walkinQty": null, "inTransitPerformance": null}];
+// ─── Simple deferred render ───
+let _seq=0;
+function defer(fn){ setTimeout(fn, 50 + (_seq++)*30); }
+function resetDefer(){ _seq=0; }
+
+// ═══ STATE ═══
+let curPeriod='daily', curNode=null;
+
+// ═══ VIEW BUILDERS ═══
+function tvyCard(d,p,isDir,isTL){
+  const curLbl=p==='daily'?'当日 (2026-05-28)':p==='weekly'?'本周 (05-18~05-24)':'本月 (2026-05)';
+  const prvLbl=p==='daily'?'昨日':p==='weekly'?'上周':'上月';
+  const note=p==='daily'&&d.dailyNote?`<div style="margin-bottom:8px;padding:7px 10px;border-radius:8px;background:#fff7ed;color:#c2410c;font-size:12px;font-weight:600">${d.dailyNote}</div>`:'';
+  const rkBlock=isDir||isTL?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid #e8ebf2;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div><div style="font-size:10px;color:#9ca3af;margin-bottom:6px">当日${isDir?'部门':'人员'}排行</div>${rkBars(d.todayRk)}</div>
+    <div><div style="font-size:10px;color:#9ca3af;margin-bottom:6px">昨日${isDir?'部门':'人员'}排行</div>${rkBars(d.yesterdayRk)}</div>
+  </div>`:
+  `<div style="margin-top:10px;background:#f5f7fb;border-radius:8px;padding:10px 14px;display:grid;grid-template-columns:80px 1fr;gap:4px;font-size:12px">
+    <span style="color:#9ca3af">姓名</span><span style="text-align:right;font-weight:500">${curNode?.dataset.name||''}</span>
+    <span style="color:#9ca3af">工号</span><span style="text-align:right;font-weight:500">${curNode?.dataset.emp||''}</span>
+    <span style="color:#9ca3af">部门</span><span style="text-align:right;font-weight:500">${curNode?.dataset.dept||''}</span>
+  </div>`;
+  return `${note}<div class="tvy">
+    <div class="tvy-hd">${p==='daily'?'当日 & 昨日对比':p==='weekly'?'本周 & 上周对比':'本月 & 上月对比'}</div>
+    <div class="tvy-cols">
+      <div class="tvy-col td">${arc(d.todayPct,'#3b6ef8')}
+        <div class="tvy-tag blue">${curLbl}</div>
+        <div class="tvy-big">${(d.todayVal||0).toFixed(2)}万</div>
+        <div class="tvy-tgt" style="color:#3b6ef8">(目标: ${(d.todayTgt||0).toFixed(2)}万)</div>
+        <div class="tvy-sub">定金: 0.00万&nbsp; 退款: 0.00万</div>
+        <div class="tvy-badges">${badge(d.todayHb,'环比')}${badge(d.todayTb,'同比')}</div>
+      </div>
+      <div class="tvy-col yd">${arc(d.yesterdayPct,'#9ca3af')}
+        <div class="tvy-tag gray">${prvLbl}</div>
+        <div class="tvy-big" style="color:#6b7280">${(d.yesterdayVal||0).toFixed(2)}万</div>
+        <div class="tvy-tgt">(目标: ${(d.yesterdayTgt||0).toFixed(2)}万)</div>
+        <div class="tvy-sub">定金: 0.00万&nbsp; 退款: 0.00万</div>
+        <div class="tvy-badges">${badge(d.yesterdayHb,'环比')}${badge(d.yesterdayTb,'同比')}</div>
+      </div>
+    </div>${rkBlock}</div>`;
+}
+
+function wmCard(d){
+  const wkVal=d.weekVal||0, wkTgt=d.weekTgt||wkVal||1;
+  return `<div class="wm">
+    <div class="wm-sec">
+      <div class="wm-lbl">本周</div>
+      <div class="wm-date">统计 2026-05-18~2026-05-24</div>
+      <div class="wm-big">${wkVal.toFixed(2)}万</div>
+      <div class="wm-tgt" style="color:#3b6ef8">(目标: ${wkTgt.toFixed(2)}万)</div>
+      <div class="wm-subs">定金: 0.00万 &nbsp; 退款: 0.00万</div>
+      <div class="wm-badges">${badge(wkVal>wkTgt?5:-5,'环比')}</div>
+      <div class="wm-pk">本周排行</div>${rkBars(d.rkW)}
+    </div>
+    <div class="wm-sec">
+      <div class="wm-lbl">本月</div>
+      <div class="wm-date">统计 2026-05-01~2026-05-28</div>
+      <div class="wm-big">${(d.monthVal||0).toFixed(2)}万</div>
+      <div class="wm-tgt" style="color:#3b6ef8">(目标: ${(d.monthTgt||0).toFixed(2)}万)</div>
+      <div class="wm-subs">定金: 0.00万 &nbsp; 退款: 0.00万</div>
+      <div class="wm-badges">${badge(d.monthHb,'环比')}${badge(d.monthTb,'同比')}</div>
+      ${bp(d.monthAr+'%','目标达成率','#22c55e',d.monthAr,'')}
+      ${bp(d.monthTp+'%','时间进度','#f97316',d.monthTp,'')}
+      <div class="wm-pk" style="margin-top:8px">本月排行</div>${rkBars(d.rkM)}
+    </div>
+  </div>`;
+}
+
+function wkpiCard(d){
+  return `<div class="wkpi">
+    <div class="wkpi-hd">本周目标与达成率</div>
+    <div class="wkpi-date">周OKR目标 &nbsp; 实际达成 &nbsp; 上周：5月WEEK2(5.11-5.17)</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <div><div style="font-size:10px;color:#9ca3af">周OKR目标</div><div class="wkpi-big">${(d.weekTgt||0).toFixed(2)}万</div></div>
+      <div><div style="font-size:10px;color:#9ca3af">实际达成</div><div class="wkpi-big" style="color:#3b6ef8">${(d.weekVal||0).toFixed(2)}万</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">${badge(d.weekHb,'环比上周')}${badge(5,'月度周环比')}</div>
+    <div class="wkpi-subs">
+      <div class="wkpi-si"><label>定金</label><span class="v red">0.00万</span></div>
+      <div class="wkpi-si"><label>退款</label><span class="v red">0.00万</span></div>
+    </div>
+    ${bp(d.weekAr+'%','周达成率','#7c5cbf',d.weekAr,'')}
+    ${bp(d.weekTp+'%','周时间进度','#22c55e',d.weekTp,'已过 4/7 天')}
+  </div>`;
+}
+
+function orgMonthCard(d){
+  // d has fields: okrTgt, actual, ar, tp, hb, tb
+  const tgt = d.okrTgt||d.monthTgt||0;
+  const val = d.actual||d.monthVal||0;
+  const ar  = d.ar||d.monthAr||0;
+  const tp  = d.tp||d.monthTp||67.7;
+  const hb  = d.hb||d.monthHb||0;
+  const tb  = d.tb||d.monthTb||0;
+  return `<div class="org-wrap">
+    <div class="sec" style="margin-top:0">组织本月概览</div>
+    <div class="org-grid">
+      <div class="org-card main">
+        <div class="org-card-label">本月</div>
+        <div class="org-card-tag">OKR目标 &nbsp;<b style="color:#1a1d2e">${tgt.toFixed(2)}万</b></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${donut(Math.min(ar,100),'#7c5cbf')}
+          <div>
+            <div style="font-size:10px;color:#9ca3af">实际达成</div>
+            <div class="org-big">${val.toFixed(2)}万</div>
+            <div style="font-size:11px;color:#9ca3af">定金: -1.00万</div>
+            <div style="font-size:11px;color:#9ca3af">退款: 0.00万</div>
+          </div>
+        </div>
+        <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">${badge(hb,'环比')}${badge(tb,'同比')}</div>
+        <div style="font-size:10px;color:#22c55e;margin-top:4px">领先进度 ${(ar-tp).toFixed(1)}%</div>
+        ${bp(ar+'%','达成率','#22c55e',ar,'')}
+        ${bp(tp+'%','时间进度','#f97316',tp,'')}
+      </div>
+      <div class="org-card">
+        <div class="org-card-label" style="color:#22c55e">上半年</div>
+        <div style="display:flex;align-items:center;justify-content:center;height:80px">
+          ${donut(68,'#22c55e')}
+        </div>
+        <div style="font-size:11px;color:#9ca3af;text-align:center;margin-top:4px">暂无详细数据</div>
+      </div>
+      <div class="org-card">
+        <div class="org-card-label" style="color:#f97316">全年</div>
+        <div style="display:flex;align-items:center;justify-content:center;height:80px">
+          ${donut(32,'#f97316')}
+        </div>
+        <div style="font-size:11px;color:#9ca3af;text-align:center;margin-top:4px">暂无详细数据</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ═══ RENDER PERSON ═══
+function renderPerson(p){
+  const d=PERSONS[curNode.dataset.id]?.[p];if(!d)return;
+  const name=curNode.dataset.name;
+  let html='';
+  if(p==='daily'){
+    html=`<div class="sec">业绩概览</div>
+    <div class="g2"><div>${tvyCard(d,p,false,false)}</div><div>${wmCard(d)}</div></div>
+    <div class="sec">${name}的业绩趋势（本月按天）<span class="lnk">曲线图</span></div>
+    <div class="chart-card"><div id="ch-trend" style="height:220px;width:100%"></div></div>
+    <div class="sec">近7日商品销售趋势</div>
+    <div class="chart-card"><div id="ch-p7" style="height:220px;width:100%"></div></div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-trend',[{name,data:d.trend,color:'#3b6ef8'}]);
+    render7Day('ch-p7',d.p7);
+  } else if(p==='weekly'){
+    html=`<div class="sec">业绩周概览</div>
+    <div class="g2">
+      <div>${wkpiCard(d)}</div>
+      <div>
+        <div style="background:#fff;border:1px solid #e8ebf2;border-radius:12px;padding:14px 16px">
+          <div style="font-size:12px;font-weight:600;color:#1a1d2e;margin-bottom:8px">● 5月业绩趋势</div>
+          <div id="ch-5m" style="height:160px;width:100%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="sec">手机销量数据分析与占比统计 <span class="stag">（2026-05-18 至 2026-05-24）</span></div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量</div><div id="ch-ph-bar" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">手机材质占比</div><div id="ch-mat" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机+款式+颜色销量TOP10</div><div id="ch-ph-top" style="height:190px;width:100%"></div></div>
+    <div class="sec">IOT销量数据分析与占比统计</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件销量销额</div><div id="ch-iot-combo" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT占比</div><div id="ch-iot-pie" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="sec">销量堆积图分析</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量堆积图</div><div id="ch-stk-ph" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件销量堆积图</div><div id="ch-stk-iot" style="height:200px;width:100%"></div></div>
+    </div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-5m',[{name,data:d.trend,color:'#3b6ef8'}]);
+    renderDualBar('ch-ph-bar',d.phoneBar.cats,d.phoneBar.qty,d.phoneBar.amt);
+    renderPie('ch-mat',d.matPie);
+    renderBar('ch-ph-top',d.phoneTop,d.phoneTopVals,RED_COLORS,{rot:30,w:72});
+    renderIotCombo('ch-iot-combo',d.iotCombo.cats,d.iotCombo.qty,d.iotCombo.amt);
+    renderPie('ch-iot-pie',d.iotPie,PIE_COLORS);
+    renderStack('ch-stk-ph',d.stackPhone.cats,d.stackPhone.series);
+    renderStack('ch-stk-iot',d.stackIot.cats,d.stackIot.series);
+  } else {
+    html=`<div class="sec">组织本月概览</div>
+    <div class="org-grid" style="margin-bottom:12px">
+      <div class="org-card main">
+        <div class="org-card-label">本月</div>
+        <div class="org-card-tag">OKR目标 <b>${(d.monthTgt||0).toFixed(2)}万</b></div>
+        <div style="display:flex;align-items:center;gap:8px">${donut(Math.min(d.monthAr,100),'#7c5cbf')}
+          <div><div class="org-big">${(d.monthVal||0).toFixed(2)}万</div>
+            <div style="font-size:11px;color:#9ca3af">退款 0.00万</div>
+            <div style="margin-top:4px;display:flex;gap:4px">${badge(d.monthHb,'环比')}${badge(d.monthTb,'同比')}</div>
+          </div>
+        </div>
+        ${bp(d.monthAr+'%','达成率','#22c55e',d.monthAr,'')}
+        ${bp(d.monthTp+'%','时间进度','#f97316',d.monthTp,'')}
+      </div>
+      <div class="org-card"><div class="org-card-label" style="color:#22c55e">上半年</div>${donut(68,'#22c55e')}</div>
+      <div class="org-card"><div class="org-card-label" style="color:#f97316">全年</div>${donut(32,'#f97316')}</div>
+    </div>
+    <div class="g2" style="margin-bottom:12px">
+      <div class="chart-card"><div class="chart-title">${name} 2026年月业绩趋势</div><div id="ch-m-trend" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">开单率</div><div id="ch-openrate" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="sec">手机销量数据分析与占比统计 <span class="stag">（2026-05-01 至 2026-05-31）</span></div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量</div><div id="ch-ph-bar" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">手机材质占比</div><div id="ch-mat" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机+款式+颜色销量TOP10</div><div id="ch-ph-top" style="height:190px;width:100%"></div></div>
+    <div class="sec">IOT销量数据分析与占比统计</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件+款式+颜色销量TOP10</div><div id="ch-iot-top" style="height:190px;width:100%"></div></div>
+    </div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件销量销额</div><div id="ch-iot-combo" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT占比</div><div id="ch-iot-pie" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机/IOT月趋势销量</div><div id="ch-mo-trend" style="height:200px;width:100%"></div></div>
+    <div class="sec">销量堆积图分析</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量堆积图</div><div id="ch-stk-ph" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件销量堆积图</div><div id="ch-stk-iot" style="height:200px;width:100%"></div></div>
+    </div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-m-trend',[{name,data:d.trend,color:'#3b6ef8'}],DAYS21,'万');
+    renderOpenRate('ch-openrate',d.openRate?.[0]||[name],d.openRate?.[1]||[0]);
+    renderDualBar('ch-ph-bar',d.phoneBar.cats,d.phoneBar.qty,d.phoneBar.amt);
+    renderPie('ch-mat',d.matPie);
+    renderBar('ch-ph-top',d.phoneTop,d.phoneTopVals.map(v=>v*4),RED_COLORS,{rot:30,w:72});
+    renderBar('ch-iot-top',d.iotTop,d.iotTopVals,IOT_COLORS,{rot:30,w:72});
+    renderIotCombo('ch-iot-combo',d.iotCombo.cats,d.iotCombo.qty,d.iotCombo.amt);
+    renderPie('ch-iot-pie',d.iotPie,PIE_COLORS);
+    if(d.phoneIotTrend)renderMoTrend('ch-mo-trend',MONTHS,[{name:'手机销量',data:d.phoneIotTrend.phone,color:'#3b6ef8',area:true},{name:'IOT配件销量',data:d.phoneIotTrend.iot,color:'#22c55e',area:true}]);
+    if(d.stackPhone)renderStack('ch-stk-ph',d.stackPhone.cats,d.stackPhone.series);
+    if(d.stackIot)renderStack('ch-stk-iot',d.stackIot.cats,d.stackIot.series);
+  }
+}
+
+// ═══ RENDER TEAMLEAD ═══
+function renderTeamlead(p){
+  const d=TL[curNode.dataset.id]?.[p];if(!d)return;
+  const name=curNode.dataset.name;
+  let html='';
+  if(p==='daily'){
+    html=`<div class="sec">业绩概览</div>
+    <div class="g2"><div>${tvyCard(d,p,false,true)}</div><div>${wmCard(d)}</div></div>
+    <div class="sec">趋势图表（本月按天）<span class="lnk">曲线图</span></div>
+    <div class="chart-card"><div id="ch-trend" style="height:220px;width:100%"></div></div>
+    <div class="sec">${name} 下级成员分析<span class="lnk">显示分析</span></div>
+    <div class="chart-card"><div class="chart-title" style="margin-bottom:8px">近7日商品销售趋势</div><div id="ch-p7" style="height:220px;width:100%"></div></div>
+    <div class="double">
+      <div class="chart-card"><div class="chart-title">手机（含今昨合计）</div><div id="ch-ph-io" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件（含今昨合计）</div><div id="ch-iot-io" style="height:200px;width:100%"></div></div>
+    </div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-trend',d.trendSeries);
+    render7Day('ch-p7',d.p7);
+    renderPhoneIot('ch-ph-io','ch-iot-io',d.phone,d.iot);
+  } else if(p==='weekly'){
+    html=`<div class="sec">业绩周概览</div>
+    <div class="g2">
+      <div>${wkpiCard(d)}</div>
+      <div>
+        <div style="background:#fff;border:1px solid #e8ebf2;border-radius:12px;padding:14px 16px">
+          <div style="font-size:12px;font-weight:600;color:#1a1d2e;margin-bottom:2px">● ${name}·人员业绩趋势</div>
+          <div style="display:flex;gap:16px;background:#f0f4ff;border-radius:8px;padding:10px;margin-bottom:10px">
+            <div style="text-align:center"><div style="font-size:10px;color:#9ca3af">开单率</div><div style="font-size:18px;font-weight:800;color:#3b6ef8">${(d.openRate?.[1]?.[0]||0)}%</div></div>
+            <div style="text-align:center"><div style="font-size:10px;color:#9ca3af">总业绩</div><div style="font-size:18px;font-weight:800;color:#1a1d2e">${(d.weekVal||0).toFixed(2)}万</div></div>
+          </div>
+          <div id="ch-5m" style="height:130px;width:100%"></div>
+        </div>
+      </div>
+    </div>
+    <div class="sec">手机销量数据分析与占比统计 <span class="stag">（2026-05-18 至 2026-05-24）</span></div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量</div><div id="ch-ph-bar" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">手机材质占比</div><div id="ch-mat" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机+款式+颜色销量TOP10</div><div id="ch-ph-top" style="height:190px;width:100%"></div></div>
+    <div class="sec">IOT销量数据分析与占比统计</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件销量销额</div><div id="ch-iot-combo" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT占比</div><div id="ch-iot-pie" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="sec">销量堆积图分析</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量堆积图</div><div id="ch-stk-ph" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件销量堆积图</div><div id="ch-stk-iot" style="height:200px;width:100%"></div></div>
+    </div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-5m',d.trendSeries.slice(0,2));
+    renderDualBar('ch-ph-bar',d.phoneBar.cats,d.phoneBar.qty,d.phoneBar.amt);
+    renderPie('ch-mat',d.matPie);
+    renderBar('ch-ph-top',d.phoneTop,d.phoneTopVals,RED_COLORS,{rot:30,w:72});
+    renderIotCombo('ch-iot-combo',d.iotCombo.cats,d.iotCombo.qty,d.iotCombo.amt);
+    renderPie('ch-iot-pie',d.iotPie,PIE_COLORS);
+    renderStack('ch-stk-ph',d.stackPhone.cats,d.stackPhone.series);
+    renderStack('ch-stk-iot',d.stackIot.cats,d.stackIot.series);
+  } else {
+    html=`${orgMonthCard(d.orgMonth)}
+    <div class="g2" style="margin-bottom:12px">
+      <div class="chart-card"><div class="chart-title">2026年月业绩趋势（各子部门）</div><div id="ch-m-trend" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">开单率</div><div id="ch-openrate" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="g3" style="margin-bottom:12px">
+      <div class="chart-card"><div class="chart-title">人产</div><div id="ch-rc" style="height:180px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">业绩分布情况</div><div id="ch-dist" style="height:180px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">公司销售TOP20·部门占比</div><div id="ch-top20" style="height:180px;width:100%"></div></div>
+    </div>
+    <div class="sec">手机销量数据分析与占比统计 <span class="stag">（2026-05-01 至 2026-05-31）</span></div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量</div><div id="ch-ph-bar" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">手机材质占比</div><div id="ch-mat" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机+款式+颜色销量TOP10</div><div id="ch-ph-top" style="height:190px;width:100%"></div></div>
+    <div class="sec">IOT销量数据分析与占比统计</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件+款式+颜色销量TOP10</div><div id="ch-iot-top" style="height:190px;width:100%"></div></div>
+    </div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件销量销额</div><div id="ch-iot-combo" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT占比</div><div id="ch-iot-pie" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机/IOT月趋势销量</div><div id="ch-mo-trend" style="height:200px;width:100%"></div></div>
+    <div class="sec">销量堆积图分析</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量堆积图</div><div id="ch-stk-ph" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件销量堆积图</div><div id="ch-stk-iot" style="height:200px;width:100%"></div></div>
+    </div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    // 月业绩趋势: 用月度数据(5个月)而非日数据(21天)
+    const tlMoSeries=d.trendSeries.slice(0,2).map((s,i)=>({
+      name:s.name,
+      data:monthLine([s.data[0]||0, s.data[5]||0, s.data[10]||0, s.data[15]||0, s.data[20]||0]),
+      color:s.color, area:true
+    }));
+    renderMoTrend('ch-m-trend',MONTHS,tlMoSeries);
+    renderOpenRate('ch-openrate',d.openRate[0],d.openRate[1]);
+    renderRenChan('ch-rc',d.rcData[0],d.rcData[1]);
+    renderPcDist('ch-dist',['0-1万','1-5万','5-10万','10万以上'],d.distData[0]);
+    renderPie('ch-top20',d.top20Pie,['#3b6ef8','#22c55e','#f97316']);
+    renderDualBar('ch-ph-bar',d.phoneBar.cats,d.phoneBar.qty,d.phoneBar.amt);
+    renderPie('ch-mat',d.matPie);
+    renderBar('ch-ph-top',d.phoneTop,d.phoneTopVals,RED_COLORS,{rot:30,w:72});
+    renderBar('ch-iot-top',d.iotTop,d.iotTopVals,IOT_COLORS,{rot:30,w:72});
+    renderIotCombo('ch-iot-combo',d.iotCombo.cats,d.iotCombo.qty,d.iotCombo.amt);
+    renderPie('ch-iot-pie',d.iotPie,PIE_COLORS);
+    if(d.phoneIotTrend)renderMoTrend('ch-mo-trend',MONTHS,[{name:'手机销量',data:d.phoneIotTrend.phone,color:'#3b6ef8',area:true},{name:'IOT配件销量',data:d.phoneIotTrend.iot,color:'#22c55e',area:true}]);
+    if(d.stackPhone)renderStack('ch-stk-ph',d.stackPhone.cats,d.stackPhone.series);
+    if(d.stackIot)renderStack('ch-stk-iot',d.stackIot.cats,d.stackIot.series);
+  }
+}
+
+// ═══ RENDER DIRECTOR ═══
+function renderDirector(p){
+  const d=DIR[curNode.dataset.id]?.[p];if(!d)return;
+  let html='';
+  if(p==='daily'){
+    html=`<div class="sec">业绩概览</div>
+    <div class="g2"><div>${tvyCard(d,p,true,false)}</div><div>${wmCard(d)}</div></div>
+    <div class="sec">趋势图表（本月按天）<span class="lnk">曲线图</span></div>
+    <div class="chart-card"><div id="ch-trend" style="height:220px;width:100%"></div></div>
+    <div class="sec">海外事业部 下级部门分析<span class="lnk">显示分析</span></div>
+    <div class="chart-card"><div class="chart-title" style="margin-bottom:8px">近7日商品销售趋势</div><div id="ch-p7" style="height:220px;width:100%"></div></div>
+    <div class="double">
+      <div class="chart-card"><div class="chart-title">手机（含今昨合计）</div><div id="ch-ph-io" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件（含今昨合计）</div><div id="ch-iot-io" style="height:200px;width:100%"></div></div>
+    </div>
+`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-trend',d.trendSeries);
+    render7Day('ch-p7',d.p7);
+    renderPhoneIot('ch-ph-io','ch-iot-io',d.phone,d.iot);
+  } else if(p==='weekly'){
+    html=`<div class="sec">业绩周概览</div>
+    <div class="g2">
+      <div>${wkpiCard(d)}</div>
+      <div>
+        <div style="background:#fff;border:1px solid #e8ebf2;border-radius:12px;padding:14px 16px">
+          <div style="font-size:12px;font-weight:600;color:#1a1d2e;margin-bottom:8px">5月业绩趋势</div>
+          <div id="ch-5m" style="height:160px;width:100%"></div>
+        </div>
+        <div style="background:#f5f7fb;border-radius:8px;padding:8px;margin-top:8px;text-align:center;color:#9ca3af;font-size:11px">暂无下级组织架构数据</div>
+      </div>
+    </div>
+    <div class="g2" style="margin-bottom:12px">
+      <div class="chart-card"><div class="chart-title">开单率</div><div id="ch-openrate" style="height:180px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">人产</div><div id="ch-rc" style="height:180px;width:100%"></div></div>
+    </div>
+    <div class="sec">手机销量数据分析与占比统计 <span class="stag">（2026-05-18 至 2026-05-24）</span></div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量</div><div id="ch-ph-bar" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">手机材质占比</div><div id="ch-mat" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机+款式+颜色销量TOP10</div><div id="ch-ph-top" style="height:190px;width:100%"></div></div>
+    <div class="sec">IOT销量数据分析与占比统计</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件+款式+颜色销量TOP10</div><div id="ch-iot-top" style="height:190px;width:100%"></div></div>
+    </div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件销量销额</div><div id="ch-iot-combo" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT占比</div><div id="ch-iot-pie" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="sec">销量堆积图分析</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量堆积图</div><div id="ch-stk-ph" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件销量堆积图</div><div id="ch-stk-iot" style="height:200px;width:100%"></div></div>
+    </div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-5m',d.trendSeries.slice(0,3));
+    renderOpenRate('ch-openrate',d.openRate[0],d.openRate[1]);
+    renderRenChan('ch-rc',d.rcData[0],d.rcData[1]);
+    renderDualBar('ch-ph-bar',d.phoneBar.cats,d.phoneBar.qty,d.phoneBar.amt);
+    renderPie('ch-mat',d.matPie);
+    renderBar('ch-ph-top',d.phoneTop,d.phoneTopVals,RED_COLORS,{rot:30,w:72});
+    renderBar('ch-iot-top',d.iotTop,d.iotTopVals,IOT_COLORS,{rot:30,w:72});
+    renderIotCombo('ch-iot-combo',d.iotCombo.cats,d.iotCombo.qty,d.iotCombo.amt);
+    renderPie('ch-iot-pie',d.iotPie,PIE_COLORS);
+    renderStack('ch-stk-ph',d.stackPhone.cats,d.stackPhone.series);
+    renderStack('ch-stk-iot',d.stackIot.cats,d.stackIot.series);
+  } else {
+    html=`${orgMonthCard(d.orgMonth)}
+    <div class="g2" style="margin-bottom:12px">
+      <div class="chart-card"><div class="chart-title">2026年月业绩趋势（各子部门）</div><div id="ch-m-trend" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">开单率</div><div id="ch-openrate" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="g3" style="margin-bottom:12px">
+      <div class="chart-card"><div class="chart-title">人产</div><div id="ch-rc" style="height:180px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">业绩分布情况</div><div id="ch-dist" style="height:180px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">公司销售TOP20·部门占比</div><div id="ch-top20" style="height:180px;width:100%"></div></div>
+    </div>
+    <div class="sec">手机销量数据分析与占比统计 <span class="stag">（2026-05-01 至 2026-05-31）</span></div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量</div><div id="ch-ph-bar" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">手机材质占比</div><div id="ch-mat" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机+款式+颜色销量TOP10</div><div id="ch-ph-top" style="height:190px;width:100%"></div></div>
+    <div class="sec">IOT销量数据分析与占比统计</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件+款式+颜色销量TOP10</div><div id="ch-iot-top" style="height:190px;width:100%"></div></div>
+    </div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">IOT配件销量销额</div><div id="ch-iot-combo" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT占比</div><div id="ch-iot-pie" style="height:200px;width:100%"></div></div>
+    </div>
+    <div class="chart-card g1"><div class="chart-title">手机/IOT月趋势销量</div><div id="ch-mo-trend" style="height:200px;width:100%"></div></div>
+    <div class="sec">销量堆积图分析</div>
+    <div class="g2">
+      <div class="chart-card"><div class="chart-title">手机销量堆积图</div><div id="ch-stk-ph" style="height:200px;width:100%"></div></div>
+      <div class="chart-card"><div class="chart-title">IOT配件销量堆积图</div><div id="ch-stk-iot" style="height:200px;width:100%"></div></div>
+    </div>`;
+    document.getElementById('view').innerHTML=html;
+    resetDefer();
+    renderTrend('ch-m-trend',d.trendSeries,DAYS21,'万');
+    renderOpenRate('ch-openrate',d.openRate[0],d.openRate[1]);
+    renderRenChan('ch-rc',d.rcData[0],d.rcData[1]);
+    renderPcDist('ch-dist',['0-1万','1-5万','5-10万','10万以上'],d.distData[0]);
+    renderPie('ch-top20',d.top20Pie,['#3b6ef8','#22c55e','#f97316']);
+    renderDualBar('ch-ph-bar',d.phoneBar.cats,d.phoneBar.qty,d.phoneBar.amt);
+    renderPie('ch-mat',d.matPie);
+    renderBar('ch-ph-top',d.phoneTop,d.phoneTopVals,RED_COLORS,{rot:30,w:72});
+    renderBar('ch-iot-top',d.iotTop,d.iotTopVals,IOT_COLORS,{rot:30,w:72});
+    renderIotCombo('ch-iot-combo',d.iotCombo.cats,d.iotCombo.qty,d.iotCombo.amt);
+    renderPie('ch-iot-pie',d.iotPie,PIE_COLORS);
+    renderMoTrend('ch-mo-trend',MONTHS,[{name:'手机销量',data:d.phoneIotTrend.phone,color:'#3b6ef8',area:true},{name:'IOT配件销量',data:d.phoneIotTrend.iot,color:'#22c55e',area:true}]);
+    renderStack('ch-stk-ph',d.stackPhone.cats,d.stackPhone.series);
+    renderStack('ch-stk-iot',d.stackIot.cats,d.stackIot.series);
+  }
+}
+
+// ═══ DISPATCH ═══
+function render(){
+  dispAll();
+  document.getElementById('main').scrollTop=0;
+  const t=curNode?.dataset.type;
+  try{
+    if(t==='person') renderPerson(curPeriod);
+    else if(t==='teamlead') renderTeamlead(curPeriod);
+    else renderDirector(curPeriod);
+  }catch(e){
+    console.error('render error:',e);
+    const errDiv=document.createElement('div');
+    errDiv.style.cssText='padding:16px;background:#fee2e2;border-radius:8px;color:#b91c1c;font-size:12px;margin:12px 0;font-family:monospace';
+    errDiv.textContent='渲染错误: '+e.message+' (stack: '+(e.stack||'').slice(0,200)+')';
+    document.getElementById('view').appendChild(errDiv);
+  }
+  // Force resize all charts after everything renders
+  setTimeout(()=>{ Object.values(CH).forEach(c=>{try{c.resize();}catch(e){}}); }, 700);
+}
+
+function clickNode(el){
+  document.querySelectorAll('.tnode').forEach(n=>n.classList.remove('sel-dir','sel-person'));
+  el.classList.add(el.dataset.type==='person'?'sel-person':'sel-dir');
+  curNode=el;
+  const h=document.getElementById('selHint');
+  h.style.color=el.dataset.type==='person'?'#16a34a':'#3b6ef8';
+  h.textContent='已选择：'+el.dataset.name+(el.dataset.type==='director'?'（全部）':el.dataset.type==='teamlead'?'（团队）':'');
+  render();
+}
+
+function setPeriod(p,el){
+  document.querySelectorAll('.ni.period,.ni.dealer-btn').forEach(t=>t.classList.remove('cur'));
+  el.classList.add('cur');curPeriod=p;
+  render();
+}
+
+/** 切换到门店视图 */
+function showDealerView(el){
+  document.querySelectorAll('.ni.period,.ni.dealer-btn').forEach(t=>t.classList.remove('cur'));
+  el.classList.add('cur');
+  document.getElementById('view').innerHTML = buildDealerPage();
+}
+
+// ═══ TREE / SIDEBAR ═══
+function toggleTC(e,arrow){
+  e.stopPropagation();
+  let next=arrow.closest('.tnode').nextElementSibling;
+  while(next&&!next.classList.contains('tc'))next=next.nextElementSibling;
+  if(!next)return;
+  const open=arrow.classList.contains('open');
+  if(open){next.style.maxHeight=next.scrollHeight+'px';requestAnimationFrame(()=>{next.style.maxHeight='0';});arrow.classList.remove('open');}
+  else{next.style.maxHeight=next.scrollHeight+'px';setTimeout(()=>{next.style.maxHeight='none';},230);arrow.classList.add('open');}
+}
+document.querySelectorAll('.tc').forEach(el=>{el.style.overflow='hidden';el.style.transition='max-height .22s ease';el.style.maxHeight='none';});
+function toggleSidebar(){const sb=document.getElementById('sidebar'),mn=document.getElementById('main'),cb=document.getElementById('cbtn');const col=sb.classList.toggle('collapsed');mn.classList.toggle('full',col);cb.classList.toggle('out',col);cb.textContent=col?'»':'«';setTimeout(()=>Object.values(CH).forEach(c=>{try{c.resize();}catch(e){}}),240);}
+
+function forceRender(){
+  Object.values(CH).forEach(c=>{ try{c.resize();}catch(e){} });
+  // Re-render current node
+  if(curNode) render();
+}
+
+// INIT
+document.addEventListener('DOMContentLoaded',()=>{
+  curPeriod='monthly';
+  document.getElementById('pt-m').classList.add('cur');
+  clickNode(document.querySelector('[data-id="dir-dealer"]'));
+});
+</script>
+</body>
+</html>

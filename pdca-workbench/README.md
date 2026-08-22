@@ -47,6 +47,7 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 | `/dashboard` | 数据看板 |
 | `/walkin-cockpit/` | 客流/线上 OKR |
 | `/meeting-center/` | 会议中心 |
+| `/app/knowledge` | 经销商资料库（证据检索、AI 回答、图片预览） |
 
 ### 表单 POST
 
@@ -73,6 +74,22 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 - `GET /api/logistics/shipments` — 运单列表（含在途天数、核查报告链接）
 - `GET /api/logistics/dates` — 有数据的录入批次
 - `GET /api/logistics/salespeople` — 销售名单（manager+）
+- `GET /api/knowledge/scope` — 当前用户可见资料范围
+- `POST /api/knowledge/search` — 人工/Agent 共用的带引用检索
+- `POST /api/knowledge/answers` — 基于证据的 AI 回答
+- `GET /api/knowledge/assets/{id}/content` — 脱敏文本或带水印图片预览
+- `POST /api/knowledge/exports` — 管理员确认并填写用途后导出原件
+
+## 经销商资料库接入
+
+PDCA 只在服务端签发最长 5 分钟的作用域 JWT，浏览器不会获得共享密钥。生产环境：
+
+1. 在 PDCA 与 `vertu-data-hub` 主机放置同一份随机密钥文件，权限设为仅部署用户可读。
+2. 配置 `PDCA_KNOWLEDGE_HUB_URL` 和 `PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE`。
+3. 在管理后台的门店资料中填写 data-hub 经销商 UUID；同一经销商的多门店可填写同一 UUID。
+4. 用销售账号检查 `/app/knowledge` 只显示本人负责经销商，再用管理员验证原件导出审计。
+
+部门资料范围通过 `PDCA_KNOWLEDGE_HUB_TEAM_MAP` 显式映射，默认把 PDCA 的 `overseas` 映射为 data-hub 的 `overseas-sales`。
 
 ## HTTPS
 

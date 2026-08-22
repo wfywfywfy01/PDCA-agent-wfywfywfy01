@@ -1,0 +1,1377 @@
+Slides: 38
+Slide size: 10.00 x 5.62 inches
+
+===== SLIDE 1 =====
+  shape: PICTURE (13), name=Image 0
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 海外经销商周报
+  shape: AUTO_SHAPE (1), name=Text 3
+    TEXT: 【2026】年【7】月 第二周周报
+
+===== SLIDE 2 =====
+  shape: PICTURE (13), name=Image 0
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 海外经销商月报
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 综述
+
+===== SLIDE 3 =====
+  shape: TEXT_BOX (17), name=
+    TEXT: ① 找问题
+    TEXT: 新人批量脱落：6月批次 7 人入训 → W2 末仅陈鹏飞 + 李浩然-1 在训；李浩然/高永强/史凯华 W2 脱落，累计离队/脱落 ≥6 人
+    TEXT: 群推送与 IM 同步断层：「海外经销商-日报推送」VPS IM W2 仅同步 9 条、个人日报推送 2 条；Agent「群内」巡检与销售实际体感不一致，Lina日报未进行推送，无法获取数据
+    TEXT: Lina 组 W2 环比 -27%：Luxem/Billionaire/ECN W2 SI 归零；6 重点客户合计较上月同期少约 100 万
+    TEXT: 终销数据质量：越泰门店「有客流、金额漏填、Saigon 单店依赖」
+    TEXT: 在途大单/售后/定制交期：迪拜 116 万、印度 20.5 万未转实销；多国售后 NDA/换新未闭环
+    TEXT: 经销商客户管理：经销商客户管理不统一，目前暂未切换至新系统中，客户管理混乱
+    TEXT: 海外渠道的知识库：海外渠道知识库断层
+    TEXT: 海外整体流程现混乱：商务对接销售存在信息重复信息不互通的问题
+  shape: AUTO_SHAPE (1), name=AutoShape 2
+    TEXT: 海外经销商总览
+  shape: TEXT_BOX (17), name=
+    TEXT: ② 总结问题
+    TEXT: 业绩与组织双轨：W2 SI 211 万达标，但新人漏斗崩溃，「选用预留、快进快出」策略下缺少可复制的留存 SOP，培训投入 ROI 极低
+    TEXT: 日报三重口径混乱：①企微群可见推送 ②Odoo IM  同步 ③Agent「群内/日志」巡检 — 管理考核口径不统一，易误判「全员未交」
+    TEXT: 区域不均衡：杨晶晶组 W2 爆发（GURU 52.6 万）掩盖 Lina 中东大客户断档；于冰组 SI 回升但终销仍弱
+    TEXT: 高定依赖伦敦 SIG S：MTD 高定 SIG S 18 万在 W1；W2 高定以 AF 11.8 万标单价段为主，英国 节点待 7/13–7/16 交付
+  shape: TEXT_BOX (17), name=
+    TEXT: ③ 改进方案
+    TEXT: 新人 SOP（P0）：销售岗与张倩共建筛选/面试/7天/市场调研SOP
+    TEXT: 8877 日报（P0）：明确「群推送 = 小小V 机器人」为考核口径；排查 IM 同步缺口；销售队 W3 起工作日群内推送 ≥8/11。增加日报未推送一对一信息，工具使用推进（vps+vemory)
+    TEXT: W3 待收（P0）：Lina ¥2,526,176 + 于冰 ¥558,000（PPT 明细加总）· 杨晶晶组仅列跟进项
+    TEXT: 门店终销（P1）：越南/泰国 DSR 金额必填；Saigon 依赖度拆解；8/11 AF 发布会筹备。vivien内外部培训，协助代理商进行使用。
+    TEXT: 高定交付（P1）：英国 SIG S 7/13 到港 · Ambani 7/16 到店已加急今日到英国，显示今日到货
+    TEXT: 经销商客户管理：使用新系统工具进行客户管理维护，跟进客户全流程
+    TEXT: 海外渠道知识库：与马特沟通知识库共享对接，实现便携分享
+    TEXT: 海外整体流程：经销商客户全流程梳理台账，后续对接系统+日报监控
+
+===== SLIDE 4 =====
+  shape: AUTO_SHAPE (1), name=Rectangle: Rounded Corners 73
+  shape: AUTO_SHAPE (1), name=Rectangle: Rounded Corners 73
+  shape: TEXT_BOX (17), name=TextBox 78
+    TEXT: 2026年
+    TEXT: 海外经销商
+  shape: AUTO_SHAPE (1), name=Rectangle: Rounded Corners 73
+  shape: AUTO_SHAPE (1), name=Rectangle: Rounded Corners 73
+  shape: LINE (9), name=直接连接符 2
+  shape: FREEFORM (5), name=Freeform 116
+  shape: FREEFORM (5), name=Freeform 40
+  shape: FREEFORM (5), name=Freeform 651
+  shape: FREEFORM (5), name=Freeform 665
+  shape: CHART (3), name=图表 139
+  shape: TEXT_BOX (17), name=文本框 142
+    TEXT: OKR完成进度
+  shape: FREEFORM (5), name=Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has s
+    TEXT: 环比下降-3%，
+同比增长+224%，
+  shape: TEXT_BOX (17), name=TextBox 78
+    TEXT: 2026年
+    TEXT: Lina组
+  shape: TEXT_BOX (17), name=TextBox 14
+    TEXT: 163.8万
+  shape: LINE (9), name=直接连接符 2
+  shape: CHART (3), name=图表 170
+  shape: TEXT_BOX (17), name=文本框 171
+    TEXT: OKR完成进度
+  shape: TEXT_BOX (17), name=灯片编号占位符 3
+    TEXT: 销售额
+  shape: TEXT_BOX (17), name=TextBox 78
+    TEXT: 2026年
+    TEXT: 于冰组
+  shape: TEXT_BOX (17), name=TextBox 14
+    TEXT: 64.0万
+  shape: LINE (9), name=直接连接符 2
+  shape: CHART (3), name=图表 178
+  shape: TEXT_BOX (17), name=文本框 179
+    TEXT: OKR完成进度
+  shape: TEXT_BOX (17), name=灯片编号占位符 3
+    TEXT: 销售额
+  shape: TEXT_BOX (17), name=TextBox 78
+    TEXT: 2026年
+    TEXT: 杨晶晶组
+  shape: TEXT_BOX (17), name=TextBox 14
+    TEXT: 107.2万
+  shape: LINE (9), name=直接连接符 2
+  shape: CHART (3), name=图表 186
+  shape: TEXT_BOX (17), name=文本框 187
+    TEXT: OKR完成进度
+  shape: TEXT_BOX (17), name=灯片编号占位符 3
+    TEXT: 销售额
+  shape: LINE (9), name=直线连接符 4
+  shape: TEXT_BOX (17), name=TextBox 14
+    TEXT: 335.4万
+  shape: TEXT_BOX (17), name=灯片编号占位符 3
+    TEXT: 销售额
+  shape: AUTO_SHAPE (1), name=AutoShape 2
+    TEXT: 海外经销商总览  目标695W
+  shape: FREEFORM (5), name=Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has s
+    TEXT: 环比下降-15%，
+同比增长+732%，
+  shape: FREEFORM (5), name=Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has s
+    TEXT: 环比增长+96%，
+同比下降-10%，
+  shape: FREEFORM (5), name=Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has s
+    TEXT: 环比下降-12%，
+同比增长+764%，
+
+===== SLIDE 5 =====
+  shape: CHART (3), name=图表 2
+  shape: AUTO_SHAPE (1), name=矩形: 圆角 32
+  shape: PLACEHOLDER (14), name=灯片编号占位符 3
+    TEXT: 025
+  shape: AUTO_SHAPE (1), name=矩形: 圆角 9
+  shape: TEXT_BOX (17), name=文本框 7
+    TEXT: 海外经销商销售业绩335.4万，达成率48.3%，环比下降-3%，同比增长224%，超越9.6%的时间进度
+  shape: TEXT_BOX (17), name=文本框 21
+    TEXT: 总达成
+  shape: TEXT_BOX (17), name=文本框 22
+    TEXT: 335.4(万)
+  shape: TEXT_BOX (17), name=文本框 23
+    TEXT: 环比增长率
+  shape: TEXT_BOX (17), name=文本框 24
+    TEXT: -3%
+  shape: TEXT_BOX (17), name=文本框 25
+    TEXT: 达成率
+  shape: TEXT_BOX (17), name=文本框 26
+    TEXT: 48.3%
+  shape: TEXT_BOX (17), name=文本框 27
+    TEXT: OKR
+  shape: TEXT_BOX (17), name=文本框 28
+    TEXT: 695(万)
+  shape: AUTO_SHAPE (1), name=矩形 45
+  shape: TEXT_BOX (17), name=TextBox 50
+    TEXT: 290万
+  shape: TEXT_BOX (17), name=文本框 55
+    TEXT: 杨晶晶组
+  shape: TEXT_BOX (17), name=文本框 5
+    TEXT: Lina组
+  shape: TEXT_BOX (17), name=TextBox 50
+    TEXT: 110万
+  shape: TEXT_BOX (17), name=TextBox 50
+    TEXT: 235万
+  shape: TEXT_BOX (17), name=文本框 35
+    TEXT: 于冰组
+  shape: AUTO_SHAPE (1), name=矩形 20
+  shape: AUTO_SHAPE (1), name=矩形 53
+  shape: FREEFORM (5), name=Freeform 651
+  shape: PICTURE (13), name=图形 11
+  shape: FREEFORM (5), name=Freeform 665
+  shape: FREEFORM (5), name=Freeform 116
+  shape: PLACEHOLDER (14), name=标题 64
+    TEXT: 全盘 OKR 达成度分析
+  shape: TEXT_BOX (17), name=文本框 1
+    TEXT: 整体: 第二周目标157万，达成211万，周完成率134%。月目标695万，目前完成335万，达成率48%。.
+  shape: CHART (3), name=图表 10
+  shape: CHART (3), name=图表 6
+  shape: TEXT_BOX (17), name=文本框 239
+    TEXT: 164
+  shape: TEXT_BOX (17), name=文本框 242
+    TEXT: 月度销售额
+    TEXT: （万）
+  shape: TEXT_BOX (17), name=文本框 243
+    TEXT: 64
+  shape: TEXT_BOX (17), name=文本框 246
+    TEXT: 月度销售额
+    TEXT: （万）
+  shape: TEXT_BOX (17), name=文本框 71
+    TEXT: 月度销售额
+    TEXT: （万）
+  shape: TEXT_BOX (17), name=文本框 243
+    TEXT: 108
+  shape: TEXT_BOX (17), name=文本框 5
+    TEXT: Lina组
+  shape: TEXT_BOX (17), name=文本框 5
+    TEXT: 杨晶晶组
+  shape: TEXT_BOX (17), name=文本框 5
+    TEXT: 于冰组
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 6 =====
+  shape: PLACEHOLDER (14), name=灯片编号占位符 3
+    TEXT: 025
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 第三周待收款项：
+    TEXT: 250+20+15+85+55=370W
+
+===== SLIDE 7 =====
+  shape: AUTO_SHAPE (1), name=Text 22
+    TEXT: 各团队业绩贡献
+  shape: AUTO_SHAPE (1), name=Text 62
+    TEXT: 核心经销商 SI 贡献度
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 目前进度稍显滞后是杨晶晶/尤文静
+
+===== SLIDE 8 =====
+  shape: TEXT_BOX (17), name=标题 64
+    TEXT: 产品数据
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 9 =====
+  shape: TEXT_BOX (17), name=标题 64
+    TEXT: 产品数据-详情
+  shape: PICTURE (13), name=
+
+===== SLIDE 10 =====
+  shape: TEXT_BOX (17), name=标题 64
+    TEXT: 产品数据-高客单
+  shape: PICTURE (13), name=
+
+===== SLIDE 11 =====
+  shape: TEXT_BOX (17), name=标题 64
+    TEXT: Sell-out 数据
+  shape: PICTURE (13), name=
+
+===== SLIDE 12 =====
+  shape: TEXT_BOX (17), name=
+    TEXT: 第三周（7/14–7/18）· 重点工作
+    TEXT: Lina 组
+    TEXT: 英国 SIG S 7/13 到港 · Ambani 7/16 到店 · 透明腕表 7/15
+    TEXT: Luxem/Billionaire 专项挽回 · Safiran 售后 ironflip+quantum
+    TEXT: 科威特 walk-in 成交发货 · 伊拉克 Rebaz 选品 20 万签合同
+    TEXT: 瑞士/迪拜/沙特新线索落位
+    TEXT: 杨晶晶组
+    TEXT: Perspectiva 开业方案+订单 · Konstantin 补货 · Restore 收款
+    TEXT: 哈萨克 Visel/Premier 会议 · Mercury 合作方案
+    TEXT: 印度 9 月出差方案 · Thakral 第三轮视频 · 海文古吉拉特 Sell Out
+    TEXT: Meta2 高定培训 · 门店运营 5 步法
+    TEXT: 于冰组
+    TEXT: 马来出差：KLCC/Genting/PAVILLION/SWAP · INGRAM 试单
+    TEXT: 越南 AF 发布会筹备 · W3 收款 ¥558,000 跟单
+    TEXT: 印尼 V2 / 菲律宾 / 新加坡 Eurokars 建联
+    TEXT: 中台
+    TEXT: PDCA 全部融入 VPS · 获客邮件回同事邮箱 · 门店周报第二版
+    TEXT: 物流：科威特证书发货 · 英国 SIGS · 越南喜马拉雅产出
+    TEXT: 商务：刘雪梅 GURU/Sidd 尾款 · 跟单 SOP 7/10 定稿
+    TEXT: 销售新人：张倩协同 SOP · 李浩然-1 等新人入训
+
+===== SLIDE 13 =====
+  shape: PICTURE (13), name=Image 0
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 海外经销商周报
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 业务团队
+
+===== SLIDE 14 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: Lina组 (中东与欧北美)： OKR 与  货品分析
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: DEHDAHOUMAIMA 组 · 负责人：Lina / Viki
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 1. OKR 完成度分析（截至目前达成94.5万），OKR完成率44.2%
+  shape: AUTO_SHAPE (1), name=Shape 3
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 5
+    TEXT: 6月目标
+  shape: AUTO_SHAPE (1), name=Text 6
+    TEXT: ¥290.0万
+  shape: AUTO_SHAPE (1), name=Text 7
+    TEXT: 月达成 44.2%
+  shape: AUTO_SHAPE (1), name=Shape 8
+  shape: AUTO_SHAPE (1), name=Shape 9
+  shape: AUTO_SHAPE (1), name=Text 10
+    TEXT: 本周 SI
+  shape: AUTO_SHAPE (1), name=Text 11
+    TEXT: ¥69.1万
+  shape: AUTO_SHAPE (1), name=Shape 13
+  shape: AUTO_SHAPE (1), name=Shape 14
+  shape: AUTO_SHAPE (1), name=Text 15
+    TEXT: W5 待收款
+  shape: AUTO_SHAPE (1), name=Text 16
+    TEXT: ¥252万
+  shape: AUTO_SHAPE (1), name=Text 17
+    TEXT: 第三周预计收款
+  shape: AUTO_SHAPE (1), name=Text 18
+    TEXT: 7月第二周收款明细
+  shape: AUTO_SHAPE (1), name=Shape 20
+  shape: AUTO_SHAPE (1), name=Shape 23
+  shape: AUTO_SHAPE (1), name=Shape 26
+  shape: AUTO_SHAPE (1), name=Shape 29
+  shape: AUTO_SHAPE (1), name=Text 31
+  shape: AUTO_SHAPE (1), name=Text 32
+  shape: AUTO_SHAPE (1), name=Text 33
+  shape: AUTO_SHAPE (1), name=Text 34
+  shape: AUTO_SHAPE (1), name=Text 35
+  shape: AUTO_SHAPE (1), name=Text 36
+  shape: AUTO_SHAPE (1), name=Text 37
+  shape: AUTO_SHAPE (1), name=Text 38
+  shape: AUTO_SHAPE (1), name=Text 39
+  shape: AUTO_SHAPE (1), name=Text 40
+  shape: AUTO_SHAPE (1), name=Text 43
+  shape: AUTO_SHAPE (1), name=Text 44
+  shape: AUTO_SHAPE (1), name=Text 45
+  shape: AUTO_SHAPE (1), name=Text 48
+  shape: AUTO_SHAPE (1), name=Text 49
+  shape: AUTO_SHAPE (1), name=Text 52
+    TEXT: 2. 货品分析与流向
+  shape: AUTO_SHAPE (1), name=Shape 53
+  shape: AUTO_SHAPE (1), name=Shape 54
+  shape: AUTO_SHAPE (1), name=Text 55
+    TEXT: 区域流向分布：7月第二周sell in总金额为69.1万，其中中东地区（伊拉克+伊朗）总金额为59.9万，占比87%；欧洲地区（土耳其）总金额为9.1万，占比为13%
+  shape: AUTO_SHAPE (1), name=Text 56
+    TEXT: 主力机型表现：ALPHAFOLD*9台，销售额35.5万；QUANTUM*7台，销售额14.9万
+  shape: AUTO_SHAPE (1), name=Shape 60
+  shape: LINE (9), name=
+  shape: TABLE (19), name=
+    TABLE 5x4:
+      R0: 国家 | 经销商 | Sell in金额 | （RMB） | 销售
+      R1: 土耳其 | Veysel Sevis Ltd | 91196 | Lina
+      R2: 伊朗 | Tivali commercial broker LLC | 294079 | Lina
+      R3: 伊拉克 | Safiranhamrah | 305587 | Viki
+      R4:  | 总计 | 690862 | 
+  shape: AUTO_SHAPE (1), name=Text 18
+    TEXT: 下周收款线索
+  shape: TABLE (19), name=
+    TABLE 7x3:
+      R0: 国家 | 经销商 | Sell in金额 | （RMB）
+      R1: 土耳其 | Veysel Sevis Ltd | 75000(AF*2)
+      R2: 伊朗 | Tivali commercial broker LLC | 80230(尾款)
+      R3: 伊朗 | Luxem | 380000(AF*2,FLIP2*4,AQ*6)
+      R4: 迪拜 | Billionaire Collections | 1700000/1400000（AQ*56）
+      R5: 英国 | VERTU LONDON LTD | 290946(AF*6)
+      R6:  | 总计 | 2526176
+  shape: PICTURE (13), name=
+
+===== SLIDE 15 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: Lina：Sell-in分析与区域亮点
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 3、代理商门店终销分析 & 4、区域亮点 (中东与欧北美市场)
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 3. 代理商门店货品情况分析
+    TEXT: 主力品类：AF*9、Quantum*7为主
+  shape: AUTO_SHAPE (1), name=Text 35
+    TEXT: 4. 重点分析
+  shape: AUTO_SHAPE (1), name=Shape 36
+    TEXT: 6 个客户合计较上月同期少约 100万,环比下降59%，主要受 2 个大客户（Billionaire, Luxem）归零。
+    TEXT: 紧急跟进 Billionaire, Luxem
+  shape: AUTO_SHAPE (1), name=Shape 37
+  shape: AUTO_SHAPE (1), name=Text 39
+  shape: AUTO_SHAPE (1), name=Text 40
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: 高定亮点：黄金2AF*1（5.6万）；黄金4AF*1(8.2万)--Safir
+  shape: AUTO_SHAPE (1), name=Text 43
+  shape: AUTO_SHAPE (1), name=Text 44
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 45
+  shape: LINE (9), name=
+  shape: AUTO_SHAPE (1), name=Text 42
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: 清库进展：iVERTU*7, Watch S1*!, 总金额：3.84万
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: 5.亮点
+  shape: TABLE (19), name=
+    TABLE 8x4:
+      R0: 客户名称 | 本月第二周业绩 | 上月第二周业绩 | 产品
+      R1:  |  |  | 
+      R2: Veysel Sevis Ltd | 91196 | / | AF*2, AQ*1
+      R3: Tivali commercial broker LLC | 294079 | / | QUANTUM*7, AF*4, IOT*2
+      R4: Safiranhamrah | 305587 | 190499 | AF*3, AQ*2, 手链*4， 清库*8，IOT*5，组件*4
+      R5: Luxem | 0 | 170158 | 
+      R6: Billionaire Collections | 0 | 1157714 | 
+      R7: ECN GmbH | 0 | 175758 | 
+
+===== SLIDE 16 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: Lina组：问题、新客户与执行
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 5、问题卡点 | 6、新客户发展
+  shape: AUTO_SHAPE (1), name=Shape 10
+  shape: AUTO_SHAPE (1), name=Text 34
+    TEXT: 新客户发展与线索转化
+  shape: AUTO_SHAPE (1), name=Shape 36
+  shape: AUTO_SHAPE (1), name=Text 45
+    TEXT: 瑞士：跟进客户提供新落位具体尺寸
+  shape: AUTO_SHAPE (1), name=Text 46
+    TEXT: 迪拜：已反馈老板要求，跟进经销商反馈
+  shape: AUTO_SHAPE (1), name=Text 47
+    TEXT: 英国：1. 黄金喜马拉雅SIG S预计7/13日到达，跟进Ambani 16日到店
+    TEXT: 2.跟进拳击运动员透明机械腕表，预计15日完成
+    TEXT: 沙特：新客户利雅得落位跟进,首订单跟进
+  shape: AUTO_SHAPE (1), name=Text 49
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 50
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 51
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 52
+    TEXT: ■
+  shape: LINE (9), name=
+  shape: AUTO_SHAPE (1), name=Shape 35
+  shape: AUTO_SHAPE (1), name=Text 37
+    TEXT: VIKI线索盘点 (S/A/B/C/D)
+  shape: AUTO_SHAPE (1), name=Text 38
+    TEXT: [S: 5+3 / A: 0+1 / B:7+1 / C:3+1 / D:0+19]
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: 触达19个新客户（商场调研线索触达，区域：阿联酋、沙特、土耳其、伊朗）
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: 约会 / 讲解数
+  shape: AUTO_SHAPE (1), name=Text 43
+    TEXT: 客户资料上传数
+  shape: AUTO_SHAPE (1), name=Text 42
+    TEXT: 2 次 / 1 次 (Monaco游艇秀沟通，亚美尼亚客户Ara)
+  shape: AUTO_SHAPE (1), name=Text 44
+    TEXT: 3 份（伊拉克、科威特、瑞士）
+  shape: AUTO_SHAPE (1), name=Text 46
+    TEXT: Viki：
+伊拉克Safiran：完成订单收款30万，处理ironflip+quantum售后问题。
+七月2周共计卖出：9台手机：2台AF（高定金2、金4）、5台AQ、1台M1、1台Quantum（激活7台2AF、3AQ、2M1）。目前伊朗战争，客户去阿曼的航班取消。
+    TEXT: 科威特：本周walk-in7个，成交老客户一台Quantum （5225USD），认证已走完流程，已发货。
+    TEXT: 伊拉克(Rebaz): 选品20万，下一步计划先签合同再给货（月目标确认、建店时间align）。
+    TEXT: 亚美尼亚Ara: 选品47000USD (待回国后提交落位信息)
+  shape: AUTO_SHAPE (1), name=Text 46
+
+===== SLIDE 17 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 商务跟单
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 负责人：商务团队 · 业绩跟单与合规监督
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: W3 核心交付成果
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Shape 7
+  shape: AUTO_SHAPE (1), name=Text 13
+    TEXT: P1
+  shape: AUTO_SHAPE (1), name=Text 17
+    TEXT: 2
+  shape: AUTO_SHAPE (1), name=Text 29
+    TEXT: W2 重点工作计划 (规则落地)
+  shape: AUTO_SHAPE (1), name=Shape 30
+  shape: AUTO_SHAPE (1), name=Shape 31
+  shape: AUTO_SHAPE (1), name=Text 32
+    TEXT: 优先级
+  shape: AUTO_SHAPE (1), name=Shape 33
+  shape: AUTO_SHAPE (1), name=Shape 34
+  shape: AUTO_SHAPE (1), name=Text 35
+    TEXT: 核心事项
+  shape: AUTO_SHAPE (1), name=Shape 36
+  shape: AUTO_SHAPE (1), name=Shape 37
+  shape: AUTO_SHAPE (1), name=Text 38
+    TEXT: 关键动作
+  shape: AUTO_SHAPE (1), name=Shape 39
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: P1
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: W2 业绩冲刺支持
+  shape: AUTO_SHAPE (1), name=Text 42
+    TEXT: 配合业务组完成 W4 待收款总计287
+  shape: AUTO_SHAPE (1), name=Text 44
+    TEXT: 的跟进与入账确认。
+  shape: AUTO_SHAPE (1), name=Shape 45
+  shape: AUTO_SHAPE (1), name=Text 46
+    TEXT: P1
+  shape: AUTO_SHAPE (1), name=Text 47
+    TEXT: 人员招聘
+  shape: AUTO_SHAPE (1), name=Text 48
+    TEXT: 跟进Lina组人员招聘，本周入职
+  shape: AUTO_SHAPE (1), name=Shape 49
+  shape: AUTO_SHAPE (1), name=Text 50
+    TEXT: P2
+  shape: AUTO_SHAPE (1), name=Text 51
+    TEXT: 商务带教
+  shape: AUTO_SHAPE (1), name=Text 52
+    TEXT: 新人带教计划规划：商务/物流/公司规则，新人资料准备
+  shape: AUTO_SHAPE (1), name=Shape 53
+  shape: AUTO_SHAPE (1), name=Text 54
+    TEXT: P3
+  shape: AUTO_SHAPE (1), name=Text 55
+    TEXT: 清库及订单跟进
+  shape: AUTO_SHAPE (1), name=Text 56
+    TEXT: 清库订单跟进
+Ambani订单到货跟进
+瑞士门店家具跟进客户提供资料，确认家具尺寸安排制作；伊拉克门店家具付款跟进
+    TEXT: 迪拜世界杯+木盒订单跟进
+  shape: AUTO_SHAPE (1), name=Text 57
+    TEXT: 异常
+  shape: LINE (9), name=
+  shape: TABLE (19), name=
+    TABLE 4x2:
+      R0: 目标严重滞后 | 时间过半，达成仅 37.5%，缺口约 608万
+      R1: 在途大单积压 | 迪拜 116 万、印度 20.5 万 未转实销，现金流与达成双压
+      R2: 售后 case 未闭环 | 波兰/迪拜/英国/科威特等多国换新、NDA 诉求仍在跟进
+      R3: 定制单交期风险 | 迪拜世界杯定制、木盒/高定类订单，客户需求与工厂交期存在冲突
+  shape: TABLE (19), name=
+    TABLE 19x2:
+      R0: 跟单 | 本周累计录单约203w，重点在途回款包括迪拜116w、英国52.2w等
+      R1: 外贸资料与清关工作 | 完成迪拜清关资料最终版确认，盖章寄出
+      R2:  | 完成英国空运资料及清关文件拟定
+      R3:  | 完成迪拜订单报关及清关文件拟定
+      R4:  | 处理伊朗代理物流明细整理与反馈
+      R5: 海外经销商沟通与维护 | 跟进越南、伊朗、迪拜、英国（Ambani）等订单的发货计划与发货方式确认
+      R6:  | 处理卡塔尔询单回复、土耳其新订单对接
+      R7:  | 跟踪反馈英国物流问题
+      R8:  | 对接伊拉克收货信息、土耳其FOLD资料提供，促成新单
+      R9:  | 沙特询盘下发并安排团队跟进
+      R10: 订单发货与备货申请 | 发货申请覆盖：印度×3、伊朗×3、柬埔寨、英国、波兰、乌兹别克斯坦等多个市场
+      R11:  | 新订单备货申请：越南×3、印度×1，及英国、迪拜、泰国备货安排
+      R12: PI拟定（本周新签订单金额） | 伊朗新订单：24,961
+      R13:  | 瑞士家具订单：36,833
+      R14:  | 泰国新订单：59,462
+      R15:  | 柬埔寨新订单PI
+      R16:  | 泰国、阿塞拜疆、英国订单PI拟定
+      R17: 售后与客户问题处理 | 跟进印度、科威特售后问题，反馈最新进展
+      R18:  | 处理迪拜missing items问题
+
+===== SLIDE 18 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 杨晶晶组 (泛俄与印度)：1. OKR 与 2. 货品分析
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 负责人：杨晶晶 / 海文 · 7月目标 ¥240万
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 1. OKR 完成度分析
+  shape: AUTO_SHAPE (1), name=Shape 3
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 5
+    TEXT: 7月目标
+  shape: AUTO_SHAPE (1), name=Text 6
+    TEXT: ¥235.0万
+  shape: AUTO_SHAPE (1), name=Shape 7
+  shape: AUTO_SHAPE (1), name=Shape 8
+  shape: AUTO_SHAPE (1), name=Text 9
+    TEXT: 截至本周I
+  shape: AUTO_SHAPE (1), name=Text 10
+    TEXT: 108.2W货款
+    TEXT: 19W家具
+  shape: AUTO_SHAPE (1), name=Shape 11
+  shape: AUTO_SHAPE (1), name=Shape 12
+  shape: AUTO_SHAPE (1), name=Text 13
+    TEXT: 达成率
+  shape: AUTO_SHAPE (1), name=Text 14
+    TEXT: 46%
+  shape: AUTO_SHAPE (1), name=Shape 15
+  shape: AUTO_SHAPE (1), name=Shape 16
+  shape: AUTO_SHAPE (1), name=Text 17
+    TEXT: 7月OKR
+  shape: AUTO_SHAPE (1), name=Text 18
+    TEXT: April 160W
+    TEXT: 海文 75W
+  shape: AUTO_SHAPE (1), name=Text 19
+    TEXT: 个人 SI贡献明细
+  shape: AUTO_SHAPE (1), name=Text 39
+    TEXT: -
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: 7月重点代收款计划
+  shape: AUTO_SHAPE (1), name=Text 63
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 64
+  shape: AUTO_SHAPE (1), name=Text 65
+  shape: LINE (9), name=
+  shape: AUTO_SHAPE (1), name=Text 54
+  shape: PICTURE (13), name=
+  shape: TABLE (19), name=
+    TABLE 4x8:
+      R0: 经销商 | 7月OKR | 当月业绩 | 完成率 | 上月 | 去年 | 环比 | 同比
+      R1: 杨晶晶 | 160 | 80.5 | 50.31% | 122 | 12 | 5% | 963%
+      R2: 海文 | 75 | 47 | 62.67% |  |  |  | 
+      R3: 总计 | 235 | 127.5 | 54.3% |  |  |  | 
+
+===== SLIDE 19 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 杨晶晶组：终销分析与区域亮点
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 3、代理商门店终销分析 & 4、区域亮点 (泛俄与印度市场)
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 3. 代理商门店终销分析
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 5
+    TEXT: 核心门店sell-in（Guru 7月）
+  shape: AUTO_SHAPE (1), name=Text 32
+    TEXT: 4. 区域亮点 (Highlights)
+  shape: AUTO_SHAPE (1), name=Shape 34
+  shape: AUTO_SHAPE (1), name=Shape 35
+  shape: AUTO_SHAPE (1), name=Text 36
+    TEXT: 印度市场提货额
+  shape: AUTO_SHAPE (1), name=Text 37
+  shape: AUTO_SHAPE (1), name=Shape 38
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: 79.0%
+  shape: AUTO_SHAPE (1), name=Text 49
+  shape: LINE (9), name=
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: 100.5W
+  shape: AUTO_SHAPE (1), name=Text 36
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: 96.0%
+  shape: TEXT_BOX (17), name=
+    TEXT: 印度业绩占比和达成率
+  shape: TABLE (19), name=
+    TABLE 3x4:
+      R0: 印度 | 总目标 | 实际业绩 | 占比
+      R1: 总业绩占比 | 235 | 100.5 | 79%
+      R2: 印度完成率 | 105 | 100.5 | 96%
+  shape: PICTURE (13), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 俄罗斯新老代理齐出单
+    TEXT: Mercury商务对接中
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 20 =====
+  shape: AUTO_SHAPE (1), name=矩形 13
+  shape: TEXT_BOX (17), name=
+    TEXT: 7月第二周主要工作
+    TEXT: 人员：Kirill 面谈，和平中止合作。
+    TEXT: 和PR女孩视频沟通转兼职（3个月无底薪）
+俄罗斯探店明星沟通3人）
+    TEXT: 俄罗斯订单：
+    TEXT: Perspectiva 家具款已支付
+    TEXT: Restore戒指和大折叠订单对接中（希望本单开始使用返利）
+Konstantin高定项目报价跟进中
+    TEXT: 培训：
+    TEXT: 和vivi春梅拉出restore8月1日开业前售后+培训时间轴
+    TEXT: Signature高定培训
+    TEXT: 规划：
+    TEXT: 俄罗斯和中亚3年计划已完成
+2026H1复盘和2026H2计划PPT制作中
+    TEXT: restore afillma81开业方案对接
+    TEXT: 印度旅游签
+    TEXT: 重点客户：
+    TEXT: 哈萨克Visel，Premier Group高管背调完成，待触达
+俄罗斯Mercury商务条件对接中
+    TEXT: 新线索转化：
+印度线索复盘，金奈2级推荐对接，海德巴拉
+  shape: TEXT_BOX (17), name=
+    TEXT: 7月第三周主要工作
+    TEXT: 人员：哈萨克斯坦BD经理招聘和面试
+    TEXT: PR女孩对接Daniil和Maxim合作方案
+    TEXT: 俄语区订单：
+    TEXT: Perspectiva 开业订单和开业方案
+    TEXT: Restore戒指和大折叠订单收款
+Konstantin7月补货订单
+gevorg大折叠订单沟通
+    TEXT: 培训：
+    TEXT: Meta2高定培训
+门店运营5步法培训
+    TEXT: 跟进Vivi落地培训和售后问题解决时效
+    TEXT: 规划：
+    TEXT: 乌兹别克下半年销售和发展计划，9月加密货币论坛
+    TEXT: restore社媒互动落地
+印度9月出差方案
+    TEXT: 重点客户：
+    TEXT: 哈萨克Visel，Premier Group会议邀约
+俄罗斯Mercury推动合作方案
+    TEXT: 新线索转化：
+印度线索复盘，启动本地BD，大客户储备
+Methorpol视频会议
+VTB推动
+
+===== SLIDE 21 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 杨晶晶组：问题、新客户与执行
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 5、问题卡点 | 6、新客户发展 | 7、工作日志与系统执行
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 5. 目前存在的问题卡点
+  shape: AUTO_SHAPE (1), name=Text 28
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 29
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 30
+  shape: AUTO_SHAPE (1), name=Text 31
+    TEXT: 6. 新客户发展与线索转化
+  shape: AUTO_SHAPE (1), name=Shape 32
+  shape: AUTO_SHAPE (1), name=Shape 33
+  shape: AUTO_SHAPE (1), name=Text 34
+    TEXT: 线索盘点 (S/A/B)
+  shape: AUTO_SHAPE (1), name=Text 35
+    TEXT: S:11 / A:5 / B:48
+  shape: AUTO_SHAPE (1), name=Text 36
+    TEXT: CD类线索储备
+  shape: AUTO_SHAPE (1), name=Text 37
+    TEXT: 1,821个
+  shape: AUTO_SHAPE (1), name=Text 38
+    TEXT: 俄语区触达进度
+  shape: AUTO_SHAPE (1), name=Text 39
+    TEXT: 280 / 300
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: 本周新增客户数
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: 20个（SABCD总计）
+  shape: LINE (9), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 22 =====
+  shape: AUTO_SHAPE (1), name=weekly_report-text-1
+    TEXT: 7月第二周工作周报--何海文
+  shape: AUTO_SHAPE (1), name=weekly_report-text-2
+  shape: AUTO_SHAPE (1), name=weekly_report-text-3
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-4
+  shape: AUTO_SHAPE (1), name=weekly_report-text-5
+    TEXT: OKR 达成情况
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-6
+  shape: AUTO_SHAPE (1), name=weekly_report-text-7
+    TEXT: 本月 OKR 目标
+  shape: AUTO_SHAPE (1), name=weekly_report-text-8
+    TEXT: 75W
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-9
+  shape: AUTO_SHAPE (1), name=weekly_report-text-10
+    TEXT: 第二周收款
+  shape: AUTO_SHAPE (1), name=weekly_report-text-11
+    TEXT: 累计收款
+  shape: AUTO_SHAPE (1), name=weekly_report-text-12
+    TEXT: 34W
+  shape: AUTO_SHAPE (1), name=weekly_report-text-13
+    TEXT: 47W
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-14
+  shape: AUTO_SHAPE (1), name=weekly_report-text-15
+    TEXT: OKR 达成率
+  shape: AUTO_SHAPE (1), name=weekly_report-text-16
+    TEXT: 63%
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-17
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-18
+  shape: AUTO_SHAPE (1), name=weekly_report-text-19
+    TEXT: 已达成 63%（47W / 75W），本周新增收款 34W
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-20
+  shape: AUTO_SHAPE (1), name=weekly_report-text-21
+    TEXT: 本周重点工作回顾（第二周）
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-22
+  shape: AUTO_SHAPE (1), name=weekly_report-text-23
+    TEXT: Sig V & Sig S 古吉拉特培训                        亮点：黄金4 Alphafold *1
+    TEXT: 印度潮汕人 & 喀拉拉邦背调，整理相关名单 200 人
+    TEXT: 新客户开发 12 人，回复 2 人
+    TEXT: 二奢清库存：15 台 M1+3 Ivertu=14W
+  shape: AUTO_SHAPE (1), name=weekly_report-text-24
+    TEXT: 下周工作重点（第三周）
+  shape: AUTO_SHAPE (1), name=weekly_report-shape-25
+  shape: AUTO_SHAPE (1), name=weekly_report-text-26
+    TEXT: 印度 9 月份出差计划书
+    TEXT: 印度潮汕人 & 喀拉拉邦背调，自动化获客系统跟进 100 人
+    TEXT: 印度 Clay 未拉出客户清单，尝试 Cursor 获取并跟进
+    TEXT: Thakral 集团第三轮视频会议以及其他重点客户跟进
+    TEXT: 内洛尔代理接待准备工作
+
+===== SLIDE 23 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 于冰组 (东南亚)：1. OKR 与 2. 货品分析
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 负责人：于冰 (Ivan) · 6月目标 ¥170万
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 1. OKR 完成度分析
+  shape: AUTO_SHAPE (1), name=Shape 3
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 5
+    TEXT: 6月目标
+  shape: AUTO_SHAPE (1), name=Text 6
+    TEXT: ¥110.0万   完成率58.2%
+    TEXT: 已到账 64.03w
+  shape: AUTO_SHAPE (1), name=Shape 8
+  shape: AUTO_SHAPE (1), name=Shape 9
+  shape: AUTO_SHAPE (1), name=Text 10
+    TEXT: 本周 SI
+  shape: AUTO_SHAPE (1), name=Text 11
+    TEXT: ¥47.58万
+  shape: AUTO_SHAPE (1), name=Text 12
+    TEXT: 越南 订单尾款、柬埔寨轮转
+  shape: AUTO_SHAPE (1), name=Shape 13
+  shape: AUTO_SHAPE (1), name=Shape 14
+  shape: AUTO_SHAPE (1), name=Text 15
+    TEXT: 周达成率
+  shape: AUTO_SHAPE (1), name=Text 16
+    TEXT: 191.6%
+  shape: AUTO_SHAPE (1), name=Shape 19
+  shape: AUTO_SHAPE (1), name=Text 23
+    TEXT: 7月 待收款计划 (55.8万)
+  shape: AUTO_SHAPE (1), name=Shape 24
+  shape: AUTO_SHAPE (1), name=Shape 25
+  shape: AUTO_SHAPE (1), name=Text 26
+    TEXT: 项目 / 客户
+  shape: AUTO_SHAPE (1), name=Shape 27
+  shape: AUTO_SHAPE (1), name=Shape 28
+  shape: AUTO_SHAPE (1), name=Text 29
+    TEXT: 计划收款
+  shape: AUTO_SHAPE (1), name=Shape 30
+  shape: AUTO_SHAPE (1), name=Shape 31
+  shape: AUTO_SHAPE (1), name=Text 32
+    TEXT: 排期
+  shape: AUTO_SHAPE (1), name=Text 42
+    TEXT: AQ 黄金鳄鱼皮补款
+  shape: AUTO_SHAPE (1), name=Text 43
+    TEXT: ¥6.6万
+  shape: AUTO_SHAPE (1), name=Text 44
+    TEXT: W3
+  shape: AUTO_SHAPE (1), name=Shape 45
+  shape: AUTO_SHAPE (1), name=Text 46
+    TEXT: 合计
+  shape: AUTO_SHAPE (1), name=Text 47
+    TEXT: 55.6 万
+  shape: AUTO_SHAPE (1), name=Text 48
+    TEXT: -
+  shape: AUTO_SHAPE (1), name=Text 49
+    TEXT: 2. 货品分析- sell in
+  shape: AUTO_SHAPE (1), name=Text 53
+  shape: AUTO_SHAPE (1), name=Text 54
+  shape: AUTO_SHAPE (1), name=Text 55
+  shape: LINE (9), name=
+  shape: AUTO_SHAPE (1), name=Text 39
+    TEXT: 越南 AF预订单 40%
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: ≈¥49.2万
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: W3
+  shape: TEXT_BOX (17), name=
+    TEXT: 按代理商分析
+代理商	订单数	销售金额(USD)	占比
+VMG 	2单	46,340.00	58.3%
+BIN BIN	2单	33,137.00	41.7%
+
+VMG是本周期最大的代理商，贡献了近六成的销售额。（上月的尾款支付，新PO 20 AF  +6 AQ+ 1手表 ）
+    TEXT: 品类分析
+品类路径	产品数量	代表产品
+产成品 / 手机 / VERTU AGENT Q	4台	AGENT Q 系列手机（4个SKU）
+产成品 / 钢笔 / 灵蛇钢笔	1支	VERTU 灵蛇权杖钢笔
+
+VERTU AGENT Q 手机明细（4个SKU）：
+
+产品名称	数量
+VERTU AGENT Q-银品质套装款-钛银超跑-墨玉黑-1TB-海外	1台
+VERTU AGENT Q-银基础套装款-小牛皮-黑色绗线(撞色)-1TB-海外	1台
+VERTU AGENT Q-黑基础套装款-小牛皮-酒红绗线(撞色)-1TB-海外	1台
+VERTU AGENT Q-银基础套装款-碳纤纹牛皮(XGY)-棕色-1TB-海外	1台
+    TEXT: 品类集中度高：已获取明细的代理订单中，VERTU AGENT Q 手机是绝对核心品类，搭配少量配件（充电器）和高端礼品（灵蛇钢笔）。
+    TEXT: 代理商结构：本期仅有2家代理商产生订单，VMG Communication 是主力，BIN BIN INVESTMENT 紧随其后。
+    TEXT: 时间节奏：7月6日-7日和7月9日、11日无代理订单，销售节奏不均，7月10日集中爆发。
+
+===== SLIDE 24 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 于冰组：终销分析与区域亮点
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 3、代理商门店终销分析 & 4、区域亮点 (东南亚市场)
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 3. 代理商门店终销分析（7.1-7.9）
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 32
+    TEXT: 4. 区域亮点 (Highlights)
+  shape: AUTO_SHAPE (1), name=Shape 33
+  shape: AUTO_SHAPE (1), name=Shape 34
+  shape: AUTO_SHAPE (1), name=Text 35
+    TEXT: 越南门店运营：
+    TEXT: AF新品发布会改期，推迟至8.11--- 避开越南国家纪念日
+    TEXT: 近期零散的配件销售机会，开始推动 IOT计划
+  shape: AUTO_SHAPE (1), name=Text 36
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 37
+    TEXT: 泰国：
+    TEXT: YM配合DSR填写，反馈运营改进方案
+    TEXT: VST和泰国迈凯伦-bitkub合作推荐、shopee线上销售渠道已提供素材、通知VST需要尽快落地 1BTQ,不排除新代理商的引入；
+  shape: AUTO_SHAPE (1), name=Text 38
+  shape: AUTO_SHAPE (1), name=Text 41
+  shape: AUTO_SHAPE (1), name=Text 42
+    TEXT: 马来
+    TEXT: 整体的出差计划和安排确定
+    TEXT: 周二：swap团队和零售商
+          周三：PAVILLION(上午)   Genting(3pm)
+          周四：KLCC上午   SWITCH( 2:30pm )
+    TEXT: 2.       获得KLCC  FLOOR PLAN
+  shape: AUTO_SHAPE (1), name=Text 43
+  shape: AUTO_SHAPE (1), name=Text 45
+  shape: AUTO_SHAPE (1), name=Text 48
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 49
+  shape: AUTO_SHAPE (1), name=Text 53
+  shape: AUTO_SHAPE (1), name=Text 54
+  shape: LINE (9), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 7/1–7/9 越南 4 店进店 79 人次、触摸 14 次、成交 2 组、销售额 $8,209（全部来自 Saigon 7/9 单笔）；泰国 VST 进店 42、触摸 21（带看率 50%）、成交 2 组但金额未录。越泰共性问题是「有客流、带看不均、金额漏填」；泰国带看强、越南 Saigon 独家变现
+    TEXT: 进店    触摸    成交    销售额
+Saigon (19DK)       30  →   3   →   2   →  $8,209   唯一变现
+Siam Paragon        42  →  21   →   2   →     $0    带看最强
+Majestic                 10  →   5   →   0   →     $0    触摸50%无成交
+Caravelle                22  →   3   →   0   →     $0    有客流无转化
+REX                         17  →   3   →   0   →     $0    7/1高峰后回落
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 客户来源结构
+  shape: PICTURE (13), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: ※ Saigon 7/5–7/7 线上合计 16 条，触摸仅 2 次，线上→触摸转化极差。
+    TEXT: ※越南：进店增、触摸和成交降，Saigon 独撑销售
+    TEXT: ※Siam Paragon：客流和带看持续改善，关单数量持平但金额缺失
+  shape: TEXT_BOX (17), name=
+    TEXT: 越泰横向对比
+  shape: TABLE (19), name=
+    TABLE 6x4:
+      R0: 维度 | 客流规模 | 越南4店 | 79 进店 | Siam Paragon | 42 进店 | 优势方 | 越南
+      R1: 带看能力 | 17.7% 触摸率 | 50.0% | Siam Paragon
+      R2: 关单产出 | $8,209 | $0（未录） | 越南
+      R3: 来源多样性 | Online 30% | Walk-in 81% | 越南线上强
+      R4: 数据规范 | 金额部分缺失 | 成交金额全缺 | 均需改进
+      R5: 运营特点 | 单店依赖 Saigon | 漏斗更完整 | 泰体验好、越变现好
+  shape: LINE (9), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 25 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 于冰组：问题、新客户与执行
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 5、问题卡点 | 6、新客户发展 | 7、工作日志与系统执行
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 5. 目前存在的问题卡点
+  shape: AUTO_SHAPE (1), name=Shape 3
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 5
+    TEXT: 类型
+  shape: AUTO_SHAPE (1), name=Shape 6
+  shape: AUTO_SHAPE (1), name=Shape 7
+  shape: AUTO_SHAPE (1), name=Text 8
+    TEXT: 问题描述
+  shape: AUTO_SHAPE (1), name=Shape 9
+  shape: AUTO_SHAPE (1), name=Shape 10
+  shape: AUTO_SHAPE (1), name=Text 11
+    TEXT: 解决方案
+  shape: AUTO_SHAPE (1), name=Text 18
+    TEXT: 外部
+  shape: AUTO_SHAPE (1), name=Text 19
+    TEXT: 泰国区域客户来源需要增强
+  shape: AUTO_SHAPE (1), name=Text 20
+    TEXT: 推荐to c、TO b线索/商会触达
+  shape: AUTO_SHAPE (1), name=Text 21
+    TEXT: 外部
+  shape: AUTO_SHAPE (1), name=Text 22
+    TEXT: 越南、泰国近期终销缓慢
+  shape: AUTO_SHAPE (1), name=Text 23
+    TEXT: 发布会、泰国新潜在代理搜索
+  shape: AUTO_SHAPE (1), name=Text 25
+  shape: AUTO_SHAPE (1), name=Text 27
+    TEXT: 7. 工作日志与系统执行
+  shape: AUTO_SHAPE (1), name=Text 28
+    TEXT: 日志提交：本周提交5 份，平均分 18.5。
+  shape: AUTO_SHAPE (1), name=Text 29
+    TEXT: Vemory评分：会议数 6场，平均分 3.9。
+  shape: AUTO_SHAPE (1), name=Text 30
+    TEXT: 系统录入：越南 、泰国在配合店铺情况反馈
+  shape: AUTO_SHAPE (1), name=Text 31
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 32
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 33
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 34
+    TEXT: 6. 新客户发展与线索转化
+  shape: AUTO_SHAPE (1), name=Shape 35
+  shape: AUTO_SHAPE (1), name=Shape 36
+  shape: AUTO_SHAPE (1), name=Text 37
+    TEXT: 线索盘点 (S/A/B/C/D)
+  shape: AUTO_SHAPE (1), name=Text 38
+    TEXT: D  521 C 45 B 15 A 1 S 3
+  shape: AUTO_SHAPE (1), name=Text 39
+    TEXT: 意向新增：
+    TEXT: B  新西兰IOT/马来 SWTICH /泰国 迈凯伦
+    TEXT: C  McLaren & Pagani Singapore | Eurokars Supersports (a Eurokars Group company)/ 印尼V2/印尼MAP
+    TEXT: 提供名单：400+
+  shape: AUTO_SHAPE (1), name=Text 40
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: 商场 线索
+  shape: AUTO_SHAPE (1), name=Text 42
+    TEXT: Genting 2 个-推荐1潜在代理（马来出差见面）
+    TEXT: 柏威年 2个- 暂未回复位置 （见面沟通）
+    TEXT: ONEBANGKOK 1- 介绍潜在代理，了解业态
+    TEXT: KLCC 2个 - 获得落位中（见面确定落位）
+  shape: AUTO_SHAPE (1), name=Text 45
+    TEXT: INGRAM：签署NDA,和零售商约会，试订单已推，拒绝试订单，马来出差后讨论合同细节
+  shape: AUTO_SHAPE (1), name=Text 46
+    TEXT: SWAP：马来西亚出差和团队见面，沟通下一步计划及和他们的零售商见面沟通
+  shape: AUTO_SHAPE (1), name=Text 47
+    TEXT: AVK：已提供 IOT/配件报价和清库，长期供沟通，后续可以安排香港见面。
+  shape: AUTO_SHAPE (1), name=Text 48
+    TEXT: 泰国迈凯伦Premier Aftersales Services Co., Ltd：推动BITKUB合作，已和vst沟通-待询问结果和VST
+    TEXT: SHOPEE路径-----素材和授权已给
+  shape: AUTO_SHAPE (1), name=Text 49
+    TEXT: 印尼MAP-DIGIMAP零售部高层，持续沟通，等休假结束/ 印尼V2: 约定会议，讨论框架
+  shape: AUTO_SHAPE (1), name=Text 50
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 51
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 52
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 53
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 54
+    TEXT: ■
+  shape: LINE (9), name=
+  shape: AUTO_SHAPE (1), name=Text 49
+    TEXT: 马来KLCC/Genting/PAVILLION: 马来西亚出差期间已约定好见面，沟通细节
+  shape: AUTO_SHAPE (1), name=Text 54
+    TEXT: ■
+  shape: AUTO_SHAPE (1), name=Text 27
+    TEXT: 8.下周计划
+    TEXT: 马来出差：商场和零售商会谈
+    TEXT: 越南发布会需求和销售、订单收款、渠道管控
+    TEXT: 新加坡、印尼、菲律宾商场持续建联; 新加坡豪车集团Eurokars Supersports获得直接联系方式
+    TEXT: 印尼v2 确定最终合作意向和推动框架
+    TEXT: 英迈试订单和零售商会议；推动和询问东南亚最终意向
+  shape: AUTO_SHAPE (1), name=Text 24
+    TEXT: 内部
+  shape: AUTO_SHAPE (1), name=Text 22
+    TEXT: 人员不足
+  shape: AUTO_SHAPE (1), name=Text 26
+    TEXT: 公司层面补齐人员
+  shape: AUTO_SHAPE (1), name=Text 30
+    TEXT: 7.6–7.10 完成尽调 7 个主会话、5 个工作日有实质业务活动（不含 subagent 内部任务）。主线：SEAP 业绩与战略拆解 → 华商触达体系 → 泰越门店终销对标 → BD/合规话术 → 日报 skill 部署。
+  shape: AUTO_SHAPE (1), name=Text 33
+    TEXT: ■
+
+===== SLIDE 26 =====
+  shape: PLACEHOLDER (14), name=标题 1
+    TEXT: Tony陈鹏飞：明确方向 深度挖掘
+  shape: TEXT_BOX (17), name=
+    TEXT: 一、市场调研方案优化
+    TEXT: 1、本周持续打磨VERTU 印尼市场进入战略和作战地图，重点完成竞手品牌手表市场对比和分析。
+    TEXT: 2、新增腕表品牌Hublot, TAG Heuer等品牌的业务发展历程、经销商策略和布局、当地高端消费分层、城市渠道准入条件、竞品及门店布局等数据板块
+    TEXT: 3、输出差异化拓展方案，补充市场机遇、风险及落地执行细则，并通过AI工具检索国际专业咨询机构的权威数据信息，完成报告终稿。
+    TEXT: 二、海外潜客渠道挖掘
+    TEXT: 1、前期专注雅加达潜在客户、经销商资源挖掘，
+    TEXT: 2、同步沟通奢侈品渠道和手机渠道经销商，约定拜访沟通时间
+    TEXT: 3、已预约4家客户面谈，maju,unistar,jaya,  DGI
+  shape: TEXT_BOX (17), name=
+    TEXT: 三、工具学习与技能提升
+    TEXT: 1、学习办公AI 平台Cursor 等多个软件高阶使用技巧，结合海外业务场景针对性实操，
+    TEXT: 2、学习奢侈品行业知识，和适配奢侈品业务的专属提示词，记录高效操作方法，借助工具简化调研文稿撰写、修改流程，大幅提升海外市场材料输出效率
+    TEXT: 3、产品知识学习
+    TEXT: 六、下周工作计划
+    TEXT: 1、产品知识学习和考试
+    TEXT: 2、跟进挖掘雅加达经销商潜客，推进后续意向经销商初步对接
+    TEXT: 3、更新完善马来市场进入战略和作战地图
+    TEXT: 4、深耕Cursor 等工具实操，运用工具高效完成各类工作
+  shape: LINE (9), name=
+
+===== SLIDE 27 =====
+  shape: PICTURE (13), name=Image 0
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 海外经销商周报
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 中台团队
+
+===== SLIDE 28 =====
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：周报mcp-demo
+
+===== SLIDE 29 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：周报mcp-demo
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 30 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：周报mcp-demo
+  shape: PICTURE (13), name=
+
+===== SLIDE 31 =====
+  shape: AUTO_SHAPE (1), name=Shape 0
+  shape: AUTO_SHAPE (1), name=Shape 1
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: 本周完成事宜
+  shape: AUTO_SHAPE (1), name=Shape 3
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 5
+    TEXT: P1
+  shape: AUTO_SHAPE (1), name=Text 6
+    TEXT: 事项一：自动化获客工具-改造发邮件系统
+  shape: AUTO_SHAPE (1), name=Text 7
+    TEXT: ①之前resend-api用统一邮箱，现在全部改成SMTP的形式②根据新闻的自动化个性化发邮件③客户池和画像
+  shape: AUTO_SHAPE (1), name=Shape 8
+  shape: AUTO_SHAPE (1), name=Shape 9
+  shape: AUTO_SHAPE (1), name=Text 10
+    TEXT: P2
+  shape: AUTO_SHAPE (1), name=Text 11
+    TEXT: 事项二：PDCA和五件套录入，接入VPS用outh授权登录
+  shape: AUTO_SHAPE (1), name=Text 12
+    TEXT: 不管是外部代理还是内部销售都可以用vps账号去登陆，减少大家填写的阻力，pdca目前还是看板属性大，从海文开始，通过agent来pdca。
+  shape: AUTO_SHAPE (1), name=Shape 13
+  shape: AUTO_SHAPE (1), name=Shape 14
+  shape: AUTO_SHAPE (1), name=Text 15
+    TEXT: P3
+  shape: AUTO_SHAPE (1), name=Text 16
+    TEXT: 事项三：cursor周报
+  shape: AUTO_SHAPE (1), name=Text 17
+    TEXT: 以杨晶晶组作为demo，先出了一版，主要是数据太散，除了数据库数据，还有很多数据从日报，vemory去取，要整合数据
+  shape: AUTO_SHAPE (1), name=Shape 18
+    TEXT: A
+  shape: AUTO_SHAPE (1), name=Shape 19
+  shape: AUTO_SHAPE (1), name=Text 20
+    TEXT: P4
+  shape: AUTO_SHAPE (1), name=Text 21
+    TEXT: 事项四：门店周报，算薪agent
+  shape: AUTO_SHAPE (1), name=Text 22
+    TEXT: 第三个版本梳理完成，线下落地主要是阿亮和罗霞后续实现落地，我和马特落地到海外，东南亚门店开始
+  shape: AUTO_SHAPE (1), name=Text 23
+    TEXT: 下周安排
+  shape: AUTO_SHAPE (1), name=Shape 24
+  shape: AUTO_SHAPE (1), name=Shape 25
+  shape: AUTO_SHAPE (1), name=Text 26
+    TEXT: P1
+  shape: AUTO_SHAPE (1), name=Text 27
+    TEXT: 安排一：自动化获客工具-新版本进生产环境
+  shape: AUTO_SHAPE (1), name=Text 28
+    TEXT: ①按照新闻发，可以用胜琴的做例子，发了一部分
+    TEXT: ②vertuglobal作为子域名，其他同事用别名去发
+  shape: AUTO_SHAPE (1), name=Shape 29
+  shape: AUTO_SHAPE (1), name=Shape 30
+  shape: AUTO_SHAPE (1), name=Text 31
+    TEXT: P2
+  shape: AUTO_SHAPE (1), name=Text 32
+    TEXT: 安排二：经销商的知识库-vps
+  shape: AUTO_SHAPE (1), name=Text 33
+    TEXT: 所有经销商的数据全部整理进vps，不管是外部代理的聊天，还是新代理的开发建店，si，so数据，sop，①现有文件做结构化进数据库②代理用vps，先适配语言
+  shape: AUTO_SHAPE (1), name=Shape 34
+    TEXT: p
+  shape: AUTO_SHAPE (1), name=Shape 35
+  shape: AUTO_SHAPE (1), name=Text 36
+    TEXT: P3
+  shape: AUTO_SHAPE (1), name=Text 37
+    TEXT: 安排三：cursor周报-经销商周报
+  shape: AUTO_SHAPE (1), name=Text 38
+    TEXT: 用agent来做业务催化剂，搭建销售同事个人agent，从冰哥开始，做多个skill/subagnet来实现pdca
+  shape: AUTO_SHAPE (1), name=Shape 39
+  shape: AUTO_SHAPE (1), name=Shape 40
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: P4
+  shape: AUTO_SHAPE (1), name=Text 42
+    TEXT: 安排四：AI投资
+  shape: AUTO_SHAPE (1), name=Text 43
+    TEXT: AI投资本周完成重构，找到的几篇新论文作为地基，主要是对于出场点位的打磨，选股考虑盘前涨幅，纳入老板周末的新架构。
+  shape: AUTO_SHAPE (1), name=Text 44
+    TEXT: 1 / 1
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：数据中台
+
+===== SLIDE 32 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 33 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 34 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+
+===== SLIDE 35 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: PICTURE (13), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: PDCA目前的难点：相对于国内门店，AI销售，数据缺失最多，这周进行梳理，先整理做结构化再建库然后入库
+
+目前的数据只有头尾，中间过程数据，缺失太多了，需要收集起来。用系统收集而不是表。
+
+===== SLIDE 36 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: Vivi：商务助理＋销售助理＋个人业绩与客户清单拓展
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 负责人：vivi，商务团队 · 业绩跟单与合规监督
+  shape: AUTO_SHAPE (1), name=Text 2
+    TEXT: W2核心交付成果
+  shape: AUTO_SHAPE (1), name=Shape 3
+  shape: AUTO_SHAPE (1), name=Shape 4
+  shape: AUTO_SHAPE (1), name=Text 5
+    TEXT: 优先级
+  shape: AUTO_SHAPE (1), name=Shape 6
+  shape: AUTO_SHAPE (1), name=Shape 7
+  shape: AUTO_SHAPE (1), name=Text 8
+    TEXT: 核心事项
+  shape: AUTO_SHAPE (1), name=Shape 9
+  shape: AUTO_SHAPE (1), name=Shape 10
+  shape: AUTO_SHAPE (1), name=Text 11
+    TEXT: 交付成果描述
+  shape: AUTO_SHAPE (1), name=Shape 12
+  shape: AUTO_SHAPE (1), name=Text 13
+    TEXT: P1
+  shape: AUTO_SHAPE (1), name=Text 14
+  shape: AUTO_SHAPE (1), name=Shape 16
+  shape: AUTO_SHAPE (1), name=Text 17
+    TEXT: P2
+  shape: AUTO_SHAPE (1), name=Text 18
+    TEXT: 商务学习与执行,门店运营与终销洞察-春梅老师，chris老师
+  shape: AUTO_SHAPE (1), name=Text 19
+    TEXT: sell-out视频制作完成。报关资料审核与申请盖章（平均每天4-6份），更新清库产品库存清单，英文说明书帮助审核，协助春梅老师培训新同事:vos系统，日报填写，每日工作汇报，第一次视频会议模式，ppt讲解。广告 视频配合拍摄。
+  shape: AUTO_SHAPE (1), name=Shape 20
+  shape: AUTO_SHAPE (1), name=Text 21
+    TEXT: P3
+  shape: AUTO_SHAPE (1), name=Text 22
+    TEXT: 跟单与销售客户转化:晶晶老师，海文老师
+  shape: AUTO_SHAPE (1), name=Text 23
+    TEXT: 1.协助备货发货 ：1)俄罗斯二级代理家具录单1份，收款$28371，乌兹配件收款12374.58CNY.
+    TEXT: 2)konstantin补货录单，备货，标签核对，报关资料制作，等待QR CODE 即可订舱发货。
+    TEXT: 3)老代理ivan售后手表换新录单。
+    TEXT: 4）乌兹别克斯坦原产地证，IMEI 制作发送客户，清关取货。
+    TEXT: 5）mercury group NDA 回传一份
+    TEXT: 2.乌兹H1回顾，H2展望，iot产品分享会议，发送邀请邮件1份
+    TEXT: 3.restore培训资料整理，操作视频整理补充
+    TEXT: 4.restore售后问题处理4个:1)vdao无法更新:已给更新包
+    TEXT: 2）vbox显示错位：已给最新版本可供下载
+    TEXT: 3）vertulife 翻译不当:问题排查中
+    TEXT: 4）24小时才能接收验证码:俄方供应商问题
+    TEXT: 5.restore 戒指准备下单，素材物料分享
+    TEXT: 6.kirill发票整理，报销录入
+  shape: AUTO_SHAPE (1), name=Text 24
+  shape: AUTO_SHAPE (1), name=Shape 26
+  shape: AUTO_SHAPE (1), name=Text 27
+  shape: AUTO_SHAPE (1), name=Text 28
+  shape: AUTO_SHAPE (1), name=Text 29
+    TEXT: w3重点工作计划 (规则落地)
+  shape: AUTO_SHAPE (1), name=Shape 30
+  shape: AUTO_SHAPE (1), name=Shape 31
+  shape: AUTO_SHAPE (1), name=Text 32
+    TEXT: 优先级
+  shape: AUTO_SHAPE (1), name=Shape 33
+  shape: AUTO_SHAPE (1), name=Shape 34
+  shape: AUTO_SHAPE (1), name=Text 35
+    TEXT: 核心事项
+  shape: AUTO_SHAPE (1), name=Shape 36
+  shape: AUTO_SHAPE (1), name=Shape 37
+  shape: AUTO_SHAPE (1), name=Text 38
+    TEXT: 关键动作
+  shape: AUTO_SHAPE (1), name=Shape 39
+  shape: AUTO_SHAPE (1), name=Text 40
+    TEXT: P1
+  shape: AUTO_SHAPE (1), name=Text 41
+    TEXT: 商务高效学习与执行
+  shape: AUTO_SHAPE (1), name=Text 42
+    TEXT: 完成春梅老师布置的学习工作任务，门店运营模式与方法梳理，终销学习。报关单及时审核。报价单，付款发票，报关资料，销售单制作，发货对接，订舱协助，资料审核，清关资料制作，标签确定。继续增强跨部门沟通协调能力。
+  shape: AUTO_SHAPE (1), name=Shape 45
+  shape: AUTO_SHAPE (1), name=Text 46
+    TEXT: 21
+  shape: AUTO_SHAPE (1), name=Text 47
+    TEXT: restore,konstantin售后问题处理
+  shape: AUTO_SHAPE (1), name=Text 48
+  shape: AUTO_SHAPE (1), name=Shape 49
+  shape: AUTO_SHAPE (1), name=Text 50
+    TEXT: 32
+  shape: AUTO_SHAPE (1), name=Text 51
+    TEXT: 跟单任务
+  shape: AUTO_SHAPE (1), name=Text 52
+    TEXT: restore,konstantin,哈萨克斯坦，乌克兰，二级代理perspektiva等方产生的报价单，发票合同制作，物流，发货，产品售后问题，用章申请，文件合同审批等跟单工作。
+  shape: AUTO_SHAPE (1), name=Shape 53
+  shape: AUTO_SHAPE (1), name=Text 54
+    TEXT: P4
+  shape: AUTO_SHAPE (1), name=Text 55
+    TEXT: 高管清单持续拔取，触达，乌克兰，土库曼区域重点。
+  shape: AUTO_SHAPE (1), name=Text 56
+    TEXT: 土库曼持续发送物料，争取8月来华前拿到试订单，哈萨克斯坦客户推动下第二次订单，乌克兰客户分享boutique物料，展现不同设计风格，推动进展。其他C类客户持续分享物料，邀约开会。
+  shape: AUTO_SHAPE (1), name=Text 63
+  shape: LINE (9), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 业绩指标6w,持续拓客中
+  shape: TEXT_BOX (17), name=
+    TEXT: BC类客户持续更新物料，土库曼客户八月来成都拜访，开会，下单。乌克兰意向开boutique客户跟进中，询问落位及门店风格偏好。每日平均触达十位客户（领英/邮件/WA），等待第二轮乌克兰高管清单（邮箱需求）。
+  shape: AUTO_SHAPE (1), name=Shape 28
+    TEXT: 🟡
+  shape: TEXT_BOX (17), name=
+    TEXT: 工作卡点与预警跟进
+  shape: TEXT_BOX (17), name=
+    TEXT: P5
+  shape: TEXT_BOX (17), name=
+    TEXT: PR工作，对接媒体和博主
+  shape: TEXT_BOX (17), name=
+    TEXT: 三大板块处于熟悉磨合阶段，工作效率需继续提升，明确工作优先级。每个订单，销售单/售后单及时跟进，有始有终。
+  shape: TEXT_BOX (17), name=
+    TEXT: 触达量严格按计划执行，必须拿到准确的邮箱信息，精准话术触达客户。盘点意向老客户，激活推进新客户下单。
+  shape: TEXT_BOX (17), name=
+    TEXT: 各个部门强化沟通联络，对于俄罗斯代理商的各类需求及时反应性需要增强。
+  shape: TEXT_BOX (17), name=
+    TEXT: P6
+  shape: TEXT_BOX (17), name=
+    TEXT: 协助春梅老师带教新同事
+  shape: TEXT_BOX (17), name=
+    TEXT: odoo系统操作，日报填写，品牌历史，AIOT产品学习，AI软件使用，查找客户方式，tier 1 信息源拔取。第一次视频会议内容，常问点，ppt重点
+  shape: TEXT_BOX (17), name=
+    TEXT: 物料分享，售后及时性处理，帮助晶晶老师推动restore下单
+
+===== SLIDE 37 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：商务中台
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 负责人：刘雪梅
+  shape: LINE (9), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 7.6-7.10号周报总结
+  shape: TEXT_BOX (17), name=
+    TEXT: 7.13-7.17号下周计划
+  shape: AUTO_SHAPE (1), name=Shape 45
+  shape: AUTO_SHAPE (1), name=Shape 45
+  shape: TABLE (19), name=
+    TABLE 7x2:
+      R0: 工作事项 | 具体内容
+      R1: 订单跟进处理、资料制作 | 1. 印度客户GURU尾款付款跟进； | 2. 印度客户Sidd订单金额确认尾款付款跟进； | 3. 越南客户订单发货跟进及其他常规订单跟进。
+      R2: 售后处理 | 1. 越南客户手机带回成都返修跟进； | 2. 印度客户售后问题跟进。
+      R3: 广交会参展 | 明年广交会参展准备事项相关信息搜集
+      R4:  | 
+      R5:  | 
+      R6:  | 
+  shape: TABLE (19), name=
+    TABLE 7x2:
+      R0: 工作事项 | 具体内容
+      R1: 订单跟进处理、资料制作 | 本周主要处理来自柬埔寨、印度客户的订单，产品库存确认、备货、收款、录单、发货及物流跟进、做清关资料： | 1. 订单录单10单，订单金额：101417美金；订单发货及物流跟进8单； | 2. 订单备货待付尾款后录单：2单，尾款金额6.8万+美金； | 3. 产品清关及订单资料发票、箱单等制作。
+      R2: 售后处理 | 本周处理越南客户售后问题：1. 系统太旧无法匹配银行APP更新，最终回复：产品太老系统太旧，无法解决；2. 客户手机屏幕损坏，协助沟通向客户提供新组件--已下组件订单。
+      R3: 客户咨询处理 | 协助处理客户就产品库存、产品价格等咨询及相关问题的确认及解答。
+      R4: 资料整理 | 1. 印度客户GURU账单核对余款及订单确认，销售与商务数据已对外齐； | 2. 泰国客户VST线上产品上架资料提供； | 3. 整理并填写柬埔寨及泰国客户跟单全流程信息。
+      R5: 其他事宜 | 1. 搜集并了解广交会观展及办理参观证要求及流程； | 2. 订单数据登记； | 3. OKR拆解完成。
+      R6: 学习产品及资料制作 | 学习制作授权书及代理协议及审批并盖章流程。
+
+===== SLIDE 38 =====
+  shape: AUTO_SHAPE (1), name=Text 0
+    TEXT: 中台板块：物流中台
+  shape: AUTO_SHAPE (1), name=Text 1
+    TEXT: 负责人：物流 · 发货执行与备货计划
+  shape: LINE (9), name=
+  shape: TEXT_BOX (17), name=
+    TEXT: 第一周总结
+  shape: TEXT_BOX (17), name=
+    TEXT: 英国高定产品已发货：7月13日到英国
+    TEXT: 保税仓首批推进：鲜娜完成首批入仓货物报关资料制作与复核，并注册学习顺丰 CSP 系统。
+    TEXT: 多国发货通道跑通：英国、柬埔寨、伊拉克（顺丰+DHL）、俄罗斯（人带货 400/kg，7/4 航班）、土耳其/阿塞拜疆等陆续发出或排期。
+    TEXT: 私域耳机有序发出：张懿按付款顺序安排历史耳机订单，本周 DHL 下单 3 单。越南高定产出进展：丛莲款 Meta2 已产出；喜马拉雅大折叠物料回厂，待产出后发货。
+    TEXT: 5 月报关单归档：张琪完成 5 月原始报关单据整理并同步财务。
+  shape: TEXT_BOX (17), name=
+    TEXT: 亮点
+  shape: AUTO_SHAPE (1), name=Shape 45
+  shape: TEXT_BOX (17), name=
+    TEXT: 下周计划
+  shape: AUTO_SHAPE (1), name=Shape 45
+  shape: TABLE (19), name=
+    TABLE 7x4:
+      R0: 维度 | 鲜娜 | 张琪 | 张懿
+      R1: 核心工作 | 保税仓首批入仓报关；私域发货/转运预报；货代对账；售后 | 经销商+澳门备货发货；单证归档；在途跟进 | 经销商+港澳门店；私域耳机发货；高定跟进；报关资料
+      R2: 发货 | 私域订单持续备货发货 | 柬埔寨、伊拉克、英国、俄罗斯等多单发出/安排 | 卡塔尔、土耳其、阿塞拜疆等；私域耳机 DHL 3 单
+      R3: 备货 | 保税仓首批报关复核 | 俄/印/伊/越/柬/科威特多国并行备货 | 越南/迪拜/英国等清仓与高定备货
+      R4: 单证 | 日升账单复核并提交付款；保税仓报关资料 | 5 月报关单整理同步财务；预报/报关资料日常整理 | 阿塞/土/塞/港等多国出口报关资料
+      R5: 专项 | 顺丰 CSP 系统学习注册；保税仓首批入仓推进 | 科威特远程验厂顺利完成；俄罗斯 restore 标签模板确认 | 越南丛莲款 Meta2 已产出；英国 2 台 SIGS 刻字文件同步
+      R6: 覆盖区域 | 私域/保税仓 | 俄、英、印、伊、柬、科威特、越南 + 澳门 | 越、迪拜、英、卡塔尔、土、阿塞、塞、波兰、泰 + 港澳
+  shape: TABLE (19), name=
+    TABLE 6x4:
+      R0: 方向 | 鲜娜 | 张琪 | 张懿
+      R1: 发货 | 保税仓首批正式发出；私域/耳机持续发货 | 柬埔寨耳机 7/3、手机 7/10；印度/伊朗周四备齐发出；俄罗斯 7/4 航班货 | 越南喜马拉雅产出后发货；土耳其/阿塞等代理单跟进
+      R2: 专项 | 亚马逊 FBA 待指令发货；美国 VIP 定制 | 科威特证书到手后发货；俄标签最终确认 | 英国 SIGS 高定设计文件；越南丛莲/Meta2 交付
+      R3: 单证/系统 | 货代账单付款跟进 | 预报/面单日常维护；报关系统流程 | 多国报关资料；乌兹原产地证正本申请
+      R4: 门店 | 顺丰保税仓订单匹配 | 澳门日常运营、虚拟收发货 | 香港门店补货；
+      R5: 共同 | 报关离岸价格导出同步财务 |  | 

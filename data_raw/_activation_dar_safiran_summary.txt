@@ -1,0 +1,38 @@
+口径: mobile.activation.report | activation_time ∈ [2026-06-24, 2026-07-23] | state=activated
+合计激活: 19 台
+
+## Dar Al Sabaek: 1 台
+  2026-07-05: 1
+  产品:
+    1x VERTU AGENT Q-银基础套装款-小牛皮-黑色绗线(撞色)-1TB-科威特
+
+## Safiranhamrah: 18 台
+  2026-06-27: 1
+  2026-07-02: 2
+  2026-07-03: 4
+  2026-07-04: 1
+  2026-07-05: 1
+  2026-07-09: 1
+  2026-07-14: 1
+  2026-07-15: 1
+  2026-07-16: 1
+  2026-07-18: 2
+  2026-07-19: 1
+  2026-07-22: 2
+  产品:
+    3x VERTU AGENT Q-银基础套装款-小牛皮-黑色绗线(撞色)-1TB-海外
+    1x METAVERTU2基础款-黑陶黑色-玄铁黑鳄鱼皮-1TB-EU
+    1x VERTU AGENT Q-银品质套装款-鳄鱼皮-玄铁黑-1TB-海外
+    1x VERTU AGENT Q-黑品质套装款-木质-红胡桃木-1TB-海外
+    1x VERTU QUANTUM-黑陶黑色2-马年金丝玛瑙-红色-1TB-海外
+    1x METAVERTU基础款-曙光橙荔枝纹小牛皮V3U3(无充电器)-1TB-EU
+    1x METAVERTU基础款-树莓红荔枝纹小牛皮V3U3(无充电器)-1TB-EU
+    1x VERTU AGENT Q-黑品质套装款-鳄鱼皮-玄铁黑-1TB-海外
+    1x Vertu Quantum-黑陶黑色2-火山红玛瑙-1TB-HW
+    1x VERTU AGENT Q-银品质套装款-钛银超跑-墨玉黑-1TB-海外
+    1x VERTU AGENT Q-黑基础套装款-小牛皮-酒红绗线(撞色)-1TB-海外
+    1x VERTU ALPHAFOLD-黑尊贵套装款-黄金1-鳄鱼皮-玄铁黑-1TB-海外
+    1x METAVERTU基础款-爵士黑X绗缝小牛皮(无充电器)-1TB-HW
+    1x VERTU ALPHAFOLD-黑基础套装款-小牛皮-黑色X绗缝(纯色)-无Logo-1TB-海外
+    1x VERTU ALPHAFOLD-黑品质套装款-鳄鱼皮-琥珀棕-1TB-海外
+    1x VERTU ALPHAFOLD-黑尊贵套装款-黄金4-鳄鱼皮-喜马拉雅白-1TB-海外

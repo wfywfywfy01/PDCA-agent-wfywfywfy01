@@ -1,0 +1,141 @@
+[
+  {
+    "name": "DEHDAHOUMAIMA",
+    "uid": 13050,
+    "status": "denied"
+  },
+  {
+    "name": "尤文静",
+    "uid": 13551,
+    "status": "ok",
+    "total": 17,
+    "cats": {
+      "外部会议": 16,
+      "内部会议": 1
+    },
+    "items": [
+      {
+        "day": "2026-07-16",
+        "cat": "外部会议",
+        "title": "2026-07-16 Customer Reception Planning, Sales Updates, and Process Governance Meeting",
+        "dur": 37
+      },
+      {
+        "day": "2026-07-15",
+        "cat": "外部会议",
+        "title": "2026-07-15 Overseas Expansion Support: Gifts, Samples, Travel Rules, and VPS Process Control",
+        "dur": 26
+      },
+      {
+        "day": "2026-07-15",
+        "cat": "外部会议",
+        "title": "2026-07-15 Customer Follow-Up, Contract Review, and PR Compensation Discussion",
+        "dur": 177
+      },
+      {
+        "day": "2026-07-14",
+        "cat": "外部会议",
+        "title": "2026-07-14 Weekly Sales and Market Follow-up on Accounts, Contracts, and Regional Projects",
+        "dur": 88
+      },
+      {
+        "day": "2026-07-13",
+        "cat": "外部会议",
+        "title": "2026-07-13 Overseas Distributor Operations, SOP, and AI-Driven Reporting Meeting",
+        "dur": 111
+      },
+      {
+        "day": "2026-07-09",
+        "cat": "外部会议",
+        "title": "2026-07-09 Sales Follow-Up, Payment Collection, and Operational Standardization Meeting",
+        "dur": 30
+      },
+      {
+        "day": "2026-07-08",
+        "cat": "外部会议",
+        "title": "2026-07-08 Internal Sales, Overseas Projects, and System Rollout Coordination Meeting",
+        "dur": 40
+      },
+      {
+        "day": "2026-07-07",
+        "cat": "外部会议",
+        "title": "2026-07-07 Weekly Revenue Review, Distributor System Updates, and Market Support Coordination",
+        "dur": 37
+      },
+      {
+        "day": "2026-07-07",
+        "cat": "外部会议",
+        "title": "2026-07-07 Regional Sales Follow-up, OKR Access, and Product Promotion Coordination",
+        "dur": 26
+      },
+      {
+        "day": "2026-07-06",
+        "cat": "外部会议",
+        "title": "2026-07-06 Regional Sales Performance Review and VPS Workflow Integration",
+        "dur": 84
+      },
+      {
+        "day": "2026-07-03",
+        "cat": "外部会议",
+        "title": "2026-07-03 UK Concierge Materials, Luxury Packaging, and Expansion Priorities",
+        "dur": 31
+      },
+      {
+        "day": "2026-07-03",
+        "cat": "外部会议",
+        "title": "2026-07-03 AI Smart Wooden Bracelet Product Launch and Sales Training",
+        "dur": 20
+      },
+      {
+        "day": "2026-07-03",
+        "cat": "外部会议",
+        "title": "2026-07-03 Distributor Partnership Review and Store Setup Discussion for Armenia",
+        "dur": 191
+      },
+      {
+        "day": "2026-07-03",
+        "cat": "外部会议",
+        "title": "2026-07-03 Regional Sales Updates, Collections, and Channel Deployment Follow-ups",
+        "dur": 19
+      },
+      {
+        "day": "2026-07-01",
+        "cat": "外部会议",
+        "title": "2026-07-01 Ultra-High-Net-Worth Marketing and Monaco Yacht Show Collaboration Discussion",
+        "dur": 70
+      },
+      {
+        "day": "2026-07-01",
+        "cat": "外部会议",
+        "title": "2026-07-01 July OKR Setup, VPS Reporting, and Dealer Account Follow-Up",
+        "dur": 40
+      },
+      {
+        "day": "2026-07-01",
+        "cat": "内部会议",
+        "title": "2026-07-01 LA Luxury Boutique Location Discussion",
+        "dur": 3
+      }
+    ]
+  },
+  {
+    "name": "Safae Ben M'hamed",
+    "uid": 14460,
+    "status": "denied"
+  },
+  {
+    "name": "徐贺",
+    "uid": 14472,
+    "status": "denied"
+  },
+  {
+    "name": "陈鹏飞",
+    "uid": 14474,
+    "status": "denied"
+  },
+  {
+    "name": "史凯华",
+    "uid": 14483,
+    "status": "denied"
+  }
+]

@@ -125,8 +125,8 @@
     <div id="alertStores" class="alert-inline"></div>
     <div style="overflow-x:auto">
     <table><thead><tr>
-      <th>门店ID</th><th>名称</th><th>大区</th><th>国家</th><th>负责人</th><th>团队</th><th>状态</th><th>排序</th><th>操作</th>
-    </tr></thead><tbody id="storesTbody"><tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
+      <th>门店ID</th><th>名称</th><th>大区</th><th>国家</th><th>负责人</th><th>团队</th><th>资料库映射</th><th>状态</th><th>排序</th><th>操作</th>
+    </tr></thead><tbody id="storesTbody"><tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
     </div>
   </div>
 </div>
@@ -276,6 +276,7 @@
     <div class="field"><label>国家/城市</label><input id="sm_country" type="text" /></div>
     <div class="field"><label>负责人标识 owner_key</label><input id="sm_owner" type="text" placeholder="必须与销售用户 owner_key 一致" /></div>
     <div class="field"><label>团队标识 team_key</label><input id="sm_team" type="text" value="overseas" /></div>
+    <div class="field"><label>资料库经销商 UUID</label><input id="sm_knowledge" type="text" placeholder="data-hub 经销商主表 ID；可暂留空" /></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('storeModal')">取消</button>
       <button class="btn btn-primary" onclick="submitStore()">保存</button>
@@ -429,13 +430,14 @@ var editingStoreId='';
 function loadStores(incl){
   var url=API+'/api/admin/stores'+(incl?'?include_inactive=true':'');
   fetch(url,{credentials:'include'}).then(function(r){return r.json();}).then(function(ss){
-    if(!Array.isArray(ss)){document.getElementById('storesTbody').innerHTML='<tr><td colspan="9" style="color:#e11d48;text-align:center">无权限</td></tr>';return;}
+    if(!Array.isArray(ss)){document.getElementById('storesTbody').innerHTML='<tr><td colspan="10" style="color:#e11d48;text-align:center">无权限</td></tr>';return;}
     storesCache=ss;
     var html='';
     ss.forEach(function(s){
       var storeKey=encodeURIComponent(s.store_id);
       html+='<tr>'
         +'<td><code>'+esc(s.store_id)+'</code></td><td>'+esc(s.name)+'</td><td>'+esc(s.region)+'</td><td>'+esc(s.country)+'</td><td><code>'+esc(s.sales_owner||'未配置')+'</code></td><td>'+esc(s.team_key||'未配置')+'</td>'
+        +'<td><code>'+esc(s.knowledge_dealer_id||'未映射')+'</code></td>'
         +'<td>'+(s.is_active?'<span class="badge badge-ok">启用</span>':'<span class="badge badge-off">停用</span>')+'</td>'
         +'<td>'+esc(s.sort_order)+'</td>'
         +'<td style="display:flex;gap:.4rem"><button class="btn btn-primary" style="font-size:.7rem;padding:3px 8px" onclick="editStore(decodeURIComponent(\''+storeKey+'\'))">编辑</button><button class="btn btn-danger" style="font-size:.7rem;padding:3px 8px" onclick="toggleStore(decodeURIComponent(\''+storeKey+'\'),'+!s.is_active+')">'+(s.is_active?'停用':'启用')+'</button></td></tr>';
@@ -445,7 +447,7 @@ function loadStores(incl){
 }
 function openStoreModal(){
   editingStoreId='';
-  ['sm_id','sm_name','sm_country','sm_owner'].forEach(function(id){document.getElementById(id).value='';});
+  ['sm_id','sm_name','sm_country','sm_owner','sm_knowledge'].forEach(function(id){document.getElementById(id).value='';});
   document.getElementById('sm_id').disabled=false;
   document.getElementById('sm_region').value='中东';
   document.getElementById('sm_team').value='overseas';
@@ -460,13 +462,15 @@ function editStore(storeId){
   document.getElementById('sm_name').value=s.name||'';document.getElementById('sm_region').value=s.region||'其他';
   document.getElementById('sm_country').value=s.country||'';document.getElementById('sm_owner').value=s.sales_owner||'';
   document.getElementById('sm_team').value=s.team_key||'overseas';
+  document.getElementById('sm_knowledge').value=s.knowledge_dealer_id||'';
   document.getElementById('storeModalTitle').textContent='编辑门店与归属';
   document.getElementById('storeModalAlert').className='alert-inline';openModal('storeModal');
 }
 function submitStore(){
   var body={store_id:document.getElementById('sm_id').value.trim(),name:document.getElementById('sm_name').value.trim(),
     region:document.getElementById('sm_region').value,country:document.getElementById('sm_country').value.trim(),
-    sales_owner:document.getElementById('sm_owner').value.trim(),team_key:document.getElementById('sm_team').value.trim()};
+    sales_owner:document.getElementById('sm_owner').value.trim(),team_key:document.getElementById('sm_team').value.trim(),
+    knowledge_dealer_id:document.getElementById('sm_knowledge').value.trim()};
   if(!body.store_id||!body.name){setAlert('storeModalAlert','ID 和名称不能为空','err');return;}
   var url=editingStoreId?API+'/api/admin/stores/'+encodeURIComponent(editingStoreId):API+'/api/admin/stores';
   var method=editingStoreId?'PATCH':'POST'; if(editingStoreId)delete body.store_id;

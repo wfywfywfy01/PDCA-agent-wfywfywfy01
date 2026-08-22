@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>盘前关注 · 暗色预案风格</title>
+  <style>
+    :root {
+      --bg: #121212;
+      --fg: #f0f0f0;
+      --muted: #a8a8a8;
+      --line: #3a3a3a;
+      --header: #e8e8e8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, #3d3d3d 0.7px, transparent 0.7px);
+      background-size: 18px 18px;
+      color: var(--fg);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      padding: 28px 32px 48px;
+    }
+
+    .block + .block {
+      margin-top: 36px;
+    }
+
+    .title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--header);
+      margin-bottom: 8px;
+    }
+
+    .reaction {
+      color: var(--muted);
+      margin-bottom: 14px;
+      font-size: 13.5px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      font-weight: 400;
+      color: var(--fg);
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    col.col-name { width: 16%; }
+    col.col-logic { width: 52%; }
+    col.col-action { width: 32%; }
+
+    .em {
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .note {
+      margin-top: 28px;
+      color: #666;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <section class="block">
+    <div class="title">预案 A：并购 / 私有化催化（要约溢价显著）</div>
+    <div class="reaction">
+      市场反应：稀缺并购题材驱动重估；若开盘确认买盘承接，短线弹性高于普通财报交易
+    </div>
+    <table>
+      <colgroup>
+        <col class="col-name" />
+        <col class="col-logic" />
+        <col class="col-action" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>候选</th>
+          <th>逻辑</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="em">PYPL</span><br />PayPal<br /><span style="color:var(--muted);font-size:12px">NASDAQ</span></td>
+          <td>
+            <span class="em">核心催化剂：</span>Stripe 与 Advent International 据传以
+            <span class="em">60.50 美元/股</span>要约收购 PayPal，估值超
+            <span class="em">530 亿美元</span>，相对前日收盘溢价约
+            <span class="em">28%</span>。<br /><br />
+            <span class="em">筛选逻辑：</span>属于罕见的私有化 / 并购事件驱动；溢价幅度与买方阵容若属实，开盘缺口与成交量通常同步放大。
+          </td>
+          <td>
+            预期今日涨幅：<span class="em">&gt;10%</span><br /><br />
+            等开盘前 15 分钟确认成交量与买盘承接；若高开后回踩 VWAP 企稳再跟，避免盲追缺口。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="block">
+    <div class="title">预案 B：业绩超预期直接受益者</div>
+    <div class="reaction">
+      市场反应：AI 资本开支信心强化，光刻设备龙头指引上修带动半导体设备链情绪回暖
+    </div>
+    <table>
+      <colgroup>
+        <col class="col-name" />
+        <col class="col-logic" />
+        <col class="col-action" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>候选</th>
+          <th>逻辑</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="em">ASML</span><br />ASML Holding<br /><span style="color:var(--muted);font-size:12px">NASDAQ</span></td>
+          <td>
+            <span class="em">核心催化剂：</span>Q2 净销售额
+            <span class="em">93 亿欧元</span>超预期；并将
+            <span class="em">2026 全年销售额指引</span>上修至
+            <span class="em">430 亿~450 亿欧元</span>。<br /><br />
+            <span class="em">筛选逻辑：</span>业绩 + 指引双超预期，直接强化 AI 资本开支叙事；作为设备链定价锚，易带动同板块联动。
+          </td>
+          <td>
+            等盘前相对强弱确认后轻仓跟；优先看板块 ETF（如 SMH）是否同步转强，个股追高需严格止损。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p class="note">风格对齐参考：暗色底 + 点阵背景 +「候选 / 逻辑 / 操作」三列表。内容来自左侧截图，非投资建议。</p>
+</body>
+</html>

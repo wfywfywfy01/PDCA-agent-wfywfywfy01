@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方向一 · Neo-Swiss Billboard · W29</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;600;700;800&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #0a0a0a;
+    --muted: #6b6b6b;
+    --line: #e5e5e5;
+    --accent: #2d5bff;
+    --paper: #ffffff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Geist", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #111;
+    color: var(--ink);
+  }
+  .slide {
+    width: 1920px;
+    height: 1080px;
+    background: var(--paper);
+    position: relative;
+    overflow: hidden;
+    margin: 0 auto 24px;
+  }
+  .grid-bg {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 120px 120px;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .pad { position: relative; z-index: 1; padding: 72px 96px; height: 100%; display: flex; flex-direction: column; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 18px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .brand {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 0.28em;
+    color: var(--ink);
+  }
+  h1 {
+    font-size: 96px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    margin-top: 36px;
+    max-width: 14ch;
+  }
+  .accent-bar {
+    width: 72px; height: 10px;
+    background: var(--accent);
+    margin: 40px 0 28px;
+  }
+  .sub {
+    font-size: 28px;
+    color: var(--muted);
+    font-weight: 400;
+    max-width: 28ch;
+    line-height: 1.45;
+  }
+  .footer-meta {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-top: 1px solid var(--line);
+    padding-top: 28px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 16px;
+    color: var(--muted);
+  }
+  .hero-num {
+    position: absolute;
+    right: 80px;
+    bottom: 100px;
+    text-align: right;
+  }
+  .hero-num .n {
+    font-size: 220px;
+    font-weight: 800;
+    letter-spacing: -0.06em;
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .hero-num .u {
+    font-size: 28px;
+    color: var(--accent);
+    font-family: "IBM Plex Mono", monospace;
+    margin-top: 12px;
+  }
+
+  /* slide 2 */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid var(--line);
+    margin-top: 48px;
+  }
+  .kpi {
+    padding: 36px 32px;
+    border-right: 1px solid var(--line);
+  }
+  .kpi:last-child { border-right: 0; }
+  .kpi .label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .kpi .val {
+    font-size: 64px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    margin-top: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi .val em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .dept {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    margin-top: 40px;
+  }
+  .dept-card {
+    border: 1px solid var(--line);
+    padding: 28px 32px;
+    min-height: 280px;
+  }
+  .dept-card h3 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .dept-card .rate {
+    font-size: 72px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  .dept-card .meta {
+    margin-top: 16px;
+    font-size: 18px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .dept-card.hot { border-color: var(--accent); border-width: 2px; }
+  .dept-card.hot .rate { color: var(--accent); }
+  h2.page-title {
+    font-size: 48px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-top: 20px;
+  }
+</style>
+</head>
+<body>
+  <!-- 代表页 1：封面 -->
+  <section class="slide" id="cover">
+    <div class="grid-bg"></div>
+    <div class="pad">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div class="brand">VERTU · OVERSEAS</div>
+        <div class="eyebrow">2026 · W29</div>
+      </div>
+      <h1>海外经销商<br />七月第三周</h1>
+      <div class="accent-bar"></div>
+      <p class="sub">业绩总览 · 产品 · 客户 · 三部与中台动作</p>
+      <div class="footer-meta">
+        <span>7/13 – 7/19 · MTD as of 7/19</span>
+        <span>AI WEEKLY · DRAFT</span>
+      </div>
+    </div>
+    <div class="hero-num">
+      <div class="n">85.8<span style="font-size:0.45em">%</span></div>
+      <div class="u">MTD 达成 · 596.41 / 695 万</div>
+    </div>
+  </section>
+
+  <!-- 代表页 2：总览 -->
+  <section class="slide" id="overview">
+    <div class="pad">
+      <div class="eyebrow">01 · OVERVIEW</div>
+      <h2 class="page-title">全盘业绩</h2>
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="label">月目标</div>
+          <div class="val">695</div>
+        </div>
+        <div class="kpi">
+          <div class="label">MTD SI</div>
+          <div class="val">596<span style="font-size:0.4em;color:var(--muted)">.41</span></div>
+        </div>
+        <div class="kpi">
+          <div class="label">达成率</div>
+          <div class="val"><em>85.8%</em></div>
+        </div>
+        <div class="kpi">
+          <div class="label">本周 SI</div>
+          <div class="val">240<span style="font-size:0.4em;color:var(--muted)">.83</span></div>
+        </div>
+      </div>
+      <div class="dept">
+        <div class="dept-card hot">
+          <h3>三部 · Lina</h3>
+          <div class="rate">116%</div>
+          <div class="meta">MTD 336.7 万 · 本周 172.1<br />待收线索约 143.1 万</div>
+        </div>
+        <div class="dept-card">
+          <h3>二部 · 杨晶晶</h3>
+          <div class="rate">83.3%</div>
+          <div class="meta">MTD 195.68 万 · 本周 68.73<br />领先时间进度约 22pt</div>
+        </div>
+        <div class="dept-card">
+          <h3>一部 · 于冰</h3>
+          <div class="rate" style="color:#888">58.2%</div>
+          <div class="meta">MTD 64.03 万 · 本周 0<br />在途预付款约 49 万</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "business": [
+    {
+      "owner": "代理商终销",
+      "content": "33 家代理商终销金额为 0，请更新 Excel 后重跑导入脚本"
+    },
+    {
+      "owner": "PDCA",
+      "content": "今日代办 48 项，其中未完成 48 项。"
+    },
+    {
+      "owner": "PDCA",
+      "content": "已生成数据汇总 Excel：`D:\\经销商PDCA\\data_platform\\data_role_pdca_mvp\\outputs\\2026-06-05\\2026-06-05_data_summary.xlsx`"
+    },
+    {
+      "owner": "PDCA",
+      "content": "已读取物流单号 0 个。"
+    },
+    {
+      "owner": "PDCA",
+      "content": "每日问卷：`D:\\经销商PDCA\\data_platform\\data_role_pdca_mvp\\inputs\\questionnaires\\2026-06-05_questionnaire.md`"
+    },
+    {
+      "owner": "PDCA",
+      "content": "问卷尚未填写今日完成事项。"
+    }
+  ],
+  "affair": []
+}

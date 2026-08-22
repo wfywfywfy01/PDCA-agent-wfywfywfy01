@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>海外经销商 2026-W30 周报</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --ink: #0a0a0a;
+    --muted: #6b6b6b;
+    --line: #e5e5e5;
+    --accent: #2d5bff;
+    --paper: #ffffff;
+    --bg: #f4f4f5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.5;
+  }
+  .hero {
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero .grid-bg {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 80px 80px; opacity: .5; pointer-events: none;
+  }
+  .hero-inner {
+    position: relative; z-index: 1;
+    max-width: 1080px; margin: 0 auto;
+    padding: 56px 28px 48px;
+    display: grid; grid-template-columns: 1.2fr .8fr; gap: 32px; align-items: end;
+  }
+  .brand {
+    font-weight: 800; font-size: 13px; letter-spacing: .28em;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px; letter-spacing: .12em; color: var(--muted);
+    text-transform: uppercase; margin-top: 8px;
+  }
+  h1 {
+    font-size: clamp(36px, 5vw, 56px); font-weight: 800;
+    letter-spacing: -.04em; line-height: 1.08; margin-top: 20px;
+  }
+  .bar-accent { width: 56px; height: 8px; background: var(--accent); margin: 22px 0 16px; }
+  .lede { font-size: 16px; color: var(--muted); max-width: 36ch; }
+  .hero-num { text-align: right; }
+  .hero-num .n {
+    font-size: clamp(72px, 12vw, 120px); font-weight: 800;
+    letter-spacing: -.06em; line-height: .9;
+    font-variant-numeric: tabular-nums;
+  }
+  .hero-num .u {
+    margin-top: 10px; font-family: "IBM Plex Mono", monospace;
+    font-size: 13px; color: var(--accent);
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 28px 72px; }
+  h2 {
+    font-size: 22px; font-weight: 800; letter-spacing: -.02em;
+    margin: 36px 0 14px; padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+  h2 .tag {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px;
+    color: var(--muted); font-weight: 500; margin-right: 10px;
+  }
+  .kpis {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--line); background: var(--paper); margin-top: 8px;
+  }
+  .kpi { padding: 20px 18px; border-right: 1px solid var(--line); }
+  .kpi:last-child { border-right: 0; }
+  .kpi .l {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  }
+  .kpi .v {
+    font-size: 32px; font-weight: 800; letter-spacing: -.03em;
+    margin-top: 8px; font-variant-numeric: tabular-nums;
+  }
+  .kpi .v.accent { color: var(--accent); }
+  .progress {
+    background: var(--paper); border: 1px solid var(--line);
+    padding: 18px 20px; margin-top: 16px;
+  }
+  .progress .top { display: flex; justify-content: space-between; font-size: 14px; }
+  .track { height: 10px; background: #ececec; margin-top: 12px; }
+  .track > i { display: block; height: 100%; width: 100%; background: var(--accent); }
+  .depts {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 14px;
+  }
+  .dept {
+    background: var(--paper); border: 1px solid var(--line); padding: 20px 18px; min-height: 180px;
+  }
+  .dept.hot { border: 2px solid var(--accent); }
+  .dept-name { font-size: 15px; font-weight: 700; }
+  .dept-rate {
+    font-size: 44px; font-weight: 800; letter-spacing: -.04em;
+    margin-top: 8px; font-variant-numeric: tabular-nums;
+  }
+  .dept.hot .dept-rate { color: var(--accent); }
+  .dept-meta { margin-top: 12px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+  table {
+    width: 100%; border-collapse: collapse; background: var(--paper);
+    border: 1px solid var(--line); font-size: 13px; margin-top: 8px;
+  }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+  th {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px;
+    letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500;
+    background: #fafafa;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .note {
+    margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--accent);
+    background: var(--paper); font-size: 13px; color: var(--muted);
+  }
+  footer {
+    margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+  }
+  @media (max-width: 860px) {
+    .hero-inner, .kpis, .depts { grid-template-columns: 1fr 1fr; }
+    .hero-num { text-align: left; }
+  }
+  @media (max-width: 560px) {
+    .kpis, .depts { grid-template-columns: 1fr; }
+  }
+  @media print {
+    body { background: #fff; }
+    .dept, table, .progress, .kpis { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+  <header class="hero">
+    <div class="grid-bg"></div>
+    <div class="hero-inner">
+      <div>
+        <div class="brand">VERTU · OVERSEAS</div>
+        <div class="eyebrow">2026-W30 · as of 2026-07-24</div>
+        <h1>海外经销商<br/>七月第四周周报</h1>
+        <div class="bar-accent"></div>
+        <p class="lede">本周 2026-07-20 ~ 2026-07-26（取数至 2026-07-24）· MTD 2026-07-01 ~ 2026-07-24</p>
+      </div>
+      <div class="hero-num">
+        <div class="n">105.4<span style="font-size:.42em">%</span></div>
+        <div class="u">MTD 达成 · 732.56 / 695.0 万</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="kpis">
+      <div class="kpi"><div class="l">月目标</div><div class="v">695.0</div></div>
+      <div class="kpi"><div class="l">MTD SI</div><div class="v">732.56</div></div>
+      <div class="kpi"><div class="l">达成率</div><div class="v accent">105.4%</div></div>
+      <div class="kpi"><div class="l">本周 SI</div><div class="v">177.46</div></div>
+    </div>
+
+    <div class="progress">
+      <div class="top">
+        <strong>全盘 OKR</strong>
+        <span>时间进度约 77% · 环比 -15.9% · 同比 +200.2%</span>
+      </div>
+      <div class="track"><i></i></div>
+    </div>
+
+    <div class="note">
+      口径：ppt（经销商归组 − 非团队记名）。MTD 已剔跨人记名约 8.31 万。
+      金额单位：万元。Source: odoo_sale。
+    </div>
+
+    <h2><span class="tag">01</span>三组业绩</h2>
+    <div class="depts">
+        <div class="dept hot">
+          <div class="dept-name">Lina组</div>
+          <div class="dept-rate">155.6%</div>
+          <div class="dept-meta">本周 115.09 万 · MTD 451.36 万<br/>
+          环比 -14.4% · 同比 +321.6%<br/>
+          目标 290.0 万</div>
+        </div>
+        <div class="dept hot">
+          <div class="dept-name">于冰组</div>
+          <div class="dept-rate">102.9%</div>
+          <div class="dept-meta">本周 49.17 万 · MTD 113.21 万<br/>
+          环比 -34.0% · 同比 +13.0%<br/>
+          目标 110.0 万</div>
+        </div>
+        <div class="dept">
+          <div class="dept-name">杨晶晶组</div>
+          <div class="dept-rate">71.5%</div>
+          <div class="dept-meta">本周 13.2 万 · MTD 167.99 万<br/>
+          环比 -2.3% · 同比 +356.0%<br/>
+          目标 235.0 万</div>
+        </div></div>
+    <table>
+      <thead><tr>
+        <th>组别</th><th class="n">本周</th><th class="n">月累计</th><th class="n">达成率</th>
+        <th class="n">环比</th><th class="n">同比</th><th class="n">月目标</th>
+      </tr></thead>
+      <tbody><tr><td>Lina组</td><td class='n'>115.09</td><td class='n'>451.36</td><td class='n'>155.6%</td><td class='n'>-14.4%</td><td class='n'>+321.6%</td><td class='n'>290.0</td></tr><tr><td>于冰组</td><td class='n'>49.17</td><td class='n'>113.21</td><td class='n'>102.9%</td><td class='n'>-34.0%</td><td class='n'>+13.0%</td><td class='n'>110.0</td></tr><tr><td>杨晶晶组</td><td class='n'>13.2</td><td class='n'>167.99</td><td class='n'>71.5%</td><td class='n'>-2.3%</td><td class='n'>+356.0%</td><td class='n'>235.0</td></tr></tbody>
+    </table>
+
+    <h2><span class="tag">02</span>区域贡献（月累计）</h2>
+    <table>
+      <thead><tr><th>区域</th><th class="n">销售额（万）</th></tr></thead>
+      <tbody><tr><td>中东</td><td class='n'>369.35</td></tr><tr><td>南亚</td><td class='n'>140.67</td></tr><tr><td>东南亚</td><td class='n'>119.72</td></tr><tr><td>欧洲</td><td class='n'>82.01</td></tr><tr><td>中亚</td><td class='n'>29.12</td></tr></tbody>
+    </table>
+
+    <h2><span class="tag">03</span>核心代理商 Top 10（月累计）</h2>
+    <table>
+      <thead><tr><th>代理商</th><th>组别</th><th>区域</th><th class="n">销售额（万）</th></tr></thead>
+      <tbody><tr><td>Billionaire Collections</td><td>Lina组</td><td>中东</td><td class='n'>198.7</td></tr><tr><td>GURU ELECTRONICS SINGAPORE PTE LTD</td><td>杨晶晶组</td><td>南亚</td><td class='n'>100.28</td></tr><tr><td>VERTU LONDON LTD</td><td>Lina组</td><td>欧洲</td><td class='n'>82.01</td></tr><tr><td>VMG Communication and Technology Joint S</td><td>于冰组</td><td>东南亚</td><td class='n'>81.2</td></tr><tr><td>BIN BIN INVESTMENT(CAMBODIA) COLTD</td><td>于冰组</td><td>东南亚</td><td class='n'>38.52</td></tr><tr><td>Safiranhamrah</td><td>Lina组</td><td>中东</td><td class='n'>38.51</td></tr><tr><td>TİVALİ Commercial Broker LLC</td><td>Lina组</td><td>中东</td><td class='n'>37.43</td></tr><tr><td>Luxem Store</td><td>Lina组</td><td>中东</td><td class='n'>27.97</td></tr><tr><td>LLC "TC Azimut"</td><td>杨晶晶组</td><td>中亚</td><td class='n'>27.89</td></tr><tr><td>Sidd Senthil</td><td>杨晶晶组</td><td>南亚</td><td class='n'>27.06</td></tr></tbody>
+    </table>
+
+    <h2><span class="tag">04</span>个人贡献</h2>
+    <table>
+      <thead><tr><th>销售</th><th>组别</th><th class="n">本周</th><th class="n">月累计</th></tr></thead>
+      <tbody><tr><td>Lina</td><td>Lina组</td><td class='n'>111.02</td><td class='n'>390.74</td></tr><tr><td>杨晶晶</td><td>杨晶晶组</td><td class='n'>0.0</td><td class='n'>127.6</td></tr><tr><td>于冰</td><td>于冰组</td><td class='n'>49.17</td><td class='n'>113.21</td></tr><tr><td>尤文静</td><td>Lina组</td><td class='n'>4.07</td><td class='n'>60.23</td></tr><tr><td>何海文</td><td>杨晶晶组</td><td class='n'>13.2</td><td class='n'>40.39</td></tr><tr><td>刘彦麟</td><td>Lina组</td><td class='n'>0.0</td><td class='n'>0.2</td></tr></tbody>
+    </table>
+
+    <h2><span class="tag">05</span>商品大类（月累计）</h2>
+    <table>
+      <thead><tr><th>大类</th><th class="n">销售额（万）</th></tr></thead>
+      <tbody><tr><td>手机</td><td class='n'>666.83</td></tr><tr><td>其他</td><td class='n'>52.98</td></tr><tr><td>腕表</td><td class='n'>8.92</td></tr><tr><td>耳机</td><td class='n'>3.46</td></tr><tr><td>手机辅料</td><td class='n'>3.33</td></tr><tr><td>钢笔</td><td class='n'>2.36</td></tr><tr><td>手链</td><td class='n'>1.26</td></tr><tr><td>皮具</td><td class='n'>0.92</td></tr></tbody>
+    </table>
+
+    <h2><span class="tag">06</span>商品细类 Top（月累计）</h2>
+    <table>
+      <thead><tr><th>细类</th><th>大类</th><th class="n">销售额（万）</th><th class="n">订单数</th></tr></thead>
+      <tbody><tr><td>VERTU ALPHAFOLD</td><td>手机</td><td class='n'>308.41</td><td class='n'>10</td></tr><tr><td>VERTU AGENT Q</td><td>手机</td><td class='n'>235.25</td><td class='n'>6</td></tr><tr><td>VERTU QUANTUM</td><td>手机</td><td class='n'>75.84</td><td class='n'>2</td></tr><tr><td>权益服务</td><td>其他</td><td class='n'>50.85</td><td class='n'>—</td></tr><tr><td>SIGNATURE S</td><td>手机</td><td class='n'>26.32</td><td class='n'>—</td></tr><tr><td>METAVERTU</td><td>手机</td><td class='n'>15.63</td><td class='n'>1</td></tr><tr><td>METAWATCH S1</td><td>腕表</td><td class='n'>8.92</td><td class='n'>6</td></tr><tr><td>iVERTU</td><td>手机</td><td class='n'>5.38</td><td class='n'>1</td></tr><tr><td>VERTU 机械腕表-水晶款</td><td>腕表</td><td class='n'>4.42</td><td class='n'>1</td></tr><tr><td>VERTU PHANTOM</td><td>耳机</td><td class='n'>3.46</td><td class='n'>3</td></tr></tbody>
+    </table>
+
+    <h2><span class="tag">07</span>商品细类 Top（本周）</h2>
+    <table>
+      <thead><tr><th>细类</th><th>大类</th><th class="n">销售额（万）</th></tr></thead>
+      <tbody><tr><td>VERTU AGENT Q</td><td>手机</td><td class='n'>152.16</td></tr><tr><td>VERTU ALPHAFOLD</td><td>手机</td><td class='n'>69.58</td></tr><tr><td>VERTU QUANTUM</td><td>手机</td><td class='n'>54.82</td></tr><tr><td>METAVERTU</td><td>手机</td><td class='n'>15.63</td></tr><tr><td>SIGNATURE S</td><td>手机</td><td class='n'>8.33</td></tr><tr><td>METAWATCH S1</td><td>腕表</td><td class='n'>0.83</td></tr><tr><td>VERTU PHANTOM</td><td>耳机</td><td class='n'>0.51</td></tr><tr><td>AI钻戒2代</td><td>戒指</td><td class='n'>0.31</td></tr></tbody>
+    </table>
+
+    <footer>
+      VERTU OVERSEAS · 2026-W30 · generated 2026-07-22 · Neo-Swiss<br/>
+      打印：浏览器 Ctrl+P → 另存为 PDF
+    </footer>
+  </main>
+</body>
+</html>

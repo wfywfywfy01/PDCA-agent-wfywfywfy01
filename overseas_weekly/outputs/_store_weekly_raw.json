@@ -1,0 +1,349 @@
+﻿{
+  "ok": true,
+  "result": {
+    "validation": {
+      "ok": true,
+      "issues": []
+    },
+    "execution": {
+      "result": {
+        "week_start": "2026-07-06",
+        "week_end": "2026-07-12",
+        "summary": [
+          {
+            "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+            "amount": 526241.155941,
+            "qty": 19,
+            "lines": 13,
+            "orders": 1
+          },
+          {
+            "dealer": "VMG Communication and Technology Joint Stock Company",
+            "amount": 315422.478,
+            "qty": 6,
+            "lines": 6,
+            "orders": 1
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "amount": 305586.7965,
+            "qty": 31,
+            "lines": 21,
+            "orders": 1
+          },
+          {
+            "dealer": "T陌VAL陌 Commercial Broker LLC",
+            "amount": 294076.66679999995,
+            "qty": 1,
+            "lines": 1,
+            "orders": 0
+          },
+          {
+            "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+            "amount": 225553.61789999998,
+            "qty": 10,
+            "lines": 13,
+            "orders": 0
+          },
+          {
+            "dealer": "Veysel Sevis Ltd",
+            "amount": 91196.1666,
+            "qty": 3,
+            "lines": 3,
+            "orders": 0
+          },
+          {
+            "dealer": "LLC \"TC Azimut\"",
+            "amount": 85762.37799,
+            "qty": 6,
+            "lines": 8,
+            "orders": 0
+          },
+          {
+            "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+            "amount": 74662.14,
+            "qty": 7,
+            "lines": 6,
+            "orders": 0
+          },
+          {
+            "dealer": "Sidd Senthil",
+            "amount": 68056.78995,
+            "qty": 1,
+            "lines": 1,
+            "orders": 0
+          },
+          {
+            "dealer": "Bizcon Group",
+            "amount": 12374.58,
+            "qty": 4,
+            "lines": 2,
+            "orders": 0
+          },
+          {
+            "dealer": "HASSIB ABDALLAH AMIR ALLAH",
+            "amount": 7.275957614183426e-12,
+            "qty": 19,
+            "lines": 9,
+            "orders": 1
+          }
+        ],
+        "products": [
+          {
+            "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+            "series": "VERTU ALPHAFOLD",
+            "qty": 4,
+            "amount": 130253.0112
+          },
+          {
+            "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+            "series": "VERTU AGENT Q",
+            "qty": 4,
+            "amount": 92645.9937
+          },
+          {
+            "dealer": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+            "series": "鐏佃泧閽㈢瑪",
+            "qty": 1,
+            "amount": 2654.6130000000003
+          },
+          {
+            "dealer": "Bizcon Group",
+            "series": "METAVERTU 2",
+            "qty": 3,
+            "amount": 9130.05
+          },
+          {
+            "dealer": "Bizcon Group",
+            "series": "VERTU IRONFLIP",
+            "qty": 1,
+            "amount": 3244.53
+          },
+          {
+            "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+            "series": "棰勫敭铏氭嫙绫?,
+            "qty": 2,
+            "amount": 264540.55769099994
+          },
+          {
+            "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+            "series": "VERTU ALPHAFOLD",
+            "qty": 5,
+            "amount": 152197.812
+          },
+          {
+            "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+            "series": "VERTU QUANTUM",
+            "qty": 3,
+            "amount": 60834.88125
+          },
+          {
+            "dealer": "GURU ELECTRONICS SINGAPORE PTE LTD",
+            "series": "VERTU AGENT Q",
+            "qty": 2,
+            "amount": 48667.905
+          },
+          {
+            "dealer": "HASSIB ABDALLAH AMIR ALLAH",
+            "series": "VERTU ALPHAFOLD",
+            "qty": 6,
+            "amount": 227677.3083
+          },
+          {
+            "dealer": "HASSIB ABDALLAH AMIR ALLAH",
+            "series": "鐏佃泧閽㈢瑪",
+            "qty": 6,
+            "amount": 18541.450800000002
+          },
+          {
+            "dealer": "HASSIB ABDALLAH AMIR ALLAH",
+            "series": "鎵嬫嬁鍖?,
+            "qty": 2,
+            "amount": 9243.4986
+          },
+          {
+            "dealer": "LLC \"TC Azimut\"",
+            "series": "VERTU AGENT Q",
+            "qty": 6,
+            "amount": 85762.37799
+          },
+          {
+            "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+            "series": "VERTU ALPHAFOLD",
+            "qty": 1,
+            "amount": 41929
+          },
+          {
+            "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+            "series": "iVERTU",
+            "qty": 3,
+            "amount": 27619.14
+          },
+          {
+            "dealer": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+            "series": "VERTU PHANTOM",
+            "qty": 2,
+            "amount": 5114
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "series": "VERTU ALPHAFOLD",
+            "qty": 3,
+            "amount": 186679.87352999998
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "series": "METAWATCH S1",
+            "qty": 4,
+            "amount": 49661.6832
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "series": "VERTU AGENT Q",
+            "qty": 2,
+            "amount": 47606.0598
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "series": "iVERTU",
+            "qty": 7,
+            "amount": 26158.148100000002
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "series": "VERTU鍏冲績鏅鸿兘鎵嬮摼",
+            "qty": 4,
+            "amount": 12609.411750000001
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "series": "METAVERTU 2",
+            "qty": 4,
+            "amount": 7043.57316
+          },
+          {
+            "dealer": "Safiranhamrah",
+            "series": "VERTU PHANTOM",
+            "qty": 2,
+            "amount": 4327.699860000001
+          },
+          {
+            "dealer": "Sidd Senthil",
+            "series": "棰勫敭铏氭嫙绫?,
+            "qty": 1,
+            "amount": 68056.78995
+          },
+          {
+            "dealer": "T陌VAL陌 Commercial Broker LLC",
+            "series": "棰勫敭铏氭嫙绫?,
+            "qty": 1,
+            "amount": 294076.66679999995
+          },
+          {
+            "dealer": "VMG Communication and Technology Joint Stock Company",
+            "series": "鏉冪泭鏈嶅姟",
+            "qty": 2,
+            "amount": 315422.478
+          },
+          {
+            "dealer": "Veysel Sevis Ltd",
+            "series": "VERTU ALPHAFOLD",
+            "qty": 2,
+            "amount": 65562.1344
+          },
+          {
+            "dealer": "Veysel Sevis Ltd",
+            "series": "VERTU AGENT Q",
+            "qty": 1,
+            "amount": 25634.0322
+          }
+        ],
+        "activations_raw": {}
+      },
+      "truncated": false,
+      "error": null,
+      "permission": [
+        {
+          "type": "data_access_filtered",
+          "scope": "sql_read",
+          "model": null,
+          "tables": [
+            "odoo_sale"
+          ],
+          "row_rules": [
+            {
+              "source": "ai.sql.row.rule",
+              "name": "娴峰娓犻亾",
+              "condition": "閮ㄩ棬id child_of hr.department(1569)",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "\"閮ㄩ棬id\" IN (2130, 2132, 2131, 2227, 2033, 2102, 2104, 2112, 2085, 2114, 2115, 1579, 2039, 1586, 1569, 1577, 2155, 2030, 2059, 2040, 2154, 2166, 2228, 2231, 2223, 2230, 2129)",
+              "effect": "filter"
+            },
+            {
+              "source": "ai.sql.row.rule",
+              "name": "AI涓氬姟",
+              "condition": "閮ㄩ棬id child_of hr.department(2219)",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "\"閮ㄩ棬id\" IN (2243, 2253, 2259, 2268, 2219, 2265, 2266, 2267, 2251, 2250, 2191, 2244, 2254, 2255)",
+              "effect": "filter"
+            },
+            {
+              "source": "ai.sql.row.rule",
+              "name": "涓汉",
+              "condition": "閿€鍞汉鍛?= @name OR 閿€鍞汉鍛?= @login",
+              "condition_type": "sql_dsl_or_domain",
+              "table": "odoo_sale",
+              "effective_condition": "(\"閿€鍞汉鍛榎" = '浠樻豹闃? OR \"閿€鍞汉鍛榎" = 'frank.fu@vertu.cn')",
+              "effect": "filter"
+            }
+          ],
+          "redacted_fields": [],
+          "message": "鏈鏌ヨ鍙楁暟鎹潈闄愮害鏉燂細瀛樺湪鐢熸晥鐨勮绾ц闂鍒欙紝绌虹粨鏋滄垨鍋忓皯鐨勭粨鏋滄湭蹇呬唬琛ㄧ郴缁熶腑娌℃湁鏁版嵁銆?鍙敤 `vertu odoo sql_read rules` 鏌ョ湅 sql_read 闄愬埗锛屾垨鑱旂郴绠＄悊鍛樿皟鏁?SQL 鐧藉悕鍗曘€佽绾ц鍒欍€乮r.rule / ai.sql.sensitive.model 閰嶇疆銆?
+        }
+      ]
+    }
+  },
+  "notices": [
+    {
+      "type": "data_access_filtered",
+      "scope": "sql_read",
+      "model": null,
+      "tables": [
+        "odoo_sale"
+      ],
+      "row_rules": [
+        {
+          "source": "ai.sql.row.rule",
+          "name": "娴峰娓犻亾",
+          "condition": "閮ㄩ棬id child_of hr.department(1569)",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "\"閮ㄩ棬id\" IN (2130, 2132, 2131, 2227, 2033, 2102, 2104, 2112, 2085, 2114, 2115, 1579, 2039, 1586, 1569, 1577, 2155, 2030, 2059, 2040, 2154, 2166, 2228, 2231, 2223, 2230, 2129)",
+          "effect": "filter"
+        },
+        {
+          "source": "ai.sql.row.rule",
+          "name": "AI涓氬姟",
+          "condition": "閮ㄩ棬id child_of hr.department(2219)",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "\"閮ㄩ棬id\" IN (2243, 2253, 2259, 2268, 2219, 2265, 2266, 2267, 2251, 2250, 2191, 2244, 2254, 2255)",
+          "effect": "filter"
+        },
+        {
+          "source": "ai.sql.row.rule",
+          "name": "涓汉",
+          "condition": "閿€鍞汉鍛?= @name OR 閿€鍞汉鍛?= @login",
+          "condition_type": "sql_dsl_or_domain",
+          "table": "odoo_sale",
+          "effective_condition": "(\"閿€鍞汉鍛榎" = '浠樻豹闃? OR \"閿€鍞汉鍛榎" = 'frank.fu@vertu.cn')",
+          "effect": "filter"
+        }
+      ],
+      "redacted_fields": [],
+      "message": "鏈鏌ヨ鍙楁暟鎹潈闄愮害鏉燂細瀛樺湪鐢熸晥鐨勮绾ц闂鍒欙紝绌虹粨鏋滄垨鍋忓皯鐨勭粨鏋滄湭蹇呬唬琛ㄧ郴缁熶腑娌℃湁鏁版嵁銆?鍙敤 `vertu odoo sql_read rules` 鏌ョ湅 sql_read 闄愬埗锛屾垨鑱旂郴绠＄悊鍛樿皟鏁?SQL 鐧藉悕鍗曘€佽绾ц鍒欍€乮r.rule / ai.sql.sensitive.model 閰嶇疆銆?
+    }
+  ]
+}

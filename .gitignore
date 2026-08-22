@@ -39,3 +39,5 @@ team-reports/.tmp/*
 team-reports/config/user.json
 __pycache__/
 *.pyc
+.playwright-cli/
+artifacts/

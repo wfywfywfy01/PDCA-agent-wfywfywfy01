@@ -1,0 +1,5 @@
+FROM ghcr.io/frankie-foo/pdca-workbench:85fa7af4049aa42e1095f0e18b7f926dc7b23112
+COPY app /app/app
+COPY frontend /app/frontend
+COPY migrations /app/migrations
+COPY run.py /app/run.py

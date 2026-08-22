@@ -1,0 +1,1414 @@
+{
+  "as_of": "2026-07-19",
+  "week": [
+    "2026-07-13",
+    "2026-07-19"
+  ],
+  "prod_mtd": {
+    "total": {
+      "amount": 5550937.315170101,
+      "qty": 354.0
+    },
+    "by_major": {
+      "其他": {
+        "amount": 1781687.6318099997,
+        "qty": 48.0
+      },
+      "手机": {
+        "amount": 3580242.87961324,
+        "qty": 123.0
+      },
+      "耳机": {
+        "amount": 29463.57917,
+        "qty": 13.0
+      },
+      "钢笔": {
+        "amount": 23575.005450000004,
+        "qty": 8.0
+      },
+      "皮具": {
+        "amount": 9243.4986,
+        "qty": 5.0
+      },
+      "腕表": {
+        "amount": 80884.01610000001,
+        "qty": 8.0
+      },
+      "腕表辅料": {
+        "amount": 1337.97155,
+        "qty": 2.0
+      },
+      "手机辅料": {
+        "amount": 31170.75092686,
+        "qty": 78.0
+      },
+      "电子配件辅料": {
+        "amount": 0.0,
+        "qty": 56.0
+      },
+      "戒指": {
+        "amount": 0.0,
+        "qty": 2.0
+      },
+      "电子产品配件": {
+        "amount": 722.5702,
+        "qty": 1.0
+      },
+      "手链": {
+        "amount": 12609.41175,
+        "qty": 4.0
+      },
+      "服饰": {
+        "amount": 0.0,
+        "qty": 4.0
+      },
+      "电子配件": {
+        "amount": 0.0,
+        "qty": 2.0
+      }
+    },
+    "buckets": {
+      "alphafold": {
+        "amount": 2323222.401888,
+        "qty": 105.0
+      },
+      "agentq": {
+        "amount": 819827.8396511001,
+        "qty": 41.0
+      },
+      "meta2": {
+        "amount": 10086.923159999998,
+        "qty": 7.0
+      },
+      "meta1": {
+        "amount": 0.0,
+        "qty": 0.0
+      },
+      "ivertu": {
+        "amount": 53777.288100000005,
+        "qty": 10.0
+      }
+    },
+    "iot": {
+      "腕表": {
+        "amount": 80884.01610000001,
+        "qty": 8.0
+      },
+      "钢笔": {
+        "amount": 23575.005450000004,
+        "qty": 8.0
+      },
+      "耳机": {
+        "amount": 29463.57917,
+        "qty": 13.0
+      },
+      "戒指": {
+        "amount": 0.0,
+        "qty": 2.0
+      },
+      "手链": {
+        "amount": 12609.41175,
+        "qty": 4.0
+      }
+    },
+    "by_group": {
+      "于冰组": {
+        "amount": 640347.3187,
+        "qty": 80.0,
+        "buckets": {
+          "alphafold": {
+            "amount": 141256.72242,
+            "qty": 8.0
+          },
+          "agentq": {
+            "amount": 176667.42733,
+            "qty": 8.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 5033.55465,
+            "qty": 2.0
+          },
+          "耳机": {
+            "amount": 1967.1363000000001,
+            "qty": 1.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 2.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "majors": {
+          "其他": {
+            "amount": 315422.478,
+            "qty": 43.0
+          },
+          "手机": {
+            "amount": 313057.14975,
+            "qty": 15.0
+          },
+          "耳机": {
+            "amount": 1967.1363000000001,
+            "qty": 1.0
+          },
+          "钢笔": {
+            "amount": 5033.55465,
+            "qty": 2.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 2.0
+          },
+          "手机辅料": {
+            "amount": 4867.0,
+            "qty": 13.0
+          },
+          "服饰": {
+            "amount": 0.0,
+            "qty": 2.0
+          },
+          "电子配件": {
+            "amount": 0.0,
+            "qty": 2.0
+          }
+        },
+        "people": {
+          "于冰": {
+            "amount": 640347.3187,
+            "qty": 80.0
+          }
+        }
+      },
+      "Lina组": {
+        "amount": 3362685.756716999,
+        "qty": 150.0,
+        "buckets": {
+          "alphafold": {
+            "amount": 1207779.271877,
+            "qty": 32.0
+          },
+          "agentq": {
+            "amount": 423650.9194,
+            "qty": 21.0
+          },
+          "meta2": {
+            "amount": 7043.57316,
+            "qty": 5.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 26158.148100000002,
+            "qty": 7.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 80884.01610000001,
+            "qty": 8.0
+          },
+          "钢笔": {
+            "amount": 18541.450800000002,
+            "qty": 6.0
+          },
+          "耳机": {
+            "amount": 22382.44287,
+            "qty": 10.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 12609.41175,
+            "qty": 4.0
+          }
+        },
+        "majors": {
+          "其他": {
+            "amount": 1219637.9927099997,
+            "qty": 3.0
+          },
+          "皮具": {
+            "amount": 9243.4986,
+            "qty": 5.0
+          },
+          "腕表": {
+            "amount": 80884.01610000001,
+            "qty": 8.0
+          },
+          "腕表辅料": {
+            "amount": 1337.97155,
+            "qty": 2.0
+          },
+          "手机": {
+            "amount": 1985896.2825270004,
+            "qty": 62.0
+          },
+          "电子配件辅料": {
+            "amount": 0.0,
+            "qty": 25.0
+          },
+          "钢笔": {
+            "amount": 18541.450800000002,
+            "qty": 6.0
+          },
+          "手机辅料": {
+            "amount": 11430.11961,
+            "qty": 22.0
+          },
+          "电子产品配件": {
+            "amount": 722.5702,
+            "qty": 1.0
+          },
+          "耳机": {
+            "amount": 22382.44287,
+            "qty": 10.0
+          },
+          "手链": {
+            "amount": 12609.41175,
+            "qty": 4.0
+          },
+          "服饰": {
+            "amount": 0.0,
+            "qty": 2.0
+          }
+        },
+        "people": {
+          "DEHDAHOUMAIMA": {
+            "amount": 2797148.1625469993,
+            "qty": 115.0
+          },
+          "冉城菖": {
+            "amount": 1961.8552800000002,
+            "qty": 0.0
+          },
+          "刘彦麟": {
+            "amount": 1961.8552800000002,
+            "qty": 1.0
+          },
+          "尤文静": {
+            "amount": 561613.88361,
+            "qty": 34.0
+          }
+        }
+      },
+      "杨晶晶组": {
+        "amount": 1547904.2397530999,
+        "qty": 124.0,
+        "buckets": {
+          "alphafold": {
+            "amount": 974186.407591,
+            "qty": 65.0
+          },
+          "agentq": {
+            "amount": 219509.49292110003,
+            "qty": 12.0
+          },
+          "meta2": {
+            "amount": 3043.3499999999995,
+            "qty": 2.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 27619.14,
+            "qty": 3.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 5114.0,
+            "qty": 2.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "majors": {
+          "手机辅料": {
+            "amount": 14873.631316859999,
+            "qty": 43.0
+          },
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "其他": {
+            "amount": 246627.16109999997,
+            "qty": 2.0
+          },
+          "手机": {
+            "amount": 1281289.4473362397,
+            "qty": 46.0
+          },
+          "电子配件辅料": {
+            "amount": 0.0,
+            "qty": 31.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 5114.0,
+            "qty": 2.0
+          }
+        },
+        "people": {
+          "杨晶晶": {
+            "amount": 1276024.7739531,
+            "qty": 109.0
+          },
+          "Zolotar Yuliia": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "陈玉霞": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "何海文": {
+            "amount": 271879.4658,
+            "qty": 15.0
+          }
+        }
+      }
+    },
+    "by_dealer": {
+      "BIN BIN INVESTMENT(CAMBODIA) COLTD": {
+        "amount": 320057.8407,
+        "qty": 17.0,
+        "region": "东南亚",
+        "country": "柬埔寨",
+        "group": "于冰组",
+        "buckets": {
+          "alphafold": {
+            "amount": 141256.72242,
+            "qty": 6.0
+          },
+          "agentq": {
+            "amount": 171800.42733,
+            "qty": 7.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 5033.55465,
+            "qty": 2.0
+          },
+          "耳机": {
+            "amount": 1967.1363000000001,
+            "qty": 1.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "Billionaire Collections": {
+        "amount": 1021004.9999999998,
+        "qty": 7.0,
+        "region": "中东",
+        "country": "阿联酋",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 20399.679900000003,
+            "qty": 3.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "Bizcon Group": {
+        "amount": 12374.579999999998,
+        "qty": 4.0,
+        "region": "中亚",
+        "country": "乌兹别克斯坦",
+        "group": "杨晶晶组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 3043.3499999999995,
+            "qty": 1.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "CONTINENTAL PLUS LLC.": {
+        "amount": 0.0,
+        "qty": 0.0,
+        "region": "中亚",
+        "country": "俄罗斯",
+        "group": "杨晶晶组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "GURU ELECTRONICS SINGAPORE PTE LTD": {
+        "amount": 1002785.029641,
+        "qty": 98.0,
+        "region": "南亚",
+        "country": "印度",
+        "group": "杨晶晶组",
+        "buckets": {
+          "alphafold": {
+            "amount": 801156.962241,
+            "qty": 60.0
+          },
+          "agentq": {
+            "amount": 151757.214309,
+            "qty": 6.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 1.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "HASSIB ABDALLAH AMIR ALLAH": {
+        "amount": 255462.2577,
+        "qty": 20.0,
+        "region": "中东",
+        "country": "伊拉克",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 227677.30830000003,
+            "qty": 6.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 18541.450800000002,
+            "qty": 6.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "LLC \"TC Azimut\"": {
+        "amount": 260865.1643121,
+        "qty": 7.0,
+        "region": "中亚",
+        "country": "俄罗斯",
+        "group": "杨晶晶组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "agentq": {
+            "amount": 67752.2786121,
+            "qty": 6.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "LZB INDIA ELECTRIC PRIVATE LIMITED": {
+        "amount": 74662.14,
+        "qty": 7.0,
+        "region": "南亚",
+        "country": "印度",
+        "group": "杨晶晶组",
+        "buckets": {
+          "alphafold": {
+            "amount": 41929.0,
+            "qty": 1.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 27619.14,
+            "qty": 3.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 5114.0,
+            "qty": 2.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "Luxem Store": {
+        "amount": 266107.6682,
+        "qty": 23.0,
+        "region": "中东",
+        "country": "伊朗",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 159842.1319,
+            "qty": 6.0
+          },
+          "agentq": {
+            "amount": 101909.665,
+            "qty": 5.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "My Shops Electronics Trading LLC": {
+        "amount": 0.0,
+        "qty": 0.0,
+        "region": "中东",
+        "country": "阿塞拜疆",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "Rashid lukman rashid": {
+        "amount": 3923.7105600000004,
+        "qty": 1.0,
+        "region": "中东",
+        "country": "伊拉克",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 3923.7105600000004,
+            "qty": 1.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "Safiranhamrah": {
+        "amount": 385143.5061,
+        "qty": 33.0,
+        "region": "中东",
+        "country": "伊朗",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 228180.32343,
+            "qty": 4.0
+          },
+          "agentq": {
+            "amount": 47606.0598,
+            "qty": 2.0
+          },
+          "meta2": {
+            "amount": 7043.57316,
+            "qty": 4.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 26158.148100000002,
+            "qty": 7.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 49661.6832,
+            "qty": 4.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 4327.699860000001,
+            "qty": 2.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 12609.41175,
+            "qty": 4.0
+          }
+        }
+      },
+      "Sidd Senthil": {
+        "amount": 197217.3258,
+        "qty": 8.0,
+        "region": "南亚",
+        "country": "印度",
+        "group": "杨晶晶组",
+        "buckets": {
+          "alphafold": {
+            "amount": 131100.44535,
+            "qty": 4.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "Taher Jasem": {
+        "amount": 176470.37751,
+        "qty": 1.0,
+        "region": "中东",
+        "country": "伊拉克",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "agentq": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "TİVALİ Commercial Broker LLC": {
+        "amount": 374259.5927999999,
+        "qty": 33.0,
+        "region": "中东",
+        "country": "伊朗",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 131723.25840000002,
+            "qty": 4.0
+          },
+          "agentq": {
+            "amount": 79992.3384,
+            "qty": 3.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 10822.653,
+            "qty": 1.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 2310.87465,
+            "qty": 2.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "VERTU LONDON LTD": {
+        "amount": 689425.522847,
+        "qty": 26.0,
+        "region": "欧洲",
+        "country": "英国",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 329135.661047,
+            "qty": 8.0
+          },
+          "agentq": {
+            "amount": 168508.824,
+            "qty": 10.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 1.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 11820.1578,
+            "qty": 5.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "VMG Communication and Technology Joint Stock Company": {
+        "amount": 320289.478,
+        "qty": 63.0,
+        "region": "东南亚",
+        "country": "越南",
+        "group": "于冰组",
+        "buckets": {
+          "alphafold": {
+            "amount": 0.0,
+            "qty": 2.0
+          },
+          "agentq": {
+            "amount": 4867.0,
+            "qty": 1.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 2.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      },
+      "Veysel Sevis Ltd": {
+        "amount": 190888.12099999998,
+        "qty": 6.0,
+        "region": "中东",
+        "country": "土耳其",
+        "group": "Lina组",
+        "buckets": {
+          "alphafold": {
+            "amount": 131220.5888,
+            "qty": 4.0
+          },
+          "agentq": {
+            "amount": 25634.0322,
+            "qty": 1.0
+          },
+          "meta2": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "meta1": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "ivertu": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        },
+        "iot": {
+          "腕表": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "钢笔": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "耳机": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "戒指": {
+            "amount": 0.0,
+            "qty": 0.0
+          },
+          "手链": {
+            "amount": 0.0,
+            "qty": 0.0
+          }
+        }
+      }
+    },
+    "by_region": {
+      "东南亚": {
+        "amount": 640347.3187,
+        "qty": 80.0,
+        "dealer_count": 2
+      },
+      "中东": {
+        "amount": 2673260.233869999,
+        "qty": 124.0,
+        "dealer_count": 9
+      },
+      "中亚": {
+        "amount": 273239.7443121,
+        "qty": 11.0,
+        "dealer_count": 3
+      },
+      "南亚": {
+        "amount": 1274664.495441,
+        "qty": 113.0,
+        "dealer_count": 3
+      },
+      "欧洲": {
+        "amount": 689425.522847,
+        "qty": 26.0,
+        "dealer_count": 1
+      }
+    }
+  },
+  "prod_week": {
+    "total": {
+      "amount": 2197585.1698499992,
+      "qty": 138.0
+    },
+    "buckets": {
+      "alphafold": {
+        "amount": 1151975.641581,
+        "qty": 69.0
+      },
+      "agentq": {
+        "amount": 183081.64770899998,
+        "qty": 13.0
+      },
+      "meta2": {
+        "amount": -6086.7,
+        "qty": 0.0
+      },
+      "meta1": {
+        "amount": 0.0,
+        "qty": 0.0
+      },
+      "ivertu": {
+        "amount": 0.0,
+        "qty": 0.0
+      }
+    },
+    "iot": {
+      "腕表": {
+        "amount": 31222.3329,
+        "qty": 4.0
+      },
+      "钢笔": {
+        "amount": 0.0,
+        "qty": 0.0
+      },
+      "耳机": {
+        "amount": 2310.87465,
+        "qty": 2.0
+      },
+      "戒指": {
+        "amount": 0.0,
+        "qty": 0.0
+      },
+      "手链": {
+        "amount": 0.0,
+        "qty": 0.0
+      }
+    }
+  }
+}

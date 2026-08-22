@@ -1,0 +1,990 @@
+{
+  "meta": {
+    "as_of": "2026-07-19",
+    "week_label": "2026-W29",
+    "week_start": "2026-07-13",
+    "week_end": "2026-07-19",
+    "month": "2026-07",
+    "mtd_start": "2026-07-01",
+    "mtd_end": "2026-07-19",
+    "prev_month_start": "2026-06-01",
+    "prev_month_end": "2026-06-19",
+    "yoy_start": "2025-07-01",
+    "yoy_end": "2025-07-19",
+    "source": "odoo_sale via vertu sandbox",
+    "currency": "CNY",
+    "unit_note": "金额单位：元；Canvas 展示时换算为万元",
+    "okr_note": "目标来自 2026年7月第二周周报 PPT；三组合计 635万，总目标 695万，差额 60万待确认",
+    "sellout_note": "Sell-out 数据暂缺，本版留空",
+    "attribution": {
+      "primary": "dealer_owner",
+      "ppt": "dealer_minus_non_team",
+      "aligned": "salesperson_aligned",
+      "note": "groups/headline=经销商归属(OKR)；groups_ppt/headline_ppt=对齐PPT组数(剔除非团队记名)；groups_aligned/people=销售人员个人贡献；cross_person=非团队记名(如郑丽苹)",
+      "yoy_note": "同比基期=2025-07-01~2025-07-19，基期金额见各组 yoy_base_amount / headline.yoy_mtd_amount",
+      "furniture_note": "家具大类在 odoo_sale 海外匹配代理商中暂无金额；PPT「货款+家具」需商务台账补家具"
+    }
+  },
+  "headline": {
+    "week_amount": 2197585.17,
+    "mtd_amount": 5634073.92,
+    "prev_month_amount": 7162068.36,
+    "yoy_mtd_amount": 1792551.79,
+    "mom_pct": -21.3,
+    "yoy_pct": 214.3,
+    "okr_target": 6950000.0,
+    "okr_rate": 81.1,
+    "goods_amount": 5634073.92,
+    "furniture_amount": 0.0,
+    "virtual_amount": 1781687.63
+  },
+  "headline_ppt": {
+    "week_amount": 2197585.17,
+    "mtd_amount": 5550937.32,
+    "prev_month_amount": 7106549.74,
+    "yoy_mtd_amount": 1792551.79,
+    "mom_pct": -21.9,
+    "yoy_pct": 209.7,
+    "okr_target": 6950000.0,
+    "okr_rate": 79.9,
+    "cross_person_week": 0,
+    "cross_person_mtd": 83136.61
+  },
+  "headline_aligned": {
+    "week_amount": 2197585.17,
+    "mtd_amount": 5548975.46,
+    "prev_month_amount": 7082016.44,
+    "yoy_mtd_amount": 1664673.6,
+    "mom_pct": -21.6,
+    "yoy_pct": 233.3,
+    "okr_target": 6950000.0,
+    "okr_rate": 79.8,
+    "cross_person_week": 0,
+    "cross_person_mtd": 83136.61
+  },
+  "groups": [
+    {
+      "name": "Lina组",
+      "week_amount": 1721041.3,
+      "mtd_amount": 3362685.76,
+      "prev_month_amount": 4306324.61,
+      "yoy_mtd_amount": 511703.79,
+      "yoy_base_amount": 511703.79,
+      "mom_pct": -21.9,
+      "yoy_pct": 557.2,
+      "okr_target": 2900000.0,
+      "okr_rate": 116.0
+    },
+    {
+      "name": "于冰组",
+      "week_amount": 0.0,
+      "mtd_amount": 705473.82,
+      "prev_month_amount": 1136617.75,
+      "yoy_mtd_amount": 957342.04,
+      "yoy_base_amount": 957342.04,
+      "mom_pct": -37.9,
+      "yoy_pct": -26.3,
+      "okr_target": 1100000.0,
+      "okr_rate": 64.1
+    },
+    {
+      "name": "杨晶晶组",
+      "week_amount": 476543.87,
+      "mtd_amount": 1565914.34,
+      "prev_month_amount": 1719126.0,
+      "yoy_mtd_amount": 323505.96,
+      "yoy_base_amount": 323505.96,
+      "mom_pct": -8.9,
+      "yoy_pct": 384.0,
+      "okr_target": 2350000.0,
+      "okr_rate": 66.6
+    }
+  ],
+  "groups_ppt": [
+    {
+      "name": "Lina组",
+      "week_amount": 1721041.3,
+      "mtd_amount": 3362685.76,
+      "prev_month_amount": 4306324.61,
+      "yoy_mtd_amount": 511703.79,
+      "yoy_base_amount": 511703.79,
+      "mom_pct": -21.9,
+      "yoy_pct": 557.2,
+      "okr_target": 2900000.0,
+      "okr_rate": 116.0
+    },
+    {
+      "name": "于冰组",
+      "week_amount": 0.0,
+      "mtd_amount": 640347.32,
+      "prev_month_amount": 1081099.13,
+      "yoy_mtd_amount": 957342.04,
+      "yoy_base_amount": 957342.04,
+      "mom_pct": -40.8,
+      "yoy_pct": -33.1,
+      "okr_target": 1100000.0,
+      "okr_rate": 58.2
+    },
+    {
+      "name": "杨晶晶组",
+      "week_amount": 476543.87,
+      "mtd_amount": 1547904.24,
+      "prev_month_amount": 1719126.0,
+      "yoy_mtd_amount": 323505.96,
+      "yoy_base_amount": 323505.96,
+      "mom_pct": -10.0,
+      "yoy_pct": 378.5,
+      "okr_target": 2350000.0,
+      "okr_rate": 65.9
+    }
+  ],
+  "groups_aligned": [
+    {
+      "name": "Lina组",
+      "week_amount": 1721041.3,
+      "mtd_amount": 3360723.9,
+      "prev_month_amount": 4318598.19,
+      "yoy_mtd_amount": 372979.54,
+      "yoy_base_amount": 372979.54,
+      "mom_pct": -22.2,
+      "yoy_pct": 801.0,
+      "okr_target": 2900000.0,
+      "okr_rate": 115.9
+    },
+    {
+      "name": "于冰组",
+      "week_amount": 0.0,
+      "mtd_amount": 640347.32,
+      "prev_month_amount": 1081099.13,
+      "yoy_mtd_amount": 841034.63,
+      "yoy_base_amount": 841034.63,
+      "mom_pct": -40.8,
+      "yoy_pct": -23.9,
+      "okr_target": 1100000.0,
+      "okr_rate": 58.2
+    },
+    {
+      "name": "杨晶晶组",
+      "week_amount": 476543.87,
+      "mtd_amount": 1547904.24,
+      "prev_month_amount": 1682319.12,
+      "yoy_mtd_amount": 450659.42,
+      "yoy_base_amount": 450659.42,
+      "mom_pct": -8.0,
+      "yoy_pct": 243.5,
+      "okr_target": 2350000.0,
+      "okr_rate": 65.9
+    }
+  ],
+  "people": [
+    {
+      "name": "Lina",
+      "group": "Lina组",
+      "week_amount": 1465014.21,
+      "mtd_amount": 2797148.16,
+      "owner_week_amount": 1641484.59,
+      "owner_mtd_amount": 2977542.25
+    },
+    {
+      "name": "杨晶晶",
+      "group": "杨晶晶组",
+      "week_amount": 476543.87,
+      "mtd_amount": 1276024.77,
+      "owner_week_amount": 476543.87,
+      "owner_mtd_amount": 1368697.01
+    },
+    {
+      "name": "于冰",
+      "group": "于冰组",
+      "week_amount": 0.0,
+      "mtd_amount": 640347.32,
+      "owner_week_amount": 0.0,
+      "owner_mtd_amount": 705473.82
+    },
+    {
+      "name": "尤文静",
+      "group": "Lina组",
+      "week_amount": 256027.09,
+      "mtd_amount": 561613.88,
+      "owner_week_amount": 0.0,
+      "owner_mtd_amount": 0.0
+    },
+    {
+      "name": "何海文",
+      "group": "杨晶晶组",
+      "week_amount": 0.0,
+      "mtd_amount": 271879.47,
+      "owner_week_amount": 0.0,
+      "owner_mtd_amount": 197217.33
+    },
+    {
+      "name": "刘彦麟",
+      "group": "Lina组",
+      "week_amount": 0.0,
+      "mtd_amount": 1961.86,
+      "owner_week_amount": 0.0,
+      "owner_mtd_amount": 0.0
+    },
+    {
+      "name": "Viki",
+      "group": "Lina组",
+      "week_amount": 0.0,
+      "mtd_amount": 0.0,
+      "owner_week_amount": 79556.71,
+      "owner_mtd_amount": 385143.51
+    },
+    {
+      "name": "Vivi",
+      "group": "杨晶晶组",
+      "week_amount": 0.0,
+      "mtd_amount": 0.0,
+      "owner_week_amount": 0.0,
+      "owner_mtd_amount": 0.0
+    }
+  ],
+  "cross_person": {
+    "week": [],
+    "mtd": [
+      {
+        "salesperson": "郑丽苹",
+        "amount": 65126.51,
+        "period": "mtd"
+      },
+      {
+        "salesperson": "陈晓霜",
+        "amount": 18010.1,
+        "period": "mtd"
+      }
+    ],
+    "unknown_week": {},
+    "unknown_mtd": {
+      "冉城菖": 1961.86,
+      "陈玉霞": 0.0,
+      "Zolotar Yuliia": 0.0
+    }
+  },
+  "regions_mtd": [
+    {
+      "region": "中东",
+      "amount": 2673260.23
+    },
+    {
+      "region": "南亚",
+      "amount": 1274664.5
+    },
+    {
+      "region": "东南亚",
+      "amount": 705473.82
+    },
+    {
+      "region": "欧洲",
+      "amount": 689425.52
+    },
+    {
+      "region": "中亚",
+      "amount": 291249.84
+    }
+  ],
+  "top_dealers_mtd": [
+    {
+      "name": "Billionaire Collections",
+      "amount": 1021005.0,
+      "lines": 8,
+      "sales": "Lina",
+      "group": "Lina组",
+      "region": "中东",
+      "country": "阿联酋"
+    },
+    {
+      "name": "GURU ELECTRONICS SINGAPORE PTE LTD",
+      "amount": 1002785.03,
+      "lines": 42,
+      "sales": "杨晶晶",
+      "group": "杨晶晶组",
+      "region": "南亚",
+      "country": "印度"
+    },
+    {
+      "name": "VERTU LONDON LTD",
+      "amount": 689425.52,
+      "lines": 17,
+      "sales": "Lina",
+      "group": "Lina组",
+      "region": "欧洲",
+      "country": "英国"
+    },
+    {
+      "name": "BIN BIN INVESTMENT(CAMBODIA) COLTD",
+      "amount": 385184.35,
+      "lines": 19,
+      "sales": "于冰",
+      "group": "于冰组",
+      "region": "东南亚",
+      "country": "柬埔寨"
+    },
+    {
+      "name": "Safiranhamrah",
+      "amount": 385143.51,
+      "lines": 23,
+      "sales": "Viki",
+      "group": "Lina组",
+      "region": "中东",
+      "country": "伊朗"
+    },
+    {
+      "name": "TİVALİ Commercial Broker LLC",
+      "amount": 374259.59,
+      "lines": 24,
+      "sales": "Lina",
+      "group": "Lina组",
+      "region": "中东",
+      "country": "伊朗"
+    },
+    {
+      "name": "VMG Communication and Technology Joint Stock Company",
+      "amount": 320289.48,
+      "lines": 17,
+      "sales": "于冰",
+      "group": "于冰组",
+      "region": "东南亚",
+      "country": "越南"
+    },
+    {
+      "name": "LLC \"TC Azimut\"",
+      "amount": 278875.26,
+      "lines": 11,
+      "sales": "杨晶晶",
+      "group": "杨晶晶组",
+      "region": "中亚",
+      "country": "俄罗斯"
+    },
+    {
+      "name": "Luxem Store",
+      "amount": 266107.67,
+      "lines": 13,
+      "sales": "Lina",
+      "group": "Lina组",
+      "region": "中东",
+      "country": "伊朗"
+    },
+    {
+      "name": "HASSIB ABDALLAH AMIR ALLAH",
+      "amount": 255462.26,
+      "lines": 10,
+      "sales": "Lina",
+      "group": "Lina组",
+      "region": "中东",
+      "country": "伊拉克"
+    },
+    {
+      "name": "Sidd Senthil",
+      "amount": 197217.33,
+      "lines": 5,
+      "sales": "何海文",
+      "group": "杨晶晶组",
+      "region": "南亚",
+      "country": "印度"
+    },
+    {
+      "name": "Veysel Sevis Ltd",
+      "amount": 190888.12,
+      "lines": 6,
+      "sales": "Lina",
+      "group": "Lina组",
+      "region": "中东",
+      "country": "土耳其"
+    },
+    {
+      "name": "Taher Jasem",
+      "amount": 176470.38,
+      "lines": 1,
+      "sales": "Lina",
+      "group": "Lina组",
+      "region": "中东",
+      "country": "伊拉克"
+    },
+    {
+      "name": "LZB INDIA ELECTRIC PRIVATE LIMITED",
+      "amount": 74662.14,
+      "lines": 6,
+      "sales": "杨晶晶",
+      "group": "杨晶晶组",
+      "region": "南亚",
+      "country": "印度"
+    },
+    {
+      "name": "Bizcon Group",
+      "amount": 12374.58,
+      "lines": 4,
+      "sales": "杨晶晶",
+      "group": "杨晶晶组",
+      "region": "中亚",
+      "country": "乌兹别克斯坦"
+    }
+  ],
+  "matched_dealers_mtd": 18,
+  "configured_dealers": 39,
+  "products": {
+    "mtd_majors": [
+      {
+        "major": "手机",
+        "amount": 3663150.75
+      },
+      {
+        "major": "其他",
+        "amount": 1781687.63
+      },
+      {
+        "major": "腕表",
+        "amount": 80884.02
+      },
+      {
+        "major": "手机辅料",
+        "amount": 31399.48
+      },
+      {
+        "major": "耳机",
+        "amount": 29463.58
+      },
+      {
+        "major": "钢笔",
+        "amount": 23575.01
+      },
+      {
+        "major": "手链",
+        "amount": 12609.41
+      },
+      {
+        "major": "皮具",
+        "amount": 9243.5
+      },
+      {
+        "major": "腕表辅料",
+        "amount": 1337.97
+      },
+      {
+        "major": "电子产品配件",
+        "amount": 722.57
+      },
+      {
+        "major": "服饰",
+        "amount": 0.0
+      },
+      {
+        "major": "电子配件辅料",
+        "amount": 0.0
+      },
+      {
+        "major": "戒指",
+        "amount": 0.0
+      },
+      {
+        "major": "电子配件",
+        "amount": 0.0
+      }
+    ],
+    "mtd_series": [
+      {
+        "major": "手机",
+        "series": "VERTU ALPHAFOLD",
+        "amount": 2388348.91,
+        "lines": 53,
+        "orders": 8
+      },
+      {
+        "major": "其他",
+        "series": "预售虚拟类",
+        "amount": 1273152.27,
+        "lines": 24,
+        "orders": 8
+      },
+      {
+        "major": "手机",
+        "series": "VERTU AGENT Q",
+        "amount": 830818.33,
+        "lines": 34,
+        "orders": 4
+      },
+      {
+        "major": "其他",
+        "series": "权益服务",
+        "amount": 508535.36,
+        "lines": 3,
+        "orders": 0
+      },
+      {
+        "major": "手机",
+        "series": "VERTU QUANTUM",
+        "amount": 210245.35,
+        "lines": 9,
+        "orders": 2
+      },
+      {
+        "major": "手机",
+        "series": "SIGNATURE S",
+        "amount": 179960.88,
+        "lines": 1,
+        "orders": 0
+      },
+      {
+        "major": "腕表",
+        "series": "METAWATCH S1",
+        "amount": 80884.02,
+        "lines": 13,
+        "orders": 6
+      },
+      {
+        "major": "手机",
+        "series": "iVERTU",
+        "amount": 53777.29,
+        "lines": 8,
+        "orders": 1
+      },
+      {
+        "major": "腕表",
+        "series": "VERTU 机械腕表-水晶款",
+        "amount": 44190.46,
+        "lines": 1,
+        "orders": 1
+      },
+      {
+        "major": "耳机",
+        "series": "VERTU PHANTOM",
+        "amount": 29463.58,
+        "lines": 8,
+        "orders": 2
+      },
+      {
+        "major": "钢笔",
+        "series": "灵蛇钢笔",
+        "amount": 23575.01,
+        "lines": 3,
+        "orders": 1
+      },
+      {
+        "major": "手链",
+        "series": "VERTU关心智能手链",
+        "amount": 12609.41,
+        "lines": 3,
+        "orders": 1
+      },
+      {
+        "major": "手机辅料",
+        "series": "METAVERTU 2",
+        "amount": 10086.92,
+        "lines": 5,
+        "orders": 2
+      },
+      {
+        "major": "手机辅料",
+        "series": "VERTU IRONFLIP",
+        "amount": 9331.23,
+        "lines": 3,
+        "orders": 1
+      },
+      {
+        "major": "皮具",
+        "series": "手拿包",
+        "amount": 9243.5,
+        "lines": 2,
+        "orders": 2
+      },
+      {
+        "major": "手机辅料",
+        "series": "VERTU AGENT Q",
+        "amount": 7019.61,
+        "lines": 8,
+        "orders": 1
+      },
+      {
+        "major": "手机辅料",
+        "series": "VERTU QUANTUM",
+        "amount": 2746.29,
+        "lines": 3,
+        "orders": 2
+      },
+      {
+        "major": "手机辅料",
+        "series": "Signature 4G",
+        "amount": 2215.43,
+        "lines": 1,
+        "orders": 0
+      },
+      {
+        "major": "腕表辅料",
+        "series": "METAWATCH S1",
+        "amount": 1027.81,
+        "lines": 1,
+        "orders": 1
+      },
+      {
+        "major": "电子产品配件",
+        "series": "数据线",
+        "amount": 722.57,
+        "lines": 1,
+        "orders": 0
+      }
+    ],
+    "week_series": [
+      {
+        "major": "手机",
+        "series": "VERTU ALPHAFOLD",
+        "amount": 1151975.64,
+        "lines": 23,
+        "orders": 3
+      },
+      {
+        "major": "其他",
+        "series": "预售虚拟类",
+        "amount": 676917.82,
+        "lines": 12,
+        "orders": 5
+      },
+      {
+        "major": "手机",
+        "series": "VERTU AGENT Q",
+        "amount": 183081.65,
+        "lines": 9,
+        "orders": 3
+      },
+      {
+        "major": "手机",
+        "series": "VERTU QUANTUM",
+        "amount": 149410.47,
+        "lines": 7,
+        "orders": 1
+      },
+      {
+        "major": "腕表",
+        "series": "VERTU 机械腕表-水晶款",
+        "amount": 44190.46,
+        "lines": 1,
+        "orders": 1
+      },
+      {
+        "major": "腕表",
+        "series": "METAWATCH S1",
+        "amount": 31222.33,
+        "lines": 4,
+        "orders": 2
+      },
+      {
+        "major": "手机辅料",
+        "series": "VERTU IRONFLIP",
+        "amount": 6086.7,
+        "lines": 1,
+        "orders": 1
+      },
+      {
+        "major": "耳机",
+        "series": "VERTU PHANTOM",
+        "amount": 2310.87,
+        "lines": 2,
+        "orders": 1
+      },
+      {
+        "major": "手机辅料",
+        "series": "VERTU QUANTUM",
+        "amount": 1638.58,
+        "lines": 1,
+        "orders": 1
+      },
+      {
+        "major": "腕表辅料",
+        "series": "METAWATCH S1",
+        "amount": 1027.81,
+        "lines": 1,
+        "orders": 1
+      },
+      {
+        "major": "皮具",
+        "series": "皮带",
+        "amount": 0.0,
+        "lines": 1,
+        "orders": 0
+      },
+      {
+        "major": "戒指",
+        "series": "VERTU AI 水晶智能戒指",
+        "amount": 0.0,
+        "lines": 2,
+        "orders": 1
+      },
+      {
+        "major": "电子配件辅料",
+        "series": "充电器",
+        "amount": 0.0,
+        "lines": 7,
+        "orders": 4
+      },
+      {
+        "major": "手机辅料",
+        "series": "VERTU ALPHAFOLD",
+        "amount": 0.0,
+        "lines": 2,
+        "orders": 0
+      },
+      {
+        "major": "服饰",
+        "series": "领带",
+        "amount": 0.0,
+        "lines": 1,
+        "orders": 0
+      }
+    ],
+    "high_ticket_mtd": [
+      {
+        "major": "手机",
+        "series": "VERTU ALPHAFOLD",
+        "amount": 2388348.91,
+        "lines": 53,
+        "orders": 8,
+        "avg_per_order": 298543.61
+      },
+      {
+        "major": "手机",
+        "series": "VERTU AGENT Q",
+        "amount": 830818.33,
+        "lines": 34,
+        "orders": 4,
+        "avg_per_order": 207704.58
+      },
+      {
+        "major": "手机",
+        "series": "VERTU QUANTUM",
+        "amount": 210245.35,
+        "lines": 9,
+        "orders": 2,
+        "avg_per_order": 105122.68
+      },
+      {
+        "major": "手机",
+        "series": "SIGNATURE S",
+        "amount": 179960.88,
+        "lines": 1,
+        "orders": 0,
+        "avg_per_order": 179960.88
+      },
+      {
+        "major": "手机",
+        "series": "iVERTU",
+        "amount": 53777.29,
+        "lines": 8,
+        "orders": 1,
+        "avg_per_order": 53777.29
+      }
+    ],
+    "by_group_mtd": [
+      {
+        "group": "Lina组",
+        "major": "其他",
+        "series": "预售虚拟类",
+        "amount": 1219637.99,
+        "lines": 11
+      },
+      {
+        "group": "Lina组",
+        "major": "手机",
+        "series": "VERTU ALPHAFOLD",
+        "amount": 1207779.27,
+        "lines": 29
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "手机",
+        "series": "VERTU ALPHAFOLD",
+        "amount": 974186.41,
+        "lines": 16
+      },
+      {
+        "group": "Lina组",
+        "major": "手机",
+        "series": "VERTU AGENT Q",
+        "amount": 422587.51,
+        "lines": 13
+      },
+      {
+        "group": "于冰组",
+        "major": "其他",
+        "series": "权益服务",
+        "amount": 315422.48,
+        "lines": 2
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "手机",
+        "series": "VERTU AGENT Q",
+        "amount": 236430.38,
+        "lines": 12
+      },
+      {
+        "group": "于冰组",
+        "major": "手机",
+        "series": "VERTU ALPHAFOLD",
+        "amount": 206383.23,
+        "lines": 8
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "其他",
+        "series": "权益服务",
+        "amount": 193112.89,
+        "lines": 1
+      },
+      {
+        "group": "Lina组",
+        "major": "手机",
+        "series": "SIGNATURE S",
+        "amount": 179960.88,
+        "lines": 1
+      },
+      {
+        "group": "于冰组",
+        "major": "手机",
+        "series": "VERTU AGENT Q",
+        "amount": 171800.43,
+        "lines": 9
+      },
+      {
+        "group": "Lina组",
+        "major": "手机",
+        "series": "VERTU QUANTUM",
+        "amount": 149410.47,
+        "lines": 7
+      },
+      {
+        "group": "Lina组",
+        "major": "腕表",
+        "series": "METAWATCH S1",
+        "amount": 80884.02,
+        "lines": 7
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "手机",
+        "series": "VERTU QUANTUM",
+        "amount": 60834.88,
+        "lines": 2
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "其他",
+        "series": "预售虚拟类",
+        "amount": 53514.28,
+        "lines": 13
+      },
+      {
+        "group": "Lina组",
+        "major": "腕表",
+        "series": "VERTU 机械腕表-水晶款",
+        "amount": 44190.46,
+        "lines": 1
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "手机",
+        "series": "iVERTU",
+        "amount": 27619.14,
+        "lines": 3
+      },
+      {
+        "group": "Lina组",
+        "major": "手机",
+        "series": "iVERTU",
+        "amount": 26158.15,
+        "lines": 5
+      },
+      {
+        "group": "Lina组",
+        "major": "耳机",
+        "series": "VERTU PHANTOM",
+        "amount": 22382.44,
+        "lines": 6
+      },
+      {
+        "group": "Lina组",
+        "major": "钢笔",
+        "series": "灵蛇钢笔",
+        "amount": 18541.45,
+        "lines": 1
+      },
+      {
+        "group": "Lina组",
+        "major": "手链",
+        "series": "VERTU关心智能手链",
+        "amount": 12609.41,
+        "lines": 3
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "手机辅料",
+        "series": "VERTU IRONFLIP",
+        "amount": 9331.23,
+        "lines": 2
+      },
+      {
+        "group": "Lina组",
+        "major": "皮具",
+        "series": "手拿包",
+        "amount": 9243.5,
+        "lines": 2
+      },
+      {
+        "group": "Lina组",
+        "major": "手机辅料",
+        "series": "METAVERTU 2",
+        "amount": 7043.57,
+        "lines": 2
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "耳机",
+        "series": "VERTU PHANTOM",
+        "amount": 5114.0,
+        "lines": 1
+      },
+      {
+        "group": "于冰组",
+        "major": "钢笔",
+        "series": "灵蛇钢笔",
+        "amount": 5033.55,
+        "lines": 2
+      },
+      {
+        "group": "于冰组",
+        "major": "手机辅料",
+        "series": "VERTU AGENT Q",
+        "amount": 4867.0,
+        "lines": 3
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "手机辅料",
+        "series": "METAVERTU 2",
+        "amount": 3043.35,
+        "lines": 3
+      },
+      {
+        "group": "Lina组",
+        "major": "手机辅料",
+        "series": "Signature 4G",
+        "amount": 2215.43,
+        "lines": 1
+      },
+      {
+        "group": "于冰组",
+        "major": "耳机",
+        "series": "VERTU PHANTOM",
+        "amount": 1967.14,
+        "lines": 1
+      },
+      {
+        "group": "杨晶晶组",
+        "major": "手机辅料",
+        "series": "VERTU QUANTUM",
+        "amount": 1638.58,
+        "lines": 1
+      }
+    ]
+  }
+}

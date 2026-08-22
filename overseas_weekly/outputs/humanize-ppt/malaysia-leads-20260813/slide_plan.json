@@ -1,0 +1,171 @@
+[
+  {
+    "slide_id": "S01",
+    "role": "hook",
+    "title": "马来现在没有客户",
+    "message": "62 条线索。进行中 6。客户 0。S7 之前一律叫线索。",
+    "visible_content": [
+      "可跟进 62 = 手册 32 ∪ 获客净增 13 ∪ 金山净增 17",
+      "进行中 6：Amy / John / SWAP / Pavilion / Genting / KLCC",
+      "8 场录音 7/14–16 · 467min · 客户 0 · 马来 SI=0 · L2=0 · 试铺=0 · 五件套=0",
+      "于冰 7 月 ¥1,265,468.52、8/1–13 ¥968,982.06 是越柬存量，检索 DirectD / SWITCH / KLCC = 0"
+    ],
+    "speaker_intent": "先把「客户」这个词从桌上拿掉。220 万不能证明马来。",
+    "media": {
+      "image": {"needed": false, "kind": "none"},
+      "diagram": {
+        "needed": true,
+        "kind": "html-table",
+        "purpose": "四格数字：62 / 6 / 8 / 0",
+        "slot": "hook-metrics",
+        "asset_path": null,
+        "prompt_hint": "Inline HTML metrics, no stock photo. Confidential board numbers."
+      },
+      "video": {"needed": false, "kind": "none"}
+    },
+    "layout_hint": "S01-cover-hero",
+    "recommended_renderer": "majesty-html-house"
+  },
+  {
+    "slide_id": "S02",
+    "role": "context",
+    "title": "线索从哪来，三类怎么分",
+    "message": "承接方 ≠ 场地方 ≠ 生态。入库不是触达。",
+    "visible_content": [
+      "承接方：Amy S4 · John S5 · SWAP S5。Ezwan / Lawrence / Marcus / Chin / Adeline / Stacey 仍 S1。SWAP 非签约主体",
+      "场地方：KLCC S6 · Pavilion / Genting S5 · TRX Delia S2。Shawn / Chris / Ai Lin 公司有会 ≠ 该人已触达",
+      "生态：本周可发 Hour Glass · Cortina Ming Hon · ACCCIM · MCCC。Senheng / Zitron 冻结",
+      "手册 32 底表；获客 CSV 30 行净增 13；金山 /S/21 MY34 净增 17；总抓取 MY75 与 6/23·6/26 原件停 S0",
+      "S1=52：Cc 6 · 本周可发 5 · 冻结 41。Red Army 邮箱在新加坡，不计入马来 13"
+    ],
+    "speaker_intent": "建立共同账本。点名三类，点名 S1 不群发。",
+    "media": {
+      "image": {"needed": false, "kind": "none"},
+      "diagram": {
+        "needed": true,
+        "kind": "html-table",
+        "purpose": "三类分池 + 来源批次表",
+        "slot": "context-diagram-21x9",
+        "asset_path": null,
+        "prompt_hint": "Three-pool cards plus source table. No decorative image."
+      },
+      "video": {"needed": false, "kind": "none"}
+    },
+    "layout_hint": "S04-context-system",
+    "recommended_renderer": "majesty-html-house"
+  },
+  {
+    "slide_id": "S03",
+    "role": "tension",
+    "title": "录音在，不等于已经签",
+    "message": "能证明漏斗存在。不能证明马来已有客户。",
+    "visible_content": [
+      "可以证明：8 场录音 + Amy 7/24「Kindly send me the relevant info」+ KLCC 7/31 书面 RM70k/月或 15% GTO · 10/12。最高 KLCC S6",
+      "不能证明：试铺 / MOU 签署 / 五件套 / 按国拆激活。L2=0 · 马来 SI=0",
+      "DirectD 分享标题 ≠ Amy 到场。John=S5 ≠ SWITCH 全员。场地方书面 ≠ 代理已成",
+      "出差周 Cursor 空。Ivan Cursor 停 7/24。6/12 日报是 API 测试样例",
+      "200+ 台/年、USD 3.5–5K、18% 净利润、H2 155 万 = 口述/测算/目标。越南月均 USD 16–22 万不是马来 sell-out"
+    ],
+    "speaker_intent": "切断旧理解。能证明和不能证明各说一句，停住。",
+    "media": {
+      "image": {"needed": false, "kind": "none"},
+      "diagram": {
+        "needed": true,
+        "kind": "html-table",
+        "purpose": "能证明 / 不能证明 / 怎么管 三栏对照",
+        "slot": "tension-comparison",
+        "asset_path": null,
+        "prompt_hint": "Three-column contradiction. No stock photo."
+      },
+      "video": {"needed": false, "kind": "none"}
+    },
+    "layout_hint": "S06-tension-comparison",
+    "recommended_renderer": "majesty-html-house"
+  },
+  {
+    "slide_id": "S04",
+    "role": "method",
+    "title": "按联系人升阶段，毕业才改口",
+    "message": "池 → 事前 → 事中 → 难点 → 意愿。只认发送 / 回复 / 纪要 / 书面。",
+    "visible_content": [
+      "晋级只认发送记录 / 对方回复 / 会议纪要 / 书面。不认感觉谁好。公司有会 ≠ 该联系人已触达",
+      "毕业公式：S7 试铺或签约发生，才改口叫客户",
+      "事前：6/17–29 尽调种子；7/08 H2 OKR 目标 Genting+Pavilion 155 万；7/23 CSV；8/13 金山 /S/21",
+      "金山表内已回不升阶段。Ian lim 表写暂无兴趣，不升 S4。Amy CSV 快照仍写否，以 7/24 回邮为准"
+    ],
+    "speaker_intent": "给出格子。下一页把 8 场放进格子，这一页不念录音。",
+    "media": {
+      "image": {"needed": false, "kind": "none"},
+      "diagram": {
+        "needed": true,
+        "kind": "svg-html",
+        "purpose": "五格逻辑线 + 毕业公式",
+        "slot": "method-diagram-21x9",
+        "asset_path": null,
+        "prompt_hint": "Five-step lineage plus graduation formula. Skip Remotion."
+      },
+      "video": {"needed": false, "kind": "none"}
+    },
+    "layout_hint": "S07-process-21x9",
+    "recommended_renderer": "majesty-html-house"
+  },
+  {
+    "slide_id": "S05",
+    "role": "proof",
+    "title": "8 场原文，未签约",
+    "message": "录音可点开。对方说了利润和铺位，没有签字。",
+    "visible_content": [
+      "7/14 SWAP 布局 54min 1d939024：利润七八；赚不到就不做；非签约主体",
+      "7/14 SWAP 零售 24min 4c58a03d：premium 不接受卖了再算",
+      "7/14 DirectD 标题 48min 6cc96a48：纪要是选址+越南销售；Amy 只认 7/24 邮件",
+      "7/15 Pavilion 54min d8ca9b58：暂无铺、waiting list、主体未拍",
+      "7/15 Genting 落位 59min e547d52e + 参观 65min e478833d：WhatsApp 群原文待确认",
+      "7/16 KLCC 68min d11b354d：口述 200+ 台/年；书面在 7/31",
+      "7/16 SWITCH 95min 997cda36：John=S5；Lawrence/Marcus/Chin 仍 S1",
+      "「GTO十五有点高，其实可以往下谈。」KLCC 书面是 7/31 事后文件，不是当场签下"
+    ],
+    "speaker_intent": "点两个链接示范。读一句利润、一句无铺。停。非法务意见。",
+    "media": {
+      "image": {"needed": false, "kind": "none"},
+      "diagram": {
+        "needed": true,
+        "kind": "html-table",
+        "purpose": "8 场录音表 + 原文摘句。链接即证据。",
+        "slot": "proof-diagram-21x9",
+        "asset_path": null,
+        "prompt_hint": "Evidence is the table and quotes. Do not generate fake screenshots or Remotion."
+      },
+      "video": {"needed": false, "kind": "none"}
+    },
+    "layout_hint": "S12-proof-metrics",
+    "recommended_renderer": "majesty-html-house"
+  },
+  {
+    "slide_id": "S06",
+    "role": "takeaway",
+    "title": "本周只推能升一级的",
+    "message": "漏斗 52-3-1-1-4-1-0。最小闭环 Amy + KLCC + Delia。不要 52 条群发。",
+    "visible_content": [
+      "S1 52 不群发 · S2 3 Delia/Valiram/Damien · S3 1 Machines 失联不重启 · S4 1 仅 Amy · S5 4 John/SWAP/Pavilion/Genting · S6 1 仅 KLCC · S7 0",
+      "P0 Amy 资料包+线上 MOU → S5；KLCC ROI+经营主体书面（仍是线索）；Delia 租赁邮件发出 → S3",
+      "P1 John 30min ROI → S6 或淘汰；Pavilion 材料 / Genting 口头转 LOI → S6；Damien+Valiram probe → S3",
+      "8 月拍板：DirectD 线上 vs SWITCH 双店；市区以 KLCC 为准、Pavilion 并行；经营主体",
+      "缺口：WhatsApp 群原文、Amy 以外邮件全文、总抓取 MY75 未分池、200+ 台无法按国复核、8 月 Cursor/Vemory 空"
+    ],
+    "speaker_intent": "要拍板，不要再加名单。客户从 S7 才开始。",
+    "media": {
+      "image": {"needed": false, "kind": "none"},
+      "diagram": {
+        "needed": true,
+        "kind": "html-table",
+        "purpose": "七段漏斗 + 本周动作 + ASK",
+        "slot": "takeaway-funnel",
+        "asset_path": null,
+        "prompt_hint": "Funnel strip plus P0/P1 table. S7 empty/danger."
+      },
+      "video": {"needed": false, "kind": "none"}
+    },
+    "layout_hint": "S22-takeaway",
+    "recommended_renderer": "majesty-html-house"
+  }
+]

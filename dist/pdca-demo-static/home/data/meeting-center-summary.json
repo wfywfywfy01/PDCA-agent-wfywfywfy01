@@ -1,0 +1,22 @@
+[
+  {
+    "key": "total",
+    "label": "总会议数",
+    "value": 2
+  },
+  {
+    "key": "interview",
+    "label": "面试会议",
+    "value": 0
+  },
+  {
+    "key": "report",
+    "label": "汇报会议",
+    "value": 0
+  },
+  {
+    "key": "customer",
+    "label": "客户会议",
+    "value": 2
+  }
+]

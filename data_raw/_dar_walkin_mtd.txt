@@ -1,0 +1,30 @@
+Dar Al Sabaek | month=2026-07 | today=2026-07-23 | records=22
+MTD: days=22 first=2026-07-01 last=2026-07-22
+total=29 walkin=29 cross=0 online=0 recruit=0 existing=0
+touch=14 use=0 wechat=0 deal=1 amt=5380.0
+
+date	walkin	cross	online	recruit	existing	total	touch	use	wechat	deal	amt	by
+2026-07-01	2	0	0	0	0	2	0	0	0	0	0.0	DarAlSabaek
+2026-07-02	3	0	0	0	0	3	0	0	0	0	0.0	DarAlSabaek
+2026-07-03	2	0	0	0	0	2	2	0	0	0	0.0	DarAlSabaek
+2026-07-04	1	0	0	0	0	1	1	0	0	0	0.0	DarAlSabaek
+2026-07-05	1	0	0	0	0	1	0	0	0	1	5380.0	DarAlSabaek
+2026-07-06	1	0	0	0	0	1	0	0	0	0	0.0	DarAlSabaek
+2026-07-07	2	0	0	0	0	2	1	0	0	0	0.0	DarAlSabaek
+2026-07-08	0	0	0	0	0	0	0	0	0	0	0.0	DarAlSabaek
+2026-07-09	1	0	0	0	0	1	0	0	0	0	0.0	DarAlSabaek
+2026-07-10	3	0	0	0	0	3	2	0	0	0	0.0	DarAlSabaek
+2026-07-11	0	0	0	0	0	0	0	0	0	0	0.0	DarAlSabaek
+2026-07-12	2	0	0	0	0	2	1	0	0	0	0.0	DarAlSabaek
+2026-07-13	1	0	0	0	0	1	0	0	0	0	0.0	DarAlSabaek
+2026-07-14	0	0	0	0	0	0	0	0	0	0	0.0	DarAlSabaek
+2026-07-15	0	0	0	0	0	0	0	0	0	0	0.0	DarAlSabaek
+2026-07-16	1	0	0	0	0	1	1	0	0	0	0.0	DarAlSabaek
+2026-07-17	4	0	0	0	0	4	2	0	0	0	0.0	DarAlSabaek
+2026-07-18	2	0	0	0	0	2	1	0	0	0	0.0	DarAlSabaek
+2026-07-19	0	0	0	0	0	0	0	0	0	0	0.0	DarAlSabaek
+2026-07-20	1	0	0	0	0	1	1	0	0	0	0.0	DarAlSabaek
+2026-07-21	1	0	0	0	0	1	1	0	0	0	0.0	DarAlSabaek
+2026-07-22	1	0	0	0	0	1	1	0	0	0	0.0	DarAlSabaek
+
+missing: 2026-07-23

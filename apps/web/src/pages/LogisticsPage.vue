@@ -37,8 +37,37 @@ interface Me {
   role: string
 }
 
+type Board = 'dealer' | 'freight'
+
+interface FreightSummary {
+  total: number
+  in_transit: number
+  exception: number
+  review: number
+  delivered: number
+  labeled: number
+}
+
+interface FreightItem {
+  order_no: string
+  sf_tracking_no: string
+  tracking_no: string
+  carrier: string
+  salesperson: string
+  consignee: string
+  country: string
+  status: string
+  lifecycle: string
+  exception: string
+  match_level: string
+  match_evidence: string
+  last_event: string
+  needs_review: boolean
+}
+
 const router = useRouter()
 const me = ref<Me | null>(null)
+const board = ref<Board>('dealer')
 const dates = ref<string[]>([])
 const date = ref('all')
 const status = ref('all')
@@ -106,6 +135,69 @@ const STATUS_TABS = [
 ]
 
 const CARRIERS = ['UPS', 'FedEx', 'DHL', 'SF']
+const FREIGHT_TABS = [
+  { value: 'all', label: '全部' },
+  { value: 'review', label: '待复核' },
+  { value: 'exception', label: '异常' },
+]
+
+const freightView = ref('all')
+const freightQ = ref('')
+const freightSummary = ref<FreightSummary | null>(null)
+const freightItems = ref<FreightItem[]>([])
+const freightAvailable = ref(true)
+const freightBusy = ref(false)
+const freightError = ref('')
+const freightMsg = ref('')
+const confirmSf = ref('')
+const confirmReason = ref('')
+const confirmBusy = ref(false)
+
+/**
+ * 当前账号能否复核跨境货代。
+ * @returns {boolean}
+ */
+function canReviewFreight(): boolean {
+  return !!me.value && ['sales', 'manager', 'admin'].includes(me.value.role)
+}
+
+/**
+ * 打开某票的复核输入。
+ * @param {FreightItem} item
+ */
+function startConfirm(item: FreightItem) {
+  confirmSf.value = item.sf_tracking_no
+  confirmReason.value = ''
+}
+
+/**
+ * 提交 C 级/待人工确认。
+ * @param {FreightItem} item
+ */
+async function submitConfirm(item: FreightItem) {
+  const reason = confirmReason.value.trim()
+  if (reason.length < 2) {
+    freightError.value = '确认原因至少 2 个字'
+    return
+  }
+  confirmBusy.value = true
+  freightError.value = ''
+  freightMsg.value = ''
+  try {
+    await apiPost('/api/logistics/freight/confirm', {
+      sf_tracking_no: item.sf_tracking_no,
+      reason,
+    })
+    freightMsg.value = `已确认 ${item.sf_tracking_no}`
+    confirmSf.value = ''
+    confirmReason.value = ''
+    await loadFreight()
+  } catch (err) {
+    freightError.value = err instanceof HttpError ? err.detail : '复核失败'
+  } finally {
+    confirmBusy.value = false
+  }
+}
 
 function params() {
   const p = new URLSearchParams()
@@ -192,8 +284,43 @@ onMounted(() => {
     .catch(() => undefined)
 })
 
+async function loadFreight() {
+  freightBusy.value = true
+  freightError.value = ''
+  const p = new URLSearchParams()
+  if (freightView.value !== 'all') p.set('view', freightView.value)
+  if (freightQ.value.trim()) p.set('q', freightQ.value.trim())
+  try {
+    const payload = await apiGet<{
+      available: boolean
+      summary: FreightSummary
+      items: FreightItem[]
+    }>(`/api/logistics/freight?${p.toString()}`)
+    freightAvailable.value = payload.available
+    freightSummary.value = payload.summary
+    freightItems.value = payload.items
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 401) {
+      router.replace({ path: '/login', query: { next: '/logistics' } })
+      return
+    }
+    freightError.value = err instanceof HttpError ? err.detail : '货代台账加载失败'
+  } finally {
+    freightBusy.value = false
+  }
+}
+
 watch([date, status, q], () => {
-  load()
+  if (board.value === 'dealer') load()
+})
+watch([freightView, freightQ], () => {
+  if (board.value === 'freight') loadFreight()
+})
+watch(board, (next) => {
+  if (next === 'freight') loadFreight()
+})
+watch(me, (value) => {
+  if (value?.role === 'dealer' && board.value === 'freight') board.value = 'dealer'
 })
 </script>
 
@@ -203,10 +330,10 @@ watch([date, status, q], () => {
     <header class="head">
       <div>
         <h1>物流中心</h1>
-        <p class="sub">运单进度 · 异常核查 · 实时追踪（数据来自数据库）</p>
+        <p class="sub">{{ board === 'freight' ? '日升货代预报 · 面单匹配 · 异常复核' : '经销商运单进度 · 异常核查 · 实时追踪' }}</p>
       </div>
       <button
-        v-if="me && (me.role === 'sales' || me.role === 'manager' || me.role === 'admin')"
+        v-if="board === 'dealer' && me && (me.role === 'sales' || me.role === 'manager' || me.role === 'admin')"
         class="btn btn-primary"
         type="button"
         @click="showEntry = true"
@@ -215,8 +342,21 @@ watch([date, status, q], () => {
       </button>
     </header>
 
+    <div class="tabs board-tabs">
+      <button type="button" :class="['tab', { active: board === 'dealer' }]" @click="board = 'dealer'">经销商运单</button>
+      <button
+        v-if="!me || me.role !== 'dealer'"
+        type="button"
+        :class="['tab', { active: board === 'freight' }]"
+        @click="board = 'freight'"
+      >
+        跨境货代
+      </button>
+    </div>
+
     <p v-if="entrySuccess" class="entry-msg ok">{{ entrySuccess }}</p>
 
+    <template v-if="board === 'dealer'">
     <section class="toolbar card">
       <label>
         批次
@@ -317,6 +457,76 @@ watch([date, status, q], () => {
           {{ trackResult.error || trackResult.status_text || trackResult.text || '无结果' }}
         </div>
       </section>
+    </template>
+    </template>
+
+    <template v-if="board === 'freight'">
+      <p v-if="freightMsg" class="entry-msg ok">{{ freightMsg }}</p>
+      <section class="toolbar card">
+        <div class="tabs">
+          <button
+            v-for="tab in FREIGHT_TABS"
+            :key="tab.value"
+            type="button"
+            :class="['tab', { active: freightView === tab.value }]"
+            @click="freightView = tab.value"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+        <input v-model="freightQ" class="input search" type="search" placeholder="搜索订单号/顺丰/国际单/录单人…" />
+      </section>
+      <div v-if="freightError" class="card state error">{{ freightError }}</div>
+      <p v-else-if="freightBusy" class="card state">加载货代台账…</p>
+      <p v-else-if="!freightAvailable" class="card state">货代台账还没同步。等服务器 09:00/15:00 跑完 logibot，或容器里执行 python /app/logibot/bot.py run。</p>
+      <template v-else>
+        <section v-if="freightSummary" class="stats">
+          <div class="card stat"><span class="k">总票</span><span class="v">{{ freightSummary.total }}</span></div>
+          <div class="card stat"><span class="k">运输/清关</span><span class="v">{{ freightSummary.in_transit }}</span></div>
+          <div class="card stat"><span class="k">异常</span><span class="v warn">{{ freightSummary.exception }}</span></div>
+          <div class="card stat"><span class="k">待复核</span><span class="v warn">{{ freightSummary.review }}</span></div>
+          <div class="card stat"><span class="k">已出国际单</span><span class="v">{{ freightSummary.labeled }}</span></div>
+          <div class="card stat"><span class="k">已签收</span><span class="v ok">{{ freightSummary.delivered }}</span></div>
+        </section>
+        <section class="cards">
+          <article v-for="item in freightItems" :key="item.sf_tracking_no" class="card shipment">
+            <div class="ship-head">
+              <span class="tracking">{{ item.order_no || item.sf_tracking_no }}</span>
+              <span class="badge-carrier">{{ item.carrier || '—' }}</span>
+              <span v-if="item.match_level" :class="['judge', item.match_level === 'C' ? 'j-bad' : item.match_level === 'B' ? 'j-warn' : 'j-ok']">
+                Level {{ item.match_level }}
+              </span>
+              <span :class="['judge', item.exception ? 'j-bad' : item.status === '签收已确认' ? 'j-ok' : 'j-transit']">
+                {{ item.exception || item.status || '—' }}
+              </span>
+            </div>
+            <div class="meta">
+              <span><b>顺丰</b>{{ item.sf_tracking_no }}</span>
+              <span><b>国际单</b>{{ item.tracking_no || '—' }}</span>
+              <span><b>录单人</b>{{ item.salesperson || '—' }}</span>
+              <span><b>目的地</b>{{ item.consignee || '—' }} {{ item.country }}</span>
+            </div>
+            <p v-if="item.last_event" class="reason">{{ item.last_event }}</p>
+            <p v-if="item.match_evidence" class="reason">证据 {{ item.match_evidence }}</p>
+            <div v-if="item.needs_review && canReviewFreight()" class="confirm-row">
+              <template v-if="confirmSf === item.sf_tracking_no">
+                <input
+                  v-model="confirmReason"
+                  class="input"
+                  placeholder="确认原因（必填）"
+                  @keyup.enter="submitConfirm(item)"
+                />
+                <button class="btn btn-primary" type="button" :disabled="confirmBusy" @click="submitConfirm(item)">
+                  {{ confirmBusy ? '提交中…' : '提交' }}
+                </button>
+                <button class="btn" type="button" @click="confirmSf = ''">取消</button>
+              </template>
+              <button v-else class="btn btn-primary" type="button" @click="startConfirm(item)">确认关联</button>
+            </div>
+          </article>
+          <p v-if="!freightBusy && !freightItems.length" class="empty">当前筛选下没有货代运单</p>
+        </section>
+      </template>
     </template>
 
     <div v-if="showEntry" class="modal-backdrop" @click.self="showEntry = false">
@@ -431,6 +641,10 @@ h2 {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.board-tabs {
+  margin: 0 0 14px;
 }
 
 .tab {
@@ -617,6 +831,24 @@ h2 {
 
 .actions {
   margin-top: 10px;
+}
+
+.actions a,
+.actions .btn {
+  font-size: 13px;
+}
+
+.confirm-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.confirm-row .input {
+  flex: 1;
+  min-width: 180px;
 }
 
 .actions a {

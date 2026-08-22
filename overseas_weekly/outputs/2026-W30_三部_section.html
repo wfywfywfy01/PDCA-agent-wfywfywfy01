@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>海外经销商 2026-W30 · 经销商三部</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#F0EFEB;--ink:#1C1C1A;--muted:#8F8E88;--faint:#C6C5BF;--grid:#DEDDD6}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);font-family:'Inter','PingFang SC','Microsoft YaHei',sans-serif;
+    color:var(--ink);padding:40px;-webkit-font-smoothing:antialiased}
+  .sheet{max-width:1100px;margin:0 auto}
+  .nav{display:flex;gap:2px;margin-bottom:26px;border-bottom:1px solid var(--grid);flex-wrap:wrap}
+  .nav a{font-size:11.5px;font-weight:700;letter-spacing:.04em;color:var(--muted);
+    text-decoration:none;padding:9px 18px;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .nav a:hover{color:var(--ink)}
+  .nav a.on{color:var(--ink);border-bottom-color:var(--ink)}
+  .nav .sp{flex:1}
+  .nav .tag{font-size:9px;font-weight:600;letter-spacing:.14em;color:var(--faint);
+    text-transform:uppercase;padding:12px 0}
+  .sec-head{margin-bottom:24px}
+  .sec-eyebrow{font-size:9.5px;font-weight:600;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+  .sec-title{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-top:6px}
+  .sec-lede{font-size:12.5px;color:var(--muted);margin-top:8px;max-width:66ch;line-height:1.65}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--grid);margin:22px 0 28px}
+  .kpi{background:var(--bg);padding:16px 18px}
+  .kpi .l{font-size:9px;font-weight:600;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+  .kpi .v{font-size:25px;font-weight:800;letter-spacing:-.03em;margin-top:7px;font-variant-numeric:tabular-nums}
+  .kpi .n{font-size:10px;color:var(--muted);margin-top:3px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .card{background:var(--bg);border-radius:24px;padding:26px 26px 18px}
+  .card.wide{grid-column:1/-1}
+  h2{font-weight:700;font-size:16.5px;letter-spacing:-.02em;margin-bottom:3px}
+  .sub{font-size:11.5px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+  .src{font-size:9.5px;color:var(--faint);margin-top:8px;letter-spacing:.08em;font-weight:500}
+  svg{width:100%;display:block;margin:0 auto}
+  .band{margin-top:30px;border-top:1px solid var(--grid);padding-top:22px}
+  .band h3{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+    text-align:left;padding:0 12px 8px 0;border-bottom:1px solid var(--grid)}
+  td{padding:9px 12px 9px 0;border-bottom:1px solid var(--grid);color:#4A4944}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;padding-right:20px}
+  td:last-child,th:last-child{padding-right:0}
+  td b{font-weight:700;color:var(--ink)}
+  .zero td{color:#B0AFA9}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-top:6px}
+  .who-name{font-size:12.5px;font-weight:700;margin-bottom:5px}
+  .who-name span{font-size:10px;font-weight:600;color:var(--muted);margin-left:8px}
+  ul{list-style:none;font-size:11.5px;line-height:1.7;color:#4A4944}
+  li{padding-left:13px;position:relative;margin-bottom:2px}
+  li::before{content:'';position:absolute;left:0;top:9px;width:5px;height:1px;background:#B0AFA9}
+  .risks{margin-top:26px;padding:16px 20px;border-left:2px solid var(--ink)}
+  .risks ol{font-size:11.5px;line-height:1.8;color:#4A4944;padding-left:16px}
+  .risks li{padding-left:0}
+  .risks li::before{display:none}
+  .risks b{font-weight:700;color:var(--ink)}
+  .pop{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.7,.3,1.3) both}
+  @keyframes pop{from{transform:scale(0)}to{transform:none}}
+  .fade{animation:fade .9s ease both}
+  @keyframes fade{from{opacity:0}}
+  .draw{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1s cubic-bezier(.4,0,.2,1) both}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @media (prefers-reduced-motion:reduce){.pop,.fade{animation:none}
+    .draw{animation:none;stroke-dasharray:none;stroke-dashoffset:0}}
+  @media (max-width:900px){.grid2,.cols{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}}
+  @media print{.card,table{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="nav">
+    <a class="tab" href="W30_经销商总体_周报.html">总体</a>
+    <a class="tab" href="W30_经销商一部_周报.html">经销商一部</a>
+    <a class="tab" href="W30_经销商二部_周报.html">经销商二部</a>
+    <a class="tab on" href="W30_经销商三部_周报.html">经销商三部</a>
+    <a class="tab" href="W30_经销商新部_周报.html">经销商新部</a>
+    <a class="tab" href="W30_经销商中台_周报.html">海外中台</a>
+    <span class="sp"></span>
+    <span class="tag">2026-W30 · 07/20–07/26</span>
+  </div>
+
+<!--SEC-START-->
+  <div class="sec-head">
+    <div class="sec-eyebrow">2026-W30 · 07/20–07/26 · 编制 2 人</div>
+    <div class="sec-title">经销商三部</div>
+    <div class="sec-lede">四个部里唯一大幅超额：450.97 万 / 290 万，达成 155.5%，超出 160.97 万。但 86.6% 业绩集中在 Lina 一人，关键人依赖极高；本周 115.09 万、环比 −33%。</div>
+  </div>
+
+  <div class="kpis">
+      <div class="kpi"><div class="l">本周销售</div><div class="v">115.09</div><div class="n">万元 · 上周 172.10 · 环比 −33%</div></div>
+      <div class="kpi"><div class="l">月累计</div><div class="v">450.97</div><div class="n">万元 · 目标 290.0 万</div></div>
+      <div class="kpi"><div class="l">达成率</div><div class="v">155.5%</div><div class="n">超额 160.97 万</div></div>
+      <div class="kpi"><div class="l">W5 待收款</div><div class="v">137</div><div class="n">万元 · 下周预计收款（PPT）</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>月达成 155.5%，四个部里最高</h2>
+      <div class="sub">1 tick = 目标的 1%（2.90 万）· 墨色 = 已达成 · 刻度到 160% · 虚线 = 100% 目标位 </div>
+      <svg id="d3_gauge" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="src">TICK GAUGE · MONO-BASIC · 月度目标达成</div>
+    </div>
+    <div class="card">
+      <h2>八成七业绩压在一个人身上</h2>
+      <div class="sub">淡色 = 上周 · 墨色 = 本周 · 一档 = 8 万元 · 部门仅 2 人编制</div>
+      <svg id="d3_pairrungs" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="src">PAIRED RUNGS · MONO-BASIC · 周度对比 07-13~19 vs 07-20~26</div>
+    </div>
+    <div class="card">
+      <h2>AQ 本周放量 7.5 倍，成第一产品线</h2>
+      <div class="sub">1 tick = 5 万元 · 月累计 07-01~26 · 行尾为金额（万元）与本周变化</div>
+      <svg id="d3_tickrows" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="src">TICK ROWS · MONO-BASIC · 产品线月累计</div>
+    </div>
+    <div class="card">
+      <h2>阿联酋一家占四成四，中东欧洲两条线</h2>
+      <div class="sub">1 点 = 1%（4.51 万）· 按客户归集 · 合计 450.97 万</div>
+      <svg id="d3_hundredfield" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="src">HUNDRED FIELD · MONO-LUPI · 客户档案归属</div>
+    </div>
+    <div class="card wide">
+      <h2>二十三家里十五家整月零出货</h2>
+      <div class="sub">左列 = 三部名下全部 23 家经销商 · 实线 = 本月有出货 · 虚线 = 零动销 · 覆盖率 8/23 = 35%（三部门最低）</div>
+      <svg id="d3_colonnade" viewBox="0 0 400 320" preserveAspectRatio="xMidYMid meet" style="max-width:820px"></svg>
+      <div class="src">TYPE COLONNADE · MONO-LUPI · 经销商动销覆盖 07-01~26</div>
+    </div>
+  </div>
+
+  <div class="band">
+    <h3>产品分布结构（月销 &gt;5 万）</h3>
+    <table>
+      <thead><tr><th>产品线</th><th class="n">月累计（万）</th><th class="n">占比</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><b>AQ · AGENT Q</b></td><td class="n">186.2</td><td class="n">41%</td><td>Lina 181.5 万 + 尤文静 4.8 万 · 本周放量约 7 倍（已剔 Safae 6.4 万）</td></tr>
+        <tr><td><b>AF · ALPHAFOLD</b></td><td class="n">141.5</td><td class="n">31%</td><td>本周 8 件 20.7 万 · 环比 −59%</td></tr>
+        <tr><td><b>VERTU QUANTUM</b></td><td class="n">69.9</td><td class="n">15%</td><td>本周 25 件 54.8 万 · 1 单</td></tr>
+        <tr><td><b>SIGNATURE S</b></td><td class="n">26.3</td><td class="n">6%</td><td>月 3 件 / 2 单</td></tr>
+        <tr><td><b>METAWATCH S1</b></td><td class="n">8.2</td><td class="n">2%</td><td>月 8 件 / 6 单</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>高定专项</b>　三部高定 50.7 万，占渠道高定 66 万的 77%，四个部里唯一成规模：AF 高定 3 件 / 24.1 万、AQ 高定 4 件 / 21.8 万、Meta1 高定 1 件 / 4.8 万。</div>
+  </div>
+
+  <div class="band">
+    <h3>「未知客户」拆解 · 定金 / 尾款 / 漏填</h3>
+    <div class="sub" style="margin-bottom:14px">未知客户 380.9 万拆解如下 · 定金在途占 49%，漏填档案占 51%</div>
+    <table>
+      <thead><tr><th>类型</th><th class="n">金额（万）</th><th class="n">占未知客户</th><th>明细</th></tr></thead>
+      <tbody>
+        <tr><td><b>【定金】</b></td><td class="n">179.5</td><td class="n">47%</td><td>纯定金单 7 笔（7-01~7-20）：Lina 6 笔 161.8 万、尤文静 1 笔 17.6 万</td></tr>
+        <tr><td><b>【含定金条目】</b></td><td class="n">7.9</td><td class="n">2%</td><td>混合单</td></tr>
+        <tr><td><b>【常规订单·档案未填】</b></td><td class="n">193.5</td><td class="n">51%</td><td>普通订单客户来源「未填写」</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>Lina 161.8 万定金在途，全渠道最大未闭环资金池</b>　Lina 一人 6 笔定金合计 161.8 万（7-01 / 7-10 / 7-14 / 7-15 / 7-16 / 7-20），是全渠道最大的未闭环资金池，建议优先逐笔核对转单核销进度。</div>
+  </div>
+
+  <div class="band">
+    <h3>Viki（尤文静）线 · BD 与终销（本人周报）</h3>
+    <div class="sub" style="margin-bottom:14px">Viki 个人 OKR 80 万 / 已完成 60 万 / 75%，缺口 20 万</div>
+    <table>
+      <thead><tr><th>来源</th><th>类型</th><th class="n">金额（万）</th><th>进展</th></tr></thead>
+      <tbody>
+        <tr><td><b>伊朗 Saffiran</b></td><td>存量代理</td><td class="n">39</td><td>终销强、日更配合度高；距 L2 仅差约 $27k，正谈约 $50k 补货</td></tr>
+        <tr><td><b>伊拉克 Rebaz</b></td><td>新增客户</td><td class="n">21</td><td>ALPHAFOLD + 配件已付款发货；合同待回传签署</td></tr>
+        <tr><td><b>合计</b></td><td>—</td><td class="n">60</td><td>完成率 75%，距 OKR 目标还差 20 万</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>新增线索与风险</b>　亚美尼亚：奢侈品腕表街已提 2 个铺位，但位置在 B1、品牌格调存在风险，需与 Jim 统一落位标准后再定装修方案。巴林/沙特 Asia Jewellers：已触达 CEO 并提交提案，等反馈。Blueprint / Eyed（前 Kooheji 9 年运营，GCC 关系强）表态感兴趣，待与合伙人商量。科威特：Avenues SIS 已开业但终销仍弱（近期仅 1 台），现任总监推进过慢，IronFlip 清库持续无反馈，需总部级决策介入。</div>
+  </div>
+
+  <div class="band">
+    <h3>Saffiran 终销结构（7/1–7/25，USD）</h3>
+    <div class="sub" style="margin-bottom:14px">手机 25 台 / $165.5k，配件 8 件 / $6.5k，合计 $172.1k · 不含 8 个公休日与 2 个 No Sales 日</div>
+    <table>
+      <thead><tr><th>维度</th><th>分项</th><th class="n">台数 / 件数</th><th class="n">销售额（USD）</th><th class="n">占比</th></tr></thead>
+      <tbody>
+        <tr><td><b>产品线</b></td><td>ALPHAFOLD</td><td class="n">5</td><td class="n">$71,080</td><td class="n">43%</td></tr>
+        <tr><td><b>产品线</b></td><td>Agent Q</td><td class="n">11</td><td class="n">$62,540</td><td class="n">38%</td></tr>
+        <tr><td><b>产品线</b></td><td>Quantum</td><td class="n">5</td><td class="n">$22,700</td><td class="n">14%</td></tr>
+        <tr><td><b>产品线</b></td><td>Meta1</td><td class="n">4</td><td class="n">$9,200</td><td class="n">6%</td></tr>
+        <tr><td><b>客源</b></td><td>Online</td><td class="n">10</td><td class="n">$75,860</td><td class="n">46%</td></tr>
+        <tr><td><b>客源</b></td><td>Walk-in</td><td class="n">10</td><td class="n">$47,280</td><td class="n">29%</td></tr>
+        <tr><td><b>客源</b></td><td>Referral</td><td class="n">4</td><td class="n">$38,080</td><td class="n">23%</td></tr>
+        <tr><td><b>客源</b></td><td>Regular</td><td class="n">1</td><td class="n">$4,300</td><td class="n">3%</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px;padding:12px 16px;border-left:2px solid var(--ink);font-size:11.5px;line-height:1.7;color:#4A4944"><b>量额背离，补货应偏高价</b>　Agent Q 占台数 44% 但销售额只占 38%（均价 $5,685），是走量主力；ALPHAFOLD 仅 5 台却贡献 43% 销售额（均价 $14,216），是创收主力，其中含 Himalaya 单笔 $33k。Referral 仅 4 台却贡献 $38k，是高定主通道，值得单独经营。$50k 补货建议优先 Agent Q + ALPHAFOLD，控制 Meta1 占比（均价仅 $2,300）。</div>
+  </div>
+
+  <div class="band">
+    <h3>本周出货与下周收款线索</h3>
+    <div class="sub" style="margin-bottom:14px">本周出货 161.7 万 · 中东 142 万占 88%、欧洲 19.7 万占 12%</div>
+    <table>
+      <thead><tr><th>国家</th><th>经销商</th><th class="n">下周收款线索（元）</th><th class="n">本周已录单（元）</th><th>备注</th></tr></thead>
+      <tbody>
+        <tr><td><b>阿联酋</b></td><td>Billionaire Collections</td><td class="n">965,993</td><td class="n">1,256,680</td><td>全渠道第一大客户</td></tr>
+        <tr><td><b>伊朗</b></td><td>Luxem</td><td class="n">413,976</td><td class="n">—</td><td></td></tr>
+        <tr><td><b>英国</b></td><td>VERTU LONDON LTD（Wiji）</td><td class="n">130,642</td><td class="n">115,264</td><td>环比 +68%</td></tr>
+        <tr><td><b>伊拉克</b></td><td>Taher Jasem</td><td class="n">40,672</td><td class="n">—</td><td></td></tr>
+        <tr><td><b>荷兰</b></td><td>Cuprum Management BV</td><td class="n">35,531</td><td class="n">—</td><td>新客户，高定试订单</td></tr>
+        <tr><td><b>土耳其</b></td><td>Safin Ahmed lssa</td><td class="n">30,630</td><td class="n">—</td><td>新客户，高定试订单</td></tr>
+        <tr><td><b>合计</b></td><td></td><td class="n">1,617,444</td><td class="n">1,371,944</td><td>W5 待收款约 137 万</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="band">
+    <h3>新客户跟进（Lina 提报）</h3>
+    <div class="sub" style="margin-bottom:14px">三个国家的新代理洽谈，均处于 MOU / 试单阶段</div>
+    <table>
+      <thead><tr><th>国家</th><th>客户</th><th>背景</th><th>最新进展</th></tr></thead>
+      <tbody>
+        <tr><td><b>沙特</b></td><td>Ahmed Walid Naghi</td><td>家族拥有多家酒店和广告公司</td><td>已提供 ROI，客户需 double check；落位 Kingdom Centre Boutique，MOU 签署中</td></tr>
+        <tr><td><b>土耳其</b></td><td>Nejman / Interstar</td><td>汽车设备生意（北非、伊拉克、叙利亚及部分欧洲），VARTA 等品牌分销</td><td>希望作为土耳其独家代理，落位伊斯坦布尔</td></tr>
+        <tr><td><b>荷兰</b></td><td>Cuprum Management BV</td><td>有宾利、劳斯莱斯客户资源</td><td>已下单 AGENT Q ×1 测试技术，预计开 2–3 家店中店；荷兰/比利时下周开会</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="band">
+    <h3>本周订单流水</h3>
+    <table>
+      <thead><tr><th>日期</th><th>销售</th><th>类型</th><th class="n">金额（万）</th><th>内容</th></tr></thead>
+      <tbody>
+        <tr><td>7-20</td><td>DEHDA</td><td>订单+赠品</td><td class="n"><b>62.57</b></td><td>本周最大单：METAVERTU 黑巴黎钉鳄鱼皮黄金 V 标等高定机型 + 赠品</td></tr>
+        <tr><td>7-20</td><td>DEHDA</td><td>换货</td><td class="n"><b>34.03</b></td><td>AQ 银品质套装（木质胡桃原木等）批量换货</td></tr>
+        <tr><td>7-22</td><td>DEHDA</td><td>订单</td><td class="n">13.06</td><td>SIGNATURE S 白钢墨玉黑（UK）+ AQ 银品质套装</td></tr>
+        <tr><td>7-21</td><td>尤文静</td><td>换货</td><td class="n">4.07</td><td>AI 钻戒 2 代套盒等</td></tr>
+        <tr><td>7-20</td><td>DEHDA</td><td>订单</td><td class="n">1.36</td><td>代理商定金</td></tr>
+        <tr class="zero"><td>7-20 / 7-23 / 7-24</td><td>DEHDA</td><td>换货 / 赠品 / 退货</td><td class="n">0</td><td>AQ 鳄鱼皮玄铁黑 55 件换货、Quantum 陈列道具、METAVERTU2 基础款 12 件、AF 酒红绗缝 4 件退货</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="band">
+    <h3>会议与出勤</h3>
+    <table>
+      <thead><tr><th>人员</th><th class="n">会议场次</th><th class="n">总时长</th><th class="n">产生待办</th><th class="n">日报提交</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><b>Lina（DEHDAHOUMAIMA）</b></td><td class="n">0</td><td class="n">—</td><td class="n">—</td><td class="n">5/5</td><td>全勤，但整周无 Vemory 记录</td></tr>
+        <tr><td><b>尤文静（Viki）</b></td><td class="n">10</td><td class="n">6.5 h</td><td class="n">66</td><td class="n">4/5</td><td>7-22 未交</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="band">
+    <h3>区域进展</h3>
+    <div class="cols">
+      <div>
+        <div class="who-name">中东多国<span>DEHDAHOUMAIMA 主责 · 尤文静协同</span></div>
+        <ul>
+          <li>迪拜：AlphaFold 新单约 17–18 万美元（客户确认周一 7-27 付款）+ 50 台耳机订单；7-20 已收 14.2 万美元；催 OP 加速备货</li>
+          <li>英国：伦敦新单 6 台月内付款，另 3 台及 1.92 万美元已全款；协调家具问题、提供技术报告</li>
+          <li>伊朗：6 台 Meta1 清库订单确认（本周收款）；Shayan 洽谈 Meta2 清库；已提供选品清单与折扣</li>
+          <li>伊拉克：3.2 万美元合同汇款到账（尤文静确认并同步财务）；协助清关；下一单洽谈中</li>
+          <li>科威特：IronFlip 库存处理陷僵局，无法修复，需与对方老板明确处理方案</li>
+          <li>巴林 / 荷兰 / 阿塞拜疆：Asia Jewellery 提案预约、授权书 + ROI 测算、社媒高清素材</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="band">
+    <h3>下周计划</h3>
+    <div class="cols">
+      <div>
+        <div class="who-name">Lina · 收款与新客户</div>
+        <ul>
+          <li>迪拜 Billionaire AF 单周一收款（17–18 万美元），全盘最大变量</li>
+          <li>英国 VERTU LONDON 6 台月内付款；伊朗 6 台 Meta1 本周收款</li>
+          <li>沙特 Ahmed Walid Naghi：MOU 签署推进，Kingdom Centre Boutique 落位</li>
+          <li>荷兰 Cuprum / 比利时：下周开会，推进 2–3 家店中店</li>
+          <li>土耳其 Interstar 独代方案洽谈</li>
+          <li>阿塞拜疆、科威特本月未提货，需重点跟进</li>
+        </ul>
+      </div>
+      <div>
+        <div class="who-name">尤文静 · 承接本周待办</div>
+        <ul>
+          <li>伊拉克新客户合同签订</li>
+          <li>五国线索触达、Eyed 触达</li>
+          <li>伊朗 Saffiran 跟进</li>
+          <li>巴林 Asia Jewellery 提案跟进</li>
+          <li>催 Sell-out 数据补录</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="band">
+    <h3>亮点和不足</h3>
+    <div style="font-size:13.5px;font-weight:800;letter-spacing:-.01em;margin-bottom:14px;padding-left:13px;border-left:2px solid var(--ink)">达成 155.5% 四个部第一；高定 50.7 万占渠道 77%</div>
+    <div class="cols">
+      <div>
+        <div class="who-name">亮点</div>
+        <ul>
+          <li>达成率 155.5%，四个部第一，超额 160.9 万</li>
+          <li>高定专项 50.7 万，占渠道高定盘子 77%，是唯一成规模做高定的部门</li>
+          <li>AQ 本周放量约 7.5 倍（150.2 万），成为本周第一大产品线</li>
+          <li>产品线最宽：AQ + AF + QUANTUM 三线占 88%，IOT 也已多点开单</li>
+          <li>迪拜 AF 新单 17–18 万美元锁定周一付款；7-20 已收 14.2 万美元</li>
+          <li>尤文静 10 场会议 / 66 项待办，过程留痕最完整</li>
+        </ul>
+      </div>
+      <div>
+        <div class="who-name">不足</div>
+        <ul>
+          <li>关键人依赖极高：86.6% 业绩集中在 Lina 一人</li>
+          <li>Lina 整周 Vemory 零记录，扛最多业绩的人过程完全没沉淀</li>
+          <li>经销商覆盖仅 35%，四个部最低——23 家里 15 家整月零出货，欧洲 8 家仅 1 家在动</li>
+          <li>预售虚拟类两周 ±100 万级波动（上周 +95.4 万、本周 −118.4 万）</li>
+          <li>科威特 IronFlip 清库僵局未解；中东线下会推迟至 9 月</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="risks">
+    <ol>
+      <li><b>关键人依赖极高</b>　86.6% 业绩集中在 Lina（DEHDAHOUMAIMA）一人（390.7 万 / 450.9 万）。其收款节点（周一迪拜 AF 单 17–18 万美元）是部门乃至全盘下周最大变量。</li>
+      <li><b>经销商覆盖仅 35%，四部门最低</b>　名下 23 家只有 8 家出货，15 家整月零动销。欧洲 8 家仅 VERTU LONDON 一家在动；中东 15 家动销 7 家。</li>
+      <li><b>预售虚拟类两周大幅波动</b>　上周 +95.4 万、本周 −118.4 万，录单规范性需关注；剔除后本周动销平稳。</li>
+      <li><b>Lina 整周无 Vemory 记录</b>　扛起 86.6% 业绩的人整周零会议记录，客户沟通过程无法沉淀，属于流程盲区。相比之下尤文静 10 场 / 66 待办，两人过程留痕差距悬殊。</li>
+      <li><b>Lina 161.8 万定金在途未闭环</b>　Lina 一人 6 笔纯定金合计 161.8 万（7-01 ~ 7-20），是全渠道最大的未闭环资金池。叠加其 86.6% 的业绩占比与整周零 Vemory 记录，单点风险三重叠加，建议优先逐笔核对转单核销。</li>
+      <li><b>科威特 IronFlip 僵局</b>　无法修复且未解，中东线下会推迟至 9 月，部分项目节奏放缓。</li>
+    </ol>
+  </div>
+
+  <div class="band" style="border-top:none;padding-top:14px">
+    <div style="font-size:10px;color:var(--faint);letter-spacing:.06em;line-height:1.7">
+      下周计划 —— Lina：迪拜 AF 单周一收款、英国 6 台月内付款、伊朗 6 台 Meta1 本周收款、40 支钢笔产能确认、科威特提案官方反馈；尤文静：伊拉克新客户合同签订、五国线索触达、Eyed 触达、伊朗 Saffiran。<br>
+      海外渠道经销商周报 · 2026 年第 30 周 · 生成于 2026-07-27
+    </div>
+  </div>
+<!--SEC-END-->
+
+</div>
+
+<script>
+
+const INK='#1C1C1A', PAPER='#F0EFEB', MUTED='#8F8E88', GRID='#DEDDD6';
+const LAD=["#1C1C1A", "#4A4944", "#6A6963", "#8F8E88", "#B0AFA9", "#C6C5BF", "#D8D7D1"];
+const rnd=(i,k)=>Math.abs(((i*73856093)^(k*19349663))%1000)/1000;
+const D2R=Math.PI/180;
+const pol=(cx,cy,r,deg)=>[cx+r*Math.cos(deg*D2R), cy+r*Math.sin(deg*D2R)];
+const NS='http://www.w3.org/2000/svg';
+const el=(p,t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);p.appendChild(n);return n;};
+const txt=(p,a,s)=>{const n=el(p,'text',a);n.textContent=s;return n;};
+const tip=(n,s)=>{const t=document.createElementNS(NS,'title');t.textContent=s;n.appendChild(t);};
+// 立即渲染，不依赖 IntersectionObserver —— 保证打印 PDF / 静态快照 / 预览面板都出图
+const obsReveal=(id,fn)=>{const n=document.getElementById(id);if(!n)return;
+  const go=()=>{n.innerHTML='';fn(n);};go();n.style.cursor='pointer';n.addEventListener('click',go);};
+
+const PFX="d3_";
+const GAUGE={"rate": 155.5, "scale": 160, "timep": 83.9, "target": 290.0, "mtd": 450.97, "note": "超额 160.97 万", "title": "月达成 155.5%，四个部里最高", "sub": "1 tick = 目标的 1%（2.90 万）· 墨色 = 已达成 · 刻度到 160% · 虚线 = 100% 目标位 ", "foot": "ONE TICK = 1% OF TARGET (2.90万) · INKED = EARNED"};
+const TREND=null;
+const PEOPLE={"title": "八成七业绩压在一个人身上", "sub": "淡色 = 上周 · 墨色 = 本周 · 一档 = 8 万元 · 部门仅 2 人编制", "unit": 8.0, "base": 250, "step": 5.4, "rows": [["Lina", 146.5, 111.02, 390.74, "86.6%"], ["尤文静", 25.6, 4.07, 60.23, "13.4%"]], "foot": "淡 = 上周 · 墨 = 本周 · ONE RUNG = 8万元 · Lina = DEHDAHOUMAIMA · 尤文静 = Viki"};
+const LINES={"title": "AQ 本周放量 7.5 倍，成第一产品线", "sub": "1 tick = 5 万元 · 月累计 07-01~26 · 行尾为金额（万元）与本周变化", "unit": 5.0, "px": 5.6, "x0": 116, "rows": [["AQ · AGENT Q", 186.22, "41.3%", "第一线", "本部第一大产品线"], ["AF · ALPHAFOLD", 141.48, "31.4%", "第二线", "—"], ["VERTU QUANTUM", 69.87, "15.5%", "仅三部", "全渠道 QUANTUM 几乎全部来自本部"], ["SIGNATURE S", 26.32, "5.8%", "仅三部", "全渠道唯一，3 件"], ["METAWATCH S1", 8.19, "1.8%", "IOT", "IOT 线"], ["METAVERTU 清库", 4.76, "1.1%", "清库", "伊朗 6 台 Meta1 清库已确认（收款中）"], ["机械腕表水晶款", 4.42, "1.0%", "IOT", "1 件"]]};
+const CUST={"title": "阿联酋一家占四成四，中东欧洲两条线", "sub": "1 点 = 1%（4.51 万）· 按客户归集 · 合计 450.97 万", "unit_note": "ONE DOT = 1% (4.51万) · 44+18+9+8+6+6+5+4 = 100 · 中东六家占 76%", "total": 450.97, "rows": [["BILLIONAIRE", 44, 0, 198.7, 56, "Lina", "阿联酋", "", "一档", "L2", "Billionaire Collections"], ["VERTU LONDON", 18, 1, 82.01, 28, "Lina", "英国", "Wiji", "一档", "L2", "VERTU LONDON LTD"], ["SAFIRANHAMRAH", 9, 2, 38.51, 23, "尤文静", "伊朗", "", "二档", "L1", "Safiranhamrah"], ["TİVALİ", 8, 2, 37.43, 24, "Lina", "伊朗", "", "其他", "L1", "TİVALİ Commercial Broker LLC"], ["LUXEM STORE", 6, 3, 27.97, 14, "Lina", "伊朗", "", "二档", "L1", "Luxem Store"], ["HASSIB", 6, 4, 25.55, 10, "Lina", "伊拉克", "", "其他", "L1", "HASSIB ABDALLAH AMIR ALLAH"], ["TAHER JASEM", 5, 4, 21.71, 13, "Lina", "伊拉克", "", "—", "—", "Taher Jasem"], ["VEYSEL SEVIS", 4, 5, 19.09, 6, "Lina", "土耳其", "", "其他", "L1", "Veysel Sevis Ltd"]], "pos": [[112, 138], [268, 96], [352, 176], [214, 214], [96, 250], [178, 282], [286, 268], [354, 246]], "links": [[0, 1], [0, 3], [1, 2], [3, 4], [3, 5], [2, 7], [5, 6]]};
+const COVER={"title": "二十三家里十五家整月零出货", "sub": "左列 = 三部名下全部 23 家经销商 · 实线 = 本月有出货 · 虚线 = 零动销 · 覆盖率 8/23 = 35%（三部门最低）", "foot": "实线 = 本月有出货 · 虚线 = 零动销 · 欧洲 8 家仅 VERTU LONDON 一家在动", "compact": true, "rows": [["BILLIONAIRE", "", "一档", "L2", "阿联酋", "Lina", 198.7], ["VERTU LONDON", "Wiji", "一档", "L2", "英国", "Lina", 82.01], ["SAFIRANHAMRAH", "", "二档", "L1", "伊朗", "尤文静", 38.51], ["TİVALİ", "", "其他", "L1", "伊朗", "Lina", 37.43], ["LUXEM STORE", "", "二档", "L1", "伊朗", "Lina", 27.97], ["HASSIB", "", "其他", "L1", "伊拉克", "Lina", 25.55], ["TAHER JASEM", "", "—", "—", "伊拉克", "Lina", 21.71], ["VEYSEL SEVIS", "", "其他", "L1", "土耳其", "Lina", 19.09], ["AI-SARAF CO", "", "—", "L1", "伊拉克", "Lina", 0], ["BEHZADI", "", "其他", "L1", "伊拉克", "Lina", 0], ["CLICK TECH", "", "其他", "L1", "卡塔尔", "Lina", 0], ["DAR AL SABAEK", "", "二档", "L1", "科威特", "尤文静", 0], ["MKATEB", "", "其他", "L1", "约旦", "Lina", 0], ["MY SHOPS", "", "二档", "L1", "阿塞拜疆", "Lina", 0], ["RASHID LUKMAN", "", "其他", "L1", "伊拉克", "Lina", 0], ["BESTCOM", "", "其他", "L1", "乌克兰", "Lina", 0], ["FRONTANA", "", "其他", "L1", "乌克兰", "Lina", 0], ["IQ-QUEST", "", "其他", "L1", "波兰", "Lina", 0], ["OPTIMIZERS", "", "其他", "L1", "斯洛文尼亚", "Lina", 0], ["ROBO TRADING", "", "其他", "L1", "保加利亚", "Lina", 0], ["VIPCONNECT.DE", "", "其他", "L1", "德国", "Lina", 0], ["QUANTUM RESERVE", "", "其他", "L1", "瑞士", "尤文静", 0], ["ECN GMBH", "", "其他", "—", "瑞士", "Lina", 0]], "owners": [["Lina", 7, 20, 412.46], ["尤文静", 1, 3, 38.51]]};
+
+
+/* F11 · tick gauge —— 1 tick = 目标的 1%；刻度可超 100% 表达超额 */
+(()=>{const G=GAUGE;if(!G)return;obsReveal(PFX+'gauge',s=>{
+  const cx=200,cy=206,R0=142,A0=-195,SW=210,N=G.scale;
+  for(let k=0;k<N;k++){
+    const a=A0+k/N*SW, inked=k<G.rate;
+    const len=inked?18+rnd(k+1,3)*8:7+rnd(k+1,7)*3.5;
+    const [x1,y1]=pol(cx,cy,R0,a),[x2,y2]=pol(cx,cy,R0+len,a);
+    el(s,'line',{x1,y1,x2,y2,stroke:inked?INK:'#CFCEC7','stroke-width':inked?1.2:.7,
+      class:'fade',style:`animation-delay:${k*.008}s`});}
+  // 里程碑
+  const ms=N>120?[50,100,150]:[25,50,75,100];
+  ms.forEach(m=>{if(m>N)return;const a=A0+m/N*SW;
+    const [dx,dy]=pol(cx,cy,R0-10,a),[tx,ty]=pol(cx,cy,R0-26,a);
+    el(s,'circle',{cx:dx,cy:dy,r:1.2,fill:'#B0AFA9',class:'fade',style:'animation-delay:.8s'});
+    txt(s,{x:tx,y:ty+3,'font-size':8,'font-weight':600,fill:'#C6C5BF','text-anchor':'middle',
+      class:'fade',style:'animation-delay:.85s'},m);});
+  // 100% 目标位（仅超额时画）
+  if(N>100){const a=A0+100/N*SW;
+    const [q1x,q1y]=pol(cx,cy,R0-4,a),[q2x,q2y]=pol(cx,cy,R0+34,a);
+    el(s,'line',{x1:q1x,y1:q1y,x2:q2x,y2:q2y,stroke:INK,'stroke-width':1.1,
+      'stroke-dasharray':'3 3',opacity:.75,class:'fade',style:'animation-delay:1.15s'});
+    const [tx,ty]=pol(cx,cy,R0+48,a);
+    // 贴边时改锚点，防止标签被画布裁掉
+    const anc=tx>320?'end':(tx<80?'start':'middle');
+    const lx=anc==='end'?Math.min(tx+22,397):(anc==='start'?Math.max(tx-22,3):tx);
+    txt(s,{x:lx,y:ty+3,'font-size':8,'font-weight':800,fill:INK,'text-anchor':anc,
+      'letter-spacing':'.06em',style:`paint-order:stroke;stroke:${PAPER};stroke-width:3.5px;animation-delay:1.2s`,
+      class:'fade'},'目标 100%');}
+  // 达成收笔珠
+  const aR=A0+Math.min(G.rate,N)/N*SW,[ex,ey]=pol(cx,cy,R0+30,aR);
+  const bead=el(s,'circle',{cx:ex,cy:ey,r:3.2,fill:INK,class:'pop',style:'animation-delay:1.1s'});
+  tip(bead,`达成 ${G.rate}% — ${G.mtd} 万 / ${G.target} 万`);
+  // 时间进度标线
+  const aT=A0+G.timep/N*SW;
+  const [t1x,t1y]=pol(cx,cy,R0+32,aT),[t2x,t2y]=pol(cx,cy,R0+46,aT);
+  el(s,'line',{x1:t1x,y1:t1y,x2:t2x,y2:t2y,stroke:MUTED,'stroke-width':1.2,
+    class:'fade',style:'animation-delay:1.25s'});
+  const tl=txt(s,{x:397,y:t2y+15,'font-size':8.5,'font-weight':700,fill:MUTED,'text-anchor':'end',
+    'letter-spacing':'.06em',class:'fade',
+    style:`paint-order:stroke;stroke:${PAPER};stroke-width:3.5px;animation-delay:1.3s`},'时间进度 84%');
+  tip(tl,'七月已过 26 / 31 天');
+  const num=txt(s,{x:cx,y:cy-2,'font-size':44,'font-weight':800,fill:INK,'text-anchor':'middle',
+    class:'fade',style:'animation-delay:1s'},G.rate+'%');
+  tip(num,`${G.mtd} 万 / 目标 ${G.target} 万`);
+  txt(s,{x:cx,y:cy+22,'font-size':9,'font-weight':600,fill:MUTED,'text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1.05s'},G.note);
+  txt(s,{x:200,y:302,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.12em',class:'fade',style:'animation-delay:1.35s'},G.foot);
+});})();
+
+
+/* F1 · rung bars —— 单系列竖排梯子：一档 = 固定金额，远看是柱，近看可数 */
+(()=>{const T=TREND;if(!T)return;obsReveal(PFX+'trend',s=>{
+  const U=T.unit,step=5.0,base=252,n=T.rows.length;
+  const gap=400/(n+.5), x0=i=>gap*.75+i*gap;
+  const mx=Math.max(...T.rows.map(r=>r[1]));
+  T.rows.forEach(([lab,v,note,peak],i)=>{
+    const x=x0(i), k=Math.round(v/U);
+    for(let j=0;j<k;j++){
+      const y=base-j*step, w=9-1.2+rnd(j+1,i+2)*2.6;
+      el(s,'line',{x1:x-w,y1:y,x2:x+w,y2:y,stroke:peak?INK:'#6A6963','stroke-width':1,
+        opacity:(peak?.65:.5)+rnd(j+2,i+3)*.35,class:'fade',
+        style:`animation-delay:${i*.09+j*.012}s`});}
+    const num=txt(s,{x:x,y:base-(k?(k-1)*step:0)-10,'font-size':peak?12:10,
+      'font-weight':800,fill:peak?INK:'#4A4944','text-anchor':'middle',class:'fade',
+      style:`animation-delay:${.4+i*.09}s`}, v.toFixed(1));
+    tip(num,`${lab} — ${v} 万 · ${note}`);
+    if(peak)el(s,'circle',{cx:x,cy:base-(k-1)*step-22,r:2.6,fill:INK,class:'pop',
+      style:`animation-delay:${.9+i*.09}s`});
+    txt(s,{x:x,y:base+18,'font-size':8.5,'font-weight':700,fill:MUTED,'text-anchor':'middle',
+      'letter-spacing':'.04em',class:'fade',style:`animation-delay:${i*.09}s`},lab);
+    txt(s,{x:x,y:base+29,'font-size':7,'font-weight':600,fill:'#C6C5BF','text-anchor':'middle',
+      class:'fade',style:`animation-delay:${i*.09}s`},note);
+  });
+  el(s,'line',{x1:16,y1:base+4,x2:384,y2:base+4,stroke:GRID,'stroke-width':.8,class:'fade'});
+  txt(s,{x:200,y:306,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1s'},T.foot);
+});})();
+
+
+/* F6 · paired rungs —— 每人两把梯子并肩，上周淡档、本周实档 */
+(()=>{const P=PEOPLE;if(!P)return;obsReveal(PFX+'pairrungs',s=>{
+  const U=P.unit,step=P.step,HW=8,base=P.base,n=P.rows.length;
+  const gap=400/(n+.4), x0=i=>gap*.7+i*gap;
+  P.rows.forEach(([name,was,now,mtd,share],i)=>{
+    const xa=x0(i)-11,xb=x0(i)+11;
+    const nw=Math.round(was/U), nn=Math.round(now/U);
+    for(let k=0;k<nw;k++){const y=base-k*step,w=HW-1.2+rnd(k+1,i+2)*2.4;
+      el(s,'line',{x1:xa-w,y1:y,x2:xa+w,y2:y,stroke:'#B0AFA9','stroke-width':1,
+        opacity:.5+rnd(k+2,i+3)*.4,class:'fade',style:`animation-delay:${i*.06+k*.01}s`});}
+    for(let k=0;k<nn;k++){const y=base-k*step,w=HW-1.2+rnd(k+1,i+7)*2.4;
+      el(s,'line',{x1:xb-w,y1:y,x2:xb+w,y2:y,stroke:INK,'stroke-width':1,
+        opacity:.6+rnd(k+2,i+8)*.4,class:'fade',style:`animation-delay:${.12+i*.06+k*.01}s`});}
+    txt(s,{x:xa,y:(nw?base-(nw-1)*step:base)-9,'font-size':7.5,'font-weight':700,fill:'#B0AFA9',
+      'text-anchor':'middle',class:'fade',style:`animation-delay:${.45+i*.06}s`},
+      was?was.toFixed(1):'0');
+    const num=txt(s,{x:xb,y:(nn?base-(nn-1)*step:base)-9,'font-size':10,'font-weight':800,
+      fill:nn?INK:'#B0AFA9','text-anchor':'middle',class:'fade',
+      style:`animation-delay:${.45+i*.06}s`}, now?now.toFixed(1):'0');
+    tip(num,`${name} — 上周 ${was} 万 → 本周 ${now} 万 · 月累计 ${mtd} 万（${share}）`);
+    txt(s,{x:x0(i),y:base+19,'font-size':8.5,'font-weight':700,fill:MUTED,'text-anchor':'middle',
+      'letter-spacing':'.04em',class:'fade',style:`animation-delay:${i*.06}s`},name);
+    txt(s,{x:x0(i),y:base+30,'font-size':7,'font-weight':600,fill:'#C6C5BF','text-anchor':'middle',
+      class:'fade',style:`animation-delay:${i*.06}s`},`月 ${mtd} · ${share}`);
+  });
+  el(s,'line',{x1:16,y1:base+4,x2:384,y2:base+4,stroke:GRID,'stroke-width':.8,class:'fade'});
+  txt(s,{x:200,y:306,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1s'},P.foot);
+});})();
+
+
+/* F5 · tick rows —— 一行 = 一条产品线，每 5 根一个点标 */
+(()=>{const L=LINES;obsReveal(PFX+'tickrows',s=>{
+  const U=L.unit,X0=L.x0,n=L.rows.length;
+  const gap=Math.min(54,(292-46-16)/Math.max(1,n-1)), y0=i=>46+i*gap;
+  const maxT=Math.max(...L.rows.map(r=>Math.round(r[1]/U)))||1;
+  // 自动收窄 tick 间距，保证最长一行的数字标签不越界（画布 400，右侧留 58px 给数字）
+  const PX=Math.min(L.px,(400-X0-58)/maxT);
+  L.rows.forEach(([name,v,share,note,full],i)=>{
+    const y=y0(i), t=Math.round(v/U);
+    txt(s,{x:X0-9,y:y+2,'font-size':8,'font-weight':700,fill:v>0?'#6A6963':'#B0AFA9',
+      'text-anchor':'end','letter-spacing':'.04em',class:'fade',
+      style:`animation-delay:${i*.07}s`},name);
+    txt(s,{x:X0-9,y:y+12,'font-size':6.8,'font-weight':600,fill:'#B0AFA9','text-anchor':'end',
+      class:'fade',style:`animation-delay:${i*.07}s`},'月占比 '+share);
+    el(s,'line',{x1:X0,y1:y+9,x2:X0+maxT*PX,y2:y+9,stroke:GRID,'stroke-width':.6,
+      class:'fade',style:`animation-delay:${i*.07}s`});
+    for(let k=0;k<t;k++){const x=X0+k*PX+PX/2,h=13+rnd(k+1,i+2)*8;
+      el(s,'line',{x1:x,y1:y+9,x2:x,y2:y+9-h,stroke:INK,'stroke-width':1,
+        opacity:.55+rnd(k+3,i+5)*.45,class:'fade',style:`animation-delay:${i*.07+k*.008}s`});
+      if(k%5===4)el(s,'circle',{cx:x,cy:y+13,r:.8,fill:'#C6C5BF',class:'fade',
+        style:`animation-delay:${i*.07+k*.008}s`});}
+    const lab=txt(s,{x:X0+t*PX+9,y:y+4,'font-size':11,'font-weight':800,fill:v>0?INK:'#B0AFA9',
+      class:'fade',style:`animation-delay:${.35+i*.07}s`},v.toFixed(1));
+    tip(lab,`${name} — 月累计 ${v} 万（${share}）· ${full}`);
+    const nt=txt(s,{x:X0+t*PX+9,y:y+15,'font-size':7,'font-weight':700,fill:'#B0AFA9',
+      class:'fade',style:`animation-delay:${.4+i*.07}s`},note);
+    tip(nt,full);
+  });
+  txt(s,{x:200,y:308,'font-size':7,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:.9s'},
+    `ONE TICK = ${U}万元 · DOT MARKS EVERY FIFTH · 尾数四舍五入`);
+});})();
+
+
+/* L14 · hundred field —— 占比摊成 100 个点，phyllotaxis 黄金角散布 */
+(()=>{const C=CUST;obsReveal(PFX+'hundredfield',s=>{
+  C.links.forEach(([a,b],k)=>{
+    el(s,'line',{x1:C.pos[a][0],y1:C.pos[a][1],x2:C.pos[b][0],y2:C.pos[b][1],
+      stroke:GRID,'stroke-width':.7,'stroke-dasharray':'2 5',class:'fade',
+      style:`animation-delay:${.9+k*.08}s`});});
+  const used=[];   // 已放置的标签区域，用于防重叠
+  C.rows.forEach(([name,v,li,amt,lines,owner,country,nick,tier,lvl,full],ci)=>{
+    const [cx,cy]=C.pos[ci], shade=LAD[li];
+    let edge=0;
+    for(let k=0;k<v;k++){
+      const a=k*137.508+ci*55, rr=4+Math.sqrt(k)*5.9+rnd(k+1,ci+2)*3;
+      edge=Math.max(edge,rr);
+      const [x,y]=pol(cx,cy,rr,a);
+      if(k%5===0)el(s,'line',{x1:cx,y1:cy,x2:x,y2:y,stroke:'#CDCCC5','stroke-width':.6,
+        class:'fade',style:`animation-delay:${ci*.1+k*.012}s`});
+      const dot=el(s,'circle',{cx:x,cy:y,r:1.5+rnd(k+2,ci+3)*1.7,fill:shade,opacity:.9,
+        class:'pop',style:`animation-delay:${ci*.1+k*.012}s`});
+      tip(dot,`${full}${nick?'（'+nick+'）':''} · ${country} · ${tier}/${lvl} · ${owner} — ${amt} 万（${v}%）· ${lines} 行`);}
+    el(s,'circle',{cx,cy,r:2.4,fill:INK,class:'pop',style:`animation-delay:${ci*.1}s`});
+    // 标签避让：先向下找空位，放不下再向上找；两行（名称 + 金额）一起判碰撞
+    const txtw=t=>[...t].reduce((a,c)=>a+(c.charCodeAt(0)>255?7.6:4.4),0);
+    const label=`${name}${nick?' · '+nick:''} · ${v}%`;
+    const sub=`${amt} 万 · ${country}`;
+    const HW=Math.max(txtw(label),txtw(sub))/2+4;
+    const clash=y=>used.some(u=>(Math.abs(u.y-y)<10||Math.abs(u.y-(y+9))<10)
+                                && Math.abs(u.x-cx)<(u.hw+HW));
+    let ly=null;
+    for(let y=cy+edge+12;y<=298;y+=10.5){ if(!clash(y)){ly=y;break;} }   // 向下
+    if(ly===null) for(let y=cy-edge-16;y>=12;y-=10.5){ if(!clash(y)){ly=y;break;} }  // 向上
+    if(ly===null) ly=cy+edge+12;                                          // 实在没位置
+    used.push({x:cx,y:ly,hw:HW});
+    used.push({x:cx,y:ly+9,hw:HW});
+    const lb=txt(s,{x:Math.min(Math.max(cx,HW+2),400-HW-2),y:ly,'font-size':7.6,'font-weight':800,fill:INK,
+      'text-anchor':'middle','letter-spacing':'.05em',class:'fade',
+      style:`paint-order:stroke;stroke:${PAPER};stroke-width:3px;animation-delay:${.5+ci*.09}s`},
+      label);
+    tip(lb,`${full} · ${country} · ${tier}/${lvl} · ${owner} — ${amt} 万 · ${lines} 行`);
+    txt(s,{x:Math.min(Math.max(cx,HW+2),400-HW-2),y:ly+9,'font-size':6.4,'font-weight':600,fill:'#B0AFA9',
+      'text-anchor':'middle',class:'fade',
+      style:`paint-order:stroke;stroke:${PAPER};stroke-width:2.5px;animation-delay:${.55+ci*.09}s`},
+      `${amt} 万 · ${country}`);});
+  txt(s,{x:200,y:315,'font-size':6.8,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1.3s'},C.unit_note);
+});})();
+
+
+/* L12 · type colonnade —— 多对一归属 + 逐条名单；实线=动销，虚线=零动销 */
+(()=>{const V=COVER;obsReveal(PFX+'colonnade',s=>{
+  const n=V.rows.length, cp=V.compact, sg=V.single;   // single = 单行超密集（38 家用）
+  const top=cp?14:26, gap=cp?(292/Math.max(1,n-1)):25.6;
+  const rowY=i=>top+i*gap, NX=282;
+  const fs=sg?5.4:(cp?6.2:7.5), fs2=cp?5.2:6.2, fsA=sg?6.2:(cp?7.4:9.5);
+  // 节点 Y = 其名下各行的重心；若两节点过近会重叠，按最小间距推开
+  const pref=V.owners.map(([nm])=>{
+    const idx=V.rows.map((r,i)=>[r[5],i]).filter(([o])=>o===nm).map(([,i])=>i);
+    return {nm, y:rowY(idx.reduce((a,b)=>a+b,0)/idx.length)};});
+  pref.sort((a,b)=>a.y-b.y);
+  const MINGAP=48;
+  for(let i=1;i<pref.length;i++)
+    if(pref[i].y-pref[i-1].y<MINGAP) pref[i].y=pref[i-1].y+MINGAP;
+  const over=pref.length?pref[pref.length-1].y-296:0;   // 超出画布则整体上移
+  if(over>0) pref.forEach(p=>p.y-=over);
+  const oy={}; pref.forEach(p=>oy[p.nm]=Math.max(28,p.y));
+  V.rows.forEach(([name,nick,tier,lvl,country,owner,amt],i)=>{
+    const y=rowY(i), live=amt>0, yj=oy[owner];
+    txt(s,{x:6,y:y+1,'font-size':fs,'font-weight':live?700:500,
+      fill:live?INK:'#B0AFA9','letter-spacing':'.03em',class:'fade',
+      style:`animation-delay:${i*.03}s`},
+      sg?`${name}${nick?' · '+nick:''}　${country}`:(name+(nick?' · '+nick:'')));
+    if(!sg)txt(s,{x:6,y:y+(cp?8:10),'font-size':fs2,'font-weight':600,fill:live?'#8F8E88':'#C6C5BF',
+      'letter-spacing':'.03em',class:'fade',style:`animation-delay:${i*.03}s`},
+      `${tier} · ${lvl} · ${country}`);
+    const am=txt(s,{x:172,y:y+2,'font-size':live?fsA:fsA-1.5,'font-weight':live?800:600,
+      fill:live?INK:'#C6C5BF','text-anchor':'end',class:'fade',
+      style:`animation-delay:${.18+i*.03}s`}, live?amt.toFixed(V.dec===undefined?2:V.dec):'0');
+    tip(am,`${name}${nick?'（'+nick+'）':''} · ${country} · ${tier}/${lvl} · ${owner} — ${live?amt+' '+(V.unit||'万'):(V.zerolab||'本月零动销')}`);
+    el(s,'path',{d:`M180 ${y} C 232 ${y} 246 ${yj} ${NX-6} ${yj}`,fill:'none',
+      stroke:live?'#6A6963':'#CFCEC7','stroke-width':live?1:.7,
+      'stroke-dasharray':live?'none':'2 4',opacity:live?.85:.9,pathLength:1,
+      class:'draw',style:`animation-delay:${.22+i*.03}s;animation-duration:.7s`});});
+  V.owners.forEach(([nm,act,tot,amt],j)=>{
+    const y=oy[nm], r=4+Math.min(act,8)*1.9;
+    el(s,'circle',{cx:NX,cy:y,r:r,fill:act>=3?INK:'#6A6963',class:'pop',
+      style:`animation-delay:${.7+j*.1}s`});
+    txt(s,{x:NX+r+8,y:y-1,'font-size':8.5,'font-weight':800,fill:INK,class:'fade',
+      style:`animation-delay:${.75+j*.1}s`},`${nm} · ${act}/${tot} ${V.owlab||'动销'}`);
+    txt(s,{x:NX+r+8,y:y+9,'font-size':6.8,'font-weight':600,fill:MUTED,'letter-spacing':'.03em',
+      class:'fade',style:`animation-delay:${.8+j*.1}s`},`${amt} ${V.unit||'万'}`);});
+  txt(s,{x:200,y:316,'font-size':6.8,'font-weight':600,fill:'#B0AFA9','text-anchor':'middle',
+    'letter-spacing':'.1em',class:'fade',style:'animation-delay:1.2s'},V.foot);
+});})();
+
+</script>
+</body>
+</html>

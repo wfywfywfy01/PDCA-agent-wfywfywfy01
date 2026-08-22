@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>盘前选股 · 暗色预案风格</title>
+  <style>
+    :root {
+      --bg: #141414;
+      --fg: #e8e8e8;
+      --muted: #a0a0a0;
+      --line: #3a3a3a;
+      --dot: rgba(255, 255, 255, 0.07);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      background-color: var(--bg);
+      background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+      background-size: 16px 16px;
+      color: var(--fg);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      padding: 28px 32px 48px;
+    }
+
+    .block + .block {
+      margin-top: 36px;
+    }
+
+    .title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .reaction {
+      color: var(--muted);
+      margin-bottom: 14px;
+      font-size: 13.5px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      font-weight: 400;
+      color: var(--fg);
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 13px;
+      width: auto;
+    }
+
+    th:nth-child(1),
+    td:nth-child(1) {
+      width: 18%;
+    }
+
+    th:nth-child(2),
+    td:nth-child(2) {
+      width: 52%;
+    }
+
+    th:nth-child(3),
+    td:nth-child(3) {
+      width: 30%;
+    }
+
+    .ticker {
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+    }
+
+    .em {
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .cite {
+      color: #6b9eff;
+      font-size: 12px;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <section class="block">
+    <h2 class="title">预案 A: 并购传闻驱动（溢价明确 / 私有化稀缺事件）</h2>
+    <p class="reaction">
+      市场反应：事件驱动急涨、成交放量；若确认要约，短线追涨动能强，但需警惕假消息回撤。
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>候选</th>
+          <th>逻辑</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ticker">PYPL<br /><span style="font-weight:400;color:var(--muted);font-size:12px">PayPal</span></td>
+          <td>
+            Stripe + Advent 拟以现金收购，要约价
+            <span class="em">60.50 美元</span>，较前收溢价约
+            <span class="em">28%</span>，估值超
+            <span class="em">530 亿美元</span>。
+            近年美股大型支付公司私有化/并购罕见，属强事件驱动。<a class="cite" href="#">[1][2][3]</a>
+          </td>
+          <td>
+            预期今日涨幅 <span class="em">&gt;10%</span>。
+            开盘确认传闻与成交量后跟进；若跳空后快速回落跌破 VWAP，放弃追高。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="block">
+    <h2 class="title">预案 B: 业绩超预期直接受益者（指引上修 / AI 资本开支）</h2>
+    <p class="reaction">
+      市场反应：半导体设备链信心回升、AI CapEx 叙事强化；财报后动能延续，关注指引兑现度。
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>候选</th>
+          <th>逻辑</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ticker">ASML<br /><span style="font-weight:400;color:var(--muted);font-size:12px">ASML Holding</span></td>
+          <td>
+            Q2 净销售额 <span class="em">93 亿欧元</span> 超预期，并将
+            <span class="em">2026 全年销售额指引</span>上修至
+            <span class="em">430亿~450 亿欧元</span>。
+            直接验证全球 AI 资本开支未放缓，半导体设备龙头最直接受益。<a class="cite" href="#">[4][5]</a>
+          </td>
+          <td>
+            预期今日涨幅 <span class="em">5%~8%</span>。
+            开盘后观察板块领涨确认；回踩日内均线/VWAP 再加仓，避免财报跳空追高。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</body>
+</html>
