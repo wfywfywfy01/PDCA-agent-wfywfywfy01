@@ -63,6 +63,7 @@ python run.py
 | `/` | 经营驾驶舱（Sell In/Out、客户管理中心） |
 | `/app/` | **Vue3 SPA 工作台**（P1+）：登录、驾驶舱、数据看板、物流中心、会议中心、获客指挥、客流五件套、任务中心、新人培训、数据同步 |
 | `/app/dashboard` | 数据看板：Sell-in 排行 + 近 6 月趋势（ECharts） |
+| `/app/knowledge` | 经销商资料库：权限范围内的 AI 检索、引用与脱敏预览 |
 | `/logistics-center/` → `/app/logistics` | 物流进展（已迁 SPA） |
 | `/signalseller-center/` → `/app/signalseller` | 获客指挥（已迁 SPA） |
 | `/meeting-center/` → `/app/meetings` | 会议中心（已迁 SPA） |

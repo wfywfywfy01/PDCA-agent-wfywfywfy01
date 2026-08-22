@@ -23,6 +23,11 @@ export const router = createRouter({
       component: () => import('@/pages/MeetingPage.vue'),
     },
     {
+      path: '/knowledge',
+      name: 'knowledge',
+      component: () => import('@/pages/KnowledgePage.vue'),
+    },
+    {
       path: '/admin/sync',
       name: 'admin-sync',
       component: () => import('@/pages/AdminSyncPage.vue'),

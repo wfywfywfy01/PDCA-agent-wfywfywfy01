@@ -19,6 +19,10 @@ class DealerStore(SQLModel, table=True):
     dealer_level: str = Field(default="L1", max_length=8)   # L1 / L2
     sales_owner: str = Field(default="", max_length=128, index=True)  # 稳定负责人 owner_key
     team_key: str = Field(default="overseas", max_length=64, index=True)
+    knowledge_dealer_id: str = Field(
+        default="", max_length=36, index=True,
+        description="经销商资料库 dealer UUID；空值表示尚未映射",
+    )
     is_active: bool = Field(default=True)
     sort_order: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)

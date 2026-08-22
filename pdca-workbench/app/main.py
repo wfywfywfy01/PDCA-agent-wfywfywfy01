@@ -36,6 +36,7 @@ from app.export.router import router as export_router
 from app.todos.router import router as todos_router
 from app.walkin.router import router as walkin_router
 from app.acquisition.router import router as acquisition_router
+from app.knowledge.router import router as knowledge_router
 
 PUBLIC_PATHS = {
     "/login",
@@ -69,6 +70,8 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("生产环境必须设置至少 32 位的 PDCA_SECRET_KEY")
     if insecure_secret:
         logger.warning("⚠️  PDCA_SECRET_KEY 仅适合本地开发，生产环境必须设置强密钥")
+    from app.knowledge.client import validate_knowledge_hub_settings
+    validate_knowledge_hub_settings()
     mode = bootstrap_database()
     seed_users()
     from app.models.store_seed import seed_stores
@@ -272,6 +275,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 app.include_router(auth_router)
 app.include_router(acquisition_router)
+app.include_router(knowledge_router)
 app.include_router(dashboard_router)
 app.include_router(walkin_router)
 app.include_router(logistics_router)
