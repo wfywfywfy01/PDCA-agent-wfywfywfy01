@@ -37,6 +37,8 @@ $WorkbenchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $EnvFile = Join-Path $WorkbenchRoot ".env"
 $HelperImage = "vertu-registry.cn-chengdu.cr.aliyuncs.com/base/postgres:18.4-bookworm"
 $RuntimeDataRoot = "/opt/PDCA-agent/pdca-workbench/data/runtime"
+$KnowledgeNetwork = "dealer-knowledge"
+$KnowledgeSecretsVolume = "dealer-knowledge-secrets"
 $script:RunStartedAt = Get-Date
 $script:DeploymentLogPath = ""
 $script:DeploymentStatePath = ""
@@ -312,7 +314,9 @@ function Start-PdcaContainer {
         "--restart", "unless-stopped",
         "--label", "com.vertu.pdca.revision=$Revision",
         "-p", "127.0.0.1:8768:8767",
+        "--network", $KnowledgeNetwork,
         "--mount", "type=volume,src=pdca-vertu-session,dst=/root/.vertu",
+        "--mount", "type=volume,src=$KnowledgeSecretsVolume,dst=/run/secrets,readonly",
         "-v", "/opt/PDCA-agent/pdca-workbench/data:/app/data",
         "-v", "$ReleasePath/data_platform/data_role_pdca_mvp:/mvp:ro",
         "-v", "${RuntimeDataRoot}/inputs:/mvp/inputs",
@@ -342,6 +346,10 @@ function Start-PdcaContainer {
         "-e", "PDCA_SCHEDULER_ENABLED=1",
         "-e", "PDCA_SYNC_CRON=0 6 * * *",
         "-e", "PDCA_LOG_LEVEL=INFO",
+        "-e", "PDCA_KNOWLEDGE_HUB_ENABLED=1",
+        "-e", "PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080",
+        "-e", "PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE=/run/secrets/dealer-knowledge-jwt.key",
+        "-e", 'PDCA_KNOWLEDGE_HUB_TEAM_MAP={"overseas":"overseas-sales"}',
         "-e", "VERTU_COMMAND=vertu-cli",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
@@ -366,6 +374,21 @@ function Start-PdcaContainer {
     finally {
         Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue
     }
+}
+
+function Initialize-KnowledgeRuntime {
+    param([string]$Image)
+    $network = Invoke-DockerProcess -DockerArgs @("network", "inspect", $KnowledgeNetwork)
+    if ($network.ExitCode -ne 0) {
+        Invoke-Docker -DockerArgs @("network", "create", $KnowledgeNetwork) | Out-Null
+    }
+    Invoke-Docker -DockerArgs @("volume", "create", $KnowledgeSecretsVolume) | Out-Null
+    Invoke-Docker -DockerArgs @(
+        "run", "--rm", "--user", "0:0", "--entrypoint", "python",
+        "--mount", "type=volume,src=$KnowledgeSecretsVolume,dst=/run/secrets",
+        $Image, "-c",
+        "from pathlib import Path; import os,secrets; p=Path('/run/secrets/dealer-knowledge-jwt.key'); p.write_text(secrets.token_urlsafe(48)) if not p.exists() else None; os.chown(p,10001,10001); os.chmod(p,0o400); assert len(p.read_bytes().strip()) >= 32"
+    ) | Out-Null
 }
 
 function Initialize-RemoteRuntimeDirectories {
@@ -452,6 +475,9 @@ if ($SkipImagePull) {
     Write-Output "Pulling tested image $image"
     Invoke-Docker -DockerArgs @("pull", $image) -TimeoutSeconds $DockerPullTimeoutSeconds | Out-Null
 }
+
+Write-Output "Ensuring private dealer knowledge network and shared signing key"
+Initialize-KnowledgeRuntime -Image $image
 
 Write-Output "Preparing immutable release directory for $Sha"
 & git -C $RepoRoot fetch --no-tags origin $Sha

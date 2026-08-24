@@ -87,8 +87,8 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 
 PDCA 只在服务端签发最长 5 分钟的作用域 JWT，浏览器不会获得共享密钥。生产环境：
 
-1. 在 PDCA 与 `vertu-data-hub` 主机放置同一份随机密钥文件，权限设为仅部署用户可读。
-2. 配置 `PDCA_KNOWLEDGE_HUB_URL` 和 `PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE`。
+1. 同机部署时使用外部 Docker 卷 `dealer-knowledge-secrets`；部署脚本创建密钥并只读挂载到两个容器。
+2. 生产默认通过私网 `http://dealer-knowledge-api:8080` 访问；其他明文 HTTP 地址会被拒绝。
 3. 在管理后台的门店资料中填写 data-hub 经销商 UUID；同一经销商的多门店可填写同一 UUID。
 4. 用销售账号检查 `/app/knowledge` 只显示本人负责经销商，再用管理员验证原件导出审计。
 
