@@ -12,10 +12,10 @@
 
 Verification:
 
-- Backend: `169 tests` passed; Python compilation passed.
+- Backend: `173 tests` passed; Python compilation passed.
 - Frontend: `vue-tsc --noEmit` and Vite production build passed.
 - Docker Compose production configuration passed with disposable validation values.
 - Real local PostgreSQL/data-hub path: search, watermarked preview, sales export `403`, admin export `200`.
 - Playwright desktop and `390x844`: 8 results, 8/8 images loaded, first result `image12.png`, zero console errors, no horizontal overflow.
 
-Cloud PostgreSQL and OSS pilot data are active. Application cutover remains pending until these reviewed branches are merged, an immutable image is built, Redis/shared keys are configured, and deployment health checks pass.
+Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deployment gate; application cutover requires the immutable image, Redis/shared key runtime, and health checks to pass.

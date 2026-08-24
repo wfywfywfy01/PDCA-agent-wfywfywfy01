@@ -29,6 +29,37 @@ from app.walkin.router import walkin_metrics_summary
 
 
 class InputValidationTests(unittest.TestCase):
+    def test_production_allows_only_the_fixed_private_data_hub_http_service(self):
+        base = {
+            "PDCA_ENV": "production",
+            "PDCA_KNOWLEDGE_HUB_ENABLED": "1",
+        }
+        with patch.dict(
+            os.environ,
+            {**base, "PDCA_KNOWLEDGE_HUB_URL": "http://dealer-knowledge-api:8080"},
+            clear=False,
+        ):
+            private = Settings()
+        with patch.dict(
+            os.environ,
+            {**base, "PDCA_KNOWLEDGE_HUB_URL": "http://10.100.0.176:8080"},
+            clear=False,
+        ):
+            rejected = Settings()
+
+        self.assertEqual(private.knowledge_hub_url, "http://dealer-knowledge-api:8080")
+        self.assertEqual(rejected.knowledge_hub_url, "")
+
+    def test_remote_deploy_mounts_the_private_knowledge_runtime(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "deploy_remote_docker.ps1"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('"--network", $KnowledgeNetwork', script)
+        self.assertIn("dealer-knowledge-secrets", script)
+        self.assertIn("PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080", script)
+        self.assertIn("os.chown(p,10001,10001); os.chmod(p,0o400)", script)
+
     def test_shared_shell_injection_supports_body_attributes(self):
         source = '<!doctype html><html><body class="dashboard">content</body></html>'
         result = inject_vue_shell(source)

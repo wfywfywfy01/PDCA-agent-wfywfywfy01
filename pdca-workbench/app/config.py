@@ -97,10 +97,19 @@ class Settings:
             "PDCA_KNOWLEDGE_HUB_URL", "http://127.0.0.1:8080"
         ).strip().rstrip("/")
         parsed_knowledge = urlparse(raw_knowledge_url)
-        allowed_knowledge_schemes = {"https"} if self.environment == "production" else {"http", "https"}
+        private_docker_knowledge_url = (
+            parsed_knowledge.scheme == "http"
+            and parsed_knowledge.hostname == "dealer-knowledge-api"
+            and parsed_knowledge.port == 8080
+        )
+        knowledge_url_allowed = (
+            parsed_knowledge.scheme in {"http", "https"}
+            if self.environment != "production"
+            else parsed_knowledge.scheme == "https" or private_docker_knowledge_url
+        )
         self.knowledge_hub_url = (
             raw_knowledge_url
-            if parsed_knowledge.scheme in allowed_knowledge_schemes and parsed_knowledge.netloc
+            if knowledge_url_allowed and parsed_knowledge.netloc
             else ""
         )
         self.knowledge_hub_token_key_file = os.environ.get(
