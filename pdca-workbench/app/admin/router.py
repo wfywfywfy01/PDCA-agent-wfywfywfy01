@@ -6,6 +6,7 @@ import re
 import traceback
 from datetime import datetime
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -400,6 +401,7 @@ class StoreCreateBody(BaseModel):
     dealer_level: str = "L1"
     sales_owner: str = ""
     team_key: str = "overseas"
+    knowledge_dealer_id: str = ""
 
 
 class StoreUpdateBody(BaseModel):
@@ -409,11 +411,22 @@ class StoreUpdateBody(BaseModel):
     dealer_level: str | None = None
     sales_owner: str | None = None
     team_key: str | None = None
+    knowledge_dealer_id: str | None = None
     is_active: bool | None = None
     sort_order: int | None = None
 
 
 STORE_REGIONS = {"中东", "欧洲", "南亚", "东南亚", "中亚", "其他"}
+
+
+def _knowledge_dealer_id(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    try:
+        return str(UUID(value))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="资料库经销商 ID 必须是 UUID") from exc
 
 
 @router.get("/stores")
@@ -442,6 +455,7 @@ async def list_stores(
             "dealer_level": getattr(s, "dealer_level", "L1") or "L1",
             "sales_owner": getattr(s, "sales_owner", "") or "",
             "team_key": getattr(s, "team_key", "") or "",
+            "knowledge_dealer_id": getattr(s, "knowledge_dealer_id", "") or "",
             "is_active": s.is_active,
             "sort_order": s.sort_order,
         }
@@ -455,6 +469,8 @@ async def create_store(
     current_user: Annotated[User, Depends(require_role("manager"))],
     session: Annotated[Session, Depends(get_session)],
 ):
+    if body.knowledge_dealer_id.strip() and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可配置资料库经销商映射")
     if not body.store_id.strip():
         raise HTTPException(status_code=422, detail="store_id 不能为空")
     if session.exec(select(DealerStore).where(DealerStore.store_id == body.store_id)).first():
@@ -474,6 +490,7 @@ async def create_store(
         dealer_level=body.dealer_level.strip() or "L1",
         sales_owner=body.sales_owner.strip(),
         team_key=requested_team,
+        knowledge_dealer_id=_knowledge_dealer_id(body.knowledge_dealer_id),
     ))
     session.commit()
     from app.auth.scope import rebuild_all_dealer_assignments
@@ -489,6 +506,8 @@ async def update_store(
     current_user: Annotated[User, Depends(require_role("manager"))],
     session: Annotated[Session, Depends(get_session)],
 ):
+    if body.knowledge_dealer_id is not None and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可配置资料库经销商映射")
     store = session.exec(select(DealerStore).where(DealerStore.store_id == store_id)).first()
     if not store:
         raise HTTPException(status_code=404, detail="门店不存在")
@@ -515,6 +534,8 @@ async def update_store(
         if not resolve_data_scope(current_user, session).unrestricted and requested_team != effective_team_key(current_user):
             raise HTTPException(status_code=403, detail="只能在当前团队内更新门店")
         store.team_key = requested_team
+    if body.knowledge_dealer_id is not None:
+        store.knowledge_dealer_id = _knowledge_dealer_id(body.knowledge_dealer_id)
     if body.is_active is not None:
         store.is_active = body.is_active
     if body.sort_order is not None:

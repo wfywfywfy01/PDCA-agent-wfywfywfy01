@@ -148,6 +148,7 @@ def init_db() -> None:
     from app.models.audit_log import AuditLog  # noqa: F401
     from app.models.tracking_status import TrackingAutoStatus  # noqa: F401
     from app.models.acquisition_login_ticket import AcquisitionLoginTicket  # noqa: F401
+    from app.models.customer_profile import CustomerProfile  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     _migrate_schema()
@@ -170,6 +171,8 @@ def _migrate_schema() -> None:
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE dealer_stores ALTER COLUMN sales_owner TYPE VARCHAR(128)",
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS team_key VARCHAR(64) DEFAULT 'overseas'",
+        "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS knowledge_dealer_id VARCHAR(36) DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_dealer_stores_knowledge_dealer_id ON dealer_stores (knowledge_dealer_id)",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS walkin_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS cross_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS recruit_visits INTEGER DEFAULT 0",
@@ -203,6 +206,8 @@ def _migrate_schema() -> None:
         "ALTER TABLE dealer_stores ADD COLUMN dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE dealer_stores ADD COLUMN team_key VARCHAR(64) DEFAULT 'overseas'",
+        "ALTER TABLE dealer_stores ADD COLUMN knowledge_dealer_id VARCHAR(36) DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_dealer_stores_knowledge_dealer_id ON dealer_stores (knowledge_dealer_id)",
         "ALTER TABLE walkin_daily_reports ADD COLUMN walkin_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN cross_visits INTEGER DEFAULT 0",
         "ALTER TABLE walkin_daily_reports ADD COLUMN recruit_visits INTEGER DEFAULT 0",

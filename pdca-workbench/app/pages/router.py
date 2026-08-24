@@ -582,6 +582,19 @@ async def admin_panel_page(
     return _html_file(html_path)
 
 
+@router.get("/knowledge")
+@router.get("/knowledge/")
+@router.get("/app/knowledge")
+async def knowledge_page(
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    settings = get_settings()
+    html_path = settings.frontend_dir / "knowledge_hub.html"
+    if not html_path.is_file():
+        raise HTTPException(status_code=404, detail="knowledge_hub.html 缺失")
+    return _html_file(html_path)
+
+
 @router.get("/dealer-sellin")
 @router.get("/dealer-sellin/")
 async def dealer_sellin_page(
