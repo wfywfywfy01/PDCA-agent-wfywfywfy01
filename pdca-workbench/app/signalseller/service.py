@@ -195,16 +195,13 @@ def filter_customers_by_scope(
     owner_keys: list[str] | tuple[str, ...] | None = None,
     dealer_names: list[str] | tuple[str, ...] | None = None,
 ) -> list[dict]:
-    """Filter canonical customer rows with explicit server-side assignments."""
-    owners = {str(value).strip().casefold() for value in (owner_keys or []) if str(value).strip()}
-    dealers = {str(value).strip().casefold() for value in (dealer_names or []) if str(value).strip()}
-    if not owners and not dealers:
-        return []
-    return [
-        row for row in rows
-        if str(row.get("owner") or "").strip().casefold() in owners
-        or str(row.get("dealer_name") or "").strip().casefold() in dealers
-    ]
+    """Filter canonical customer rows with explicit server-side assignments.
+
+    共享实现（评审整改）：见 app.auth.scope.filter_rows_by_scope。
+    """
+    from app.auth.scope import filter_rows_by_scope
+
+    return filter_rows_by_scope(rows, owner_keys=owner_keys, dealer_names=dealer_names)
 
 
 def build_summary(customers: list[dict]) -> dict:

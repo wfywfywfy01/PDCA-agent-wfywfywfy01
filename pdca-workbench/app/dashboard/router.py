@@ -61,8 +61,9 @@ def _scoped_task_panel(data: dict, user: User, session: Session) -> dict:
         ).strip().casefold()
         if owner and owner in allowed:
             items.append(item)
-    done_values = {"done", "completed", "complete", "已完成"}
-    done = sum(1 for item in items if str(item.get("status") or "").strip().casefold() in done_values)
+    from app.statuses import is_done
+
+    done = sum(1 for item in items if is_done(item.get("status")))
     result["items"] = items
     result["summary"] = [
         {"key": "total", "label": "总任务数", "value": len(items)},
@@ -403,10 +404,9 @@ def _db_task_panel(date_text: str, user: User, session: Session) -> dict | None:
         }
         for row in rows
     ]
-    done_values = {"done", "completed", "complete", "已完成"}
-    done = sum(
-        1 for item in items if str(item.get("status") or "").strip().casefold() in done_values
-    )
+    from app.statuses import is_done
+
+    done = sum(1 for item in items if is_done(item.get("status")))
     return {
         "items": items,
         "summary": [
@@ -572,6 +572,14 @@ async def task_center_create(
         priority=body.priority.strip() or "normal",
         source="workbench",
     )
+    from app.audit import log_action
+
+    log_action(
+        user.username,
+        "task_create",
+        resource=f"{date_text}:{body.title.strip()}",
+        detail={"owner": owner, "priority": body.priority.strip() or "normal"},
+    )
     return {"ok": True, "task_date": date_text, "title": body.title.strip(), "owner": owner}
 
 
@@ -604,4 +612,12 @@ async def task_center_patch(
     row.updated_at = _dt.utcnow()
     session.add(row)
     session.commit()
+    from app.audit import log_action
+
+    changes = {
+        key: value for key, value in {
+            "status": body.status, "owner": body.owner, "priority": body.priority,
+        }.items() if value is not None
+    }
+    log_action(user.username, "task_update", resource=f"task:{task_id}", detail=changes)
     return {"ok": True, "id": row.id, "status": row.status}

@@ -24,13 +24,13 @@ def _scoped_shipments(rows: list[dict], user: User, session: Session) -> tuple[l
     scope = resolve_data_scope(user, session)
     if scope.unrestricted:
         return rows, "全部"
-    owners = {normalize_scope_key(value) for value in scope.owner_keys if normalize_scope_key(value)}
-    dealers = {normalize_scope_key(value) for value in scope.dealer_names if normalize_scope_key(value)}
-    filtered = [
-        row for row in rows
-        if normalize_scope_key(row.get("salesperson")) in owners
-        or (user.role == "dealer" and normalize_scope_key(row.get("customer")) in dealers)
-    ]
+    from app.auth.scope import filter_rows_by_scope
+
+    filtered = filter_rows_by_scope(
+        rows,
+        owner_keys=scope.owner_keys,
+        dealer_names=scope.dealer_names if user.role == "dealer" else None,
+    )
     return filtered, "当前权限范围"
 
 
@@ -66,15 +66,17 @@ def _scope_freight(items: list[dict], user: User, session: Session) -> tuple[lis
     scope = resolve_data_scope(user, session)
     if scope.unrestricted:
         return items, "全部"
-    owners = {normalize_scope_key(value) for value in scope.owner_keys if normalize_scope_key(value)}
+    owners = list(scope.owner_keys)
     sales_name = normalize_scope_key(getattr(user, "sales_name", "") or "")
     if sales_name:
-        owners.add(sales_name)
-    filtered = [
-        item
-        for item in items
-        if normalize_scope_key(item.get("salesperson")) in owners
-    ]
+        owners.append(getattr(user, "sales_name", "") or "")
+    from app.auth.scope import filter_rows_by_scope
+
+    filtered = filter_rows_by_scope(
+        items,
+        owner_keys=owners,
+        owner_field="salesperson",
+    )
     return filtered, "当前权限范围"
 
 
@@ -245,6 +247,14 @@ async def create_shipment(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    from app.audit import log_action
+
+    log_action(
+        user.username,
+        "logistics_create",
+        resource=tracking,
+        detail={"carrier": body.carrier.strip(), "customer": body.customer.strip(), "ship_date": ship_date},
+    )
     return {"ok": True, "tracking_number": tracking, "record_date": date_text, "ship_date": ship_date}
 
 

@@ -52,7 +52,7 @@ def workbench_overview(
         "sellInSub": "尚未同步业绩数据",
         "sellOutSub": "尚未同步终销数据",
         "agentScore": None,
-        "scoreComment": "",
+        "scoreComment": "AI 评分未接入可验证证据源，暂不计算（未接入，非数据缺失）",
         "dataState": {
             "sellIn": "missing",
             "sellOut": "missing",
@@ -162,19 +162,20 @@ def db_customer_center_summary(session, user=None) -> list[dict] | None:
     rows = list(session.exec(select(CustomerProfile)).all())
     if not rows:
         return None
+    rows = [row.model_dump() for row in rows]
     if user is not None:
         scope = resolve_data_scope(user, session)
         if not scope.unrestricted:
-            owners = {str(value).strip().casefold() for value in scope.owner_keys if str(value).strip()}
-            dealers = {str(value).strip().casefold() for value in scope.dealer_names if str(value).strip()}
-            rows = [
-                row for row in rows
-                if str(row.owner or "").strip().casefold() in owners
-                or str(row.dealer_name or "").strip().casefold() in dealers
-            ]
+            from app.auth.scope import filter_rows_by_scope
+
+            rows = filter_rows_by_scope(
+                rows,
+                owner_keys=scope.owner_keys,
+                dealer_names=scope.dealer_names,
+            )
     counts = {"A": 0, "B": 0, "C": 0, "D": 0}
     for row in rows:
-        grade = (row.abcd_grade or "").strip().upper()
+        grade = (row.get("abcd_grade") or "").strip().upper()
         if grade not in counts:
             grade = "D"
         counts[grade] += 1

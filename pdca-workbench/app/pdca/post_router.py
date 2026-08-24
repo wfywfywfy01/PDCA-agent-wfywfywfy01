@@ -87,10 +87,18 @@ async def post_logistics(
         form["salesperson"] = [sales_label]
     from app.logistics import service
 
-    service.create_shipment(
+    tracking = service.create_shipment(
         date_text,
         form,
         salesperson=(form.get("salesperson", [""])[0] or "").strip(),
+    )
+    from app.audit import log_action
+
+    log_action(
+        user.username,
+        "logistics_create",
+        resource=tracking,
+        detail={"carrier": (form.get("carrier", [""])[0] or "").strip()},
     )
     return _redirect("/logistics-center/", date_text, "物流单号已保存。")
 

@@ -36,6 +36,13 @@ def effective_data_scope(user: User) -> str:
         # a global reader.
         if configured == "all" and user.role != "admin":
             return ROLE_DEFAULT_SCOPES.get(user.role, "none")
+        # Bound dealers must see their own store; stale "none" is a lockout.
+        if (
+            configured == "none"
+            and user.role == "dealer"
+            and str(getattr(user, "dealer_id", "") or "").strip()
+        ):
+            return ROLE_DEFAULT_SCOPES["dealer"]
         return configured
     return ROLE_DEFAULT_SCOPES.get(user.role, "none")
 
@@ -171,6 +178,55 @@ def visible_dealer_names(user: User, session: Session) -> list[str] | None:
 def visible_owner_keys(user: User, session: Session) -> list[str] | None:
     scope = resolve_data_scope(user, session)
     return None if scope.unrestricted else list(scope.owner_keys)
+
+
+def filter_rows_by_scope(
+    rows: list[dict],
+    *,
+    owner_keys: list[str] | tuple[str, ...] | None = None,
+    dealer_names: list[str] | tuple[str, ...] | None = None,
+    owner_field: str = "owner",
+    dealer_field: str = "dealer_name",
+) -> list[dict]:
+    """共享的 dict 行级 scope 过滤（评审整改：收敛六处重复实现）。
+
+    fail-closed：两个集合都为空时返回空列表；归一化（casefold）匹配。
+    支持嵌套 owner 的备用键（owner_key/salesperson）。
+    """
+    owners = {
+        normalize_scope_key(value)
+        for value in (owner_keys or [])
+        if normalize_scope_key(value)
+    }
+    dealers = {
+        normalize_scope_key(value)
+        for value in (dealer_names or [])
+        if normalize_scope_key(value)
+    }
+    if not owners and not dealers:
+        return []
+    result = []
+    for row in rows:
+        owner_values = [
+            row.get(owner_field),
+            row.get("owner_key"),
+            row.get("salesperson"),
+        ]
+        dealer_values = [row.get(dealer_field), row.get("customer")]
+        if any(
+            normalize_scope_key(value) in owners
+            for value in owner_values
+            if normalize_scope_key(value)
+        ):
+            result.append(row)
+            continue
+        if any(
+            normalize_scope_key(value) in dealers
+            for value in dealer_values
+            if normalize_scope_key(value)
+        ):
+            result.append(row)
+    return result
 
 
 def scoped_active_store_ids(user: User, session: Session) -> list[str]:

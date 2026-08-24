@@ -20,7 +20,12 @@ from app.models.pdca_task import PdcaTask
 
 
 def sync_dealer_sales_from_json(date_text: str) -> int:
-    """从 data_raw JSON 同步经销商业绩。"""
+    """从 data_raw JSON 同步经销商业绩。【仅限手动使用】
+
+    F2 单写入方：本函数不再被任何定时任务自动调用——dealer_sales 的
+    自动写入方只有 sync_dealer_sales_from_vps（vertu-cli 直写）。
+    历史文件导入请用 scripts/import_history_dealer_sales.py。
+    """
     settings = get_settings()
     data_raw = settings.repo_root / "data_raw"
     if not data_raw.is_dir():
@@ -284,21 +289,19 @@ def run_full_sync(date_text: str | None = None) -> dict:
     """
     date_text = date_text or bridge.today_text()
     result: dict = {"date": date_text}
+    # F2 单写入方：dealer_sales 仅由 vertu-cli 直写（sync_dealer_sales_from_vps）。
+    # 失败/0 条时显式报错（触发告警与 /metrics），不再静默回退 data_raw JSON——
+    # 文件回退曾是双事实源口径漂移的根源；历史文件导入走 import_history_dealer_sales.py。
     try:
         vps_count = sync_dealer_sales_from_vps(date_text)
         result["vps_dealer_sales"] = vps_count
-        if vps_count:
-            result["dealer_sales"] = vps_count
-        else:
-            logger.warning("VPS sell-in 同步 0 条，回退 data_raw JSON 文件源")
-            result["dealer_sales"] = sync_dealer_sales_from_json(date_text)
+        result["dealer_sales"] = vps_count
+        if not vps_count:
+            logger.warning("VPS sell-in 同步 0 条（不回退文件源，保持单一事实源）")
     except Exception as exc:
-        logger.warning("VPS sell-in 同步失败，回退 data_raw JSON 文件源: {}", exc)
+        logger.warning("VPS sell-in 同步失败（不回退文件源）: {}", exc)
         result["vps_dealer_sales"] = f"error: {exc}"
-        try:
-            result["dealer_sales"] = sync_dealer_sales_from_json(date_text)
-        except Exception as exc2:
-            result["dealer_sales"] = f"error: {exc2}"
+        result["dealer_sales"] = f"error: {exc}"
     for key, fn in (
         ("pdca_tasks", lambda: sync_pdca_tasks_from_csv(date_text)),
         ("daily_reports", lambda: sync_daily_reports(date_text)),

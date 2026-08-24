@@ -57,18 +57,26 @@ def build_report(day: str) -> str:
             store.name for store in stores if store.store_id not in reported_ids
         ]
 
-        # 物流：近 7 天在途/异常（简单关键词判定，与看板一致）
+        # 物流：近 7 天在途/异常（复用 logistics/service 的统一判定，评审整改）
+        from app.logistics.service import _judge_status, _load_settings, _status_is_delivered
+
         week_ago = (date.fromisoformat(day) - timedelta(days=7)).isoformat()
         logistics_rows = session.exec(
             select(LogisticsShipment).where(LogisticsShipment.record_date >= week_ago)
         ).all()
         transit = abnormal = 0
+        settings_cfg = _load_settings()
         for row in logistics_rows:
-            status = (row.current_status or "").lower()
-            if "异常" in status or "清关失败" in status:
+            row_dict = {
+                "current_status": row.current_status or "",
+                "status": row.current_status or "",
+                "ship_date": row.ship_date or day,
+            }
+            judgement, _reason, _progress = _judge_status(row_dict, settings_cfg, day)
+            if judgement == "异常":
                 abnormal += 1
                 continue
-            if "delivered" in status or "已签收" in status:
+            if _status_is_delivered(row_dict):
                 continue
             transit += 1
 
@@ -77,14 +85,15 @@ def build_report(day: str) -> str:
                 select(MeetingRecord).where(MeetingRecord.meeting_date == day)
             ).all()
         )
-        done_statuses = ("done", "completed", "complete", "已完成")
+        from app.statuses import is_done
+
         pending_tasks = len(
             [
                 row
                 for row in session.exec(
                     select(PdcaTask).where(PdcaTask.task_date == day)
                 ).all()
-                if (row.status or "").strip().lower() not in done_statuses
+                if not is_done(row.status)
             ]
         )
 

@@ -32,15 +32,16 @@ from app.todos.evidence import (
     report_window_days,
 )
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
+from app.statuses import is_done as _status_is_done
 
-DONE_STATUSES = {"done", "completed", "complete", "已完成", "完成"}
+DONE_STATUSES = {"done", "completed", "complete", "已完成", "完成"}  # 兼容旧引用，见 app/statuses.py
 
 _USER_NAME_FIELDS = ("name", "display_name", "username", "login", "employee_name")
 
 
 def is_done(status: str | None) -> bool:
     """状态是否已完成。"""
-    return str(status or "").strip().casefold() in DONE_STATUSES
+    return _status_is_done(status)
 
 
 def round_label_for_time(hhmm: str) -> str:
