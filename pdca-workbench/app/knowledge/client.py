@@ -114,7 +114,9 @@ def _is_uuid(value: str) -> bool:
         return False
 
 
-def _service_token(user: User, session: Session) -> str:
+def _service_token(
+    user: User, session: Session, *, reauthenticated_at: int | None = None
+) -> str:
     scope, dealer_ids, team_keys = _knowledge_scope(user, session)
     now = datetime.now(timezone.utc)
     payload = {
@@ -130,14 +132,27 @@ def _service_token(user: User, session: Session) -> str:
         "exp": now + timedelta(minutes=5),
         "jti": secrets.token_hex(16),
     }
+    if reauthenticated_at is not None:
+        payload["reauth_at"] = reauthenticated_at
+        payload["reauth_purpose"] = "knowledge-original-export"
     return jwt.encode(payload, _token_key(), algorithm="HS256")
 
 
-def _headers(user: User, session: Session, request_id: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {_service_token(user, session)}",
+def _headers(
+    user: User,
+    session: Session,
+    request_id: str,
+    *,
+    reauthenticated_at: int | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {_service_token(user, session, reauthenticated_at=reauthenticated_at)}",
         "X-Request-ID": request_id[:200],
     }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+    return headers
 
 
 def _upstream_error(response: httpx.Response) -> HTTPException:
@@ -151,7 +166,15 @@ def _upstream_error(response: httpx.Response) -> HTTPException:
 
 
 async def request_json(
-    method: str, path: str, *, user: User, session: Session, request_id: str, body: dict | None = None
+    method: str,
+    path: str,
+    *,
+    user: User,
+    session: Session,
+    request_id: str,
+    body: dict | None = None,
+    reauthenticated_at: int | None = None,
+    idempotency_key: str | None = None,
 ) -> dict | list:
     settings = get_settings()
     if not settings.knowledge_hub_enabled:
@@ -160,7 +183,14 @@ async def request_json(
         async with httpx.AsyncClient(timeout=settings.knowledge_hub_timeout_seconds) as client:
             response = await client.request(
                 method, f"{settings.knowledge_hub_url}{path}",
-                headers=_headers(user, session, request_id), json=body,
+                headers=_headers(
+                    user,
+                    session,
+                    request_id,
+                    reauthenticated_at=reauthenticated_at,
+                    idempotency_key=idempotency_key,
+                ),
+                json=body,
             )
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(status_code=503, detail="知识库服务暂不可用") from exc
@@ -170,16 +200,30 @@ async def request_json(
 
 
 async def request_content(
-    method: str, path: str, *, user: User, session: Session, request_id: str, body: dict | None = None
+    method: str,
+    path: str,
+    *,
+    user: User,
+    session: Session,
+    request_id: str,
+    body: dict | None = None,
+    reauthenticated_at: int | None = None,
+    export_token: str | None = None,
 ) -> Response:
     settings = get_settings()
     if not settings.knowledge_hub_enabled:
         raise HTTPException(status_code=503, detail="知识库服务尚未启用")
     client = httpx.AsyncClient(timeout=settings.knowledge_hub_timeout_seconds)
     try:
+        headers = _headers(
+            user, session, request_id, reauthenticated_at=reauthenticated_at
+        )
+        if export_token:
+            headers["X-Export-Token"] = export_token
         request = client.build_request(
             method, f"{settings.knowledge_hub_url}{path}",
-            headers=_headers(user, session, request_id), json=body,
+            headers=headers,
+            json=body,
         )
         response = await client.send(request, stream=True)
     except (httpx.HTTPError, RuntimeError) as exc:

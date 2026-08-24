@@ -109,6 +109,12 @@ export async function mountPdcaShell(mountId) {
   if (currentPath === '/') home.className = 'pdca-nav-active';
   nav.appendChild(home);
 
+  const knowledge = document.createElement('a');
+  knowledge.href = '/app/knowledge';
+  knowledge.textContent = '经销商资料库';
+  if (currentPath === '/knowledge' || currentPath === '/app/knowledge') knowledge.className = 'pdca-nav-active';
+  nav.appendChild(knowledge);
+
   const userWrap = document.createElement('span');
   userWrap.className = 'pdca-shell-user';
   userWrap.style.position = 'relative';

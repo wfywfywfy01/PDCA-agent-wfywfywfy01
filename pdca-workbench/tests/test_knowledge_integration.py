@@ -8,16 +8,29 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from jose import jwt
 from sqlalchemy.pool import StaticPool
 from sqlalchemy import inspect
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
+from app.auth.security import hash_password
 from app.admin.router import StoreCreateBody, StoreUpdateBody, create_store, update_store
 from app.knowledge.client import _service_token, scoped_dealers
-from app.knowledge.router import ExportBody, QueryBody, export_original, search_knowledge
+from app.knowledge.router import (
+    ExportBody,
+    QueryBody,
+    ReauthBody,
+    ReviewDecisionBody,
+    UploadPresignBody,
+    decide_sensitive_review,
+    export_original,
+    list_sensitive_reviews,
+    presign_knowledge_upload,
+    reauthenticate_original_export,
+    search_knowledge,
+)
 from app.database import init_db
 from app.models.dealer_assignment import DealerAssignment
 from app.models.dealer_store import DealerStore
@@ -56,6 +69,14 @@ class KnowledgeIntegrationTests(unittest.TestCase):
                     username="unassigned", hashed_password="x", role="sales", data_scope="self",
                     team_key="overseas", must_change_password=False,
                 ),
+                User(
+                    username="admin", hashed_password="x", role="admin", data_scope="all",
+                    must_change_password=False,
+                ),
+                User(
+                    username="viewer", hashed_password="x", role="viewer", data_scope="team",
+                    team_key="overseas", must_change_password=False,
+                ),
                 DealerStore(
                     store_id="a", name="Dealer A", team_key="overseas",
                     knowledge_dealer_id=self.dealer_a,
@@ -90,6 +111,17 @@ class KnowledgeIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 scoped_dealers(user, session),
                 [{"store_id": "a", "name": "Dealer A", "dealer_id": self.dealer_a}],
+            )
+            reauth_payload = jwt.decode(
+                _service_token(user, session, reauthenticated_at=123),
+                self.secret,
+                algorithms=["HS256"],
+                audience="dealer-knowledge-hub",
+                issuer="pdca-workbench",
+            )
+            self.assertEqual(reauth_payload["reauth_at"], 123)
+            self.assertEqual(
+                reauth_payload["reauth_purpose"], "knowledge-original-export"
             )
 
     def test_team_scope_uses_explicit_mapping_without_raw_fallback(self):
@@ -174,11 +206,121 @@ class KnowledgeIntegrationTests(unittest.TestCase):
             body = ExportBody(
                 asset_id=uuid4(), reason="customer contract review", confirmation="export-original"
             )
-            with patch("app.knowledge.router.request_content", new=AsyncMock()) as upstream:
+            with patch("app.knowledge.router.request_json", new=AsyncMock()) as upstream:
                 with self.assertRaises(HTTPException) as caught:
-                    asyncio.run(export_original(body, request, user, session))
+                    asyncio.run(export_original(body, request, user, session, "export-test-key"))
             self.assertEqual(caught.exception.status_code, 403)
             upstream.assert_not_awaited()
+
+    def test_read_only_user_cannot_request_upload_url(self):
+        request = SimpleNamespace(state=SimpleNamespace(request_id="test-request"))
+        body = UploadPresignBody(
+            dealer_id=self.dealer_a,
+            filename="policy.pdf",
+            content_type="application/pdf",
+            byte_size=100,
+            content_hash="a" * 64,
+        )
+        with Session(self.engine) as session, patch(
+            "app.knowledge.router.request_json", new=AsyncMock()
+        ) as upstream:
+            viewer = session.exec(select(User).where(User.username == "viewer")).one()
+            with self.assertRaises(HTTPException) as caught:
+                asyncio.run(presign_knowledge_upload(body, request, viewer, session))
+            self.assertEqual(caught.exception.status_code, 403)
+            upstream.assert_not_awaited()
+
+    def test_sensitive_reviews_are_admin_only_and_proxied(self):
+        request = SimpleNamespace(state=SimpleNamespace(request_id="test-request"))
+        review_id = uuid4()
+        with Session(self.engine) as session:
+            sales = session.exec(select(User).where(User.username == "sales")).one()
+            admin = session.exec(select(User).where(User.username == "admin")).one()
+            with patch("app.knowledge.router.request_json", new=AsyncMock()) as upstream:
+                with self.assertRaises(HTTPException) as denied:
+                    asyncio.run(list_sensitive_reviews(request, sales, session))
+                self.assertEqual(denied.exception.status_code, 403)
+                upstream.assert_not_awaited()
+
+            with (
+                patch(
+                    "app.knowledge.router.request_json",
+                    new=AsyncMock(return_value={"decision": "approve"}),
+                ) as upstream,
+                patch("app.knowledge.router.log_action"),
+            ):
+                result = asyncio.run(decide_sensitive_review(
+                    review_id,
+                    ReviewDecisionBody(
+                        decision="approve", reason="Approved for internal retrieval"
+                    ),
+                    request,
+                    admin,
+                    session,
+                ))
+            self.assertEqual(result["decision"], "approve")
+            self.assertEqual(
+                upstream.await_args.args[:2],
+                ("POST", f"/v1/reviews/{review_id}/decision"),
+            )
+
+    def test_original_export_requires_fresh_password_reauthentication(self):
+        auth_settings = SimpleNamespace(
+            secret_key="reauth-test-secret-that-is-long-enough",
+            algorithm="HS256",
+            secure_cookies=False,
+        )
+        request = SimpleNamespace(
+            state=SimpleNamespace(request_id="test-request"),
+            client=SimpleNamespace(host="127.0.0.1"),
+            headers={},
+        )
+        body = ExportBody(
+            asset_id=uuid4(), reason="customer contract review", confirmation="export-original"
+        )
+        with Session(self.engine) as session:
+            admin = session.exec(select(User).where(User.username == "admin")).one()
+            admin.hashed_password = hash_password("Correct-password-123")
+            session.add(admin)
+            session.commit()
+            with patch("app.knowledge.router.request_json", new=AsyncMock()) as upstream:
+                with self.assertRaises(HTTPException) as missing:
+                    asyncio.run(export_original(body, request, admin, session, "export-test-key"))
+                self.assertEqual(missing.exception.status_code, 403)
+                upstream.assert_not_awaited()
+
+            response = Response()
+            with (
+                patch("app.knowledge.router.get_settings", return_value=auth_settings),
+                patch("app.auth.security.get_settings", return_value=auth_settings),
+                patch("app.knowledge.router.log_action"),
+                patch("app.auth.router._clear_fail"),
+            ):
+                payload = asyncio.run(reauthenticate_original_export(
+                    ReauthBody(password="Correct-password-123"), request, response, admin, session
+                ))
+            self.assertEqual(payload["expires_in"], 300)
+            cookie = response.headers["set-cookie"].split("pdca_knowledge_reauth=", 1)[1].split(";", 1)[0]
+
+            upstream_response = {
+                "export_id": str(uuid4()),
+                "download_url": "/v1/exports/test/download",
+                "download_token": "x" * 43,
+                "expires_at": "2026-08-24T00:05:00+00:00",
+                "expires_in": 300,
+            }
+            with (
+                patch("app.knowledge.router.get_settings", return_value=auth_settings),
+                patch("app.auth.security.get_settings", return_value=auth_settings),
+                patch("app.knowledge.router.request_json", new=AsyncMock(return_value=upstream_response)) as upstream,
+                patch("app.knowledge.router.log_action"),
+            ):
+                exported = asyncio.run(export_original(
+                    body, request, admin, session, "export-test-key", cookie
+                ))
+            self.assertEqual(exported["download_token"], "x" * 43)
+            self.assertIsInstance(upstream.await_args.kwargs["reauthenticated_at"], int)
+            self.assertEqual(upstream.await_args.kwargs["idempotency_key"], "export-test-key")
 
     def test_customer_profile_is_part_of_fresh_schema(self):
         with patch("app.database.get_engine", return_value=self.engine):

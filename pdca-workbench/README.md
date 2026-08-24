@@ -78,7 +78,10 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 - `POST /api/knowledge/search` — 人工/Agent 共用的带引用检索
 - `POST /api/knowledge/answers` — 基于证据的 AI 回答
 - `GET /api/knowledge/assets/{id}/content` — 脱敏文本或带水印图片预览
-- `POST /api/knowledge/exports` — 管理员确认并填写用途后导出原件
+- `POST /api/knowledge/reauth` — 管理员原件下载前进行 5 分钟二次认证
+- `POST /api/knowledge/exports` — 申请 5 分钟、一次性的原件下载授权
+- `POST /api/knowledge/uploads` — 按账号经销商范围流式上传并触发 ETL
+- `GET/POST /api/knowledge/reviews` — 管理员审核隔离的高敏感资料
 
 ## 经销商资料库接入
 
