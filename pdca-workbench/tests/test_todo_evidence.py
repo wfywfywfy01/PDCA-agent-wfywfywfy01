@@ -181,6 +181,77 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)  # 同一个人只拉一次日报
 
 
+class SelfSkipTests(unittest.TestCase):
+    """催办引擎跳过「本人」与显式排除名单。"""
+
+    def setUp(self):
+        import app.todos.service as service_mod
+
+        service_mod._SELF_USER_ID = None  # 每例重置单例缓存
+        self.temp_dir = tempfile.TemporaryDirectory()
+        database_path = Path(self.temp_dir.name) / "selfskip-test.sqlite"
+        self.engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+        SQLModel.metadata.create_all(self.engine)
+        self.patch_engine = patch(
+            "app.todos.service.get_engine", return_value=self.engine
+        )
+        self.patch_engine.start()
+        self.patch_send = patch(
+            "app.todos.service.run_vertu_sync", return_value=(0, "", "")
+        )
+        self.mock_send = self.patch_send.start()
+        self.patch_outbox = patch("app.todos.service._write_outbox", lambda result: None)
+        self.patch_outbox.start()
+
+    def tearDown(self):
+        import app.todos.service as service_mod
+
+        service_mod._SELF_USER_ID = None  # 防止单例缓存泄漏到其他测试类
+        self.patch_outbox.stop()
+        self.patch_send.stop()
+        self.patch_engine.stop()
+        self.engine.dispose()
+        self.temp_dir.cleanup()
+
+    def _seed(self, owner="何海文"):
+        with Session(self.engine) as session:
+            session.add(PdcaTask(
+                task_date=(datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+                title="待办A",
+                owner=owner,
+                status="pending",
+                source="workbench",
+            ))
+            session.commit()
+
+    def test_skip_self(self):
+        def fake_json(args, timeout):
+            if "+me" in args:
+                return {"ok": True, "user": {"userId": 88}}
+            return [{"user_id": 88, "name": "何海文"}]
+
+        self._seed()
+        with patch("app.todos.service.run_vertu_sync_json", side_effect=fake_json):
+            result = run_todo_reminders(round_label="manual", force=True)
+        self.assertEqual(result["sent"], [])
+        self.assertEqual(result["skipped_owners"][0]["reason"], "im_self")
+        self.mock_send.assert_not_called()
+
+    def test_skip_explicit_exclusion(self):
+        from unittest.mock import MagicMock
+
+        fake_settings = MagicMock()
+        fake_settings.workbench_base_url = "https://example/app/"
+        fake_settings.todo_remind_grace_hours = 48
+        fake_settings.todo_remind_skip_owners = ["何海文"]
+        self._seed()
+        with patch("app.todos.service.get_settings", return_value=fake_settings):
+            result = run_todo_reminders(round_label="manual", force=True)
+        self.assertEqual(result["sent"], [])
+        self.assertEqual(result["skipped_owners"][0]["reason"], "owner_excluded")
+        self.mock_send.assert_not_called()
+
+
 class ReportFetchTests(unittest.TestCase):
     def test_fetch_report_ok_and_failure(self):
         cache = {}

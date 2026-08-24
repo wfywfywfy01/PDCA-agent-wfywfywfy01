@@ -67,6 +67,13 @@ class Settings:
             for item in os.environ.get("PDCA_TODO_REMIND_TIMES", "09:30,16:30").split(",")
             if item.strip()
         ]
+        # 催办排除名单：逗号分隔的负责人姓名；同时引擎会自动跳过
+        # 当前登录 IM 身份本人（机器人不能与自己创建私聊）。
+        self.todo_remind_skip_owners = [
+            item.strip()
+            for item in os.environ.get("PDCA_TODO_REMIND_SKIP_OWNERS", "").split(",")
+            if item.strip()
+        ]
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",

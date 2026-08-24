@@ -36,6 +36,8 @@ from app.statuses import is_done as _status_is_done
 
 DONE_STATUSES = {"done", "completed", "complete", "已完成", "完成"}  # 兼容旧引用，见 app/statuses.py
 
+_SELF_USER_ID: Optional[int] = None
+
 _USER_NAME_FIELDS = ("name", "display_name", "username", "login", "employee_name")
 
 
@@ -133,6 +135,29 @@ def _match_user(owner: str, users: list[dict]) -> Optional[dict]:
         if any(wanted in name or name in wanted for name in names(user))
     ]
     return loose[0] if len(loose) == 1 else None
+
+
+def resolve_self_user_id() -> Optional[int]:
+    """当前登录 IM 身份（im +me）的 user_id；失败返回 None。
+
+    催办机器人以自己的账号发私聊，给"本人"发会被服务端拒绝
+    （不能与自己创建私聊），必须跳过。单例缓存。
+    """
+    global _SELF_USER_ID
+    if _SELF_USER_ID is not None:
+        return _SELF_USER_ID or None
+    payload = run_vertu_sync_json(["im", "+me"], timeout=20.0)
+    user = (payload or {}).get("user") if isinstance(payload, dict) else None
+    user_id = None
+    if isinstance(user, dict):
+        for key in ("userId", "user_id", "id"):
+            value = user.get(key)
+            if isinstance(value, int) and value > 0:
+                user_id = value
+                break
+    _SELF_USER_ID = user_id or 0
+    logger.info("待办催办：当前 IM 身份 user_id={}", user_id)
+    return user_id
 
 
 def resolve_im_user(owner: str, cache: dict[str, Optional[dict]]) -> Optional[dict]:
@@ -278,6 +303,14 @@ def run_todo_reminders(
     report_cache: dict[int, Optional[str]] = {}
     report_start, report_end = report_window_days(today)
 
+    # 显式排除名单（PDCA_TODO_REMIND_SKIP_OWNERS，如机器人本人）+ 当前 IM 身份
+    skip_owners = {
+        name.strip()
+        for name in get_settings().todo_remind_skip_owners
+        if name.strip()
+    }
+    self_user_id = resolve_self_user_id()
+
     for owner in sorted(by_owner, key=str.casefold):
         owned = by_owner[owner]
         keep: list[PdcaTask] = []
@@ -308,6 +341,12 @@ def run_todo_reminders(
         if not keep:
             continue
         owned = keep
+        # 显式排除名单（如机器人本人）与自动跳过"自己"
+        if owner in skip_owners:
+            skipped_owners.append(
+                {"owner": owner, "reason": "owner_excluded", "tasks": len(owned)}
+            )
+            continue
         user = resolve_im_user(owner, user_cache)
         if user is None:
             skipped_owners.append(
@@ -318,6 +357,12 @@ def run_todo_reminders(
         if not user_id:
             skipped_owners.append(
                 {"owner": owner, "reason": "im_user_missing_id", "tasks": len(owned)}
+            )
+            continue
+        # 机器人用自己的账号发私聊，给本人发会被服务端拒绝（不能与自己建私聊）
+        if user_id == self_user_id:
+            skipped_owners.append(
+                {"owner": owner, "reason": "im_self", "tasks": len(owned)}
             )
             continue
         has_vemory = any(task.source == "vemory" for task in owned)
