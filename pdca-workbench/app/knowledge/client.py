@@ -70,8 +70,19 @@ def _knowledge_scope(user: User, session: Session) -> tuple[str, list[str], list
             continue
     settings = get_settings()
     team_key = str(scope.team_key or "").strip()
-    team_keys = [settings.knowledge_hub_team_map.get(team_key, team_key)] if team_key else []
+    mapped_team = settings.knowledge_hub_team_map.get(team_key) if scope.mode == "team" else None
+    team_keys = [mapped_team] if mapped_team else []
     return scope.mode, sorted(set(dealer_ids)), team_keys
+
+
+def require_knowledge_access(user: User, session: Session, dealer_id: UUID | None = None) -> None:
+    scope, dealer_ids, team_keys = _knowledge_scope(user, session)
+    if scope == "all":
+        return
+    if dealer_id is not None and str(dealer_id) not in dealer_ids:
+        raise HTTPException(status_code=403, detail="该经销商不在当前资料权限范围内")
+    if not dealer_ids and not team_keys:
+        raise HTTPException(status_code=403, detail="当前账号未配置资料权限范围")
 
 
 def scoped_dealers(user: User, session: Session) -> list[dict[str, str]]:

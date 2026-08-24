@@ -109,10 +109,15 @@ def seed_stores() -> None:
                     row = canonical.get(store.store_id)
                     if not row:
                         continue
-                    if (store.region, store.country, store.sales_owner) != (row[2], row[3], row[5]):
+                    changed = False
+                    if (store.region, store.country) != (row[2], row[3]):
                         store.region = row[2]
                         store.country = row[3]
+                        changed = True
+                    if not store.sales_owner:
                         store.sales_owner = row[5]
+                        changed = True
+                    if changed:
                         session.add(store)
                         corrected += 1
                     if not getattr(store, "team_key", ""):

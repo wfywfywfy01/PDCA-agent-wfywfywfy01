@@ -469,6 +469,8 @@ async def create_store(
     current_user: Annotated[User, Depends(require_role("manager"))],
     session: Annotated[Session, Depends(get_session)],
 ):
+    if body.knowledge_dealer_id.strip() and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可配置资料库经销商映射")
     if not body.store_id.strip():
         raise HTTPException(status_code=422, detail="store_id 不能为空")
     if session.exec(select(DealerStore).where(DealerStore.store_id == body.store_id)).first():
@@ -504,6 +506,8 @@ async def update_store(
     current_user: Annotated[User, Depends(require_role("manager"))],
     session: Annotated[Session, Depends(get_session)],
 ):
+    if body.knowledge_dealer_id is not None and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可配置资料库经销商映射")
     store = session.exec(select(DealerStore).where(DealerStore.store_id == store_id)).first()
     if not store:
         raise HTTPException(status_code=404, detail="门店不存在")

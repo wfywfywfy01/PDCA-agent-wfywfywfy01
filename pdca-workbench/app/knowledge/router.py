@@ -13,7 +13,12 @@ from app.auth.models import User
 from app.auth.scope import resolve_data_scope
 from app.config import get_settings
 from app.database import get_session
-from app.knowledge.client import request_content, request_json, scoped_dealers
+from app.knowledge.client import (
+    request_content,
+    request_json,
+    require_knowledge_access,
+    scoped_dealers,
+)
 
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -54,6 +59,7 @@ async def search_knowledge(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
 ):
+    require_knowledge_access(user, session, body.dealer_id)
     return await request_json(
         "POST", "/v1/search", user=user, session=session,
         request_id=getattr(request.state, "request_id", ""),
@@ -68,6 +74,7 @@ async def answer_knowledge(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
 ):
+    require_knowledge_access(user, session, body.dealer_id)
     payload = body.model_dump(mode="json", exclude_none=True)
     payload["top_k"] = min(body.top_k, 10)
     return await request_json(
@@ -83,6 +90,7 @@ async def preview_asset(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
 ):
+    require_knowledge_access(user, session)
     return await request_content(
         "GET", f"/v1/assets/{asset_id}/content", user=user, session=session,
         request_id=getattr(request.state, "request_id", ""),
