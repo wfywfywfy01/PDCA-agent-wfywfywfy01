@@ -31,6 +31,7 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.database import get_engine
 from app.models.pdca_task import PdcaTask
+from app.todos.sop import classify_todo
 
 _TZ = ZoneInfo("Asia/Shanghai")
 _WINDOW_DAYS = 6  # 起始 = 今天-6 天（含今天共 7 天，接口限制 7×24h）
@@ -176,17 +177,27 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                 if not title:
                     continue
                 status = "done" if int(todo.get("status") or 0) != 0 else "pending"
+                # 岗位 SOP 收敛：执行人 = 分类器结果，定不了回退会议参与人本人
+                converged = classify_todo(
+                    title=title,
+                    meeting_name=str(meeting.get("meeting_name") or ""),
+                    speaker=str(todo.get("speaker") or "").strip(),
+                    participant=name,
+                )
+                owner = converged["executor"] or name
                 row = existing_map.get(ext_id)
                 if row is None:
                     row = PdcaTask(
                         task_date=deadline or meeting_date,
                         title=title,
-                        owner=name,
+                        owner=owner,
                         status=status,
                         source="vemory",
                         external_todo_id=ext_id,
                         meeting_name=str(meeting.get("meeting_name") or "").strip(),
                         meeting_date=meeting_date,
+                        position=converged["position"],
+                        origin_owner=name,
                     )
                     session.add(row)
                     existing_map[ext_id] = row
@@ -198,9 +209,11 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                         row.status = status
                     row.task_date = deadline or meeting_date
                     row.title = title
-                    row.owner = name
+                    row.owner = owner
                     row.meeting_name = str(meeting.get("meeting_name") or "").strip()
                     row.meeting_date = meeting_date
+                    row.position = converged["position"]
+                    row.origin_owner = name
                     row.updated_at = datetime.utcnow()
                     session.add(row)
                 upserted += 1

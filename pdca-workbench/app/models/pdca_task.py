@@ -33,5 +33,9 @@ class PdcaTask(SQLModel, table=True):
     external_todo_id: str = Field(default="", index=True, max_length=64)
     meeting_name: str = Field(default="", max_length=256)
     meeting_date: str = Field(default="", max_length=10)
+    # 岗位 SOP 收敛（app/todos/sop.py）：position=岗位名（unclassified=未识别）；
+    # origin_owner=收敛前的会议参与人（owner 为收敛后的执行人）。
+    position: str = Field(default="", max_length=64)
+    origin_owner: str = Field(default="", max_length=128)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

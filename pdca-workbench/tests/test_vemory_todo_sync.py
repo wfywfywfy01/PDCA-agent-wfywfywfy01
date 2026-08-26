@@ -134,6 +134,32 @@ class VemorySyncTests(unittest.TestCase):
         with Session(self.engine) as session:
             return list(session.exec(select(PdcaTask)).all())
 
+    def test_sop_convergence_business_domain(self):
+        meeting = _meeting("m1", "周会")
+        todo = {"id": 20, "content": "给客户发 PI 确认交期", "status": 0, "deadline": "", "_meeting": meeting}
+        self._sync({"何海文": [todo]})
+        row = self._rows()[0]
+        self.assertEqual(row.owner, "冯磊")  # 商务岗单人 → 冯磊
+        self.assertEqual(row.position, "海外商务")
+        self.assertEqual(row.origin_owner, "何海文")
+
+    def test_sop_convergence_speaker_logistics(self):
+        meeting = _meeting("m1", "周会")
+        todo = {"id": 21, "content": "安排备货发货", "status": 0, "deadline": "", "speaker": "鲜娜", "_meeting": meeting}
+        self._sync({"何海文": [todo]})
+        row = self._rows()[0]
+        self.assertEqual(row.position, "海外物流")
+        self.assertEqual(row.owner, "鲜娜")
+
+    def test_sop_convergence_fallback_participant(self):
+        meeting = _meeting("m1", "周会")
+        todo = {"id": 22, "content": "再约个时间", "status": 0, "deadline": "", "_meeting": meeting}
+        self._sync({"何海文": [todo]})
+        row = self._rows()[0]
+        self.assertEqual(row.position, "unclassified")
+        self.assertEqual(row.owner, "何海文")  # 定不了人 → 参与人本人
+        self.assertEqual(row.origin_owner, "何海文")
+
     def test_skip_without_key_and_users(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("VEMORY_OPENAPI_KEY", None)

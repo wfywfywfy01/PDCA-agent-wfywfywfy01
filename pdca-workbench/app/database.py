@@ -187,6 +187,9 @@ def _migrate_schema() -> None:
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS external_todo_id VARCHAR(64) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS meeting_name VARCHAR(256) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS meeting_date VARCHAR(10) DEFAULT ''",
+        # 岗位 SOP 收敛字段
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS position VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS origin_owner VARCHAR(128) DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_external_todo_id ON pdca_tasks (external_todo_id)",
         # 旧进店来源分类（自然进/预约/潜客/介绍/SA）已废弃，替换为 walkin/cross/online/recruit/existing 五分类；
         # 这几列原来是 NOT NULL，不删掉的话新 taxonomy 的 INSERT 会因为缺列违反约束而失败
@@ -222,6 +225,9 @@ def _migrate_schema() -> None:
         "ALTER TABLE pdca_tasks ADD COLUMN external_todo_id VARCHAR(64) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN meeting_name VARCHAR(256) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN meeting_date VARCHAR(10) DEFAULT ''",
+        # 岗位 SOP 收敛字段
+        "ALTER TABLE pdca_tasks ADD COLUMN position VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN origin_owner VARCHAR(128) DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_external_todo_id ON pdca_tasks (external_todo_id)",
         "ALTER TABLE walkin_daily_reports DROP COLUMN prospect_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN appointment_visits",
