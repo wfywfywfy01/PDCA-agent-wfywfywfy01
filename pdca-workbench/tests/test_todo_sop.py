@@ -63,7 +63,8 @@ class SopClassifyTests(unittest.TestCase):
     def test_ambiguous_region_iraq_unresolved(self):
         r = classify_todo("伊拉克客户跟进", participant="Lina")
         self.assertEqual(r["position"], "海外经销商销售")
-        self.assertEqual(r["executor"], "Lina")  # 区域歧义 → 回退销售参与者
+        # 区域歧义 → 回退销售参与者；输出 IM 规范名
+        self.assertEqual(r["executor"], "DEHDAHOUMAIMA")
 
     def test_hire_shop_staff_is_sales_not_manager(self):
         r = classify_todo("招聘店员，要求有奢侈品销售经验")

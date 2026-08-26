@@ -19,7 +19,13 @@ from typing import Optional
 
 # ── 人员与别名（别名按长度降序匹配，避免短别名误吞）─────────────────────────
 PEOPLE: dict[str, dict] = {
-    "Lina": {"aliases": ["Lina", "lina", "丽娜"], "position": "海外经销商销售"},
+    "Lina": {
+        "aliases": ["Lina", "lina", "丽娜", "DEHDAHOUMAIMA"],
+        "position": "海外经销商销售",
+        # IM 组织里海外 Lina 的实名（login 13263459330，经销商三部）；
+        # "Lina" 搜到的是国内苏州门店同事，必须用此规范名落 owner。
+        "im_name": "DEHDAHOUMAIMA",
+    },
     "尤文静": {"aliases": ["尤文静", "文静"], "position": "海外经销商销售"},
     "于冰": {"aliases": ["于冰"], "position": "海外经销商销售"},
     "何海文": {"aliases": ["何海文", "海文"], "position": "海外经销商销售"},
@@ -305,6 +311,9 @@ def classify_todo(
 
 
 def _result(position: str, executor: str, signals: list[str], mentions: list[str]) -> dict:
+    # 执行人统一输出 IM 规范名（如 Lina → DEHDAHOUMAIMA），保证催办引擎可解析
+    if executor and executor in PEOPLE and PEOPLE[executor].get("im_name"):
+        executor = PEOPLE[executor]["im_name"]
     return {
         "position": position,
         "executor": executor,
