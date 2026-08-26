@@ -240,19 +240,21 @@ def classify_todo(
 
     # 1. 人名提及 = 明确指派（最长别名匹配；多个提及按出现顺序取第一个）
     if mentions:
-        executor = mentions[0]
-        if executor == participant and len(mentions) > 1:
+        key = mentions[0]
+        if key == participant and len(mentions) > 1:
             # 参与者自己说话不算指派；取下一个被点名人
-            executor = mentions[1]
-        position = PEOPLE[executor]["position"]
-        signals.append(f"person:{executor}")
+            key = mentions[1]
+        position = PEOPLE[key]["position"]
+        # 执行人统一输出 IM 规范名（如 Lina → DEHDAHOUMAIMA）
+        executor = PEOPLE[key].get("im_name") or key
+        signals.append(f"person:{key}")
         scores = score_positions(text)
         # 若内容命中更强力的单人岗位关键词（主管/商务/数据），岗位标注该域，
         # 但执行人仍以点名人为准（delegation over role）。
-        for key in ("海外经销商主管", "海外商务", "海外数据"):
-            if key in scores and len(POSITIONS[key]["people"]) == 1:
-                position = key
-                signals.append(f"domain:{key}")
+        for domain in ("海外经销商主管", "海外商务", "海外数据"):
+            if domain in scores and len(POSITIONS[domain]["people"]) == 1:
+                position = domain
+                signals.append(f"domain:{domain}")
                 break
         return {
             "position": position,
