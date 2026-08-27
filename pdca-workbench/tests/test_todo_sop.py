@@ -76,6 +76,11 @@ class SopClassifyTests(unittest.TestCase):
         self.assertEqual(r["position"], "unclassified")
         self.assertEqual(r["executor"], "尤文静")
 
+    def test_homophone_alias_yutong(self):
+        # 会议纪要常把「宇彤」写成「雨桐」，应识别为王宇彤
+        r = classify_todo("让雨桐完成备货和标签相关准备")
+        self.assertEqual(r["executor"], "王宇彤")
+
     def test_unmatched(self):
         r = classify_todo("催九六二零机器款项")
         self.assertEqual(r["position"], "unclassified")

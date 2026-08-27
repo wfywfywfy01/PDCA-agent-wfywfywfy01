@@ -136,6 +136,19 @@ class ProjectReminderTests(unittest.TestCase):
             self.assertEqual(project.last_reminded_round, "manual")
             self.assertEqual(project.remind_count, 1)
 
+    def test_mentioned_task_routed_to_person(self):
+        # 物流项目里点名指派的任务应进被点名人（王宇彤）的个人消息
+        self._seed_vemory("让雨桐完成备货和标签相关准备", owner="尤文静")
+        self._seed_vemory("安排出货证书 UN38.3 鉴定报告", owner="尤文静")
+        result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
+        projects = [s for s in result["sent"] if s.get("project")]
+        persons = [s for s in result["sent"] if not s.get("project")]
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["titles"], ["安排出货证书 UN38.3 鉴定报告"])
+        person = [s for s in persons if s.get("owner") == "王宇彤"]
+        self.assertEqual(len(person), 1)
+        self.assertEqual(person[0]["titles"], ["让雨桐完成备货和标签相关准备"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,7 @@ from app.todos.evidence import (
     report_window_days,
 )
 from app.todos.projects import ensure_projects, match_project
+from app.todos.sop import find_mentions
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
 from app.statuses import is_done as _status_is_done
 
@@ -414,12 +415,30 @@ def run_todo_reminders(
         keep += [t for t in items if t.source != "vemory"]
         return keep, checked
 
+    # 点名指派的任务按被点名人单独分组（个人消息），不随项目执行人走
+    routed: dict[str, list[PdcaTask]] = defaultdict(list)
+
     # ── 项目级催办：一个项目一条消息，发给全部执行人 ─────────────────────
     for project_id, owned in sorted(project_tasks.items(), key=lambda kv: project_by_id[kv[0]].name):
         project = project_by_id[project_id]
         if project.status == "已闭环":
             continue
         if not force and _project_reminded_today(project, round_label, today):
+            continue
+        # 点名指派优先：标题里点谁，就挂到谁的个人消息（项目消息不再重复）
+        # 例：物流项目里「让雨桐完成备货」应催王宇彤，而不是鲜娜/张琪/张懿。
+        project_owned: list[PdcaTask] = []
+        for task in owned:
+            mentioned = find_mentions(task.title)
+            if mentioned:
+                if force or not _already_reminded_today(task, round_label, today):
+                    routed[mentioned[0]].append(task)
+                else:
+                    project_owned.append(task)
+            else:
+                project_owned.append(task)
+        owned = project_owned
+        if not owned:
             continue
         # 证据按子待办各自的 owner 过滤（项目内多人，各自对各自日报）
         kept: list[PdcaTask] = []
@@ -484,10 +503,12 @@ def run_todo_reminders(
                     }
                 )
 
-    # ── 项目外个人待办：沿用按人催办流程 ────────────────────────────────
+    # ── 项目外个人待办：沿用按人催办流程（含点名指派路由） ──────────────
     by_owner: dict[str, list[PdcaTask]] = defaultdict(list)
     for task in solo_candidates:
         by_owner[task.owner.strip()].append(task)
+    for person, items in routed.items():
+        by_owner[person].extend(items)
 
     for owner in sorted(by_owner, key=str.casefold):
         owned = by_owner[owner]

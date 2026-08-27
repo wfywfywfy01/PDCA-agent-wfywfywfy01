@@ -30,7 +30,8 @@ PEOPLE: dict[str, dict] = {
     "于冰": {"aliases": ["于冰"], "position": "海外经销商销售"},
     "何海文": {"aliases": ["何海文", "海文"], "position": "海外经销商销售"},
     "杨晶晶": {"aliases": ["杨晶晶", "晶晶"], "position": "海外经销商销售"},
-    "王宇彤": {"aliases": ["王宇彤", "宇彤"], "position": "海外经销商销售"},
+    # 转写同音字补别名：会议纪要常把「宇彤」写成「雨桐/雨彤」
+    "王宇彤": {"aliases": ["王宇彤", "宇彤", "雨桐", "雨彤"], "position": "海外经销商销售"},
     "Safae": {"aliases": ["Safae", "safae"], "position": "海外经销商销售"},
     "刘春梅": {"aliases": ["刘春梅", "春梅"], "position": "海外经销商主管"},
     "冯磊": {"aliases": ["冯磊", "冯雷"], "position": "海外商务"},
