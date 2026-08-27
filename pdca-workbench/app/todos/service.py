@@ -287,15 +287,16 @@ def _project_reminded_today(project: TodoProject, round_label: str, today: str) 
 
 def build_project_message(
     project: TodoProject,
+    owner_name: str,
     tasks: list[PdcaTask],
     today: str,
     entry_url: str,
     evidence_checked: bool,
 ) -> str:
-    """项目级消息：一条消息列出项目全部未完成子待办。"""
+    """项目级消息：按人拆分，每人只列自己名下的条目。"""
     lines = [
         "【PDCA 待办催办】项目：" + project.name + "（状态：" + project.status + "）",
-        "还有 " + str(len(tasks)) + " 项未完成，请及时跟进：",
+        owner_name + "，你名下还有 " + str(len(tasks)) + " 项未完成，请及时跟进：",
         "",
     ]
     for index, task in enumerate(tasks, 1):
@@ -489,64 +490,61 @@ def run_todo_reminders(
             checked_any = checked_any or checked
         if not kept:
             continue
-        executors = json.loads(project.executors or "[]")
-        body = build_project_message(project, kept, today, entry_url, checked_any)
-        sent_to: list[str] = []
-        send_records: list[tuple] = []
-        for name in executors:
-            user_id, reason = _resolve_and_check(name)
+        # 项目消息按人拆分：每人只收自己名下的条目（张琪只收张琪的，不再三人全量）
+        project_sent = 0
+        for owner_name, items in sorted(_group_by_owner(kept).items(), key=lambda kv: kv[0]):
+            user_id, reason = _resolve_and_check(owner_name)
             if user_id is None:
                 skipped_owners.append(
-                    {"owner": name, "reason": reason, "tasks": len(kept)}
+                    {"owner": owner_name, "reason": reason, "tasks": len(items)}
                 )
                 continue
-            if dry_run:
-                sent_to.append(name)
-                continue
-            client_id = (
-                "pdca-project-remind-" + project.key + "-" + today + "-" + round_label
+            body = build_project_message(
+                project, owner_name, items, today, entry_url, checked_any
             )
-            ok, err, message_id = send_direct_message(user_id, body, client_id)
-            if not ok:
-                failed.append({"owner": name, "reason": err, "tasks": len(kept)})
-                continue
-            send_records.append((name, message_id))
-            sent_to.append(name)
-        if sent_to:
             if dry_run:
                 sent.append(
                     {
                         "project": project.name,
-                        "executors": sent_to,
-                        "tasks": len(kept),
-                        "titles": [t.title for t in kept],
+                        "owner": owner_name,
+                        "tasks": len(items),
+                        "titles": [t.title for t in items],
                         "preview": body,
                         "dry_run": True,
                     }
                 )
-            else:
-                with Session(get_engine()) as session:
-                    rows = list(
-                        session.exec(
-                            select(PdcaTask).where(
-                                PdcaTask.id.in_([t.id for t in kept if t.id])
-                            )
-                        ).all()
-                    )
-                    proj_row = session.get(TodoProject, project.id)
-                    _mark_reminded_rows(session, rows, proj_row, round_label, now)
-                    _record_sends(
-                        session, send_records, rows, round_label, project.id
-                    )
-                    session.commit()
-                sent.append(
-                    {
-                        "project": project.name,
-                        "executors": sent_to,
-                        "tasks": len(kept),
-                        "titles": [t.title for t in kept],
-                    }
+                continue
+            client_id = (
+                "pdca-project-remind-" + project.key + "-" + owner_name
+                + "-" + today + "-" + round_label
+            )
+            ok, err, message_id = send_direct_message(user_id, body, client_id)
+            if not ok:
+                failed.append({"owner": owner_name, "reason": err, "tasks": len(items)})
+                continue
+            with Session(get_engine()) as session:
+                rows = list(
+                    session.exec(
+                        select(PdcaTask).where(
+                            PdcaTask.id.in_([t.id for t in items if t.id])
+                        )
+                    ).all()
                 )
+                proj_row = session.get(TodoProject, project.id)
+                _mark_reminded_rows(session, rows, proj_row, round_label, now)
+                _record_sends(session, [(owner_name, message_id)], rows, round_label, project.id)
+                session.commit()
+            project_sent += 1
+            sent.append(
+                {
+                    "project": project.name,
+                    "owner": owner_name,
+                    "tasks": len(items),
+                    "titles": [t.title for t in items],
+                }
+            )
+        if not project_sent:
+            continue
 
     # ── 项目外个人待办：沿用按人催办流程（含点名指派路由） ──────────────
     by_owner: dict[str, list[PdcaTask]] = defaultdict(list)

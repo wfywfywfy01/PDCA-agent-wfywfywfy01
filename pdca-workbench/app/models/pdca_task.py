@@ -42,5 +42,7 @@ class PdcaTask(SQLModel, table=True):
     # IM 回复采集：最近一次回复原文与时间（"已完成"类回复标记 done 时记录）
     reply_text: str = Field(default="", max_length=1024)
     replied_at: Optional[datetime] = Field(default=None)
+    # 手工修正执行人后置锁：True 时 Vemory 同步不再重算 owner
+    owner_locked: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

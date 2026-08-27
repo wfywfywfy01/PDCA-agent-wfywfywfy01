@@ -97,16 +97,17 @@ class ProjectReminderTests(unittest.TestCase):
             ))
             session.commit()
 
-    def test_project_round_one_message_per_executor(self):
+    def test_project_message_split_by_owner(self):
+        # 项目消息按人拆分：每人只收自己名下的条目
         self._seed_vemory("印度独代谈判：整理总代框架", owner="何海文")
         self._seed_vemory("印度总代保证金条款确认", owner="杨晶晶")
         result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
-        self.assertEqual(len(result["sent"]), 1)
-        entry = result["sent"][0]
-        self.assertEqual(entry["project"], "印度总代/独代谈判")
-        self.assertEqual(sorted(entry["executors"]), ["何海文", "杨晶晶"])
-        self.assertEqual(entry["tasks"], 2)
-        self.assertIn("印度总代", entry["preview"])
+        self.assertEqual(len(result["sent"]), 2)
+        by_owner = {s["owner"]: s for s in result["sent"]}
+        self.assertEqual(by_owner["何海文"]["project"], "印度总代/独代谈判")
+        self.assertEqual(by_owner["何海文"]["titles"], ["印度独代谈判：整理总代框架"])
+        self.assertEqual(by_owner["杨晶晶"]["titles"], ["印度总代保证金条款确认"])
+        self.assertIn("你名下", by_owner["何海文"]["preview"])
 
     def test_project_closed_not_reminded(self):
         self._seed_vemory("印度独代谈判：整理总代框架")
@@ -144,6 +145,7 @@ class ProjectReminderTests(unittest.TestCase):
         projects = [s for s in result["sent"] if s.get("project")]
         persons = [s for s in result["sent"] if not s.get("project")]
         self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["owner"], "尤文静")
         self.assertEqual(projects[0]["titles"], ["安排出货证书 UN38.3 鉴定报告"])
         person = [s for s in persons if s.get("owner") == "王宇彤"]
         self.assertEqual(len(person), 1)

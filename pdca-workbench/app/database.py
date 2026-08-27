@@ -199,6 +199,7 @@ def _migrate_schema() -> None:
         # IM 回复采集
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS reply_text VARCHAR(1024) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS owner_locked BOOLEAN DEFAULT FALSE",
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS reply_text VARCHAR(1024) DEFAULT ''",
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP",
         # 旧进店来源分类（自然进/预约/潜客/介绍/SA）已废弃，替换为 walkin/cross/online/recruit/existing 五分类；
@@ -245,6 +246,7 @@ def _migrate_schema() -> None:
         # IM 回复采集
         "ALTER TABLE pdca_tasks ADD COLUMN reply_text VARCHAR(1024) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN replied_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN owner_locked BOOLEAN DEFAULT 0",
         "ALTER TABLE todo_projects ADD COLUMN reply_text VARCHAR(1024) DEFAULT ''",
         "ALTER TABLE todo_projects ADD COLUMN replied_at TIMESTAMP",
         "ALTER TABLE walkin_daily_reports DROP COLUMN prospect_visits",

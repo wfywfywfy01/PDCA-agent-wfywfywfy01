@@ -217,7 +217,9 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                         row.status = status
                     row.task_date = deadline or meeting_date
                     row.title = title
-                    row.owner = owner
+                    # 手工修正过的执行人不被重算覆盖（owner_locked）
+                    if not getattr(row, "owner_locked", False):
+                        row.owner = owner
                     row.meeting_name = str(meeting.get("meeting_name") or "").strip()
                     row.meeting_date = meeting_date
                     row.position = converged["position"]
