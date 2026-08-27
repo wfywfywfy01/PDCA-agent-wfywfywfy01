@@ -33,7 +33,7 @@ from app.todos.evidence import (
     report_window_days,
 )
 from app.todos.projects import ensure_projects, match_project
-from app.todos.sop import find_mentions
+from app.todos.sop import PEOPLE, find_mentions
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
 from app.statuses import is_done as _status_is_done
 
@@ -432,7 +432,9 @@ def run_todo_reminders(
             mentioned = find_mentions(task.title)
             if mentioned:
                 if force or not _already_reminded_today(task, round_label, today):
-                    routed[mentioned[0]].append(task)
+                    # 输出 IM 规范名（如 Lina → DEHDAHOUMAIMA），避免错发同名同事
+                    person = PEOPLE[mentioned[0]].get("im_name") or mentioned[0]
+                    routed[person].append(task)
                 else:
                     project_owned.append(task)
             else:
