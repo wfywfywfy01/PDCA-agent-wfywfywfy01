@@ -187,10 +187,14 @@ class TodoReminderTests(unittest.TestCase):
             task_id = row.id
         send_mock = patch("app.todos.service.run_vertu_sync")
         mock_obj = send_mock.start()
+        outbox_mock = patch("app.todos.service._write_outbox")
+        mock_outbox = outbox_mock.start()
         try:
             result = run_todo_reminders(today=today, round_label="manual", force=True, dry_run=True)
             mock_obj.assert_not_called()
+            mock_outbox.assert_not_called()  # dry-run 不得覆盖真实 outbox
         finally:
+            outbox_mock.stop()
             send_mock.stop()
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["sent"][0]["dry_run"], True)

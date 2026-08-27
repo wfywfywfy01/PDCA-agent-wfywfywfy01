@@ -424,5 +424,7 @@ def run_todo_reminders(
             + str(len(evidence_unavailable)) + " 人 / 失败 " + str(len(failed)) + " 人"
         ),
     }
-    _write_outbox(result)
+    # 只有真实发送才落 outbox；dry-run 预演不得覆盖真实发送记录
+    if not dry_run:
+        _write_outbox(result)
     return result
