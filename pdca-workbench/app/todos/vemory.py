@@ -31,6 +31,7 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.database import get_engine
 from app.models.pdca_task import PdcaTask
+from app.todos.projects import ensure_projects, match_project
 from app.todos.sop import classify_todo
 
 _TZ = ZoneInfo("Asia/Shanghai")
@@ -149,6 +150,7 @@ def sync_vemory_todos(today: str | None = None) -> dict:
     errors: list[str] = []
 
     with Session(get_engine()) as session:
+        _project_by_key, project_by_id = ensure_projects(session)
         existing_rows = session.exec(
             select(PdcaTask).where(
                 PdcaTask.source == "vemory",
@@ -185,6 +187,11 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                     participant=name,
                 )
                 owner = converged["executor"] or name
+                # 项目（事项）收敛：标题命中项目规则 → 挂 project_id
+                project_rule = match_project(title)
+                project_id = None
+                if project_rule and project_rule["key"] in _project_by_key:
+                    project_id = _project_by_key[project_rule["key"]].id
                 row = existing_map.get(ext_id)
                 if row is None:
                     row = PdcaTask(
@@ -198,6 +205,7 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                         meeting_date=meeting_date,
                         position=converged["position"],
                         origin_owner=name,
+                        project_id=project_id,
                     )
                     session.add(row)
                     existing_map[ext_id] = row
@@ -214,6 +222,7 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                     row.meeting_date = meeting_date
                     row.position = converged["position"]
                     row.origin_owner = name
+                    row.project_id = project_id
                     row.updated_at = datetime.utcnow()
                     session.add(row)
                 upserted += 1

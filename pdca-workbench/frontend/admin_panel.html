@@ -100,6 +100,7 @@
   <button class="tab-btn" onclick="switchTab('audit',this)">📋 操作日志</button>
   <button class="tab-btn" onclick="switchTab('export',this)">⬇ 数据导出</button>
 <button class="tab-btn" onclick="switchTab('todo',this)">⏰ 待办催办</button>
+<button class="tab-btn" onclick="switchTab('projects',this)">📁 待办项目</button>
 </div>
 
 <!-- ══ 用户管理 ══ -->
@@ -232,6 +233,24 @@
   </div>
 </div>
 </div>
+
+<!-- ══ 待办项目 ══ -->
+<div id="tab-projects" class="tab-panel">
+<div class="container">
+  <div class="card">
+    <div class="card-header"><h2>待办项目（事项）</h2><button class="btn btn-primary" onclick="loadProjects()">刷新</button></div>
+    <div id="alertProjects" class="alert-inline"></div>
+    <p style="font-size:.78rem;color:#64748b;margin-bottom:.85rem">
+      会议待办按项目（事项）收敛：同一项目一条催办消息发给全部执行人；「已闭环」不再催办。
+    </p>
+    <div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>项目</th><th>执行人</th><th>协调人</th><th>未完成待办</th><th>状态</th><th>操作</th>
+    </tr></thead><tbody id="projectsTbody"><tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+</div>
 <!-- ══ 用户 Modal ══ -->
 <div id="userModal" class="modal-overlay" onclick="if(event.target===this)closeModal('userModal')">
   <div class="modal">
@@ -298,6 +317,7 @@ function switchTab(tab, btn) {
   else if(tab==='audit') loadAudit();
   else if(tab==='export') initExport();
   else if(tab==='todo') loadTodoRemind();
+  else if(tab==='projects') loadProjects();
 }
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
@@ -641,6 +661,40 @@ function sendTodoRemind(){
       if(!html){html='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">没有可催办的待办</td></tr>';}
       document.getElementById('todoTbody').innerHTML=html;
       document.getElementById('todoHint').textContent='—— '+(d.summary||'');
+    });
+}
+
+// ── 待办项目 ──
+var PROJECT_STATUSES=['新建','跟进中','阻塞','待验收','已闭环'];
+function loadProjects(){
+  fetch(API+'/api/todos/projects',{credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d;
+      if(!res.ok){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
+      if(!Array.isArray(d)){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">加载失败</td></tr>';return;}
+      var html='';
+      d.forEach(function(p){
+        var opts=PROJECT_STATUSES.map(function(s){return '<option value="'+s+'"'+(s===p.status?' selected':'')+'>'+s+'</option>';}).join('');
+        html+='<tr>'
+          +'<td><strong>'+esc(p.name)+'</strong></td>'
+          +'<td>'+esc((p.executors||[]).join('、'))+'</td>'
+          +'<td style="color:#94a3b8">'+esc(p.coordinator||'—')+'</td>'
+          +'<td>'+(p.open_tasks||0)+'</td>'
+          +'<td><select id="ps_'+p.id+'" style="padding:.3rem .5rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0" onchange="saveProjectStatus('+p.id+')">'+opts+'</select></td>'
+          +'<td style="color:#64748b;font-size:.7rem">已催 '+p.remind_count+' 次</td></tr>';
+      });
+      if(!html){html='<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">暂无项目</td></tr>';}
+      document.getElementById('projectsTbody').innerHTML=html;
+    });
+}
+function saveProjectStatus(id){
+  var status=document.getElementById('ps_'+id).value;
+  fetch(API+'/api/todos/projects/'+id+'/status',{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({status:status})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects','状态已更新：'+status,'ok');}
+      else{setAlert('alertProjects',res.d.detail||'更新失败','err');loadProjects();}
     });
 }
 // 初始加载

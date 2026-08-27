@@ -110,15 +110,15 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
             session.commit()
 
     def test_vemory_with_evidence_not_sent(self):
-        self._seed_vemory("推进迈凯伦配件报价")
+        self._seed_vemory("催九六二零机器款项")  # 不命中项目词，走个人催办路径
         with patch(
             "app.todos.evidence.run_vertu_sync",
-            return_value=(0, "今日已推进迈凯伦项目，等待报价", ""),
+            return_value=(0, "今日已处理九六二零款项，等待回款", ""),
         ):
             result = run_todo_reminders(round_label="manual", force=True)
         self.assertEqual(result["sent"], [])
         self.assertEqual(len(result["evidence_skipped"]), 1)
-        self.assertEqual(result["evidence_skipped"][0]["title"], "推进迈凯伦配件报价")
+        self.assertEqual(result["evidence_skipped"][0]["title"], "催九六二零机器款项")
         self.mock_send.assert_not_called()
 
     def test_vemory_without_evidence_sent(self):
@@ -134,7 +134,7 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
 
     def test_vemory_report_unavailable_still_sent_with_marker(self):
         # 日报不可用：fail-open，照常催并标注 evidence_unavailable
-        self._seed_vemory("推进迈凯伦配件报价")
+        self._seed_vemory("催九六二零机器款项")
         with patch(
             "app.todos.evidence.run_vertu_sync", return_value=(1, "", "timeout")
         ):
@@ -145,7 +145,7 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
 
     def test_vemory_unmapped_owner_still_sent(self):
         # IM 可匹配但名单里无 VPS 映射（取不到日报）→ 照常催 + 标注
-        self._seed_vemory("推进迈凯伦配件报价")
+        self._seed_vemory("催九六二零机器款项")
         self.patch_vps_map.stop()
         with patch(
             "app.todos.evidence.load_vemory_users",

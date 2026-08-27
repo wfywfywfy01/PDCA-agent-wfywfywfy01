@@ -122,7 +122,7 @@ class TodoReminderTests(unittest.TestCase):
         result = run_todo_reminders(today=today, round_label="manual", force=True)
         self.assertEqual(len(result["sent"]), 1)
         self.assertEqual(result["sent"][0]["user_id"], 88)
-        self.assertIn("催办 1 人", result["summary"])
+        self.assertIn("催办 1 条消息", result["summary"])
         with Session(self.engine) as session:
             updated = session.get(PdcaTask, task_id)
             self.assertEqual(updated.last_reminded_round, "manual")

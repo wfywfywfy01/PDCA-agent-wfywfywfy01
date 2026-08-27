@@ -149,6 +149,7 @@ def init_db() -> None:
     from app.models.tracking_status import TrackingAutoStatus  # noqa: F401
     from app.models.acquisition_login_ticket import AcquisitionLoginTicket  # noqa: F401
     from app.models.customer_profile import CustomerProfile  # noqa: F401
+    from app.models.todo_project import TodoProject  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     _migrate_schema()
@@ -190,7 +191,10 @@ def _migrate_schema() -> None:
         # 岗位 SOP 收敛字段
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS position VARCHAR(64) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS origin_owner VARCHAR(128) DEFAULT ''",
+        # 项目（事项）收敛
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS project_id INTEGER",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_external_todo_id ON pdca_tasks (external_todo_id)",
+        "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_project_id ON pdca_tasks (project_id)",
         # 旧进店来源分类（自然进/预约/潜客/介绍/SA）已废弃，替换为 walkin/cross/online/recruit/existing 五分类；
         # 这几列原来是 NOT NULL，不删掉的话新 taxonomy 的 INSERT 会因为缺列违反约束而失败
         "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS prospect_visits",
@@ -228,7 +232,10 @@ def _migrate_schema() -> None:
         # 岗位 SOP 收敛字段
         "ALTER TABLE pdca_tasks ADD COLUMN position VARCHAR(64) DEFAULT ''",
         "ALTER TABLE pdca_tasks ADD COLUMN origin_owner VARCHAR(128) DEFAULT ''",
+        # 项目（事项）收敛
+        "ALTER TABLE pdca_tasks ADD COLUMN project_id INTEGER",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_external_todo_id ON pdca_tasks (external_todo_id)",
+        "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_project_id ON pdca_tasks (project_id)",
         "ALTER TABLE walkin_daily_reports DROP COLUMN prospect_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN appointment_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN referral_visits",

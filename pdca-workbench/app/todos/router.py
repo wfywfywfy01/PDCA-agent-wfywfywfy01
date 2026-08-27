@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.audit import log_action
 from app.auth.deps import require_role
 from app.auth.models import User
+from app.statuses import is_done as _status_is_done
 from app.todos.service import run_todo_reminders
 
 router = APIRouter(tags=["todos"])
@@ -68,3 +69,86 @@ async def remind_now(
         ip=client_ip,
     )
     return result
+
+class ProjectStatusRequest(BaseModel):
+    status: str
+
+
+@router.get("/api/todos/projects")
+async def list_projects(
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """项目（事项）列表：含各项目未完成待办数。"""
+    import json as _json
+
+    from sqlmodel import Session, select
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+    from app.models.todo_project import TodoProject
+    from app.todos.projects import ensure_projects
+
+    with Session(get_engine()) as session:
+        by_key, _ = ensure_projects(session)
+        rows = list(session.exec(select(TodoProject)).all())
+        open_counts: dict = {}
+        for row in session.exec(
+            select(PdcaTask).where(PdcaTask.project_id.is_not(None))
+        ).all():
+            if not _status_is_done(row.status):
+                open_counts[row.project_id] = open_counts.get(row.project_id, 0) + 1
+    return [
+        {
+            "id": row.id,
+            "key": row.key,
+            "name": row.name,
+            "status": row.status,
+            "executors": _json.loads(row.executors or "[]"),
+            "coordinator": row.coordinator,
+            "open_tasks": open_counts.get(row.id, 0),
+            "remind_count": row.remind_count or 0,
+            "last_reminded_round": row.last_reminded_round or "",
+        }
+        for row in sorted(rows, key=lambda r: -(open_counts.get(r.id, 0)))
+    ]
+
+
+@router.patch("/api/todos/projects/{project_id}/status")
+async def update_project_status(
+    project_id: int,
+    payload: ProjectStatusRequest,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """更新项目状态（新建/跟进中/阻塞/待验收/已闭环）。已闭环不再催办。"""
+    from datetime import datetime
+
+    from sqlmodel import Session
+
+    from app.database import get_engine
+    from app.models.todo_project import PROJECT_STATUSES, TodoProject
+
+    status = payload.status.strip()
+    if status not in PROJECT_STATUSES:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail="非法状态")
+    with Session(get_engine()) as session:
+        row = session.get(TodoProject, project_id)
+        if row is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="项目不存在")
+        row.status = status
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+    log_action(
+        username=user.username,
+        action="todo_project_status",
+        resource=row.key,
+        detail={"status": status},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "id": row.id, "status": status}
+

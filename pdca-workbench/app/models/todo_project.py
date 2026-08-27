@@ -1,0 +1,32 @@
+# -*- coding: utf-8 -*-
+"""待办项目（事项）：会议待办按项目收敛后的跟踪实体。"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from sqlmodel import Field, SQLModel
+
+PROJECT_STATUSES = ("新建", "跟进中", "阻塞", "待验收", "已闭环")
+
+
+class TodoProject(SQLModel, table=True):
+    """项目（事项）——多条会议待办的收敛载体。
+
+    executors 为 JSON 数组字符串，如 ["何海文","杨晶晶"]；
+    coordinator 为协调负责人（默认海外经销商主管），v1 仅存不催。
+    """
+
+    __tablename__ = "todo_projects"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(unique=True, max_length=64)
+    name: str = Field(max_length=256)
+    status: str = Field(default="新建", max_length=32)
+    executors: str = Field(default="[]", max_length=512)
+    coordinator: str = Field(default="", max_length=128)
+    last_reminded_at: Optional[datetime] = Field(default=None)
+    last_reminded_round: str = Field(default="", max_length=32)
+    remind_count: int = Field(default=0)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

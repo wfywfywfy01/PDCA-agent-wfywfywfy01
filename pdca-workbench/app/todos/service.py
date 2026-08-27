@@ -25,12 +25,14 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.database import get_engine
 from app.models.pdca_task import PdcaTask
+from app.models.todo_project import TodoProject
 from app.todos.evidence import (
     fetch_report_text,
     has_followup,
     load_vps_user_map,
     report_window_days,
 )
+from app.todos.projects import ensure_projects, match_project
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
 from app.statuses import is_done as _status_is_done
 
@@ -261,6 +263,69 @@ def _write_outbox(result: dict) -> None:
         logger.warning("待办催办结果落盘失败: {}", exc)
 
 
+def _project_reminded_today(project: TodoProject, round_label: str, today: str) -> bool:
+    if project.last_reminded_round != round_label:
+        return False
+    if project.last_reminded_at is None:
+        return False
+    return project.last_reminded_at.strftime("%Y-%m-%d") == today
+
+
+def build_project_message(
+    project: TodoProject,
+    tasks: list[PdcaTask],
+    today: str,
+    entry_url: str,
+    evidence_checked: bool,
+) -> str:
+    """项目级消息：一条消息列出项目全部未完成子待办。"""
+    lines = [
+        "【PDCA 待办催办】项目：" + project.name + "（状态：" + project.status + "）",
+        "还有 " + str(len(tasks)) + " 项未完成，请及时跟进：",
+        "",
+    ]
+    for index, task in enumerate(tasks, 1):
+        flag = "逾期 " + task.task_date if task.task_date < today else "今日"
+        lines.append(f"{index}. [{flag}] {task.title}")
+    lines += ["", "处理入口：" + entry_url]
+    if evidence_checked:
+        lines.append(
+            "（已比对日报、未检出明确跟进记录；在 Vemory 更新状态"
+            "或日报注明进展，可停止提醒）"
+        )
+    else:
+        lines.append("（日报系统暂不可用，未做跟进比对）")
+    return "\n".join(lines)
+
+
+def _group_by_owner(items: list[PdcaTask]) -> dict[str, list[PdcaTask]]:
+    grouped: dict[str, list[PdcaTask]] = defaultdict(list)
+    for item in items:
+        grouped[item.owner.strip()].append(item)
+    return grouped
+
+
+def _mark_reminded_rows(
+    session: Session,
+    rows: list[PdcaTask],
+    project: TodoProject | None,
+    round_label: str,
+    now: datetime,
+) -> None:
+    for row in rows:
+        row.last_reminded_at = now
+        row.last_reminded_round = round_label
+        row.remind_count = (row.remind_count or 0) + 1
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+    if project is not None:
+        project.last_reminded_at = now
+        project.last_reminded_round = round_label
+        project.remind_count = (project.remind_count or 0) + 1
+        project.updated_at = datetime.utcnow()
+        session.add(project)
+
+
 def run_todo_reminders(
     today: str | None = None,
     round_label: str = "manual",
@@ -278,15 +343,6 @@ def run_todo_reminders(
     today = today or today_text()
     now = datetime.now()
     tasks = list_pending_tasks(today)
-    candidates = [
-        task
-        for task in tasks
-        if force or not _already_reminded_today(task, round_label, today)
-    ]
-
-    by_owner: dict[str, list[PdcaTask]] = defaultdict(list)
-    for task in candidates:
-        by_owner[task.owner.strip()].append(task)
 
     entry_url = get_settings().workbench_base_url
     sent: list[dict] = []
@@ -296,14 +352,10 @@ def run_todo_reminders(
     evidence_unavailable: list[dict] = []
     user_cache: dict[str, Optional[dict]] = {}
 
-    # 日报证据抑制（仅 Vemory 待办）：有跟进证据的不催。日报源不可用时
-    # 不抑制、照常催（fail-open），并如实标注"未做跟进比对"——避免
-    # 日报接口故障把催办整体变成静默不发。
     vps_map = load_vps_user_map()
     report_cache: dict[int, Optional[str]] = {}
     report_start, report_end = report_window_days(today)
 
-    # 显式排除名单（PDCA_TODO_REMIND_SKIP_OWNERS，如机器人本人）+ 当前 IM 身份
     skip_owners = {
         name.strip()
         for name in get_settings().todo_remind_skip_owners
@@ -311,12 +363,38 @@ def run_todo_reminders(
     }
     self_user_id = resolve_self_user_id()
 
-    for owner in sorted(by_owner, key=str.casefold):
-        owned = by_owner[owner]
+    # ── 拆分：项目内待办 vs 项目外个人待办 ──────────────────────────────
+    with Session(get_engine()) as session:
+        project_by_key, project_by_id = ensure_projects(session)
+    project_tasks: dict[int, list[PdcaTask]] = defaultdict(list)
+    solo_candidates: list[PdcaTask] = []
+    for task in tasks:
+        rule = match_project(task.title)
+        if rule and rule["key"] in project_by_key:
+            project_tasks[project_by_key[rule["key"]].id].append(task)
+        elif force or not _already_reminded_today(task, round_label, today):
+            solo_candidates.append(task)
+
+    def _resolve_and_check(name: str) -> tuple[Optional[int], str]:
+        """返回 (user_id, 跳过原因)；user_id 为 None 表示该人不发。"""
+        if name in skip_owners:
+            return None, "owner_excluded"
+        user = resolve_im_user(name, user_cache)
+        if user is None:
+            return None, "im_user_not_found"
+        user_id = user.get("user_id") or user.get("id")
+        if not user_id:
+            return None, "im_user_missing_id"
+        if user_id == self_user_id:
+            return None, "im_self"
+        return user_id, ""
+
+    def _filter_evidence(owner: str, items: list[PdcaTask]) -> tuple[list[PdcaTask], bool]:
+        """按 owner 的日报过滤 vemory 待办；返回 (保留项, 是否做过比对)。"""
         keep: list[PdcaTask] = []
-        evidence_checked = False
-        vemory_tasks = [task for task in owned if task.source == "vemory"]
-        if vemory_tasks:
+        checked = False
+        vemory_items = [t for t in items if t.source == "vemory"]
+        if vemory_items:
             vps_id = vps_map.get(owner)
             report = (
                 fetch_report_text(vps_id, report_start, report_end, report_cache)
@@ -324,51 +402,106 @@ def run_todo_reminders(
                 else None
             )
             if report is None:
-                evidence_unavailable.append(
-                    {"owner": owner, "tasks": len(vemory_tasks)}
-                )
-                keep += vemory_tasks
+                evidence_unavailable.append({"owner": owner, "tasks": len(vemory_items)})
+                keep += vemory_items
             else:
-                evidence_checked = True
-                for task in vemory_tasks:
-                    if has_followup(task.title, report):
-                        evidence_skipped.append(
-                            {"owner": owner, "title": task.title}
-                        )
+                checked = True
+                for t in vemory_items:
+                    if has_followup(t.title, report):
+                        evidence_skipped.append({"owner": owner, "title": t.title})
                     else:
-                        keep.append(task)
-        keep += [task for task in owned if task.source != "vemory"]
+                        keep.append(t)
+        keep += [t for t in items if t.source != "vemory"]
+        return keep, checked
+
+    # ── 项目级催办：一个项目一条消息，发给全部执行人 ─────────────────────
+    for project_id, owned in sorted(project_tasks.items(), key=lambda kv: project_by_id[kv[0]].name):
+        project = project_by_id[project_id]
+        if project.status == "已闭环":
+            continue
+        if not force and _project_reminded_today(project, round_label, today):
+            continue
+        # 证据按子待办各自的 owner 过滤（项目内多人，各自对各自日报）
+        kept: list[PdcaTask] = []
+        checked_any = False
+        for owner_name, items in _group_by_owner(owned).items():
+            k, checked = _filter_evidence(owner_name, items)
+            kept += k
+            checked_any = checked_any or checked
+        if not kept:
+            continue
+        executors = json.loads(project.executors or "[]")
+        body = build_project_message(project, kept, today, entry_url, checked_any)
+        sent_to: list[str] = []
+        for name in executors:
+            user_id, reason = _resolve_and_check(name)
+            if user_id is None:
+                skipped_owners.append(
+                    {"owner": name, "reason": reason, "tasks": len(kept)}
+                )
+                continue
+            if dry_run:
+                sent_to.append(name)
+                continue
+            client_id = (
+                "pdca-project-remind-" + project.key + "-" + today + "-" + round_label
+            )
+            ok, err = send_direct_message(user_id, body, client_id)
+            if not ok:
+                failed.append({"owner": name, "reason": err, "tasks": len(kept)})
+                continue
+            sent_to.append(name)
+        if sent_to:
+            if dry_run:
+                sent.append(
+                    {
+                        "project": project.name,
+                        "executors": sent_to,
+                        "tasks": len(kept),
+                        "titles": [t.title for t in kept],
+                        "preview": body,
+                        "dry_run": True,
+                    }
+                )
+            else:
+                with Session(get_engine()) as session:
+                    rows = list(
+                        session.exec(
+                            select(PdcaTask).where(
+                                PdcaTask.id.in_([t.id for t in kept if t.id])
+                            )
+                        ).all()
+                    )
+                    proj_row = session.get(TodoProject, project.id)
+                    _mark_reminded_rows(session, rows, proj_row, round_label, now)
+                    session.commit()
+                sent.append(
+                    {
+                        "project": project.name,
+                        "executors": sent_to,
+                        "tasks": len(kept),
+                        "titles": [t.title for t in kept],
+                    }
+                )
+
+    # ── 项目外个人待办：沿用按人催办流程 ────────────────────────────────
+    by_owner: dict[str, list[PdcaTask]] = defaultdict(list)
+    for task in solo_candidates:
+        by_owner[task.owner.strip()].append(task)
+
+    for owner in sorted(by_owner, key=str.casefold):
+        owned = by_owner[owner]
+        keep, evidence_checked = _filter_evidence(owner, owned)
         if not keep:
             continue
-        owned = keep
-        # 显式排除名单（如机器人本人）与自动跳过"自己"
-        if owner in skip_owners:
-            skipped_owners.append(
-                {"owner": owner, "reason": "owner_excluded", "tasks": len(owned)}
-            )
+        user_id, reason = _resolve_and_check(owner)
+        if user_id is None:
+            skipped_owners.append({"owner": owner, "reason": reason, "tasks": len(keep)})
             continue
-        user = resolve_im_user(owner, user_cache)
-        if user is None:
-            skipped_owners.append(
-                {"owner": owner, "reason": "im_user_not_found", "tasks": len(owned)}
-            )
-            continue
-        user_id = user.get("user_id") or user.get("id")
-        if not user_id:
-            skipped_owners.append(
-                {"owner": owner, "reason": "im_user_missing_id", "tasks": len(owned)}
-            )
-            continue
-        # 机器人用自己的账号发私聊，给本人发会被服务端拒绝（不能与自己建私聊）
-        if user_id == self_user_id:
-            skipped_owners.append(
-                {"owner": owner, "reason": "im_self", "tasks": len(owned)}
-            )
-            continue
-        has_vemory = any(task.source == "vemory" for task in owned)
+        has_vemory = any(task.source == "vemory" for task in keep)
         body = build_person_message(
             owner,
-            owned,
+            keep,
             today,
             entry_url,
             has_vemory=has_vemory,
@@ -379,30 +512,28 @@ def run_todo_reminders(
                 {
                     "owner": owner,
                     "user_id": user_id,
-                    "tasks": len(owned),
-                    "titles": [task.title for task in owned],
+                    "tasks": len(keep),
+                    "titles": [task.title for task in keep],
                     "preview": body,
                     "dry_run": True,
                 }
             )
             continue
         client_id = (
-            "pdca-todo-remind-" + str(min(task.id or 0 for task in owned))
+            "pdca-todo-remind-" + str(min(task.id or 0 for task in keep))
             + "-" + today + "-" + round_label
         )
         ok, err = send_direct_message(user_id, body, client_id)
         if not ok:
-            failed.append(
-                {"owner": owner, "reason": err, "tasks": len(owned)}
-            )
+            failed.append({"owner": owner, "reason": err, "tasks": len(keep)})
             continue
-        _mark_reminded([task.id for task in owned if task.id], round_label, now)
+        _mark_reminded([task.id for task in keep if task.id], round_label, now)
         sent.append(
             {
                 "owner": owner,
                 "user_id": user_id,
-                "tasks": len(owned),
-                "titles": [task.title for task in owned],
+                "tasks": len(keep),
+                "titles": [task.title for task in keep],
             }
         )
 
@@ -411,14 +542,21 @@ def run_todo_reminders(
         "round": round_label,
         "dry_run": dry_run,
         "pending_tasks": len(tasks),
-        "candidates": len(candidates),
+        "candidates": len(solo_candidates)
+        + sum(len(v) for v in project_tasks.values()),
+        "project_entries": len(
+            [s for s in sent if s.get("project")]
+        ),
+        "person_entries": len(
+            [s for s in sent if not s.get("project")]
+        ),
         "sent": sent,
         "skipped_owners": skipped_owners,
         "evidence_skipped": evidence_skipped,
         "evidence_unavailable": evidence_unavailable,
         "failed": failed,
         "summary": (
-            "待办 " + str(len(tasks)) + " 项，本轮催办 " + str(len(sent)) + " 人"
+            "待办 " + str(len(tasks)) + " 项，本轮催办 " + str(len(sent)) + " 条消息"
             " / 跳过 " + str(len(skipped_owners)) + " 人 / 证据暂缓 "
             + str(len(evidence_skipped)) + " 项 / 证据不可用 "
             + str(len(evidence_unavailable)) + " 人 / 失败 " + str(len(failed)) + " 人"

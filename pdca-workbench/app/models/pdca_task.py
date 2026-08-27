@@ -37,5 +37,7 @@ class PdcaTask(SQLModel, table=True):
     # origin_owner=收敛前的会议参与人（owner 为收敛后的执行人）。
     position: str = Field(default="", max_length=64)
     origin_owner: str = Field(default="", max_length=128)
+    # 项目（事项）收敛：挂到 todo_projects.id；空=未入项目
+    project_id: Optional[int] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
