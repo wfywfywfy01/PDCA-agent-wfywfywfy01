@@ -193,6 +193,20 @@ def logistics_tracking_refresh_job() -> None:
         notify("物流状态自动刷新失败", str(exc)[:300])
 
 
+def im_reply_poll_job() -> None:
+    """IM 回复采集：读回催办消息的回复（完成/推进/阻塞），更新待办与项目状态。"""
+    from app.todos.replies import poll_replies
+
+    try:
+        result = poll_replies()
+        logger.info("IM 回复采集: {}", result)
+        if result.get("errors"):
+            notify("IM 回复采集部分失败", str(result["errors"])[:300])
+    except Exception as exc:
+        logger.exception("IM 回复采集异常: {}", exc)
+        notify("IM 回复采集失败", str(exc)[:300])
+
+
 def logibot_run_job() -> None:
     """日升货代跟踪机器人：拉群预报/面单、匹配录单人、官网轨迹、飞书。
 
@@ -434,13 +448,25 @@ def start_scheduler() -> BackgroundScheduler | None:
         coalesce=True,
     )
 
+    # 工作时段每 30 分钟 — IM 回复采集（完成/推进/阻塞 → 状态变更）
+    _scheduler.add_job(
+        im_reply_poll_job,
+        trigger="cron",
+        minute="*/30",
+        hour="9-18",
+        id="im_reply_poll",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # kpi_refresh（09:00/12:00/21:00 重建静态 chart_data.json）已停用（F1）：
     # 看板数据由 /api/dashboard/* 实时查库，不再运行子进程生成静态文件。
 
     _scheduler.start()
     logger.info(
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
-        "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00",
+        "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00 "
+        "im_reply_poll=*/30 9-18",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
     )

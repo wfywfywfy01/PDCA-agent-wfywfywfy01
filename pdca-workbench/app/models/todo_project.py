@@ -28,5 +28,8 @@ class TodoProject(SQLModel, table=True):
     last_reminded_at: Optional[datetime] = Field(default=None)
     last_reminded_round: str = Field(default="", max_length=32)
     remind_count: int = Field(default=0)
+    # IM 回复采集：最近一次回复原文与时间
+    reply_text: str = Field(default="", max_length=1024)
+    replied_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

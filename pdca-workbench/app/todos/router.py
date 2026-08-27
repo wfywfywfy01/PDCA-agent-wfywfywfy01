@@ -152,3 +152,126 @@ async def update_project_status(
     )
     return {"ok": True, "id": row.id, "status": status}
 
+@router.get("/api/todos/replies")
+async def list_replies(
+    limit: int = 100,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """回复采集记录：unreviewed 在前，供人工确认。"""
+    from sqlmodel import Session, select
+
+    from app.database import get_engine
+    from app.models.im_replies import TodoReply
+
+    with Session(get_engine()) as session:
+        rows = list(
+            session.exec(
+                select(TodoReply).order_by(TodoReply.at.desc()).limit(min(limit, 500))
+            ).all()
+        )
+    return [
+        {
+            "id": row.id,
+            "person": row.person,
+            "text": row.text,
+            "at": row.at.isoformat() if row.at else "",
+            "signal": row.signal,
+            "status": row.status,
+            "target_task_id": row.target_task_id,
+            "target_project_id": row.target_project_id,
+        }
+        for row in rows
+    ]
+
+
+class ReplyActionRequest(BaseModel):
+    pass
+
+
+@router.post("/api/todos/replies/{reply_id}/apply-all")
+async def apply_reply_all(
+    reply_id: int,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """人工确认：把该人最近一次催办消息里的全部未完成待办标记完成。"""
+    from datetime import datetime
+
+    from sqlmodel import Session, select
+
+    from app.database import get_engine
+    from app.models.im_replies import ImRemindSend, TodoReply
+    from app.models.pdca_task import PdcaTask
+
+    with Session(get_engine()) as session:
+        row = session.get(TodoReply, reply_id)
+        if row is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="回复不存在")
+        send = session.exec(
+            select(ImRemindSend)
+            .where(ImRemindSend.person == row.person)
+            .order_by(ImRemindSend.sent_at.desc())
+        ).first()
+        count = 0
+        if send is not None:
+            import json as _json
+
+            task_ids = _json.loads(send.item_task_ids or "[]")
+            tasks = list(
+                session.exec(
+                    select(PdcaTask).where(PdcaTask.id.in_([int(t) for t in task_ids]))
+                ).all()
+            )
+            now = datetime.utcnow()
+            for task in tasks:
+                task.status = "done"
+                task.reply_text = row.text[:1024]
+                task.replied_at = now
+                session.add(task)
+                count += 1
+        row.status = "applied"
+        session.add(row)
+        session.commit()
+    log_action(
+        username=user.username,
+        action="todo_reply_apply_all",
+        resource=row.person,
+        detail={"reply_id": reply_id, "tasks": count},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "tasks_closed": count}
+
+
+@router.post("/api/todos/replies/{reply_id}/ignore")
+async def ignore_reply(
+    reply_id: int,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """人工确认：忽略该回复。"""
+    from sqlmodel import Session
+
+    from app.database import get_engine
+    from app.models.im_replies import TodoReply
+
+    with Session(get_engine()) as session:
+        row = session.get(TodoReply, reply_id)
+        if row is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="回复不存在")
+        row.status = "ignored"
+        session.add(row)
+        session.commit()
+    log_action(
+        username=user.username,
+        action="todo_reply_ignore",
+        resource=row.person,
+        detail={"reply_id": reply_id},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True}
+
+

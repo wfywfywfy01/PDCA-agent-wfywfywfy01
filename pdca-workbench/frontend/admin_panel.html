@@ -101,6 +101,7 @@
   <button class="tab-btn" onclick="switchTab('export',this)">⬇ 数据导出</button>
 <button class="tab-btn" onclick="switchTab('todo',this)">⏰ 待办催办</button>
 <button class="tab-btn" onclick="switchTab('projects',this)">📁 待办项目</button>
+<button class="tab-btn" onclick="switchTab('replies',this)">💬 待办回复</button>
 </div>
 
 <!-- ══ 用户管理 ══ -->
@@ -251,6 +252,24 @@
   </div>
 </div>
 </div>
+
+<!-- ══ 待办回复 ══ -->
+<div id="tab-replies" class="tab-panel">
+<div class="container">
+  <div class="card">
+    <div class="card-header"><h2>待办回复（人工确认队列）</h2><button class="btn btn-primary" onclick="loadReplies()">刷新</button></div>
+    <div id="alertReplies" class="alert-inline"></div>
+    <p style="font-size:.78rem;color:#64748b;margin-bottom:.85rem">
+      明确的「第N条完成」回复已自动生效；含糊回复在此人工确认。
+    </p>
+    <div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>时间</th><th>人</th><th>回复内容</th><th>识别</th><th>状态</th><th>操作</th>
+    </tr></thead><tbody id="repliesTbody"><tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+</div>
 <!-- ══ 用户 Modal ══ -->
 <div id="userModal" class="modal-overlay" onclick="if(event.target===this)closeModal('userModal')">
   <div class="modal">
@@ -318,6 +337,7 @@ function switchTab(tab, btn) {
   else if(tab==='export') initExport();
   else if(tab==='todo') loadTodoRemind();
   else if(tab==='projects') loadProjects();
+  else if(tab==='replies') loadReplies();
 }
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){document.getElementById(id).classList.remove('open');}
@@ -696,6 +716,43 @@ function saveProjectStatus(id){
       if(res.ok){setAlert('alertProjects','状态已更新：'+status,'ok');}
       else{setAlert('alertProjects',res.d.detail||'更新失败','err');loadProjects();}
     });
+}
+
+// ── 待办回复 ──
+function loadReplies(){
+  fetch(API+'/api/todos/replies?limit=100',{credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d;
+      if(!res.ok){document.getElementById('repliesTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
+      var html='';
+      (d||[]).forEach(function(p){
+        var sig={'done':'完成','progress':'推进中','blocker':'阻塞'}[p.signal]||p.signal||'未识别';
+        var st=p.status==='unreviewed'?'<span class="badge badge-warn">待确认</span>':(p.status==='applied'?'<span class="badge badge-ok">已生效</span>':'<span class="badge badge-off">已忽略</span>');
+        var ops=p.status==='unreviewed'
+          ? '<button class="btn btn-success" style="font-size:.7rem;padding:3px 8px" onclick="applyReply('+p.id+')">全部完成</button> <button class="btn btn-ghost" style="font-size:.7rem;padding:3px 8px" onclick="ignoreReply('+p.id+')">忽略</button>'
+          : '';
+        html+='<tr><td style="color:#94a3b8;font-size:.72rem">'+esc((p.at||'').slice(0,16))+'</td>'
+          +'<td><strong>'+esc(p.person)+'</strong></td>'
+          +'<td>'+esc(p.text)+'</td>'
+          +'<td>'+esc(sig)+'</td><td>'+st+'</td><td>'+ops+'</td></tr>';
+      });
+      if(!html){html='<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">暂无回复</td></tr>';}
+      document.getElementById('repliesTbody').innerHTML=html;
+    });
+}
+function applyReply(id){
+  if(!confirm('确认把该人最近一次催办消息里的全部未完成待办标记完成？'))return;
+  fetch(API+'/api/todos/replies/'+id+'/apply-all',{method:'POST',credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertReplies','已标记完成 '+res.d.tasks_closed+' 项','ok');loadReplies();}
+      else{setAlert('alertReplies',res.d.detail||'操作失败','err');}
+    });
+}
+function ignoreReply(id){
+  fetch(API+'/api/todos/replies/'+id+'/ignore',{method:'POST',credentials:'include'})
+    .then(function(){loadReplies();});
 }
 // 初始加载
 loadUsers();

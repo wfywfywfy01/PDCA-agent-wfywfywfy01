@@ -150,6 +150,7 @@ def init_db() -> None:
     from app.models.acquisition_login_ticket import AcquisitionLoginTicket  # noqa: F401
     from app.models.customer_profile import CustomerProfile  # noqa: F401
     from app.models.todo_project import TodoProject  # noqa: F401
+    from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     _migrate_schema()
@@ -195,6 +196,11 @@ def _migrate_schema() -> None:
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS project_id INTEGER",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_external_todo_id ON pdca_tasks (external_todo_id)",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_project_id ON pdca_tasks (project_id)",
+        # IM 回复采集
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS reply_text VARCHAR(1024) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP",
+        "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS reply_text VARCHAR(1024) DEFAULT ''",
+        "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP",
         # 旧进店来源分类（自然进/预约/潜客/介绍/SA）已废弃，替换为 walkin/cross/online/recruit/existing 五分类；
         # 这几列原来是 NOT NULL，不删掉的话新 taxonomy 的 INSERT 会因为缺列违反约束而失败
         "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS prospect_visits",
@@ -236,6 +242,11 @@ def _migrate_schema() -> None:
         "ALTER TABLE pdca_tasks ADD COLUMN project_id INTEGER",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_external_todo_id ON pdca_tasks (external_todo_id)",
         "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_project_id ON pdca_tasks (project_id)",
+        # IM 回复采集
+        "ALTER TABLE pdca_tasks ADD COLUMN reply_text VARCHAR(1024) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN replied_at TIMESTAMP",
+        "ALTER TABLE todo_projects ADD COLUMN reply_text VARCHAR(1024) DEFAULT ''",
+        "ALTER TABLE todo_projects ADD COLUMN replied_at TIMESTAMP",
         "ALTER TABLE walkin_daily_reports DROP COLUMN prospect_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN appointment_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN referral_visits",

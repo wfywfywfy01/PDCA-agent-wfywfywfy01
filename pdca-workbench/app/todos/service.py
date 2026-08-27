@@ -182,8 +182,8 @@ def send_direct_message(
     user_id: int | str,
     body: str,
     client_message_id: str,
-) -> tuple[bool, str]:
-    """给本人发私聊（im +send-user）；返回 (成功, 失败原因)。"""
+) -> tuple[bool, str, str]:
+    """给本人发私聊（im +send-user）；返回 (成功, 失败原因, 消息 id)。"""
     code, stdout, stderr = run_vertu_sync(
         [
             "im", "+send-user",
@@ -194,8 +194,21 @@ def send_direct_message(
         timeout=30.0,
     )
     if code == 0:
-        return True, ""
-    return False, (stderr or stdout or "vertu-cli 发送失败")[:200]
+        message_id = ""
+        try:
+            payload = json.loads(stdout.strip())
+            if isinstance(payload, dict):
+                msg = payload.get("message") or {}
+                message_id = str(
+                    payload.get("message_id")
+                    or payload.get("id")
+                    or (msg.get("id") if isinstance(msg, dict) else "")
+                    or ""
+                )
+        except (json.JSONDecodeError, ValueError):
+            message_id = ""
+        return True, "", message_id
+    return False, (stderr or stdout or "vertu-cli 发送失败")[:200], ""
 
 
 def build_person_message(
@@ -297,6 +310,31 @@ def build_project_message(
     else:
         lines.append("（日报系统暂不可用，未做跟进比对）")
     return "\n".join(lines)
+
+
+def _record_sends(
+    session: Session,
+    records: list[tuple],
+    rows: list[PdcaTask],
+    round_label: str,
+    project_id: Optional[int] = None,
+) -> None:
+    """落库催办发送记录（人 + message_id + 消息内任务顺序），供回复映射。"""
+    from app.models.im_replies import ImRemindSend
+
+    for person, message_id in records:
+        session.add(
+            ImRemindSend(
+                person=person,
+                sent_at=datetime.utcnow(),
+                message_id=message_id or "",
+                item_task_ids=json.dumps(
+                    [t.id for t in rows if t.id], ensure_ascii=False
+                ),
+                project_id=project_id,
+                round=round_label,
+            )
+        )
 
 
 def _group_by_owner(items: list[PdcaTask]) -> dict[str, list[PdcaTask]]:
@@ -454,6 +492,7 @@ def run_todo_reminders(
         executors = json.loads(project.executors or "[]")
         body = build_project_message(project, kept, today, entry_url, checked_any)
         sent_to: list[str] = []
+        send_records: list[tuple] = []
         for name in executors:
             user_id, reason = _resolve_and_check(name)
             if user_id is None:
@@ -467,10 +506,11 @@ def run_todo_reminders(
             client_id = (
                 "pdca-project-remind-" + project.key + "-" + today + "-" + round_label
             )
-            ok, err = send_direct_message(user_id, body, client_id)
+            ok, err, message_id = send_direct_message(user_id, body, client_id)
             if not ok:
                 failed.append({"owner": name, "reason": err, "tasks": len(kept)})
                 continue
+            send_records.append((name, message_id))
             sent_to.append(name)
         if sent_to:
             if dry_run:
@@ -495,6 +535,9 @@ def run_todo_reminders(
                     )
                     proj_row = session.get(TodoProject, project.id)
                     _mark_reminded_rows(session, rows, proj_row, round_label, now)
+                    _record_sends(
+                        session, send_records, rows, round_label, project.id
+                    )
                     session.commit()
                 sent.append(
                     {
@@ -546,11 +589,14 @@ def run_todo_reminders(
             "pdca-todo-remind-" + str(min(task.id or 0 for task in keep))
             + "-" + today + "-" + round_label
         )
-        ok, err = send_direct_message(user_id, body, client_id)
+        ok, err, message_id = send_direct_message(user_id, body, client_id)
         if not ok:
             failed.append({"owner": owner, "reason": err, "tasks": len(keep)})
             continue
         _mark_reminded([task.id for task in keep if task.id], round_label, now)
+        with Session(get_engine()) as session:
+            _record_sends(session, [(owner, message_id)], keep, round_label, None)
+            session.commit()
         sent.append(
             {
                 "owner": owner,
