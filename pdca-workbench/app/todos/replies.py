@@ -23,7 +23,6 @@ from app.database import get_engine
 from app.models.im_replies import ImRemindSend, TodoReply
 from app.models.pdca_task import PdcaTask
 from app.models.todo_project import TodoProject
-from app.todos.evidence import load_vps_user_map
 from app.vertu.client import run_vertu_sync_json
 
 _CN_NUM = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
@@ -137,7 +136,6 @@ def poll_replies(hours_back: int = 48) -> dict:
     """轮询回复：对 48h 内发过催办的人查私聊新消息并应用状态变更。"""
     now = datetime.now()
     since = now - timedelta(hours=hours_back)
-    vps_map = load_vps_user_map()
     result = {"scanned_people": 0, "replies_found": 0, "applied": 0, "queued": 0, "errors": []}
 
     with Session(get_engine()) as session:
@@ -152,8 +150,14 @@ def poll_replies(hours_back: int = 48) -> dict:
         for s in sends:
             by_person.setdefault(s.person, []).append(s)
 
+        from app.todos.service import resolve_im_user
+
+        user_cache: dict[str, Optional[dict]] = {}
         for person, person_sends in by_person.items():
-            vps_id = vps_map.get(person)
+            im_user = resolve_im_user(person, user_cache)
+            if im_user is None:
+                continue
+            vps_id = im_user.get("user_id") or im_user.get("id")
             if not vps_id:
                 continue
             result["scanned_people"] += 1

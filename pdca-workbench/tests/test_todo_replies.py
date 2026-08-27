@@ -60,11 +60,11 @@ class PollRepliesTests(unittest.TestCase):
             "app.todos.replies.get_engine", return_value=self.engine
         )
         self.patch_engine.start()
-        self.patch_vps = patch(
-            "app.todos.replies.load_vps_user_map",
-            return_value={"何海文": 14113},
+        self.patch_users = patch(
+            "app.todos.service.run_vertu_sync_json",
+            return_value=[{"user_id": 14113, "name": "何海文"}],
         )
-        self.patch_vps.start()
+        self.patch_users.start()
         self.patch_json = patch(
             "app.todos.replies.run_vertu_sync_json",
             side_effect=self._fake_im_json,
@@ -76,7 +76,7 @@ class PollRepliesTests(unittest.TestCase):
     def tearDown(self):
         self.patch_notify.stop()
         self.patch_json.stop()
-        self.patch_vps.stop()
+        self.patch_users.stop()
         self.patch_engine.stop()
         self.engine.dispose()
         self.temp_dir.cleanup()
