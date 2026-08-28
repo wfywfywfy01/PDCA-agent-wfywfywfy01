@@ -173,9 +173,53 @@ def resolve_im_user(owner: str, cache: dict[str, Optional[dict]]) -> Optional[di
     )
     user = _match_user(owner, _extract_users(payload))
     if user is None:
+        # 服务端组织搜索不可用/为空时的兜底：从「我的会话」反查 user_id
+        # （direct_key 形如 u:<对方id>:<自己id>，会话名含双方姓名）
+        user = _resolve_via_channels(owner)
+    if user is None:
         logger.warning("待办催办：负责人「{}」在 VPS IM 组织里匹配不到", owner)
     cache[owner] = user
     return user
+
+
+_CHANNELS_SCAN: dict = {"ts": 0.0, "map": {}}
+
+
+def _resolve_via_channels(name: str) -> Optional[dict]:
+    """从 im +channels 反查 user_id；结果缓存 10 分钟。"""
+    import time
+
+    now = time.monotonic()
+    cached = _CHANNELS_SCAN["map"]
+    if cached and now - float(_CHANNELS_SCAN.get("ts") or 0) < 600:
+        return cached.get(name.strip().casefold())
+    payload = run_vertu_sync_json(["im", "+channels", "--limit", "100"], timeout=25.0)
+    channels = []
+    if isinstance(payload, dict):
+        channels = payload.get("channels") or []
+    mapping: dict[str, dict] = {}
+    wanted_cache: dict[str, dict] = {}
+    for ch in channels:
+        if not isinstance(ch, dict):
+            continue
+        dk = str(ch.get("direct_key") or "")
+        parts = dk.split(":")
+        if not (dk.startswith("u:") and len(parts) == 3):
+            continue
+        other_id = parts[1]
+        if not other_id.isdigit():
+            continue
+        ch_name = str(ch.get("name") or "")
+        # 会话名 "付汪阳, 何海文"：把非本人的名字都映射到对方 id
+        for token in ch_name.replace("，", ",").split(","):
+            token = token.strip()
+            if token:
+                wanted_cache.setdefault(
+                    token.casefold(), {"user_id": int(other_id), "name": token}
+                )
+    _CHANNELS_SCAN["map"] = wanted_cache
+    _CHANNELS_SCAN["ts"] = now
+    return wanted_cache.get(name.strip().casefold())
 
 
 def send_direct_message(

@@ -181,6 +181,53 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)  # 同一个人只拉一次日报
 
 
+class ChannelsFallbackTests(unittest.TestCase):
+    """im +users 空结果时，从 +channels 反查 user_id。"""
+
+    def setUp(self):
+        import app.todos.service as service_mod
+
+        service_mod._SELF_USER_ID = None
+        service_mod._CHANNELS_SCAN = {"ts": 0.0, "map": {}}
+        # +users 空；+channels 含双方会话
+        def fake_json(args, timeout):
+            if "+users" in args:
+                return {"ok": True, "count": 0, "users": []}
+            if "+channels" in args:
+                return {
+                    "channels": [
+                        {
+                            "direct_key": "u:14113:13365",
+                            "name": "付汪阳, 何海文",
+                        },
+                        {
+                            "direct_key": "u:13050:13365",
+                            "name": "付汪阳, DEHDAHOUMAIMA",
+                        },
+                    ]
+                }
+            if "+me" in args:
+                return {"ok": True, "user": {"userId": 13365}}
+            return None
+
+        self.patch_json = patch(
+            "app.todos.service.run_vertu_sync_json", side_effect=fake_json
+        )
+        self.patch_json.start()
+
+    def tearDown(self):
+        self.patch_json.stop()
+
+    def test_fallback_resolves_from_channels(self):
+        from app.todos.service import resolve_im_user
+
+        user = resolve_im_user("何海文", {})
+        self.assertIsNotNone(user)
+        self.assertEqual(user["user_id"], 14113)
+        user2 = resolve_im_user("DEHDAHOUMAIMA", {})
+        self.assertEqual(user2["user_id"], 13050)
+
+
 class SelfSkipTests(unittest.TestCase):
     """催办引擎跳过「本人」与显式排除名单。"""
 
