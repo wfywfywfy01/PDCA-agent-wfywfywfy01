@@ -513,7 +513,8 @@ def run_todo_reminders(
         project_owned: list[PdcaTask] = []
         for task in owned:
             mentioned = find_mentions(task.title)
-            if mentioned:
+            # 手工锁定（owner_locked）的条目按指定人走，不再按标题点名重路由
+            if mentioned and not getattr(task, "owner_locked", False):
                 if force or not _already_reminded_today(task, round_label, today):
                     # 输出 IM 规范名（如 Lina → DEHDAHOUMAIMA），避免错发同名同事
                     person = PEOPLE[mentioned[0]].get("im_name") or mentioned[0]
