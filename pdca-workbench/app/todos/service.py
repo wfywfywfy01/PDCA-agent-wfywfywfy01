@@ -185,6 +185,19 @@ def resolve_im_user(owner: str, cache: dict[str, Optional[dict]]) -> Optional[di
 _CHANNELS_SCAN: dict = {"ts": 0.0, "map": {}}
 
 
+def _lookup_cached(name: str, mapping: dict[str, dict]) -> Optional[dict]:
+    """精确优先，其次唯一包含匹配（如「冯磊」→「冯磊-1」）。"""
+    wanted = name.strip().casefold()
+    if wanted in mapping:
+        return mapping[wanted]
+    loose = [
+        user
+        for key, user in mapping.items()
+        if wanted in key or key in wanted
+    ]
+    return loose[0] if len(loose) == 1 else None
+
+
 # 机器人本人（付汪阳）的别名：会话名里出现本人名字时不映射
 _SELF_ALIASES = {alias.casefold() for alias in PEOPLE["付汪阳"]["aliases"]}
 
@@ -196,7 +209,7 @@ def _resolve_via_channels(name: str) -> Optional[dict]:
     now = time.monotonic()
     cached = _CHANNELS_SCAN["map"]
     if cached and now - float(_CHANNELS_SCAN.get("ts") or 0) < 600:
-        return cached.get(name.strip().casefold())
+        return _lookup_cached(name, cached)
     payload = run_vertu_sync_json(["im", "+channels", "--limit", "100"], timeout=25.0)
     channels = []
     if isinstance(payload, dict):
@@ -224,7 +237,7 @@ def _resolve_via_channels(name: str) -> Optional[dict]:
                 )
     _CHANNELS_SCAN["map"] = wanted_cache
     _CHANNELS_SCAN["ts"] = now
-    return wanted_cache.get(name.strip().casefold())
+    return _lookup_cached(name, wanted_cache)
 
 
 def send_direct_message(
