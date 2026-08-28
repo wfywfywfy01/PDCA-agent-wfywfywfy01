@@ -204,6 +204,11 @@ class ChannelsFallbackTests(unittest.TestCase):
                             "direct_key": "u:13050:13365",
                             "name": "付汪阳, DEHDAHOUMAIMA",
                         },
+                        {
+                            # 自己在左侧的形态：不得把王宇彤映射成自己
+                            "direct_key": "u:13365:14344",
+                            "name": "付汪阳, 王宇彤",
+                        },
                     ]
                 }
             if "+me" in args:
@@ -226,6 +231,8 @@ class ChannelsFallbackTests(unittest.TestCase):
         self.assertEqual(user["user_id"], 14113)
         user2 = resolve_im_user("DEHDAHOUMAIMA", {})
         self.assertEqual(user2["user_id"], 13050)
+        user3 = resolve_im_user("王宇彤", {})
+        self.assertEqual(user3["user_id"], 14344)  # 不是 13365（自己）
 
 
 class SelfSkipTests(unittest.TestCase):

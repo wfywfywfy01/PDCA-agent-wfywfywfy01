@@ -185,6 +185,10 @@ def resolve_im_user(owner: str, cache: dict[str, Optional[dict]]) -> Optional[di
 _CHANNELS_SCAN: dict = {"ts": 0.0, "map": {}}
 
 
+# 机器人本人（付汪阳）的别名：会话名里出现本人名字时不映射
+_SELF_ALIASES = {alias.casefold() for alias in PEOPLE["付汪阳"]["aliases"]}
+
+
 def _resolve_via_channels(name: str) -> Optional[dict]:
     """从 im +channels 反查 user_id；结果缓存 10 分钟。"""
     import time
@@ -197,7 +201,7 @@ def _resolve_via_channels(name: str) -> Optional[dict]:
     channels = []
     if isinstance(payload, dict):
         channels = payload.get("channels") or []
-    mapping: dict[str, dict] = {}
+    self_id = str(resolve_self_user_id() or "")
     wanted_cache: dict[str, dict] = {}
     for ch in channels:
         if not isinstance(ch, dict):
@@ -206,14 +210,15 @@ def _resolve_via_channels(name: str) -> Optional[dict]:
         parts = dk.split(":")
         if not (dk.startswith("u:") and len(parts) == 3):
             continue
-        other_id = parts[1]
-        if not other_id.isdigit():
+        a, b = parts[1], parts[2]
+        # direct_key 两侧顺序不定（u:对方:自己 或 u:自己:对方），取非己方
+        other_id = b if a == self_id else a
+        if other_id == self_id or not other_id.isdigit():
             continue
         ch_name = str(ch.get("name") or "")
-        # 会话名 "付汪阳, 何海文"：把非本人的名字都映射到对方 id
         for token in ch_name.replace("，", ",").split(","):
             token = token.strip()
-            if token:
+            if token and token.casefold() not in _SELF_ALIASES:
                 wanted_cache.setdefault(
                     token.casefold(), {"user_id": int(other_id), "name": token}
                 )
