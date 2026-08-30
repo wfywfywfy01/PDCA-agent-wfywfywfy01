@@ -6,7 +6,8 @@
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
@@ -21,36 +22,72 @@ from app.models.walkin_daily_report import WalkinDailyReport
 
 def _fmt_money(wan: float | None) -> str:
     if wan is None:
-        return "—"
+        return "N/A"
     return f"{wan:,.2f} 万"
+
+
+def _snapshot_total(rows: list[DealerSales]) -> float | None:
+    if not rows:
+        return None
+    return round(sum(float(row.sell_in_wan or 0) for row in rows), 2)
+
+
+def _fmt_synced_at(value: datetime | None) -> str:
+    if value is None:
+        return "N/A"
+    utc_value = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return utc_value.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M")
+
+
+def _is_test_store(store: DealerStore) -> bool:
+    store_id = (store.store_id or "").strip().lower()
+    name = (store.name or "").strip().lower()
+    return store_id.startswith(("qa-", "test-", "demo-")) or any(
+        marker in name for marker in ("测试", "演示", "demo")
+    )
 
 
 def build_report(day: str) -> str:
     month = day[:7]
     yesterday = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+    day_before_yesterday = (date.fromisoformat(day) - timedelta(days=2)).isoformat()
 
     with Session(get_engine()) as session:
-        # 昨日/本月 Sell-in（榜单口径：仅正向业绩）
-        yesterday_rows = session.exec(
-            select(DealerSales).where(DealerSales.check_date == yesterday)
+        # dealer_sales 每日保存月累计快照。月累计只取最新快照，昨日新增取相邻快照差额。
+        sales_rows = session.exec(
+            select(DealerSales).where(
+                DealerSales.check_date.startswith(month),
+                DealerSales.check_date <= day,
+            )
         ).all()
-        yesterday_wan = round(
-            sum(r.sell_in_wan for r in yesterday_rows if r.sell_in_wan > 0), 2
+        rows_by_date: dict[str, list[DealerSales]] = {}
+        for row in sales_rows:
+            rows_by_date.setdefault(row.check_date, []).append(row)
+        latest_date = max(rows_by_date, default=None)
+        latest_rows = rows_by_date.get(latest_date, []) if latest_date else []
+        mtd_wan = _snapshot_total(latest_rows)
+        yesterday_total = _snapshot_total(rows_by_date.get(yesterday, []))
+        prior_total = _snapshot_total(rows_by_date.get(day_before_yesterday, []))
+        yesterday_wan = (
+            round(yesterday_total - prior_total, 2)
+            if yesterday_total is not None and prior_total is not None
+            else None
         )
-        mtd_rows = session.exec(
-            select(DealerSales).where(DealerSales.check_date.startswith(month))
-        ).all()
-        mtd_wan = round(sum(r.sell_in_wan for r in mtd_rows if r.sell_in_wan > 0), 2)
 
-        # 五件套上报进度 + 缺报名单
-        stores = session.exec(
+        # 全部真实活跃门店都应上报；测试门店不进入经营指标。
+        stores = [
+            store
+            for store in session.exec(
             select(DealerStore).where(DealerStore.is_active == True)  # noqa: E712
-        ).all()
+            ).all()
+            if not _is_test_store(store)
+        ]
         total_stores = len(stores)
-        reported_ids = {
+        eligible_store_ids = {store.store_id for store in stores}
+        reported_ids = eligible_store_ids & {
             row.dealer_id
             for row in session.exec(
-                select(WalkinDailyReport).where(WalkinDailyReport.report_date == day)
+                select(WalkinDailyReport).where(WalkinDailyReport.report_date == yesterday)
             ).all()
         }
         missing_names = [
@@ -80,49 +117,67 @@ def build_report(day: str) -> str:
                 continue
             transit += 1
 
-        meetings = len(
-            session.exec(
-                select(MeetingRecord).where(MeetingRecord.meeting_date == day)
-            ).all()
+        all_meetings = session.exec(select(MeetingRecord)).all()
+        latest_meeting_sync = max(
+            (row.synced_at for row in all_meetings if row.synced_at), default=None
         )
+        meeting_fresh = False
+        if latest_meeting_sync:
+            sync_utc = (
+                latest_meeting_sync.replace(tzinfo=timezone.utc)
+                if latest_meeting_sync.tzinfo is None
+                else latest_meeting_sync
+            )
+            meeting_fresh = sync_utc.astimezone(ZoneInfo("Asia/Shanghai")).date() >= (
+                date.fromisoformat(day) - timedelta(days=1)
+            )
+        meetings = sum(1 for row in all_meetings if row.meeting_date == day)
         from app.statuses import is_done
 
-        pending_tasks = len(
-            [
-                row
-                for row in session.exec(
-                    select(PdcaTask).where(PdcaTask.task_date == day)
-                ).all()
-                if not is_done(row.status)
-            ]
+        task_rows = session.exec(select(PdcaTask)).all()
+        today_tasks = sum(
+            1 for row in task_rows if row.task_date == day and not is_done(row.status)
+        )
+        overdue_tasks = sum(
+            1 for row in task_rows if row.task_date < day and not is_done(row.status)
         )
 
-        synced = None
-        for row in mtd_rows:
-            if row.synced_at and (synced is None or row.synced_at > synced):
-                synced = row.synced_at
+        synced = max((row.synced_at for row in latest_rows if row.synced_at), default=None)
 
     lines = [
         f"📊 PDCA 经营日报 {day}",
         "",
         "【业绩】",
-        f"· 昨日 Sell-in：{_fmt_money(yesterday_wan)}",
-        f"· 本月 Sell-in：{_fmt_money(mtd_wan)}",
+        f"· 昨日新增 Sell-in（{yesterday[5:]}）：{_fmt_money(yesterday_wan)}",
+        f"· 本月累计 Sell-in：{_fmt_money(mtd_wan)}",
         "",
-        f"【门店五件套】{len(reported_ids)}/{total_stores} 家已上报",
     ]
-    if missing_names:
+    if not total_stores:
+        lines += [f"【门店五件套（{yesterday[5:]}）】N/A", "· 未配置有效填报门店"]
+    elif missing_names:
+        lines.append(f"【门店五件套（{yesterday[5:]}）】{len(reported_ids)}/{total_stores} 家已上报")
         lines.append("· 缺报：" + "、".join(missing_names[:5])
                      + ("…" if len(missing_names) > 5 else ""))
         lines.append("· 零客流也要如实上报，不能把 0 当成未上报")
     else:
-        lines.append("· 全部上报完成 ✓")
+        lines += [f"【门店五件套（{yesterday[5:]}）】{total_stores}/{total_stores} 家已上报", "· 全部上报完成 ✓"]
+    logistics_text = (
+        f"近 7 天在途 {transit} 单 · 异常 {abnormal} 单"
+        if logistics_rows
+        else "N/A（无近期可验证数据）"
+    )
+    meeting_text = f"今日 {meetings} 场" if meeting_fresh else "N/A（数据未更新）"
+    task_text = (
+        f"今日 {today_tasks} 项 · 逾期 {overdue_tasks} 项"
+        if task_rows
+        else "N/A"
+    )
     lines += [
         "",
-        f"【物流】近 7 天在途 {transit} 单 · 异常 {abnormal} 单",
-        f"【会议】今日 {meetings} 场 · 【待办】{pending_tasks} 项未完成",
+        f"【物流】{logistics_text}",
+        f"【会议】{meeting_text} · 【待办】{task_text}",
         "",
-        f"数据截至：{str(synced)[:16] if synced else '尚未同步'}",
+        f"数据截至：{_fmt_synced_at(synced)}",
         "入口：https://pdca-workbench-teams.vertu.cn/app/",
     ]
     return "\n".join(lines)
