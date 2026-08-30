@@ -45,7 +45,7 @@ class DbSellinSummaryTests(unittest.TestCase):
                 )
             session.commit()
 
-    def test_monthly_aggregate_skips_empty_rows(self):
+    def test_monthly_summary_uses_latest_snapshot_and_skips_empty_rows(self):
         with Session(self.engine) as session:
             result = service.db_sellin_summary("2026-08", session, user=None)
         self.assertTrue(result["has_data"])
@@ -53,17 +53,18 @@ class DbSellinSummaryTests(unittest.TestCase):
         names = [item["name"] for item in result["dealers"]]
         self.assertNotIn("Dealer Empty", names)
         self.assertEqual(names, ["Dealer A", "Dealer B"])
-        # Dealer A 当月 12.5+5.0=17.5 万，Dealer B 2.0 万
-        self.assertEqual(result["total_wan"], 19.5)
-        self.assertEqual(result["dealers"][0]["wan"], 17.5)
+        # 每个 check_date 都是月累计快照，只能取 08-18 最新批次，不能逐日相加。
+        self.assertEqual(result["total_wan"], 14.5)
+        self.assertEqual(result["dealers"][0]["wan"], 12.5)
         self.assertEqual(result["dealers"][0]["rank"], 1)
+        self.assertEqual(result["source"], "dealer_sales_db_latest_snapshot")
 
     def test_trend_covers_six_months(self):
         with Session(self.engine) as session:
             result = service.db_sellin_summary("2026-08", session, user=None)
         self.assertEqual(len(result["trend"]), 6)
         self.assertEqual(result["trend"][-1]["month"], "2026-08")
-        self.assertEqual(result["trend"][-1]["wan"], 19.5)
+        self.assertEqual(result["trend"][-1]["wan"], 14.5)
         self.assertEqual(result["trend"][-2]["wan"], 8.0)  # 2026-07
 
 

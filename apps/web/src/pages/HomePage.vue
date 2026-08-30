@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
@@ -72,10 +72,13 @@ const PERIODS = [
 
 const FACT_LABELS: Record<string, string> = {
   walkin_visits: '今日进店',
-  walkin_reported: '已上报门店',
-  walkin_missing: '未上报门店',
+  walkin_reported: '今日已填报门店',
   logistics_attention: '物流异常/待核查',
 }
+
+const visibleFacts = computed(() =>
+  Object.entries(today.value?.facts || {}).filter(([key]) => key !== 'store_count' && key !== 'walkin_missing'),
+)
 
 function workDate(): string {
   const d = new Date()
@@ -173,7 +176,7 @@ onMounted(loadAll)
         <h1>经营驾驶舱</h1>
         <p class="sub">
           {{ me ? (me.display_name || me.username) : '…' }} · {{ dateText }} ·
-          <span v-if="today">{{ today.closure.reported }}/{{ today.closure.expected }} 门店已上报</span>
+          <span v-if="today">今日已收到 {{ today.closure.reported }} 家门店填报</span>
         </p>
       </div>
       <div class="head-actions">
@@ -221,7 +224,7 @@ onMounted(loadAll)
           {{ sellOut?.note || '加载中…' }}
         </span>
       </div>
-      <div v-for="(fact, key) in today?.facts || {}" :key="key" class="card kpi">
+      <div v-for="[key, fact] in visibleFacts" :key="key" class="card kpi">
         <span class="kpi-label">{{ FACT_LABELS[key] || key }}</span>
         <span class="kpi-value">{{ fact.state === 'available' ? (fact.value ?? '—') : '—' }}</span>
         <span class="kpi-note">
@@ -251,12 +254,14 @@ onMounted(loadAll)
       </section>
 
       <section class="card panel">
-        <h2>客户分层</h2>
+        <h2>客户分层（仅已建档客户）</h2>
         <div v-if="customers?.length" class="customer-grid">
           <article v-for="row in customers" :key="row.level" class="customer-card">
             <span class="c-label">{{ row.level }} 类</span>
             <b>{{ row.total }}</b>
-            <span class="c-sub">触达 {{ row.touched != null ? row.touched : '未同步' }} / 目标 {{ row.target }}</span>
+            <span class="c-sub">
+              {{ row.touched != null || row.target > 0 ? `触达 ${row.touched ?? '未同步'} / 目标 ${row.target}` : '触达与目标尚未接入' }}
+            </span>
           </article>
         </div>
         <p v-else-if="customers" class="empty">暂无客户分层数据</p>

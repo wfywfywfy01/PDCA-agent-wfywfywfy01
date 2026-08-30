@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import asyncio
-from datetime import datetime
+from datetime import date as date_type, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
@@ -28,6 +28,17 @@ router = APIRouter(tags=["dashboard"])
 
 def _date_or_today(value: str | None) -> str:
     return require_iso_date(value or bridge.today_text())
+
+
+def _period_start(date_text: str, period: str) -> str:
+    current = date_type.fromisoformat(date_text)
+    if period == "week":
+        return str(current - timedelta(days=current.weekday()))
+    if period == "month":
+        return str(current.replace(day=1))
+    if period == "quarter":
+        return str(current.replace(month=((current.month - 1) // 3) * 3 + 1, day=1))
+    return date_text
 
 
 def _session_user(user: User, session: Session) -> dict:
@@ -145,9 +156,13 @@ async def workbench_today(
     date_text = _date_or_today(date)
     scope = resolve_data_scope(user, session)
     if scope.unrestricted:
-        stores = list(session.exec(
-            select(DealerStore).where(DealerStore.is_active == True)  # noqa: E712
-        ).all())
+        stores = [
+            row for row in session.exec(
+                select(DealerStore).where(DealerStore.is_active == True)  # noqa: E712
+            ).all()
+            if not row.store_id.lower().startswith(("qa-", "test-", "demo-"))
+            and not any(marker in row.name.lower() for marker in ("测试", "演示", "demo"))
+        ]
         store_ids = {row.store_id for row in stores}
     else:
         store_ids = set(scope.store_ids)
@@ -214,9 +229,9 @@ async def workbench_today(
     elif missing:
         actions.append({
             "priority": "high",
-            "title": f"补齐 {missing} 家门店今日五件套",
-            "message": "零客流也需要如实上报，不能把 0 当成未上报。",
-            "href": f"/store-five-kit/?date={date_text}&period=day&filter=norep",
+            "title": "跟进今日门店五件套填报",
+            "message": f"系统已收到 {len(reported_ids)} 家；应报门店清单尚未确认，不展示虚假完成率。",
+            "href": "/app/walkin",
         })
     if logistics_fact["state"] == "available" and logistics_fact["value"]:
         actions.append({
@@ -247,6 +262,7 @@ async def workbench_today(
             "reported": len(reported_ids),
             "expected": expected,
             "complete": expected > 0 and missing == 0,
+            "roster_state": "unconfirmed",
         },
     }
 
@@ -353,21 +369,45 @@ async def sell_out(
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     date_text = _date_or_today(date)
-    # vertu-cli 2.x does not provide a dealer Sell-out shortcut. The scoped
-    # database snapshot is the authoritative source and avoids a guaranteed
-    # failing remote call on every homepage visit.
-    data = service.workbench_overview(date_text, period, _session_user(user, session))
-    data = service.merge_db_sales(data, date_text, session, user)
-    # 终销（Sell-out）是门店五件套上报的 USD 金额，不走 CNY 万口径。
-    usd = data.get("sellOutUsd")
+    start_text = _period_start(date_text, period)
+    scope = resolve_data_scope(user, session)
+    stmt = select(WalkinDailyReport).where(
+        WalkinDailyReport.report_date >= start_text,
+        WalkinDailyReport.report_date <= date_text,
+    )
+    if not scope.unrestricted:
+        stmt = stmt.where(WalkinDailyReport.dealer_id.in_(scope.store_ids))
+    rows = [
+        row for row in session.exec(stmt).all()
+        if not row.dealer_id.lower().startswith(("qa-", "test-", "demo-"))
+    ]
+    from app.config import get_settings
+
+    settings = get_settings()
+    threshold = min(
+        settings.max_reported_revenue_usd,
+        settings.revenue_review_threshold_usd,
+    )
+    valid_rows = [row for row in rows if row.deal_amount_yuan <= threshold]
+    as_of = max((row.created_at for row in rows if row.created_at), default=None)
+    as_of_text = (
+        as_of.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
+        if as_of and as_of.tzinfo is None
+        else as_of.isoformat(timespec="seconds") if as_of else None
+    )
+    labels = {"day": "今日", "week": "本周", "month": "本月", "quarter": "本季度"}
     return {
-        "amount": usd,
+        "amount": round(sum(row.deal_amount_yuan for row in valid_rows), 2) if rows else None,
         "wan": None,
-        "note": data.get("sellOutSub") or "门店五件套上报 · USD",
+        "note": (
+            f"{labels.get(period, '当前区间')}五件套实报 · {len({row.dealer_id for row in rows})} 家门店 · USD"
+            if rows else f"{labels.get(period, '当前区间')}尚无门店五件套回执"
+        ),
         "currency": "USD",
-        "as_of": data.get("dataAsOf"),
+        "as_of": as_of_text,
         "source": "five_kit_db",
-        "state": _freshness_state(data.get("dataAsOf")),
+        "state": "live" if rows else "missing",
+        "review_count": len(rows) - len(valid_rows),
     }
 
 
@@ -438,13 +478,10 @@ async def dealer_sellin_summary(
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     from datetime import date as _date
-    from app.vertu.sales import fetch_sellin_summary
     m = month or _date.today().strftime("%Y-%m")
-    try:
-        data = await fetch_sellin_summary(m)
-    except Exception as exc:
-        logger.warning("vertu sellin-summary 失败，回退数据库快照: {}", exc)
-        data = service.db_sellin_summary(m, session, user)
+    # 排行与趋势读取已同步的每日月累计快照。实时订单明细接口可能超过
+    # 60 秒，不能阻塞用户页面；首页总额仍使用快速 headline-kpi 实时接口。
+    data = service.db_sellin_summary(m, session, user)
     names = visible_dealer_names(user, session)
     if names is None or not isinstance(data, dict):
         return data

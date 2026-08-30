@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
@@ -30,6 +30,7 @@ interface SellinSummary {
   has_data: boolean
   trend: TrendRow[]
   source?: string
+  as_of?: string | null
 }
 
 const router = useRouter()
@@ -39,6 +40,27 @@ const loading = ref(true)
 const error = ref('')
 const chartEl = ref<HTMLDivElement | null>(null)
 let chart: ECharts | null = null
+
+const totalQuantity = computed(() =>
+  data.value?.dealers.reduce((sum, row) => sum + Number(row.quantity || 0), 0) || 0,
+)
+const monthOverMonth = computed<number | null>(() => {
+  const rows = data.value?.trend || []
+  if (rows.length < 2) return null
+  const previous = Number(rows[rows.length - 2].wan || 0)
+  if (!previous) return null
+  return ((Number(rows[rows.length - 1].wan || 0) - previous) / previous) * 100
+})
+
+function sourceLabel(source?: string): string {
+  return source === 'dealer_sales_db_latest_snapshot' ? 'Vertu 同步快照' : source || '—'
+}
+
+function asOfLabel(value?: string | null): string {
+  if (!value) return '更新时间未知'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? '更新时间未知' : `更新于 ${parsed.toLocaleString()}`
+}
 
 function currentMonth(): string {
   const d = new Date()
@@ -144,14 +166,24 @@ watch(month, load)
         <div class="card kpi">
           <span class="kpi-label">当月 Sell-in 合计</span>
           <span class="kpi-value">{{ data.total_wan }} <small>万</small></span>
-          <span class="kpi-note">{{ data.dealers.length }} 家经销商 · 来源 {{ data.source || '—' }}</span>
+          <span class="kpi-note">{{ sourceLabel(data.source) }} · {{ asOfLabel(data.as_of) }}</span>
         </div>
         <div class="card kpi">
-          <span class="kpi-label">趋势（近 6 月）</span>
+          <span class="kpi-label">有业绩经销商</span>
+          <span class="kpi-value">{{ data.dealers.length }} <small>家</small></span>
+          <span class="kpi-note">可下钻查看排名与金额</span>
+        </div>
+        <div class="card kpi">
+          <span class="kpi-label">当月台数</span>
+          <span class="kpi-value">{{ totalQuantity }} <small>台</small></span>
+          <span class="kpi-note">与金额使用同一快照</span>
+        </div>
+        <div class="card kpi">
+          <span class="kpi-label">较上月</span>
           <span class="kpi-value">
-            {{ data.trend.length ? data.trend[data.trend.length - 1].wan : '—' }} <small>万</small>
+            {{ monthOverMonth == null ? 'N/A' : `${monthOverMonth >= 0 ? '+' : ''}${monthOverMonth.toFixed(1)}%` }}
           </span>
-          <span class="kpi-note">{{ data.trend.length ? data.trend[data.trend.length - 1].month : '' }}</span>
+          <span class="kpi-note">基于最近两个月末快照</span>
         </div>
       </section>
 
