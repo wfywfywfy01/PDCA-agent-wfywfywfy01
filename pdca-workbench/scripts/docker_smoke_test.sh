@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 IMAGE="${1:-pdca-workbench:local-smoke}"
+EXPECTED_REVISION="${2:-}"
 CONTAINER_NAME="${PDCA_SMOKE_CONTAINER:-pdca-workbench-smoke}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -14,6 +15,14 @@ SMOKE_MONTH="${SMOKE_DATE:0:7}"
 if ! command -v docker >/dev/null 2>&1; then
   echo "找不到 Docker" >&2
   exit 1
+fi
+
+if [[ -n "$EXPECTED_REVISION" ]]; then
+  actual_revision="$(docker image inspect "$IMAGE" --format '{{ index .Config.Labels "com.vertu.pdca.source_revision" }}')"
+  if [[ "$actual_revision" != "$EXPECTED_REVISION" ]]; then
+    echo "镜像源版本不匹配: expected=$EXPECTED_REVISION actual=$actual_revision" >&2
+    exit 1
+  fi
 fi
 cleanup() {
   # Files written through the bind mounts are owned by the container user

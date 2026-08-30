@@ -194,12 +194,13 @@ watch(month, load)
       </section>
 
       <section class="card table-card">
-        <h2>经销商排行</h2>
+        <h2>订单客户排行</h2>
+        <p class="table-note">名称按源系统权限展示，脱敏或未知名称不推断真实客户。</p>
         <table v-if="data.dealers.length" class="table">
           <thead>
             <tr>
               <th>排名</th>
-              <th>经销商</th>
+              <th>订单客户（可能脱敏）</th>
               <th class="num">台数</th>
               <th class="num">金额（万）</th>
             </tr>
@@ -309,6 +310,12 @@ h2 {
 
 .chart {
   height: 280px;
+}
+
+.table-note {
+  margin: -4px 0 14px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .table {

@@ -2,6 +2,8 @@
 """Dashboard 业务服务（委托遗留实现）。"""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.config import get_settings
 from app.legacy import bridge
 
@@ -87,6 +89,13 @@ def _fmt_cny(yuan: float) -> str:
     return f"¥ {yuan:,.0f}"
 
 
+def _utc_iso(value: datetime) -> str:
+    """Database timestamps are stored as UTC, including legacy naive rows."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
 def db_sellin_summary(month: str, session, user=None) -> dict:
     """P1：从 dealer_sales 表聚合经销商进货汇总（替代 bridge 读 data_raw JSON）。
 
@@ -147,7 +156,7 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
         "trend": trend,
         "source": "dealer_sales_db_latest_snapshot",
         "as_of": max(
-            (row.synced_at.isoformat(timespec="seconds") for row in rows if row.synced_at),
+            (_utc_iso(row.synced_at) for row in rows if row.synced_at),
             default=None,
         ),
     }

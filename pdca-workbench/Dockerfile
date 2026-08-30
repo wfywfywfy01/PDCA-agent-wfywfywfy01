@@ -1,15 +1,22 @@
 ARG NODE_RUNTIME_IMAGE=node:22-bookworm-slim
+ARG SOURCE_REVISION=unknown
 FROM ${NODE_RUNTIME_IMAGE} AS node-runtime
 
 # ── 前端构建层（P1）：Vue3 SPA → 静态产物 ──────────────────────────────
 FROM ${NODE_RUNTIME_IMAGE} AS web-build
+ARG SOURCE_REVISION
 WORKDIR /web
+RUN printf '%s\n' "$SOURCE_REVISION" > /tmp/pdca-source-revision
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/web ./
 RUN npm run build
 
 FROM python:3.12-slim
+ARG SOURCE_REVISION
+
+LABEL com.vertu.pdca.source_revision=$SOURCE_REVISION \
+      org.opencontainers.image.revision=$SOURCE_REVISION
 
 WORKDIR /app
 

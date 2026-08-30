@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine
@@ -41,6 +42,7 @@ class DbSellinSummaryTests(unittest.TestCase):
                         sell_in_wan=wan,
                         sell_out_wan=0.0,
                         units=units,
+                        synced_at=datetime(2026, 8, 29, 14, 0, 15),
                     )
                 )
             session.commit()
@@ -58,6 +60,7 @@ class DbSellinSummaryTests(unittest.TestCase):
         self.assertEqual(result["dealers"][0]["wan"], 12.5)
         self.assertEqual(result["dealers"][0]["rank"], 1)
         self.assertEqual(result["source"], "dealer_sales_db_latest_snapshot")
+        self.assertEqual(result["as_of"], "2026-08-29T14:00:15+00:00")
 
     def test_trend_covers_six_months(self):
         with Session(self.engine) as session:

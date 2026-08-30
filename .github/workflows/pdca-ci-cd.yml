@@ -97,6 +97,8 @@ jobs:
         with:
           context: .
           file: pdca-workbench/Dockerfile
+          build-args: |
+            SOURCE_REVISION=${{ github.sha }}
           push: false
           load: true
           tags: pdca-workbench:${{ github.sha }}
@@ -104,7 +106,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Start container and run smoke tests
-        run: bash pdca-workbench/scripts/docker_smoke_test.sh "pdca-workbench:${{ github.sha }}"
+        run: bash pdca-workbench/scripts/docker_smoke_test.sh "pdca-workbench:${{ github.sha }}" "${{ github.sha }}"
 
       - name: Log in to GitHub Container Registry
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
