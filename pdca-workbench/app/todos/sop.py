@@ -323,3 +323,30 @@ def _result(position: str, executor: str, signals: list[str], mentions: list[str
         "signals": signals,
         "mentions": mentions,
     }
+
+# ── 噪声过滤：会议杂事（纯沟通/流程性动作）不催办 ───────────────────────────
+# 命中噪声模式且不含实质词的待办视为杂事，跳过催办（保留在库，outbox 报告）。
+NOISE_PATTERNS = [
+    "写一封邮件", "写邮件", "发一封邮件", "发邮件", "邮件提醒", "邮件通知",
+    "发到群里", "发在群里", "发群里", "拉到群里", "拉个群", "拉群",
+    "通知大家", "提醒大家", "告诉大家", "告知大家", "跟大家说一下",
+    "排到桌面上", "约个时间", "再约个时间", "约一下", "接机", "拍完",
+    "转发", "转发给",
+]
+
+SUBSTANCE_WORDS = [
+    "客户", "合同", "订单", "报价", "方案", "付款", "款项", "证书", "代理",
+    "经销商", "门店", "项目", "排期", "交付", "签约", "协议", "产品", "样品",
+    "工厂", "需求", "系统", "认证", "库存", "物流", "会议", "展会", "周报",
+    "月报", "报表", "数据", "价格", "谈判", "合作", "拜访", "备货", "发货",
+    "培训", "招聘", "面试", "退款", "回款", "质保", "保修",
+]
+
+
+def is_noise(title: str) -> bool:
+    """会议杂事判定：命中噪声模式且不含实质词 → 不催办。"""
+    text = title or ""
+    if not any(pattern in text for pattern in NOISE_PATTERNS):
+        return False
+    return not any(word in text for word in SUBSTANCE_WORDS)
+

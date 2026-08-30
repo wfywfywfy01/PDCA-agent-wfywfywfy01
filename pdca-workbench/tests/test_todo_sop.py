@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.todos.sop import classify_todo
+from app.todos.sop import classify_todo, is_noise
 
 
 class SopClassifyTests(unittest.TestCase):
@@ -75,6 +75,15 @@ class SopClassifyTests(unittest.TestCase):
         r = classify_todo("准备周会材料", speaker="尤文静")
         self.assertEqual(r["position"], "unclassified")
         self.assertEqual(r["executor"], "尤文静")
+
+    def test_noise_filter(self):
+        self.assertTrue(is_noise("给大家写一封邮件，告知相关规则并推动落地"))
+        self.assertTrue(is_noise("拍完后把相关内容发在群里"))
+        self.assertTrue(is_noise("把各项规则先明确下来并排到桌面上来讨论"))
+        self.assertFalse(is_noise("给陈林那边再提一个需求，优化Vmemory对会议类型和任务的识别"))
+        self.assertFalse(is_noise("向工厂确认样品是否收到"))
+        self.assertFalse(is_noise("和荷兰新客户对接具体方案"))
+        self.assertFalse(is_noise("印度独代谈判方案"))
 
     def test_homophone_alias_yutong(self):
         # 会议纪要常把「宇彤」写成「雨桐」，应识别为王宇彤

@@ -33,7 +33,7 @@ from app.todos.evidence import (
     report_window_days,
 )
 from app.todos.projects import ensure_projects, match_project
-from app.todos.sop import PEOPLE, find_mentions
+from app.todos.sop import PEOPLE, find_mentions, is_noise
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
 from app.statuses import is_done as _status_is_done
 
@@ -281,15 +281,17 @@ def build_person_message(
     has_vemory: bool = False,
     evidence_checked: bool = False,
 ) -> str:
-    """一人一条消息，列出其全部待催任务（逾期标日期、今日标今日）。"""
+    """一人一条消息：最多 10 条，其余折叠；无截止标「会议日期」不标逾期。"""
+    shown, folded = _cap_tasks(tasks)
     lines = [
         "【PDCA 待办催办】",
         f"{owner}，你好：你还有 {len(tasks)} 项待办未完成，请及时跟进：",
         "",
     ]
-    for index, task in enumerate(tasks, 1):
-        flag = f"逾期 {task.task_date}" if task.task_date < today else "今日"
-        lines.append(f"{index}. [{flag}] {task.title}")
+    for index, task in enumerate(shown, 1):
+        lines.append(f"{index}. [{_task_flag(task, today)}] {task.title}")
+    if folded:
+        lines.append(f"……另有 {folded} 项，下轮再列")
     lines += [
         "",
         f"处理入口：{entry_url}",
@@ -355,15 +357,17 @@ def build_project_message(
     entry_url: str,
     evidence_checked: bool,
 ) -> str:
-    """项目级消息：按人拆分，每人只列自己名下的条目。"""
+    """项目级消息：按人拆分，最多 10 条折叠；无截止标「会议日期」。"""
+    shown, folded = _cap_tasks(tasks)
     lines = [
         "【PDCA 待办催办】项目：" + project.name + "（状态：" + project.status + "）",
         owner_name + "，你名下还有 " + str(len(tasks)) + " 项未完成，请及时跟进：",
         "",
     ]
-    for index, task in enumerate(tasks, 1):
-        flag = "逾期 " + task.task_date if task.task_date < today else "今日"
-        lines.append(f"{index}. [{flag}] {task.title}")
+    for index, task in enumerate(shown, 1):
+        lines.append(f"{index}. [{_task_flag(task, today)}] {task.title}")
+    if folded:
+        lines.append("……另有 " + str(folded) + " 项，下轮再列")
     lines += ["", "处理入口：" + entry_url]
     if evidence_checked:
         lines.append(
@@ -398,6 +402,28 @@ def _record_sends(
                 round=round_label,
             )
         )
+
+
+def _task_flag(task: PdcaTask, today: str) -> str:
+    """条目前缀：有截止且逾期 → 逾期；无截止（task_date==meeting_date）→ 会议日期；
+    今天到期 → 今日。"""
+    if task.task_date == today:
+        return "今日"
+    if task.source == "vemory" and task.meeting_date and task.task_date == task.meeting_date:
+        return "会议 " + task.meeting_date
+    if task.task_date < today:
+        return "逾期 " + task.task_date
+    return task.task_date
+
+
+MAX_MESSAGE_ITEMS = 10
+
+
+def _cap_tasks(tasks: list[PdcaTask]) -> tuple[list[PdcaTask], int]:
+    """消息最多列 MAX_MESSAGE_ITEMS 条，其余折叠计数。"""
+    if len(tasks) <= MAX_MESSAGE_ITEMS:
+        return tasks, 0
+    return tasks[:MAX_MESSAGE_ITEMS], len(tasks) - MAX_MESSAGE_ITEMS
 
 
 def _group_by_owner(items: list[PdcaTask]) -> dict[str, list[PdcaTask]]:
@@ -445,6 +471,16 @@ def run_todo_reminders(
     today = today or today_text()
     now = datetime.now()
     tasks = list_pending_tasks(today)
+
+    # 噪声过滤：会议杂事（纯沟通类且无实质内容）不进催办，保留在库
+    noise_skipped: list[dict] = []
+    kept_tasks: list[PdcaTask] = []
+    for task in tasks:
+        if task.source == "vemory" and is_noise(task.title):
+            noise_skipped.append({"owner": task.owner, "title": task.title})
+        else:
+            kept_tasks.append(task)
+    tasks = kept_tasks
 
     entry_url = get_settings().workbench_base_url
     sent: list[dict] = []
@@ -684,6 +720,7 @@ def run_todo_reminders(
         "skipped_owners": skipped_owners,
         "evidence_skipped": evidence_skipped,
         "evidence_unavailable": evidence_unavailable,
+        "noise_skipped": noise_skipped,
         "failed": failed,
         "summary": (
             "待办 " + str(len(tasks)) + " 项，本轮催办 " + str(len(sent)) + " 条消息"
