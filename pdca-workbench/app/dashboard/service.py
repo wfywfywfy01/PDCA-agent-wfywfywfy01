@@ -105,7 +105,9 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
         stmt = select(DealerSales).where(DealerSales.check_date.startswith(mo))
         if names is not None:
             stmt = stmt.where(DealerSales.dealer_name.in_(names))
-        return list(session.exec(stmt).all())
+        rows = list(session.exec(stmt).all())
+        latest_date = max((row.check_date for row in rows), default="")
+        return [row for row in rows if row.check_date == latest_date]
 
     rows = _month_rows(month)
     grouped: dict[str, dict] = {}
@@ -143,7 +145,11 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
         "dealers": dealers,
         "has_data": bool(dealers),
         "trend": trend,
-        "source": "dealer_sales_db",
+        "source": "dealer_sales_db_latest_snapshot",
+        "as_of": max(
+            (row.synced_at.isoformat(timespec="seconds") for row in rows if row.synced_at),
+            default=None,
+        ),
     }
 
 
