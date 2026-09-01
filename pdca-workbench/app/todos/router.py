@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-"""待办催办（提醒跟进）API。
+"""待办催办（提醒跟进）与项目（事项）管理 API。
 
-- GET  /api/todos/remind/candidates  预览：今天会被催到的人和任务（dry-run）
-- POST /api/todos/remind             立即催办：VPS IM 私聊本人（manual 轮，忽略频控）
+- GET  /api/todos/remind/candidates   预览：今天会被催到的人和任务（dry-run，按项目分组）
+- POST /api/todos/remind              立即催办：VPS IM 私聊本人（manual 轮，忽略频控）
+- GET/POST/PATCH /api/todos/projects  项目列表 / 手工新建 / 改名与协调人
+- PATCH /api/todos/projects/{id}/status  项目状态（新建/跟进中/阻塞/待验收/已闭环）
+- POST /api/todos/projects/{id}/merge    项目合并（待办并入目标项目，源项目闭环）
+- PATCH /api/todos/tasks/{id}            待办转挂项目 / 摘出为散单
 """
 from __future__ import annotations
 
@@ -74,11 +78,30 @@ class ProjectStatusRequest(BaseModel):
     status: str
 
 
+class ProjectUpdateRequest(BaseModel):
+    status: Optional[str] = None
+    name: Optional[str] = None
+    coordinator: Optional[str] = None
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+    coordinator: str = ""
+
+
+class ProjectMergeRequest(BaseModel):
+    target_id: int
+
+
+class TaskProjectRequest(BaseModel):
+    project_id: Optional[int] = None  # None = 摘出为散单
+
+
 @router.get("/api/todos/projects")
 async def list_projects(
     user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    """项目（事项）列表：含各项目未完成待办数。"""
+    """项目（事项）列表：含类型与各项目未完成待办数。"""
     import json as _json
 
     from sqlmodel import Session, select
@@ -89,7 +112,7 @@ async def list_projects(
     from app.todos.projects import ensure_projects
 
     with Session(get_engine()) as session:
-        by_key, _ = ensure_projects(session)
+        ensure_projects(session)
         rows = list(session.exec(select(TodoProject)).all())
         open_counts: dict = {}
         for row in session.exec(
@@ -102,6 +125,7 @@ async def list_projects(
             "id": row.id,
             "key": row.key,
             "name": row.name,
+            "kind": row.kind or "keyword",
             "status": row.status,
             "executors": _json.loads(row.executors or "[]"),
             "coordinator": row.coordinator,
@@ -151,6 +175,198 @@ async def update_project_status(
         ip=request.client.host if request.client else "",
     )
     return {"ok": True, "id": row.id, "status": status}
+
+
+@router.patch("/api/todos/projects/{project_id}")
+async def update_project(
+    project_id: int,
+    payload: ProjectUpdateRequest,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """更新项目：改名 / 协调人 / 状态（可选字段，仅更新传入项）。"""
+    from datetime import datetime
+
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from app.database import get_engine
+    from app.models.todo_project import PROJECT_STATUSES, TodoProject
+
+    with Session(get_engine()) as session:
+        row = session.get(TodoProject, project_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        if payload.status is not None:
+            status = payload.status.strip()
+            if status not in PROJECT_STATUSES:
+                raise HTTPException(status_code=422, detail="非法状态")
+            row.status = status
+        if payload.name is not None:
+            name = payload.name.strip()
+            if not name:
+                raise HTTPException(status_code=422, detail="项目名不能为空")
+            row.name = name[:256]
+        if payload.coordinator is not None:
+            row.coordinator = (payload.coordinator or "").strip()[:128]
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+    log_action(
+        username=user.username,
+        action="todo_project_update",
+        resource=row.key,
+        detail={
+            "name": payload.name,
+            "coordinator": payload.coordinator,
+            "status": payload.status,
+        },
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "id": row.id, "name": row.name, "status": row.status}
+
+
+@router.post("/api/todos/projects")
+async def create_project(
+    payload: ProjectCreateRequest,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """手工创建业务项目（kind=manual）；待办可经 PATCH /api/todos/tasks/{id} 转挂。"""
+    import hashlib
+    import time
+
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from app.database import get_engine
+    from app.models.todo_project import TodoProject
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="项目名不能为空")
+    key = "man:" + hashlib.sha1(
+        (name + str(int(time.time()))).encode("utf-8")
+    ).hexdigest()[:12]
+    coordinator = (payload.coordinator or "").strip()[:128]
+    with Session(get_engine()) as session:
+        row = TodoProject(
+            key=key,
+            name=name[:256],
+            kind="manual",
+            status="新建",
+            executors="[]",
+            coordinator=coordinator,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        project_id = row.id
+    log_action(
+        username=user.username,
+        action="todo_project_create",
+        resource=key,
+        detail={"name": name, "coordinator": coordinator},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "id": project_id, "key": key, "name": name}
+
+
+@router.post("/api/todos/projects/{project_id}/merge")
+async def merge_project(
+    project_id: int,
+    payload: ProjectMergeRequest,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """把源项目全部待办并入目标项目，源项目置「已闭环」不再催办。"""
+    from datetime import datetime
+
+    from fastapi import HTTPException
+    from sqlmodel import Session, select
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+    from app.models.todo_project import TodoProject
+    from app.todos.projects import refresh_meeting_project_members
+
+    if payload.target_id == project_id:
+        raise HTTPException(status_code=422, detail="目标项目不能是源项目自身")
+    with Session(get_engine()) as session:
+        source = session.get(TodoProject, project_id)
+        target = session.get(TodoProject, payload.target_id)
+        if source is None or target is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        moved = 0
+        for task in session.exec(
+            select(PdcaTask).where(PdcaTask.project_id == project_id)
+        ).all():
+            task.project_id = target.id
+            task.updated_at = datetime.utcnow()
+            session.add(task)
+            moved += 1
+        source.status = "已闭环"
+        source.updated_at = datetime.utcnow()
+        session.add(source)
+        session.commit()
+        refresh_meeting_project_members(session)
+        session.commit()
+    log_action(
+        username=user.username,
+        action="todo_project_merge",
+        resource=source.key,
+        detail={"target_id": target.id, "target": target.name, "moved": moved},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "moved": moved, "target_id": target.id, "target": target.name}
+
+
+@router.patch("/api/todos/tasks/{task_id}")
+async def reassign_task_project(
+    task_id: int,
+    payload: TaskProjectRequest,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """把待办转挂到指定项目；project_id=null 摘出为散单（走个人催办）。"""
+    from datetime import datetime
+
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+    from app.models.todo_project import TodoProject
+    from app.todos.projects import refresh_meeting_project_members
+
+    with Session(get_engine()) as session:
+        row = session.get(PdcaTask, task_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="待办不存在")
+        if payload.project_id is not None:
+            project = session.get(TodoProject, payload.project_id)
+            if project is None:
+                raise HTTPException(status_code=422, detail="项目不存在")
+            if project.status == "已闭环":
+                project.status = "跟进中"
+                project.updated_at = datetime.utcnow()
+                session.add(project)
+            row.project_id = project.id
+        else:
+            row.project_id = None
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+        refresh_meeting_project_members(session)
+        session.commit()
+    log_action(
+        username=user.username,
+        action="todo_task_project",
+        resource=str(task_id),
+        detail={"project_id": row.project_id},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "task_id": task_id, "project_id": row.project_id}
 
 @router.get("/api/todos/replies")
 async def list_replies(
