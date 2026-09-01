@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import tempfile
 import unittest
@@ -15,7 +16,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.auth.models import User
 from app.auth.scope import visible_dealer_names, visible_store_ids
 from app.config import Settings
-from app.main import app, health
+from app.main import app, health, metrics
 from app.models.dealer_store import DealerStore
 from app.models.dealer_assignment import DealerAssignment
 from app.models.walkin_daily_report import WalkinDailyReport
@@ -282,6 +283,39 @@ class ProductionHardeningTests(unittest.TestCase):
             response = asyncio.run(health())
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'"status":"ok"', response.body)
+
+    def test_walkin_portal_health_delegates_backup_and_vertu(self):
+        """walkin 门户不负责备份/不依赖 vertu-cli：health 应如实标注 not_required 且不跑 vertu 子进程。"""
+        settings = SimpleNamespace(environment="production", require_vertu=False, scheduler_enabled=False)
+        vertu_mock = AsyncMock(return_value={"ok": True})
+        with (
+            patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.backup_status", return_value={"ok": False, "latest_at": None, "last_error": "x"}),
+            patch("app.main.get_settings", return_value=settings),
+            patch("app.main.vertu_health", new=vertu_mock),
+        ):
+            response = asyncio.run(health())
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.body)
+        self.assertTrue(payload["backup"]["ok"])
+        self.assertTrue(payload["backup"]["not_required"])
+        self.assertIsNone(payload["backup"]["latest_at"])
+        self.assertTrue(payload["vertu_cli"]["ok"])
+        self.assertTrue(payload["vertu_cli"]["not_required"])
+        vertu_mock.assert_not_awaited()
+
+    def test_walkin_portal_metrics_omit_backup_freshness(self):
+        """walkin 门户不负责备份：/metrics 不再导出 pdca_backup_fresh，避免监控告警误报。"""
+        settings = SimpleNamespace(environment="production", scheduler_enabled=False)
+        with patch("app.main.get_settings", return_value=settings):
+            response = asyncio.run(metrics())
+        self.assertNotIn(b"pdca_backup_fresh", response.body)
+
+    def test_auth_config_exposes_portal_mode(self):
+        with TestClient(app) as client:
+            res = client.get("/api/auth/config")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("portal_mode", res.json())
 
     def test_dealer_is_denied_on_internal_workbench(self):
         from app.auth.deps import ensure_portal_access

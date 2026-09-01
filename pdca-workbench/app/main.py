@@ -297,17 +297,38 @@ async def health():
     """健康检查（含数据库连通性）。"""
     mode = get_db_mode()
     db_ok = mode in ("postgresql", "sqlite", "sqlite-fallback")
-    backup = backup_status()
     settings = get_settings()
-    vertu = await vertu_health()
+    raw_backup = backup_status()
     # 本地开发不要求已有备份；生产环境必须把备份失败暴露给监控。
     # The internal workbench owns scheduled backups.  The standalone walk-in
-    # portal intentionally disables its scheduler and shares that database;
-    # requiring a second local backup directory would keep the portal
-    # unhealthy even while the production backup is current.
+    # portal intentionally disables its scheduler and shares that database.
+    # Reporting the portal's own stale local backup directory as a failure
+    # would keep the health page red even while the production backup is
+    # current, so mark the responsibility as delegated instead.
     backup_required = settings.environment == "production" and getattr(settings, "scheduler_enabled", True)
+    backup = (
+        raw_backup
+        if backup_required
+        else {
+            "ok": True,
+            "not_required": True,
+            "note": "备份由内部工作台主容器负责（共用同一数据库）",
+            "latest_at": None,
+            "last_error": None,
+        }
+    )
     vertu_required = settings.require_vertu
-    ok = db_ok and (backup["ok"] or not backup_required) and (vertu["ok"] or not vertu_required)
+    if vertu_required:
+        vertu = await vertu_health()
+    else:
+        # walkin 门户（PDCA_REQUIRE_VERTU=0）不依赖 vertu-cli：跳过每次 /health
+        # 探测都会执行的注定失败子进程，并如实标注该检查项不适用于本门户。
+        vertu = {
+            "ok": True,
+            "not_required": True,
+            "detail": "该门户不依赖 vertu-cli",
+        }
+    ok = db_ok and backup["ok"] and vertu["ok"]
     payload = {
         "status": "ok" if ok else "degraded",
         "service": "pdca-workbench",
@@ -322,4 +343,9 @@ async def health():
 @app.get("/metrics")
 async def metrics():
     """P5：Prometheus 指标（进程内计数 + 同步/备份新鲜度）。"""
-    return Response(export_prometheus(backup_status_fn=backup_status), media_type="text/plain; version=0.0.4")
+    settings = get_settings()
+    backup_required = settings.environment == "production" and getattr(settings, "scheduler_enabled", True)
+    return Response(
+        export_prometheus(backup_status_fn=backup_status if backup_required else None),
+        media_type="text/plain; version=0.0.4",
+    )

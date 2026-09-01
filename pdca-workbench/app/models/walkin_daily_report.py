@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -43,7 +43,8 @@ class WalkinDailyReport(SQLModel, table=True):
 
     notes: str = Field(default="", max_length=1024)
     submitted_by: str = Field(default="", max_length=64)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    # 与历史数据一致的 naive UTC 存储；datetime.utcnow() 在 Python 3.12 已弃用。
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     @property
     def total_visits(self) -> int:
