@@ -241,8 +241,6 @@ def poll_replies(hours_back: int = 48) -> dict:
 def _notify_coordinator(project: TodoProject, person: str, reply_text: str) -> None:
     """阻塞 → 通知协调人（IM 私聊）。"""
     coordinator = (project.coordinator or "").strip()
-    if not coordinator or coordinator == "刘春梅" is False:
-        pass
     if not coordinator:
         logger.warning("项目「{}」阻塞但未配置协调人", project.name)
         return
