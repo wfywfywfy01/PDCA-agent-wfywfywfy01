@@ -243,9 +243,10 @@ class TodoReminderTests(unittest.TestCase):
             )
         result = run_todo_reminders(today=today, round_label="manual", force=True, dry_run=True)
         self.assertEqual(len(result["sent"]), 1)
-        self.assertEqual(result["sent"][0]["project"], "会议主题项目")
-        self.assertEqual(result["sent"][0]["kind"], "meeting")
-        self.assertIn("【PDCA 项目待办】会议主题项目", result["sent"][0]["preview"])
+        self.assertEqual(result["sent"][0]["projects"], ["会议主题项目"])
+        self.assertTrue(result["sent"][0]["digest"])
+        self.assertIn("【PDCA 待办汇总】", result["sent"][0]["preview"])
+        self.assertIn("会议主题项目", result["sent"][0]["preview"])
 
     def test_unassigned_task_stays_solo_person_message(self):
         today = datetime.now().strftime("%Y-%m-%d")
@@ -253,8 +254,9 @@ class TodoReminderTests(unittest.TestCase):
             _seed(session, task_date=today, title="没有任何关键词的散单", owner="测试员")
         result = run_todo_reminders(today=today, round_label="manual", force=True, dry_run=True)
         self.assertEqual(len(result["sent"]), 1)
-        self.assertNotIn("project", result["sent"][0])
-        self.assertIn("【PDCA 待办催办】", result["sent"][0]["preview"])
+        self.assertEqual(result["sent"][0]["projects"], [])
+        self.assertIn("【PDCA 待办汇总】", result["sent"][0]["preview"])
+        self.assertIn("散单待办", result["sent"][0]["preview"])
 
     def test_closed_meeting_project_reopened_when_tasks_return(self):
         today = datetime.now().strftime("%Y-%m-%d")
