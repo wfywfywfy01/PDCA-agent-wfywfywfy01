@@ -35,6 +35,15 @@ from app.models.todo_project import TodoProject  # noqa: E402
 SOURCE_TAG = "sept-plan"
 MEETING_TAG = "9月推进定责会(08-31)"
 
+# ── 催办范围：只建海外经销商团队的待办（09-02 定） ───────────────────────
+# 13 人 + 谢涛（汽车线）；其余人（老板/法务/汽车组丁晓茜/徐豪/马总/sissi/
+# gary/孔健/崔军华/石瑞琪/金彪）一律不建，导入时过滤并打印跳过清单。
+ALLOWLIST: set[str] = {
+    "丽娜", "DEHDAHOUMAIMA", "尤文静", "于冰", "杨晶晶", "何海文",
+    "王宇彤", "邓琳莹", "Safae", "刘春梅", "付汪阳", "冯磊", "刘雪梅",
+    "张倩", "谢涛",
+}
+
 # ── 项目：十大任务 + 数据支撑 ─────────────────────────────────────────────
 PROJECTS: list[dict] = [
     {"key": "sept-0", "name": "数据支撑与台账", "coordinator": "付汪阳"},
@@ -44,15 +53,15 @@ PROJECTS: list[dict] = [
     {"key": "sept-4", "name": "于冰：成都+越南+马来", "coordinator": "于冰"},
     {"key": "sept-5", "name": "杨晶晶组：印度300万+清库", "coordinator": "杨晶晶"},
     {"key": "sept-6", "name": "历史客户→三人组", "coordinator": "张倩"},
-    {"key": "sept-7", "name": "c2b：打法+500客户", "coordinator": "孔健"},
-    {"key": "sept-8", "name": "clay：打法+5000线索", "coordinator": "石瑞琪"},
+    {"key": "sept-7", "name": "c2b：打法+500客户", "coordinator": "付汪阳"},
+    {"key": "sept-8", "name": "clay：打法+5000线索", "coordinator": "付汪阳"},
     {"key": "sept-9", "name": "汽车：预付款150万", "coordinator": "谢涛"},
     {"key": "sept-10", "name": "招聘：业绩换Offer", "coordinator": "张倩"},
 ]
 
 # ── 待办：(项目 key, 标题, 负责人列表, 截止日) ─────────────────────────────
-# 负责人多人时按人拆分；「法务/gary/sissi/马总」等若 IM 匹配不到会被跳过
-# 并在催办结果里报告（管理员手工处理），不影响其余人员。
+# 负责人多人时按人拆分；仅导入 ALLOWLIST（海外经销商团队）内的人，
+# 其余人（gary/孔健/崔军华/石瑞琪/金彪等）跳过并在结果里列出。
 TASKS: list[tuple] = [
     # 数据支撑（sept-0）
     ("sept-0", "经销商清单 38 家→VPS 云文档（vemory 跟踪目录）", ["付汪阳"], "2026-09-03"),
@@ -107,13 +116,12 @@ TASKS: list[tuple] = [
     ("sept-8", "线索库结构", ["金彪"], "2026-09-04"),
     ("sept-8", "画像技术方案", ["金彪"], "2026-09-04"),
     ("sept-8", "线索入库 ≥100 条/天（每日例行）（C4）", ["石瑞琪"], "2026-09-04"),
-    # P9 汽车
-    ("sept-9", "预售方案（50 万/台）", ["谢涛", "丁晓茜"], "2026-09-04"),
-    ("sept-9", "参数 PPT（9/5 硬日期）（C6）", ["徐豪"], "2026-09-05"),
-    ("sept-9", "3 分钟视频（C7）", ["马总"], "2026-09-04"),
-    ("sept-9", "出货合规路径（C5）", ["法务", "谢涛", "sissi"], "2026-09-03"),
-    ("sept-9", "老板拍板（预售+买车联动）（跟催）", ["谢涛"], "2026-09-04"),
-    ("sept-9", "预付款 3 台=150 万（全员推，线索汇总谢涛/丁晓茜）（C10）", ["谢涛"], "2026-09-30"),
+    # P9 汽车：只建海外销售「推预售」，汽车组事项（预售方案/PPT/视频/
+    # 出货路径/老板拍板）不在催办范围，不建（见拆解文档风险清单）。
+    ("sept-9", "汽车预付款推预售：3 台=150 万（线索汇总谢涛/丁晓茜）（C10）", ["丽娜"], "2026-09-30"),
+    ("sept-9", "汽车预付款推预售：3 台=150 万（线索汇总谢涛/丁晓茜）（C10）", ["于冰"], "2026-09-30"),
+    ("sept-9", "汽车预付款推预售：3 台=150 万（线索汇总谢涛/丁晓茜）（C10）", ["杨晶晶"], "2026-09-30"),
+    ("sept-9", "汽车预付款推预售：3 台=150 万（线索汇总谢涛/丁晓茜）（C10）", ["何海文"], "2026-09-30"),
     # P10 招聘
     ("sept-10", "国家经理两页纸（C9）", ["张倩"], "2026-09-04"),
     ("sept-10", "岗位业绩门槛表", ["张倩"], "2026-09-04"),
@@ -178,9 +186,14 @@ def main() -> int:
             ).all()
         }
         seen_new: set[tuple] = set()
+        skipped_outside: dict[str, list[str]] = defaultdict(list)
         for project_key, title, owners, task_date in TASKS:
             project = projects[project_key]
             for owner in owners:
+                # 催办范围过滤：团队外人员一律不建，仅报告
+                if owner not in ALLOWLIST:
+                    skipped_outside[owner].append(title)
+                    continue
                 key = (title, owner)
                 row = existing_tasks.get(key)
                 if row is None and key not in seen_new:
@@ -229,7 +242,16 @@ def main() -> int:
             session.commit()
 
     print(f"项目：新建 {projects_created} / 刷新 {projects_updated}")
-    print(f"待办：新建 {tasks_created} / 刷新 {tasks_updated}（共 {len(TASKS)} 组、按人拆分 {sum(by_owner.values())} 条）")
+    skipped_total = sum(len(v) for v in skipped_outside.values())
+    print(
+        f"待办：新建 {tasks_created} / 刷新 {tasks_updated}"
+        f"（共 {len(TASKS)} 组、按人拆分 {sum(by_owner.values())} 条、"
+        f"团队外跳过 {skipped_total} 条）"
+    )
+    if skipped_outside:
+        print("团队外跳过（不建待办）：")
+        for name, titles in sorted(skipped_outside.items(), key=lambda kv: -len(kv[1])):
+            print(f"  {name}：{len(titles)} 条（例：{titles[0]}）")
     print("按负责人分布：")
     for name, count in sorted(by_owner.items(), key=lambda kv: -kv[1]):
         print(f"  {count:3d}  {name}")
