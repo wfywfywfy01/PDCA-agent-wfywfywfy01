@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+from datetime import date
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Request
@@ -24,6 +26,8 @@ from app.statuses import is_done as _status_is_done
 from app.todos.service import run_todo_reminders
 
 router = APIRouter(tags=["todos"])
+
+_ISO_DATE_FULL = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 class RemindRequest(BaseModel):
@@ -94,15 +98,26 @@ class ProjectMergeRequest(BaseModel):
     target_id: int
 
 
-class TaskProjectRequest(BaseModel):
-    project_id: Optional[int] = None  # None = 摘出为散单
+class TaskUpdateRequest(BaseModel):
+    project_id: Optional[int] = None  # None = 摘出为散单（不传 = 不改）
+    status: Optional[str] = None
+    task_date: Optional[str] = None
+    owner: Optional[str] = None
+
+
+class TaskCreateRequest(BaseModel):
+    title: str
+    owner: str
+    task_date: str
+    project_id: Optional[int] = None
+    priority: str = "normal"
 
 
 @router.get("/api/todos/projects")
 async def list_projects(
     user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    """项目（事项）列表：含类型与各项目未完成待办数。"""
+    """项目（事项）列表：类型、状态、成员、未完成/已完成/逾期数。"""
     import json as _json
 
     from sqlmodel import Session, select
@@ -112,15 +127,24 @@ async def list_projects(
     from app.models.todo_project import TodoProject
     from app.todos.projects import ensure_projects
 
+    today_text = date.today().isoformat()
     with Session(get_engine()) as session:
         ensure_projects(session)
         rows = list(session.exec(select(TodoProject)).all())
-        open_counts: dict = {}
-        for row in session.exec(
+        stats: dict[int, dict] = {}
+        for task in session.exec(
             select(PdcaTask).where(PdcaTask.project_id.is_not(None))
         ).all():
-            if not _status_is_done(row.status):
-                open_counts[row.project_id] = open_counts.get(row.project_id, 0) + 1
+            entry = stats.setdefault(
+                task.project_id,
+                {"open": 0, "done": 0, "overdue": 0},
+            )
+            if _status_is_done(task.status):
+                entry["done"] += 1
+            else:
+                entry["open"] += 1
+                if task.task_date and task.task_date < today_text:
+                    entry["overdue"] += 1
     return [
         {
             "id": row.id,
@@ -130,7 +154,9 @@ async def list_projects(
             "status": row.status,
             "executors": _json.loads(row.executors or "[]"),
             "coordinator": row.coordinator,
-            "open_tasks": open_counts.get(row.id, 0),
+            "open_tasks": stats.get(row.id, {}).get("open", 0),
+            "done_tasks": stats.get(row.id, {}).get("done", 0),
+            "overdue_tasks": stats.get(row.id, {}).get("overdue", 0),
             "remind_count": row.remind_count or 0,
             "last_reminded_round": row.last_reminded_round or "",
         }
@@ -323,13 +349,16 @@ async def merge_project(
 
 
 @router.patch("/api/todos/tasks/{task_id}")
-async def reassign_task_project(
+async def update_task(
     task_id: int,
-    payload: TaskProjectRequest,
+    payload: TaskUpdateRequest,
     request: Request,
     user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    """把待办转挂到指定项目；project_id=null 摘出为散单（走个人催办）。"""
+    """更新待办：转挂项目 / 状态 / 截止日 / 负责人（仅更新传入字段）。
+
+    project_id=null 摘出为散单；project_id 不传则不改变归属。
+    """
     from datetime import datetime
 
     from fastapi import HTTPException
@@ -344,30 +373,145 @@ async def reassign_task_project(
         row = session.get(PdcaTask, task_id)
         if row is None:
             raise HTTPException(status_code=404, detail="待办不存在")
-        if payload.project_id is not None:
-            project = session.get(TodoProject, payload.project_id)
-            if project is None:
-                raise HTTPException(status_code=422, detail="项目不存在")
-            if project.status == "已闭环":
-                project.status = "跟进中"
-                project.updated_at = datetime.utcnow()
-                session.add(project)
-            row.project_id = project.id
-        else:
-            row.project_id = None
+        if "project_id" in payload.model_fields_set:
+            if payload.project_id is not None:
+                project = session.get(TodoProject, payload.project_id)
+                if project is None:
+                    raise HTTPException(status_code=422, detail="项目不存在")
+                if project.status == "已闭环":
+                    project.status = "跟进中"
+                    project.updated_at = datetime.utcnow()
+                    session.add(project)
+                row.project_id = project.id
+            else:
+                row.project_id = None
+        if payload.status is not None:
+            row.status = payload.status.strip()[:32]
+        if payload.task_date is not None:
+            import re as _re
+
+            date_text = payload.task_date.strip()
+            if date_text and not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
+                raise HTTPException(status_code=422, detail="日期需为 YYYY-MM-DD")
+            row.task_date = date_text
+        if payload.owner is not None:
+            row.owner = payload.owner.strip()[:128]
         row.updated_at = datetime.utcnow()
         session.add(row)
         session.commit()
         refresh_meeting_project_members(session)
         session.commit()
+        result = {
+            "ok": True,
+            "task_id": task_id,
+            "project_id": row.project_id,
+            "status": row.status,
+            "task_date": row.task_date,
+            "owner": row.owner,
+        }
     log_action(
         username=user.username,
-        action="todo_task_project",
+        action="todo_task_update",
         resource=str(task_id),
-        detail={"project_id": row.project_id},
+        detail={
+            "project_id": result["project_id"],
+            "status": payload.status,
+            "task_date": payload.task_date,
+            "owner": payload.owner,
+        },
         ip=request.client.host if request.client else "",
     )
-    return {"ok": True, "task_id": task_id, "project_id": row.project_id}
+    return result
+
+
+@router.post("/api/todos/tasks")
+async def create_task(
+    payload: TaskCreateRequest,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """手动新增待办（可选挂项目），进催办范围。"""
+    from datetime import datetime
+
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+    from app.models.todo_project import TodoProject
+    from app.todos.projects import refresh_meeting_project_members
+
+    title = payload.title.strip()
+    owner = payload.owner.strip()
+    date_text = payload.task_date.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="标题不能为空")
+    if not owner:
+        raise HTTPException(status_code=422, detail="负责人不能为空")
+    if not date_text or not _ISO_DATE_FULL.fullmatch(date_text):
+        raise HTTPException(status_code=422, detail="日期需为 YYYY-MM-DD")
+    with Session(get_engine()) as session:
+        project_id = payload.project_id
+        if project_id is not None and session.get(TodoProject, project_id) is None:
+            raise HTTPException(status_code=422, detail="项目不存在")
+        row = PdcaTask(
+            task_date=date_text,
+            title=title[:512],
+            owner=owner[:128],
+            status="pending",
+            priority=payload.priority or "normal",
+            source="manual",
+            project_id=project_id,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        refresh_meeting_project_members(session)
+        session.commit()
+        task_id = row.id
+    log_action(
+        username=user.username,
+        action="todo_task_create",
+        resource=str(task_id),
+        detail={"title": title, "owner": owner, "task_date": date_text},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "id": task_id}
+
+
+@router.delete("/api/todos/tasks/{task_id}")
+async def delete_task(
+    task_id: int,
+    request: Request,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """删除待办（作废/清理噪声积压）。"""
+    from datetime import datetime
+
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+    from app.todos.projects import refresh_meeting_project_members
+
+    with Session(get_engine()) as session:
+        row = session.get(PdcaTask, task_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="待办不存在")
+        title = row.title
+        session.delete(row)
+        session.commit()
+        refresh_meeting_project_members(session)
+        session.commit()
+    log_action(
+        username=user.username,
+        action="todo_task_delete",
+        resource=str(task_id),
+        detail={"title": title},
+        ip=request.client.host if request.client else "",
+    )
+    return {"ok": True, "deleted": task_id}
 
 
 @router.get("/api/todos/tasks")
@@ -408,6 +552,109 @@ async def list_tasks(
         }
         for row in rows
     ]
+
+
+@router.get("/api/todos/overview")
+async def todo_overview(
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """项目管理总览 KPI：项目数、未完成/已完成/逾期待办、本周到期、按人分布。"""
+    from collections import Counter
+    from datetime import timedelta
+
+    from sqlmodel import Session, select
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+    from app.models.todo_project import TodoProject
+
+    today_text = date.today().isoformat()
+    week_end = (date.today() + timedelta(days=7)).isoformat()
+    with Session(get_engine()) as session:
+        projects = list(session.exec(select(TodoProject)).all())
+        tasks = list(session.exec(select(PdcaTask)).all())
+    active_projects = [p for p in projects if p.status != "已闭环"]
+    open_rows = [t for t in tasks if not _status_is_done(t.status)]
+    done_rows = [t for t in tasks if _status_is_done(t.status)]
+    overdue = [
+        t for t in open_rows if t.task_date and t.task_date < today_text
+    ]
+    due_week = [
+        t for t in open_rows
+        if t.task_date and today_text <= t.task_date <= week_end
+    ]
+    by_owner = Counter(
+        t.owner.strip() for t in open_rows if t.owner and t.owner.strip()
+    )
+    return {
+        "date": today_text,
+        "active_projects": len(active_projects),
+        "closed_projects": len(projects) - len(active_projects),
+        "open_tasks": len(open_rows),
+        "done_tasks": len(done_rows),
+        "overdue_tasks": len(overdue),
+        "due_week_tasks": len(due_week),
+        "unassigned_tasks": sum(
+            1 for t in open_rows if not t.project_id
+        ),
+        "by_owner": [
+            {"owner": name, "open": count}
+            for name, count in by_owner.most_common(15)
+        ],
+    }
+
+
+@router.get("/api/todos/export.csv")
+async def export_tasks_csv(
+    open_only: bool = True,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """导出待办 CSV（UTF-8 BOM，Excel 直接打开）：项目/负责人/截止/状态/来源。"""
+    import csv as _csv
+    import io as _io
+
+    from fastapi.responses import Response
+    from sqlmodel import Session, select
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+    from app.models.todo_project import TodoProject
+
+    with Session(get_engine()) as session:
+        project_names = {
+            row.id: row.name for row in session.exec(select(TodoProject)).all()
+        }
+        rows = list(
+            session.exec(
+                select(PdcaTask).order_by(PdcaTask.task_date.asc(), PdcaTask.id.asc())
+            ).all()
+        )
+    if open_only:
+        rows = [row for row in rows if not _status_is_done(row.status)]
+    buffer = _io.StringIO()
+    writer = _csv.writer(buffer)
+    writer.writerow(["ID", "项目", "待办", "负责人", "截止日", "状态", "来源", "会议"])
+    for row in rows:
+        writer.writerow(
+            [
+                row.id,
+                project_names.get(row.project_id, "") if row.project_id else "",
+                row.title,
+                row.owner,
+                row.task_date,
+                "已完成" if _status_is_done(row.status) else "未完成",
+                row.source,
+                row.meeting_name,
+            ]
+        )
+    data = "\ufeff" + buffer.getvalue()
+    return Response(
+        content=data,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="pdca-todos.csv"',
+        },
+    )
 
 
 @router.get("/api/todos/replies")
