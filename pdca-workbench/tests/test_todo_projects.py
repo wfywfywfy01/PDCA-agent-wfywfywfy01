@@ -320,6 +320,103 @@ class TodoTasksEndpointTests(unittest.TestCase):
             finally:
                 engine.dispose()
 
+    def test_task_create_update_delete_and_overview(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+
+        from app.todos.router import (
+            TaskCreateRequest,
+            TaskUpdateRequest,
+            create_task,
+            delete_task,
+            todo_overview,
+            update_task,
+        )
+
+        req = NS(client=NS(host="t"))
+        usr = NS(username="test")
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'm.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    p = ensure_meeting_project(session, "2026-08-17 越南门店与代理策略同步会")
+                    session.commit()
+                    pid = p.id
+                with patch("app.database.get_engine", return_value=engine), patch(
+                    "app.todos.router.log_action", return_value=None
+                ):
+                    # 新增（挂项目）
+                    created = asyncio.run(
+                        create_task(
+                            TaskCreateRequest(
+                                title="新待办", owner="杨晶晶",
+                                task_date="2026-09-10", project_id=pid,
+                            ),
+                            req, usr,
+                        )
+                    )
+                    task_id = created["id"]
+                    # 改状态/日期/负责人
+                    updated = asyncio.run(
+                        update_task(
+                            task_id,
+                            TaskUpdateRequest(status="done", task_date="2026-09-11", owner="付汪阳"),
+                            req, usr,
+                        )
+                    )
+                    self.assertEqual(updated["status"], "done")
+                    self.assertEqual(updated["task_date"], "2026-09-11")
+                    self.assertEqual(updated["owner"], "付汪阳")
+                    # 摘出散单
+                    moved = asyncio.run(
+                        update_task(task_id, TaskUpdateRequest(project_id=None), req, usr)
+                    )
+                    self.assertIsNone(moved["project_id"])
+                    # 非法日期拒绝
+                    with self.assertRaises(Exception):
+                        asyncio.run(
+                            update_task(
+                                task_id,
+                                TaskUpdateRequest(task_date="2026-9-1"),
+                                req, usr,
+                            )
+                        )
+                    # 删除
+                    deleted = asyncio.run(delete_task(task_id, req, usr))
+                    self.assertTrue(deleted["ok"])
+                    # 总览 KPI
+                    overview = asyncio.run(todo_overview(user=usr))
+                    self.assertIn("overdue_tasks", overview)
+                    self.assertEqual(overview["open_tasks"], 0)
+            finally:
+                engine.dispose()
+
+    def test_export_csv(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+
+        from app.todos.router import export_tasks_csv
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'e.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="导出事项", owner="杨晶晶",
+                        status="pending",
+                    ))
+                    session.commit()
+                with patch("app.database.get_engine", return_value=engine):
+                    response = asyncio.run(export_tasks_csv(open_only=True, user=None))
+                    content = response.body.decode("utf-8")
+                    self.assertTrue(content.startswith("\ufeff"))
+                    self.assertIn("导出事项", content)
+                    self.assertIn("pdca-todos.csv", response.headers["content-disposition"])
+            finally:
+                engine.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()

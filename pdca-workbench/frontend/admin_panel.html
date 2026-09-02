@@ -243,13 +243,19 @@
 <div id="tab-projects" class="tab-panel">
 <div class="container">
   <div class="card">
-    <div class="card-header"><h2>待办项目（事项）</h2><button class="btn btn-primary" onclick="loadProjects()">刷新</button></div>
+    <div class="card-header">
+      <h2>待办项目管理</h2>
+      <div style="display:flex;gap:.5rem">
+        <a class="btn btn-ghost" href="#" onclick="exportTodos()">⬇ 导出 CSV</a>
+        <button class="btn btn-primary" onclick="loadProjects()">刷新</button>
+      </div>
+    </div>
     <div id="alertProjects" class="alert-inline"></div>
+    <div id="todoKpis" style="display:flex;gap:.7rem;flex-wrap:wrap;margin-bottom:.85rem"></div>
     <p style="font-size:.78rem;color:#64748b;margin-bottom:.85rem">
-      会议待办按项目收敛：<span class="badge badge-info">关键词</span> 业务主题项目、
-      <span class="badge badge-info">会议</span> 会议主题自动收敛（同一主题多次开会合并，成员随负责人自动刷新、全部完成自动闭环）、
-      <span class="badge badge-info">手动</span> 手工创建的业务项目；「已闭环」不再催办。
-      可改名、调整协调人、合并项目；点「明细」可把单条待办转挂到其他项目或摘出为散单。
+      <span class="badge badge-info">关键词</span> 业务主题项目 · <span class="badge badge-info">会议</span> 会议主题自动收敛 ·
+      <span class="badge badge-info">手动</span> 手工项目；「已闭环」不再催办。
+      点「明细」展开待办，可直接改日期/负责人、标记完成、删除、转挂项目；散单区可一键挂项目。
     </p>
     <div style="display:flex;gap:.5rem;margin-bottom:.85rem;flex-wrap:wrap">
       <input id="newProjectName" placeholder="新项目名（如：荷兰客户开拓）" style="flex:1;min-width:220px;padding:.45rem .6rem;border:1.5px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0">
@@ -258,8 +264,8 @@
     </div>
     <div style="overflow-x:auto">
     <table><thead><tr>
-      <th>项目</th><th>执行人</th><th>协调人</th><th>未完成待办</th><th>状态</th><th>操作</th>
-    </tr></thead><tbody id="projectsTbody"><tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
+      <th>项目</th><th>状态</th><th>协调人</th><th>成员</th><th>未完成</th><th>已完成</th><th>逾期</th><th>进度</th><th>操作</th>
+    </tr></thead><tbody id="projectsTbody"><tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
     </div>
     <div id="unassignedBox" style="margin-top:1rem"></div>
   </div>
@@ -709,16 +715,38 @@ function sendTodoRemind(){
     });
 }
 
-// ── 待办项目 ──
+// ── 待办项目（项目管理工具） ──
 var PROJECT_STATUSES=['新建','跟进中','阻塞','待验收','已闭环'];
 var PROJECT_KIND_NAMES={'keyword':'关键词','meeting':'会议','manual':'手动'};
+function loadKpis(){
+  fetch(API+'/api/todos/overview',{credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(!res.ok){return;}
+      var d=res.d;
+      var kpis=[
+        ['项目（未闭环）',d.active_projects,'#a855f7'],
+        ['未完成待办',d.open_tasks,'#f59e0b'],
+        ['逾期待办',d.overdue_tasks,'#e11d48'],
+        ['本周到期',d.due_week_tasks,'#4e9ef5'],
+        ['已完成',d.done_tasks,'#10b981'],
+      ];
+      var html='';
+      kpis.forEach(function(k){
+        html+='<div style="flex:1;min-width:120px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:.6rem .8rem">'
+          +'<div style="font-size:.68rem;color:#94a3b8">'+k[0]+'</div>'
+          +'<div style="font-size:1.3rem;font-weight:800;color:'+k[2]+'">'+k[1]+'</div></div>';
+      });
+      document.getElementById('todoKpis').innerHTML=html;
+    });
+}
 function loadProjects(){
   fetch(API+'/api/todos/projects',{credentials:'include'})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(res){
       var d=res.d;
-      if(!res.ok){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
-      if(!Array.isArray(d)){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">加载失败</td></tr>';return;}
+      if(!res.ok){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="9" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
+      if(!Array.isArray(d)){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="9" style="color:#e11d48;text-align:center;padding:2rem">加载失败</td></tr>';return;}
       window._projects=d;
       var html='';
       d.forEach(function(p){
@@ -726,23 +754,31 @@ function loadProjects(){
         var opts=PROJECT_STATUSES.map(function(s){return '<option value="'+s+'"'+(s===p.status?' selected':'')+'>'+s+'</option>';}).join('');
         var mergeOpts=d.filter(function(o){return o.id!==p.id;})
           .map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>';}).join('');
-        html+='<tr id="prow_'+p.id+'">'
+        var total=(p.open_tasks||0)+(p.done_tasks||0);
+        var pct=total?Math.round((p.done_tasks||0)*100/total):0;
+        var overdueBadge=(p.overdue_tasks||0)>0?'<span class="badge badge-off">'+(p.overdue_tasks||0)+'</span>':(p.overdue_tasks||0);
+        var closedCls=p.status==='已闭环'?'style="opacity:.45"':'';
+        html+='<tr id="prow_'+p.id+'" '+closedCls+'>'
           +'<td><strong>'+esc(p.name)+'</strong> <span class="badge badge-info">'+kind+'</span></td>'
-          +'<td>'+esc((p.executors||[]).join('、')||'—')+'</td>'
-          +'<td style="color:#94a3b8">'+esc(p.coordinator||'—')+'</td>'
-          +'<td>'+(p.open_tasks||0)+'</td>'
           +'<td><select id="ps_'+p.id+'" style="padding:.3rem .5rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0" onchange="saveProjectStatus('+p.id+')">'+opts+'</select></td>'
+          +'<td style="color:#94a3b8">'+esc(p.coordinator||'—')+'</td>'
+          +'<td style="font-size:.72rem;color:#94a3b8">'+esc((p.executors||[]).join('、')||'—')+'</td>'
+          +'<td>'+(p.open_tasks||0)+'</td>'
+          +'<td style="color:#10b981">'+(p.done_tasks||0)+'</td>'
+          +'<td>'+overdueBadge+'</td>'
+          +'<td style="min-width:90px"><div style="background:rgba(255,255,255,.08);border-radius:20px;height:7px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:linear-gradient(90deg,#10b981,#4e9ef5)"></div></div><div style="font-size:.62rem;color:#64748b;margin-top:2px">'+pct+'%</div></td>'
           +'<td style="font-size:.7rem;white-space:nowrap">'
           +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="toggleProjectTasks('+p.id+')">明细</button> '
           +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="renameProject('+p.id+',this)">改名</button> '
-          +(mergeOpts?'<select id="pm_'+p.id+'" style="padding:.3rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem;max-width:130px">'+mergeOpts+'</select> '
-            +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="mergeProject('+p.id+')">合并到→</button>':'')
+          +(mergeOpts?'<select id="pm_'+p.id+'" style="padding:.3rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem;max-width:110px">'+mergeOpts+'</select> '
+            +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="mergeProject('+p.id+')">合并→</button>':'')
           +'<div style="color:#64748b;margin-top:3px">已催 '+p.remind_count+' 次</div>'
           +'</td></tr>';
       });
-      if(!html){html='<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">暂无项目</td></tr>';}
+      if(!html){html='<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:2rem">暂无项目</td></tr>';}
       document.getElementById('projectsTbody').innerHTML=html;
       loadUnassigned();
+      loadKpis();
     });
 }
 function saveProjectStatus(id){
@@ -750,7 +786,7 @@ function saveProjectStatus(id){
   fetch(API+'/api/todos/projects/'+id+'/status',{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({status:status})})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(res){
-      if(res.ok){setAlert('alertProjects','状态已更新：'+status,'ok');}
+      if(res.ok){setAlert('alertProjects','状态已更新：'+status,'ok');loadProjects();}
       else{setAlert('alertProjects',res.d.detail||'更新失败','err');loadProjects();}
     });
 }
@@ -791,6 +827,10 @@ function mergeProject(id){
       else{setAlert('alertProjects',res.d.detail||'合并失败','err');}
     });
 }
+function exportTodos(){
+  window.open(API+'/api/todos/export.csv','_blank');
+}
+// ── 待办行（可编辑表格） ──
 function taskMoveSelect(taskId,currentProjectId){
   var list=window._projects||[];
   var opts='<option value="">— 转挂到… —</option>'
@@ -798,7 +838,49 @@ function taskMoveSelect(taskId,currentProjectId){
   list.forEach(function(p){
     opts+='<option value="'+p.id+'"'+(p.id===currentProjectId?' selected':'')+'>'+esc(p.name)+'</option>';
   });
-  return '<select id="tm_'+taskId+'" onchange="moveTask('+taskId+')" style="padding:.3rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem;max-width:170px">'+opts+'</select>';
+  return '<select id="tm_'+taskId+'" onchange="moveTask('+taskId+')" style="padding:.3rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem;max-width:150px">'+opts+'</select>';
+}
+function taskRowHtml(t){
+  var statusBtn=(t.status==='done'||t.status==='completed'||t.status==='完成'||t.status==='已完成')
+    ? '<button class="btn btn-ghost" style="font-size:.66rem;padding:2px 6px" onclick="setTaskStatus('+t.id+',\'pending\')">重开</button>'
+    : '<button class="btn btn-success" style="font-size:.66rem;padding:2px 6px" onclick="setTaskStatus('+t.id+',\'done\')">完成</button>';
+  var overdue=(t.task_date&&t.task_date<new Date().toISOString().slice(0,10))?'<span class="badge badge-off">逾期</span>':'';
+  return '<tr>'
+    +'<td style="max-width:340px">'+esc(t.title)+' '+overdue+'</td>'
+    +'<td><input id="to_'+t.id+'" value="'+esc(t.owner)+'" style="width:76px;padding:.25rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem" onchange="saveTaskField('+t.id+',\'owner\',this)"></td>'
+    +'<td><input id="td_'+t.id+'" value="'+esc(t.task_date||'')+'" style="width:86px;padding:.25rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem" onchange="saveTaskField('+t.id+',\'task_date\',this)"></td>'
+    +'<td>'+statusBtn+'</td>'
+    +'<td>'+taskMoveSelect(t.id,t.project_id)+'</td>'
+    +'<td><button class="btn btn-ghost" style="font-size:.66rem;padding:2px 6px;color:#f43f5e" onclick="deleteTask('+t.id+')">删除</button></td>'
+    +'</tr>';
+}
+function saveTaskField(taskId,field,input){
+  var value=(input.value||'').trim();
+  var body={};
+  body[field]=value;
+  fetch(API+'/api/todos/tasks/'+taskId,{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects','已保存','ok');loadProjects();}
+      else{setAlert('alertProjects',res.d.detail||'保存失败','err');loadProjects();}
+    });
+}
+function setTaskStatus(taskId,status){
+  fetch(API+'/api/todos/tasks/'+taskId,{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({status:status})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects',status==='done'?'已标记完成':'已重开','ok');loadProjects();}
+      else{setAlert('alertProjects',res.d.detail||'操作失败','err');}
+    });
+}
+function deleteTask(taskId){
+  if(!confirm('确定删除这条待办？（作废清理，不可恢复）'))return;
+  fetch(API+'/api/todos/tasks/'+taskId,{method:'DELETE',credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects','已删除','ok');loadProjects();}
+      else{setAlert('alertProjects',res.d.detail||'删除失败','err');}
+    });
 }
 function moveTask(taskId){
   var sel=document.getElementById('tm_'+taskId);
@@ -812,6 +894,28 @@ function moveTask(taskId){
       else{setAlert('alertProjects',res.d.detail||'更新失败','err');}
     });
 }
+function addTaskForm(projectId){
+  return '<tr style="background:rgba(16,185,129,.05)">'
+    +'<td><input id="nt_title_'+projectId+'" placeholder="新增待办内容…" style="width:100%;padding:.3rem .45rem;border:1.5px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.7rem"></td>'
+    +'<td><input id="nt_owner_'+projectId+'" placeholder="负责人" style="width:76px;padding:.3rem .45rem;border:1.5px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem"></td>'
+    +'<td><input id="nt_date_'+projectId+'" value="'+new Date().toISOString().slice(0,10)+'" style="width:86px;padding:.3rem .45rem;border:1.5px solid rgba(255,255,255,.12);border-radius:6px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem"></td>'
+    +'<td colspan="3"><button class="btn btn-success" style="font-size:.68rem;padding:3px 8px" onclick="addTask('+projectId+')">＋ 添加</button></td>'
+    +'</tr>';
+}
+function addTask(projectId){
+  var title=document.getElementById('nt_title_'+projectId).value.trim();
+  var owner=document.getElementById('nt_owner_'+projectId).value.trim();
+  var taskDate=document.getElementById('nt_date_'+projectId).value.trim();
+  if(!title||!owner){setAlert('alertProjects','请填写待办内容和负责人','err');return;}
+  var body={title:title,owner:owner,task_date:taskDate||new Date().toISOString().slice(0,10)};
+  if(projectId!==-1){body.project_id=projectId;}
+  fetch(API+'/api/todos/tasks',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects','已新增待办','ok');loadProjects();}
+      else{setAlert('alertProjects',res.d.detail||'新增失败','err');}
+    });
+}
 function toggleProjectTasks(id){
   var detail=document.getElementById('pdetail_'+id);
   if(detail){detail.remove();return;}
@@ -822,17 +926,14 @@ function toggleProjectTasks(id){
       var row=document.getElementById('prow_'+id);
       if(!row){return;}
       var rowsHtml='';
-      d.forEach(function(t){
-        rowsHtml+='<tr><td style="max-width:380px">'+esc(t.title)+'</td><td>'+esc(t.owner)+'</td>'
-          +'<td style="color:#94a3b8;font-size:.7rem">'+esc(t.task_date||'')+'</td>'
-          +'<td>'+taskMoveSelect(t.id,t.project_id)+'</td></tr>';
-      });
+      d.forEach(function(t){rowsHtml+=taskRowHtml(t);});
+      rowsHtml+=addTaskForm(id);
       var tr=document.createElement('tr');
       tr.id='pdetail_'+id;
-      tr.innerHTML='<td colspan="6" style="background:rgba(255,255,255,.02);padding:.6rem">'
-        +'<div style="font-size:.75rem;color:#94a3b8;margin-bottom:.4rem">未完成待办 '+d.length+' 项（转挂后立即生效）</div>'
-        +'<table style="margin:0"><thead><tr><th>待办</th><th>负责人</th><th>日期</th><th>转挂到</th></tr></thead><tbody>'
-        +(rowsHtml||'<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:.8rem">暂无未完成待办</td></tr>')
+      tr.innerHTML='<td colspan="9" style="background:rgba(255,255,255,.02);padding:.6rem">'
+        +'<div style="font-size:.75rem;color:#94a3b8;margin-bottom:.4rem">待办明细 · '+d.length+' 项未完成（改日期/负责人即存，完成/删除/转挂即时生效）</div>'
+        +'<table style="margin:0"><thead><tr><th>待办</th><th>负责人</th><th>截止日</th><th>状态</th><th>转挂到</th><th>清理</th></tr></thead><tbody>'
+        +(rowsHtml||'<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:.8rem">暂无待办</td></tr>')
         +'</tbody></table></td>';
       row.after(tr);
     });
@@ -845,14 +946,11 @@ function loadUnassigned(){
       var box=document.getElementById('unassignedBox');
       if(!box){return;}
       var rowsHtml='';
-      d.forEach(function(t){
-        rowsHtml+='<tr><td style="max-width:400px">'+esc(t.title)+'</td><td>'+esc(t.owner)+'</td>'
-          +'<td style="color:#94a3b8;font-size:.7rem">'+esc(t.task_date||'')+'</td>'
-          +'<td>'+taskMoveSelect(t.id,t.project_id)+'</td></tr>';
-      });
+      d.forEach(function(t){rowsHtml+=taskRowHtml(t);});
+      rowsHtml+=addTaskForm(-1);
       box.innerHTML='<h3 style="font-size:.85rem;color:#e2e8f0;margin-bottom:.5rem">散单待办（未挂项目 · '+d.length+' 项）</h3>'
-        +'<div style="overflow-x:auto"><table><thead><tr><th>待办</th><th>负责人</th><th>日期</th><th>挂到项目</th></tr></thead><tbody>'
-        +(rowsHtml||'<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:1rem">没有散单 ✓</td></tr>')
+        +'<div style="overflow-x:auto"><table><thead><tr><th>待办</th><th>负责人</th><th>截止日</th><th>状态</th><th>挂到项目</th><th>清理</th></tr></thead><tbody>'
+        +rowsHtml
         +'</tbody></table></div>';
     });
 }
