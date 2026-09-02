@@ -6,6 +6,7 @@
 - GET/POST/PATCH /api/todos/projects  项目列表 / 手工新建 / 改名与协调人
 - PATCH /api/todos/projects/{id}/status  项目状态（新建/跟进中/阻塞/待验收/已闭环）
 - POST /api/todos/projects/{id}/merge    项目合并（待办并入目标项目，源项目闭环）
+- GET  /api/todos/tasks                  待办列表（unassigned=散单 / project_id 筛选）
 - PATCH /api/todos/tasks/{id}            待办转挂项目 / 摘出为散单
 """
 from __future__ import annotations
@@ -367,6 +368,47 @@ async def reassign_task_project(
         ip=request.client.host if request.client else "",
     )
     return {"ok": True, "task_id": task_id, "project_id": row.project_id}
+
+
+@router.get("/api/todos/tasks")
+async def list_tasks(
+    project_id: Optional[int] = None,
+    unassigned: bool = False,
+    open_only: bool = True,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """待办列表：按项目筛选（unassigned=true 取散单），open_only 只取未完成。
+
+    供管理面板做待办转挂（PATCH /api/todos/tasks/{id}）与摘出。
+    """
+    from sqlmodel import Session, select
+
+    from app.database import get_engine
+    from app.models.pdca_task import PdcaTask
+
+    with Session(get_engine()) as session:
+        query = select(PdcaTask)
+        if unassigned:
+            query = query.where(PdcaTask.project_id.is_(None))
+        elif project_id is not None:
+            query = query.where(PdcaTask.project_id == project_id)
+        rows = list(session.exec(query.order_by(PdcaTask.task_date.asc())).all())
+    if open_only:
+        rows = [row for row in rows if not _status_is_done(row.status)]
+    return [
+        {
+            "id": row.id,
+            "task_date": row.task_date,
+            "title": row.title,
+            "owner": row.owner,
+            "status": row.status,
+            "source": row.source,
+            "meeting_name": row.meeting_name,
+            "project_id": row.project_id,
+        }
+        for row in rows
+    ]
+
 
 @router.get("/api/todos/replies")
 async def list_replies(
