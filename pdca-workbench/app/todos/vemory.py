@@ -11,6 +11,9 @@ Header X-API-Key: $VEMORY_OPENAPI_KEY
 - deadline 有值 → task_date=deadline；否则 task_date=meeting_date
 - owner = 被查询人员姓名（催办对象，与 todo-tracker 语义一致；speaker 仅是
   会上发言人线索，不能直接当执行人）
+- 项目收敛：标题命中关键词项目 → 挂关键词项目；否则按归一化会议主题
+  自动收敛到会议项目（同一主题多次开会合并为同一项目）；已有项目归属
+  （含人工调整）不被重算覆盖。会议项目成员随负责人刷新、全完成自动闭环。
 - 7 天窗口内之前同步过、本次未再出现的 Vemory 待办 → 视为已删除，置 done
   （接口只返回未删除待办；窗口外的不动，避免把窗口滚动误判为删除）
 
@@ -31,7 +34,14 @@ from sqlmodel import Session, select
 from app.config import get_settings
 from app.database import get_engine
 from app.models.pdca_task import PdcaTask
-from app.todos.projects import ensure_projects, match_project
+from app.models.todo_project import TodoProject
+from app.todos.projects import (
+    auto_close_meeting_projects,
+    ensure_meeting_project,
+    ensure_projects,
+    match_project,
+    refresh_meeting_project_members,
+)
 from app.todos.sop import classify_todo
 
 _TZ = ZoneInfo("Asia/Shanghai")
@@ -176,22 +186,32 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                 meeting_date = _meeting_date_ms(meeting, today)
                 deadline = str(todo.get("deadline") or "").strip()
                 title = str(todo.get("content") or "").strip()
+                meeting_name = str(meeting.get("meeting_name") or "").strip()
                 if not title:
                     continue
                 status = "done" if int(todo.get("status") or 0) != 0 else "pending"
                 # 岗位 SOP 收敛：执行人 = 分类器结果，定不了回退会议参与人本人
                 converged = classify_todo(
                     title=title,
-                    meeting_name=str(meeting.get("meeting_name") or ""),
+                    meeting_name=meeting_name,
                     speaker=str(todo.get("speaker") or "").strip(),
                     participant=name,
                 )
                 owner = converged["executor"] or name
-                # 项目（事项）收敛：标题命中项目规则 → 挂 project_id
+                # 项目（事项）收敛：关键词项目优先，其次会议主题项目。
+                # 已有 project_id 的行视为人工/历史归属，不被同步重算覆盖。
                 project_rule = match_project(title)
                 project_id = None
                 if project_rule and project_rule["key"] in _project_by_key:
                     project_id = _project_by_key[project_rule["key"]].id
+                elif meeting_name:
+                    meeting_project = ensure_meeting_project(session, meeting_name)
+                    if meeting_project is not None:
+                        if meeting_project.status == "已闭环":
+                            meeting_project.status = "跟进中"
+                            meeting_project.updated_at = datetime.utcnow()
+                            session.add(meeting_project)
+                        project_id = meeting_project.id
                 row = existing_map.get(ext_id)
                 if row is None:
                     row = PdcaTask(
@@ -201,7 +221,7 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                         status=status,
                         source="vemory",
                         external_todo_id=ext_id,
-                        meeting_name=str(meeting.get("meeting_name") or "").strip(),
+                        meeting_name=meeting_name,
                         meeting_date=meeting_date,
                         position=converged["position"],
                         origin_owner=name,
@@ -220,11 +240,22 @@ def sync_vemory_todos(today: str | None = None) -> dict:
                     # 手工修正过的执行人不被重算覆盖（owner_locked）
                     if not getattr(row, "owner_locked", False):
                         row.owner = owner
-                    row.meeting_name = str(meeting.get("meeting_name") or "").strip()
+                    row.meeting_name = meeting_name
                     row.meeting_date = meeting_date
                     row.position = converged["position"]
                     row.origin_owner = name
-                    row.project_id = project_id
+                    # 已有项目归属（含人工调整）不被同步重算覆盖
+                    if row.project_id is None:
+                        row.project_id = project_id
+                        if project_id is not None:
+                            meeting_row = session.get(TodoProject, project_id)
+                            if (
+                                meeting_row is not None
+                                and meeting_row.status == "已闭环"
+                            ):
+                                meeting_row.status = "跟进中"
+                                meeting_row.updated_at = datetime.utcnow()
+                                session.add(meeting_row)
                     row.updated_at = datetime.utcnow()
                     session.add(row)
                 upserted += 1
@@ -244,6 +275,10 @@ def sync_vemory_todos(today: str | None = None) -> dict:
             session.add(row)
             deleted_closed += 1
 
+        # 会议项目维护：成员随待办负责人刷新；全部完成 → 自动闭环
+        members_updated = refresh_meeting_project_members(session)
+        projects_closed = auto_close_meeting_projects(session)
+
         session.commit()
 
     result = {
@@ -253,6 +288,8 @@ def sync_vemory_todos(today: str | None = None) -> dict:
         "upserted": upserted,
         "done_flipped": done_flipped,
         "deleted_closed": deleted_closed,
+        "meeting_projects_updated": members_updated,
+        "meeting_projects_closed": projects_closed,
         "errors": errors,
     }
     logger.info("Vemory 待办同步完成: {}", result)

@@ -8,12 +8,14 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 PROJECT_STATUSES = ("新建", "跟进中", "阻塞", "待验收", "已闭环")
+PROJECT_KINDS = ("keyword", "meeting", "manual")
 
 
 class TodoProject(SQLModel, table=True):
     """项目（事项）——多条会议待办的收敛载体。
 
-    executors 为 JSON 数组字符串，如 ["何海文","杨晶晶"]；
+    kind ∈ {keyword, meeting, manual}：关键词业务项目 / 会议主题自动收敛 /
+    管理员手工创建；executors 为 JSON 数组字符串，如 ["何海文","杨晶晶"]；
     coordinator 为协调负责人（默认海外经销商主管），v1 仅存不催。
     """
 
@@ -22,6 +24,7 @@ class TodoProject(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     key: str = Field(unique=True, max_length=64)
     name: str = Field(max_length=256)
+    kind: str = Field(default="keyword", max_length=16)
     status: str = Field(default="新建", max_length=32)
     executors: str = Field(default="[]", max_length=512)
     coordinator: str = Field(default="", max_length=128)

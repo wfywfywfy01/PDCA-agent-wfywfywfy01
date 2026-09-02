@@ -49,6 +49,8 @@
     .badge-ok{background:rgba(16,185,129,.12);color:var(--green)}
     .badge-off{background:rgba(244,63,94,.1);color:var(--red)}
     .badge-warn{background:rgba(245,158,11,.12);color:var(--amber)}
+    .badge-info{background:rgba(78,158,245,.13);color:var(--blue)}
+    .todo-group td{background:rgba(78,158,245,.08);color:var(--blue);font-weight:700;padding:.45rem .7rem;border-left:3px solid var(--blue)}
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:center;justify-content:center}
     .modal-overlay.open{display:flex}
     .modal{background:var(--surf);border:1px solid rgba(255,255,255,.1);border-radius:14px;
@@ -222,7 +224,8 @@
     </div>
     <div id="alertTodo" class="alert-inline"></div>
     <p style="font-size:.78rem;color:#64748b;margin-bottom:.85rem">
-      把「今日 + 逾期」未完成待办通过 VPS IM 私聊直接发给负责人本人。
+      把「今日 + 逾期」未完成待办通过 VPS IM 私聊直接发给负责人本人；
+      挂项目的待办按<strong>项目卡片</strong>推送（项目名 + 状态 + 协调 + 进度），散单按人平铺兜底。
       每天 09:30 / 16:30 自动催一轮（同一轮当天不重复）；负责人匹配不到 IM 用户时跳过并列出。
       <span id="todoHint" style="color:#94a3b8"></span>
     </p>
@@ -231,6 +234,7 @@
       <th>负责人</th><th>IM 用户</th><th>待办数</th><th>待办明细</th><th>状态</th>
     </tr></thead><tbody id="todoTbody"><tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">点击「刷新清单」加载</td></tr></tbody></table>
     </div>
+    <p style="font-size:.72rem;color:#64748b;margin-top:.6rem">💡 悬停「待办明细」可查看即将发出的项目卡片消息原文。</p>
   </div>
 </div>
 </div>
@@ -242,8 +246,16 @@
     <div class="card-header"><h2>待办项目（事项）</h2><button class="btn btn-primary" onclick="loadProjects()">刷新</button></div>
     <div id="alertProjects" class="alert-inline"></div>
     <p style="font-size:.78rem;color:#64748b;margin-bottom:.85rem">
-      会议待办按项目（事项）收敛：同一项目一条催办消息发给全部执行人；「已闭环」不再催办。
+      会议待办按项目收敛：<span class="badge badge-info">关键词</span> 业务主题项目、
+      <span class="badge badge-info">会议</span> 会议主题自动收敛（同一主题多次开会合并，成员随负责人自动刷新、全部完成自动闭环）、
+      <span class="badge badge-info">手动</span> 手工创建的业务项目；「已闭环」不再催办。
+      可改名、调整协调人、合并项目（待办并入目标项目）。
     </p>
+    <div style="display:flex;gap:.5rem;margin-bottom:.85rem;flex-wrap:wrap">
+      <input id="newProjectName" placeholder="新项目名（如：荷兰客户开拓）" style="flex:1;min-width:220px;padding:.45rem .6rem;border:1.5px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0">
+      <input id="newProjectCoordinator" placeholder="协调人（可选）" style="width:160px;padding:.45rem .6rem;border:1.5px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0">
+      <button class="btn btn-primary" onclick="createProject()">＋ 新建项目</button>
+    </div>
     <div style="overflow-x:auto">
     <table><thead><tr>
       <th>项目</th><th>执行人</th><th>协调人</th><th>未完成待办</th><th>状态</th><th>操作</th>
@@ -633,12 +645,30 @@ document.addEventListener('DOMContentLoaded',function(){
 
 
 // ── 待办催办 ──
-function todoRow(owner,userId,tasks,titles,status,cls){
+function todoRow(owner,userId,tasks,titles,status,cls,preview){
+  var titleAttr=preview?' title="'+esc(preview)+'"':'';
   return '<tr><td><strong>'+esc(owner)+'</strong></td>'
     +'<td>'+(userId?'<code>'+esc(userId)+'</code>':'—')+'</td>'
     +'<td>'+tasks+'</td>'
-    +'<td>'+esc((titles||[]).join('；'))+'</td>'
+    +'<td'+titleAttr+'>'+esc((titles||[]).join('；'))+'</td>'
     +'<td><span class="badge '+cls+'">'+esc(status)+'</span></td></tr>';
+}
+function todoGrouped(entries,status,cls){
+  var html='';
+  var groups={};
+  entries.forEach(function(s){
+    var key=s.project?('📁 '+s.project):'📄 散单（未挂项目）';
+    (groups[key]=groups[key]||[]).push(s);
+  });
+  Object.keys(groups).sort().forEach(function(name){
+    var rows=groups[name];
+    var count=rows.reduce(function(acc,s){return acc+(s.tasks||0);},0);
+    html+='<tr class="todo-group"><td colspan="5">'+esc(name)+' · '+count+' 项</td></tr>';
+    rows.forEach(function(s){
+      html+=todoRow(s.owner,s.user_id,s.tasks,s.titles,status,cls,s.preview);
+    });
+  });
+  return html;
 }
 function loadTodoRemind(){
   document.getElementById('todoTbody').innerHTML='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr>';
@@ -647,10 +677,7 @@ function loadTodoRemind(){
     .then(function(res){
       var d=res.d;
       if(!res.ok){document.getElementById('todoTbody').innerHTML='<tr><td colspan="5" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
-      var html='';
-      (d.sent||[]).forEach(function(s){
-        html+=todoRow(s.owner,s.user_id,s.tasks,s.titles,'可催办','badge-ok');
-      });
+      var html=todoGrouped(d.sent||[],'可催办','badge-ok');
       (d.skipped_owners||[]).forEach(function(s){
         html+=todoRow(s.owner,'',s.tasks,'未匹配到 IM 用户，已跳过','跳过','badge-warn');
       });
@@ -668,10 +695,7 @@ function sendTodoRemind(){
       var d=res.d;
       if(!res.ok){setAlert('alertTodo',d.detail||'发送失败','err');loadTodoRemind();return;}
       setAlert('alertTodo','催办完成：'+d.summary,'ok');
-      var html='';
-      (d.sent||[]).forEach(function(s){
-        html+=todoRow(s.owner,s.user_id,s.tasks,s.titles,'已催办','badge-ok');
-      });
+      var html=todoGrouped(d.sent||[],'已催办','badge-ok');
       (d.skipped_owners||[]).forEach(function(s){
         html+=todoRow(s.owner,'',s.tasks,'未匹配到 IM 用户，已跳过','跳过','badge-warn');
       });
@@ -686,6 +710,7 @@ function sendTodoRemind(){
 
 // ── 待办项目 ──
 var PROJECT_STATUSES=['新建','跟进中','阻塞','待验收','已闭环'];
+var PROJECT_KIND_NAMES={'keyword':'关键词','meeting':'会议','manual':'手动'};
 function loadProjects(){
   fetch(API+'/api/todos/projects',{credentials:'include'})
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
@@ -695,14 +720,22 @@ function loadProjects(){
       if(!Array.isArray(d)){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">加载失败</td></tr>';return;}
       var html='';
       d.forEach(function(p){
+        var kind=PROJECT_KIND_NAMES[p.kind]||p.kind||'关键词';
         var opts=PROJECT_STATUSES.map(function(s){return '<option value="'+s+'"'+(s===p.status?' selected':'')+'>'+s+'</option>';}).join('');
+        var mergeOpts=d.filter(function(o){return o.id!==p.id;})
+          .map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>';}).join('');
         html+='<tr>'
-          +'<td><strong>'+esc(p.name)+'</strong></td>'
-          +'<td>'+esc((p.executors||[]).join('、'))+'</td>'
+          +'<td><strong>'+esc(p.name)+'</strong> <span class="badge badge-info">'+kind+'</span></td>'
+          +'<td>'+esc((p.executors||[]).join('、')||'—')+'</td>'
           +'<td style="color:#94a3b8">'+esc(p.coordinator||'—')+'</td>'
           +'<td>'+(p.open_tasks||0)+'</td>'
           +'<td><select id="ps_'+p.id+'" style="padding:.3rem .5rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0" onchange="saveProjectStatus('+p.id+')">'+opts+'</select></td>'
-          +'<td style="color:#64748b;font-size:.7rem">已催 '+p.remind_count+' 次</td></tr>';
+          +'<td style="font-size:.7rem;white-space:nowrap">'
+          +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="renameProject('+p.id+',this)">改名</button> '
+          +(mergeOpts?'<select id="pm_'+p.id+'" style="padding:.3rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem;max-width:130px">'+mergeOpts+'</select> '
+            +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="mergeProject('+p.id+')">合并到→</button>':'')
+          +'<div style="color:#64748b;margin-top:3px">已催 '+p.remind_count+' 次</div>'
+          +'</td></tr>';
       });
       if(!html){html='<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">暂无项目</td></tr>';}
       document.getElementById('projectsTbody').innerHTML=html;
@@ -715,6 +748,43 @@ function saveProjectStatus(id){
     .then(function(res){
       if(res.ok){setAlert('alertProjects','状态已更新：'+status,'ok');}
       else{setAlert('alertProjects',res.d.detail||'更新失败','err');loadProjects();}
+    });
+}
+function createProject(){
+  var name=(document.getElementById('newProjectName').value||'').trim();
+  if(!name){setAlert('alertProjects','请填写项目名','err');return;}
+  var coordinator=(document.getElementById('newProjectCoordinator').value||'').trim();
+  fetch(API+'/api/todos/projects',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({name:name,coordinator:coordinator})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){
+        setAlert('alertProjects','已创建项目：'+res.d.name,'ok');
+        document.getElementById('newProjectName').value='';
+        document.getElementById('newProjectCoordinator').value='';
+        loadProjects();
+      }else{setAlert('alertProjects',res.d.detail||'创建失败','err');}
+    });
+}
+function renameProject(id,btn){
+  var current=btn.closest('tr').querySelector('td strong').textContent;
+  var name=prompt('新项目名：',current);
+  if(!name||!name.trim()||name.trim()===current)return;
+  fetch(API+'/api/todos/projects/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({name:name.trim()})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects','项目已改名：'+res.d.name,'ok');loadProjects();}
+      else{setAlert('alertProjects',res.d.detail||'改名失败','err');}
+    });
+}
+function mergeProject(id){
+  var targetId=document.getElementById('pm_'+id).value;
+  if(!targetId){setAlert('alertProjects','请先选择目标项目','err');return;}
+  if(!confirm('确定把该项目全部待办并入目标项目？源项目将标记为「已闭环」。'))return;
+  fetch(API+'/api/todos/projects/'+id+'/merge',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({target_id:parseInt(targetId,10)})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects','已并入「'+res.d.target+'」：'+res.d.moved+' 项','ok');loadProjects();}
+      else{setAlert('alertProjects',res.d.detail||'合并失败','err');}
     });
 }
 

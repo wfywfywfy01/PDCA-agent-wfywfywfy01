@@ -82,6 +82,27 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 - `POST /api/knowledge/exports` — 申请 5 分钟、一次性的原件下载授权
 - `POST /api/knowledge/uploads` — 按账号经销商范围流式上传并触发 ETL
 - `GET/POST /api/knowledge/reviews` — 管理员审核隔离的高敏感资料
+- `GET /api/todos/remind/candidates` — 待办催办预览（dry-run，按项目分组）
+- `POST /api/todos/remind` — 立即催办（项目卡片私聊 + 散单个人消息）
+- `GET /api/todos/projects` — 项目列表（kind: keyword/meeting/manual）
+- `POST /api/todos/projects` — 手工创建业务项目
+- `PATCH /api/todos/projects/{id}` — 项目改名 / 协调人 / 状态
+- `PATCH /api/todos/projects/{id}/status` — 项目状态（已闭环不再催办）
+- `POST /api/todos/projects/{id}/merge` — 项目合并（待办并入目标项目）
+- `PATCH /api/todos/tasks/{id}` — 待办转挂项目 / 摘出为散单
+- `GET /api/todos/replies` / `POST …/apply-all` / `POST …/ignore` — IM 回复采集人工确认
+
+### 待办项目收敛
+
+Vemory 会议待办按三级收敛：关键词业务项目（`app/todos/projects.py` 的
+PROJECT_RULES）优先；未命中的按归一化会议主题自动收敛为「会议项目」
+（同一主题多次开会合并、成员随负责人自动刷新、全部完成自动闭环）；
+都挂不上的散单走个人消息兜底。存量回填：
+
+```bash
+python scripts/backfill_meeting_projects.py           # 实际回填（幂等）
+python scripts/backfill_meeting_projects.py --dry-run # 只统计不动库
+```
 
 ## 经销商资料库接入
 

@@ -4,6 +4,8 @@
 未完成待办 -> VPS IM 私聊本人（vertu-cli im +users / +send-user）。
 
 范围：task_date <= 今天、状态未完成、owner 非空的待办。
+形式：挂项目的待办按项目发「项目卡片」消息（项目名/状态/协调/进度 + 该人
+      名下条目）；散单按人发平铺消息兜底。
 频控：同一任务同一天同一轮（morning / afternoon / manual / auto-*）只催一次；
       手动催办（manual）忽略轮次限制（管理员点按钮就是要再催一遍）。
 匹配：owner -> `im +users --query`，按 name/display_name/username/login 精确
@@ -32,7 +34,12 @@ from app.todos.evidence import (
     load_vps_user_map,
     report_window_days,
 )
-from app.todos.projects import ensure_projects, match_project
+from app.todos.projects import (
+    auto_close_meeting_projects,
+    ensure_projects,
+    load_all_projects,
+    match_project,
+)
 from app.todos.sop import PEOPLE, find_mentions, is_noise
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
 from app.statuses import is_done as _status_is_done
@@ -356,14 +363,23 @@ def build_project_message(
     today: str,
     entry_url: str,
     evidence_checked: bool,
+    open_total: Optional[int] = None,
+    done_total: Optional[int] = None,
 ) -> str:
-    """项目级消息：按人拆分，最多 10 条折叠；无截止标「会议日期」。"""
+    """项目卡片消息：项目名/状态/协调/进度 + 按人拆分条目，最多 10 条折叠；
+    无截止标「会议日期」不标逾期。"""
     shown, folded = _cap_tasks(tasks)
-    lines = [
-        "【PDCA 待办催办】项目：" + project.name + "（状态：" + project.status + "）",
-        owner_name + "，你名下还有 " + str(len(tasks)) + " 项未完成，请及时跟进：",
-        "",
-    ]
+    lines = ["【PDCA 项目待办】" + project.name]
+    status_line = "状态：" + project.status
+    if project.coordinator:
+        status_line += " ｜ 协调：" + project.coordinator
+    if open_total is not None:
+        done = done_total or 0
+        status_line += " ｜ 项目未完成 " + str(open_total) + " 项"
+        if done:
+            status_line += "（已完成 " + str(done) + " 项）"
+    lines.append(status_line)
+    lines += ["", owner_name + "，你名下还有 " + str(len(tasks)) + " 项未完成，请及时跟进："]
     for index, task in enumerate(shown, 1):
         lines.append(f"{index}. [{_task_flag(task, today)}] {task.title}")
     if folded:
@@ -502,16 +518,43 @@ def run_todo_reminders(
     self_user_id = resolve_self_user_id()
 
     # ── 拆分：项目内待办 vs 项目外个人待办 ──────────────────────────────
+    # 注意：commit 会过期 ORM 对象（expire_on_commit），因此 commit 后必须
+    # 重新 select 一把再关闭 session，否则后面的 project_by_key/project_by_id
+    # 访问会触发 DetachedInstanceError。
     with Session(get_engine()) as session:
-        project_by_key, project_by_id = ensure_projects(session)
+        project_by_key, _ = ensure_projects(session)
+        auto_close_meeting_projects(session)
+        session.commit()
+        project_by_id = load_all_projects(session)
+        project_by_key = {row.key: row for row in project_by_id.values()}
     project_tasks: dict[int, list[PdcaTask]] = defaultdict(list)
     solo_candidates: list[PdcaTask] = []
     for task in tasks:
+        # 行上已有项目归属（关键词/会议/手动）优先，标题关键词匹配兜底
+        pid = task.project_id
+        if pid and pid in project_by_id:
+            project_tasks[pid].append(task)
+            continue
         rule = match_project(task.title)
         if rule and rule["key"] in project_by_key:
             project_tasks[project_by_key[rule["key"]].id].append(task)
         elif force or not _already_reminded_today(task, round_label, today):
             solo_candidates.append(task)
+
+    # 项目进度统计（消息内展示：未完成/已完成）
+    stats_total: dict[int, int] = {}
+    stats_open: dict[int, int] = {}
+    if project_tasks:
+        with Session(get_engine()) as session:
+            project_rows = list(
+                session.exec(
+                    select(PdcaTask).where(PdcaTask.project_id.in_(list(project_tasks)))
+                ).all()
+            )
+        for row in project_rows:
+            stats_total[row.project_id] = stats_total.get(row.project_id, 0) + 1
+            if not is_done(row.status):
+                stats_open[row.project_id] = stats_open.get(row.project_id, 0) + 1
 
     def _resolve_and_check(name: str) -> tuple[Optional[int], str]:
         """返回 (user_id, 跳过原因)；user_id 为 None 表示该人不发。"""
@@ -555,11 +598,22 @@ def run_todo_reminders(
     # 点名指派的任务按被点名人单独分组（个人消息），不随项目执行人走
     routed: dict[str, list[PdcaTask]] = defaultdict(list)
 
-    # ── 项目级催办：一个项目一条消息，发给全部执行人 ─────────────────────
+    # ── 项目级催办：项目卡片消息，按执行人拆分（每人只收自己名下条目） ──
     for project_id, owned in sorted(project_tasks.items(), key=lambda kv: project_by_id[kv[0]].name):
         project = project_by_id[project_id]
         if project.status == "已闭环":
-            continue
+            # 项目下又出现未完成待办（如 Vemory 重开任务）→ 会议项目自动重开
+            if not dry_run and project.kind == "meeting":
+                with Session(get_engine()) as session:
+                    proj_row = session.get(TodoProject, project_id)
+                    if proj_row is not None and proj_row.status == "已闭环":
+                        proj_row.status = "跟进中"
+                        proj_row.updated_at = datetime.utcnow()
+                        session.add(proj_row)
+                        session.commit()
+                project.status = "跟进中"
+            else:
+                continue
         if not force and _project_reminded_today(project, round_label, today):
             continue
         # 点名指派优先：标题里点谁，就挂到谁的个人消息（项目消息不再重复）
@@ -599,12 +653,21 @@ def run_todo_reminders(
                 )
                 continue
             body = build_project_message(
-                project, owner_name, items, today, entry_url, checked_any
+                project,
+                owner_name,
+                items,
+                today,
+                entry_url,
+                checked_any,
+                open_total=stats_open.get(project.id),
+                done_total=stats_total.get(project.id, 0) - stats_open.get(project.id, 0),
             )
             if dry_run:
                 sent.append(
                     {
                         "project": project.name,
+                        "project_id": project.id,
+                        "kind": project.kind,
                         "owner": owner_name,
                         "tasks": len(items),
                         "titles": [t.title for t in items],
@@ -637,6 +700,8 @@ def run_todo_reminders(
             sent.append(
                 {
                     "project": project.name,
+                    "project_id": project.id,
+                    "kind": project.kind,
                     "owner": owner_name,
                     "tasks": len(items),
                     "titles": [t.title for t in items],
