@@ -69,6 +69,11 @@ class MeetingTopicTests(unittest.TestCase):
                     self.assertEqual(p1.kind, "meeting")
                     self.assertEqual(p1.name, "越南门店与代理策略")
                     self.assertIsNone(ensure_meeting_project(session, ""))
+                    # 超长主题：显示名截短到 40，key 仍按完整主题（不误合并）
+                    long_name = "2026-08-25 " + "海外渠道拓展与经销商网络建设专项" * 3 + "推进会"
+                    p3 = ensure_meeting_project(session, long_name)
+                    self.assertEqual(len(p3.name), 40)
+                    self.assertNotEqual(p3.key, p1.key)
             finally:
                 engine.dispose()
 
@@ -268,6 +273,51 @@ class ProjectReminderTests(unittest.TestCase):
         person = [s for s in persons if s.get("owner") == "王宇彤"]
         self.assertEqual(len(person), 1)
         self.assertEqual(person[0]["titles"], ["让雨桐完成备货和标签相关准备"])
+
+
+class TodoTasksEndpointTests(unittest.TestCase):
+    """GET /api/todos/tasks 筛选逻辑（直接调 async 函数，绕过 HTTP）。"""
+
+    def test_list_tasks_filters(self):
+        import asyncio
+
+        from app.todos.router import list_tasks
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 't.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    p = ensure_meeting_project(session, "2026-08-17 越南门店与代理策略同步会")
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="项目内事项", owner="杨晶晶",
+                        status="pending", project_id=p.id,
+                    ))
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="散单事项", owner="刘春梅",
+                        status="pending",
+                    ))
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="已完成事项", owner="杨晶晶",
+                        status="done", project_id=p.id,
+                    ))
+                    session.commit()
+                    pid = p.id
+                with patch("app.database.get_engine", return_value=engine):
+                    by_project = asyncio.run(
+                        list_tasks(project_id=pid, unassigned=False, open_only=True, user=None)
+                    )
+                    self.assertEqual([t["title"] for t in by_project], ["项目内事项"])
+                    solo = asyncio.run(
+                        list_tasks(project_id=None, unassigned=True, open_only=True, user=None)
+                    )
+                    self.assertEqual([t["title"] for t in solo], ["散单事项"])
+                    all_open = asyncio.run(
+                        list_tasks(project_id=None, unassigned=False, open_only=True, user=None)
+                    )
+                    self.assertEqual(len(all_open), 2)  # 已完成被过滤
+            finally:
+                engine.dispose()
 
 
 if __name__ == "__main__":

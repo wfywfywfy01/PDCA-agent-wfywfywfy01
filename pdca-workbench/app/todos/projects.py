@@ -294,7 +294,11 @@ def load_all_projects(session) -> dict[int, TodoProject]:
 
 
 def ensure_meeting_project(session, meeting_name: str) -> Optional[TodoProject]:
-    """会议名 → 会议主题项目（kind="meeting"）；主题为空返回 None。"""
+    """会议名 → 会议主题项目（kind="meeting"）；主题为空返回 None。
+
+    显示名截短到 40 字符（IM 消息头部可读性），key 仍按完整主题哈希，
+    同名不同前缀的会议主题不因截短而合并。
+    """
     topic = normalize_meeting_topic(meeting_name)
     if not topic:
         return None
@@ -303,7 +307,7 @@ def ensure_meeting_project(session, meeting_name: str) -> Optional[TodoProject]:
     if row is None:
         row = TodoProject(
             key=key,
-            name=topic[:256],
+            name=topic[:40],
             kind="meeting",
             status="新建",
             executors="[]",

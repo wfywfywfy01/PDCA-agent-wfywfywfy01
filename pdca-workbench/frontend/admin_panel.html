@@ -249,7 +249,7 @@
       会议待办按项目收敛：<span class="badge badge-info">关键词</span> 业务主题项目、
       <span class="badge badge-info">会议</span> 会议主题自动收敛（同一主题多次开会合并，成员随负责人自动刷新、全部完成自动闭环）、
       <span class="badge badge-info">手动</span> 手工创建的业务项目；「已闭环」不再催办。
-      可改名、调整协调人、合并项目（待办并入目标项目）。
+      可改名、调整协调人、合并项目；点「明细」可把单条待办转挂到其他项目或摘出为散单。
     </p>
     <div style="display:flex;gap:.5rem;margin-bottom:.85rem;flex-wrap:wrap">
       <input id="newProjectName" placeholder="新项目名（如：荷兰客户开拓）" style="flex:1;min-width:220px;padding:.45rem .6rem;border:1.5px solid rgba(255,255,255,.12);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0">
@@ -261,6 +261,7 @@
       <th>项目</th><th>执行人</th><th>协调人</th><th>未完成待办</th><th>状态</th><th>操作</th>
     </tr></thead><tbody id="projectsTbody"><tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
     </div>
+    <div id="unassignedBox" style="margin-top:1rem"></div>
   </div>
 </div>
 </div>
@@ -718,19 +719,21 @@ function loadProjects(){
       var d=res.d;
       if(!res.ok){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
       if(!Array.isArray(d)){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="6" style="color:#e11d48;text-align:center;padding:2rem">加载失败</td></tr>';return;}
+      window._projects=d;
       var html='';
       d.forEach(function(p){
         var kind=PROJECT_KIND_NAMES[p.kind]||p.kind||'关键词';
         var opts=PROJECT_STATUSES.map(function(s){return '<option value="'+s+'"'+(s===p.status?' selected':'')+'>'+s+'</option>';}).join('');
         var mergeOpts=d.filter(function(o){return o.id!==p.id;})
           .map(function(o){return '<option value="'+o.id+'">'+esc(o.name)+'</option>';}).join('');
-        html+='<tr>'
+        html+='<tr id="prow_'+p.id+'">'
           +'<td><strong>'+esc(p.name)+'</strong> <span class="badge badge-info">'+kind+'</span></td>'
           +'<td>'+esc((p.executors||[]).join('、')||'—')+'</td>'
           +'<td style="color:#94a3b8">'+esc(p.coordinator||'—')+'</td>'
           +'<td>'+(p.open_tasks||0)+'</td>'
           +'<td><select id="ps_'+p.id+'" style="padding:.3rem .5rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0" onchange="saveProjectStatus('+p.id+')">'+opts+'</select></td>'
           +'<td style="font-size:.7rem;white-space:nowrap">'
+          +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="toggleProjectTasks('+p.id+')">明细</button> '
           +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="renameProject('+p.id+',this)">改名</button> '
           +(mergeOpts?'<select id="pm_'+p.id+'" style="padding:.3rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem;max-width:130px">'+mergeOpts+'</select> '
             +'<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 7px" onclick="mergeProject('+p.id+')">合并到→</button>':'')
@@ -739,6 +742,7 @@ function loadProjects(){
       });
       if(!html){html='<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem">暂无项目</td></tr>';}
       document.getElementById('projectsTbody').innerHTML=html;
+      loadUnassigned();
     });
 }
 function saveProjectStatus(id){
@@ -785,6 +789,71 @@ function mergeProject(id){
     .then(function(res){
       if(res.ok){setAlert('alertProjects','已并入「'+res.d.target+'」：'+res.d.moved+' 项','ok');loadProjects();}
       else{setAlert('alertProjects',res.d.detail||'合并失败','err');}
+    });
+}
+function taskMoveSelect(taskId,currentProjectId){
+  var list=window._projects||[];
+  var opts='<option value="">— 转挂到… —</option>'
+    +'<option value="none"'+(currentProjectId===null?' selected':'')+'>散单（未挂项目）</option>';
+  list.forEach(function(p){
+    opts+='<option value="'+p.id+'"'+(p.id===currentProjectId?' selected':'')+'>'+esc(p.name)+'</option>';
+  });
+  return '<select id="tm_'+taskId+'" onchange="moveTask('+taskId+')" style="padding:.3rem .4rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0;font-size:.68rem;max-width:170px">'+opts+'</select>';
+}
+function moveTask(taskId){
+  var sel=document.getElementById('tm_'+taskId);
+  var val=sel.value;
+  if(val==='')return;
+  var body={project_id:val==='none'?null:parseInt(val,10)};
+  fetch(API+'/api/todos/tasks/'+taskId,{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      if(res.ok){setAlert('alertProjects','待办已转挂','ok');loadProjects();}
+      else{setAlert('alertProjects',res.d.detail||'更新失败','err');}
+    });
+}
+function toggleProjectTasks(id){
+  var detail=document.getElementById('pdetail_'+id);
+  if(detail){detail.remove();return;}
+  fetch(API+'/api/todos/tasks?project_id='+id,{credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d||[];
+      var row=document.getElementById('prow_'+id);
+      if(!row){return;}
+      var rowsHtml='';
+      d.forEach(function(t){
+        rowsHtml+='<tr><td style="max-width:380px">'+esc(t.title)+'</td><td>'+esc(t.owner)+'</td>'
+          +'<td style="color:#94a3b8;font-size:.7rem">'+esc(t.task_date||'')+'</td>'
+          +'<td>'+taskMoveSelect(t.id,t.project_id)+'</td></tr>';
+      });
+      var tr=document.createElement('tr');
+      tr.id='pdetail_'+id;
+      tr.innerHTML='<td colspan="6" style="background:rgba(255,255,255,.02);padding:.6rem">'
+        +'<div style="font-size:.75rem;color:#94a3b8;margin-bottom:.4rem">未完成待办 '+d.length+' 项（转挂后立即生效）</div>'
+        +'<table style="margin:0"><thead><tr><th>待办</th><th>负责人</th><th>日期</th><th>转挂到</th></tr></thead><tbody>'
+        +(rowsHtml||'<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:.8rem">暂无未完成待办</td></tr>')
+        +'</tbody></table></td>';
+      row.after(tr);
+    });
+}
+function loadUnassigned(){
+  fetch(API+'/api/todos/tasks?unassigned=1',{credentials:'include'})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d||[];
+      var box=document.getElementById('unassignedBox');
+      if(!box){return;}
+      var rowsHtml='';
+      d.forEach(function(t){
+        rowsHtml+='<tr><td style="max-width:400px">'+esc(t.title)+'</td><td>'+esc(t.owner)+'</td>'
+          +'<td style="color:#94a3b8;font-size:.7rem">'+esc(t.task_date||'')+'</td>'
+          +'<td>'+taskMoveSelect(t.id,t.project_id)+'</td></tr>';
+      });
+      box.innerHTML='<h3 style="font-size:.85rem;color:#e2e8f0;margin-bottom:.5rem">散单待办（未挂项目 · '+d.length+' 项）</h3>'
+        +'<div style="overflow-x:auto"><table><thead><tr><th>待办</th><th>负责人</th><th>日期</th><th>挂到项目</th></tr></thead><tbody>'
+        +(rowsHtml||'<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:1rem">没有散单 ✓</td></tr>')
+        +'</tbody></table></div>';
     });
 }
 
