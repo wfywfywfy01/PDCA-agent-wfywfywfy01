@@ -253,16 +253,29 @@ def send_direct_message(
     body: str,
     client_message_id: str,
 ) -> tuple[bool, str, str]:
-    """给本人发私聊（im +send-user）；返回 (成功, 失败原因, 消息 id)。"""
-    code, stdout, stderr = run_vertu_sync(
-        [
-            "im", "+send-user",
+    """给本人发私聊；返回 (成功, 失败原因, 消息 id)。
+
+    配置 PDCA_TODO_BOT_APP_ID 时走机器人身份（im +bot-send-user），
+    否则回退登录账号身份（im +send-user）。
+    """
+    bot_app_id = get_settings().todo_bot_app_id
+    args = ["im"]
+    if bot_app_id:
+        args += [
+            "+bot-send-user",
+            "--app-id", bot_app_id,
             "--user-id", str(user_id),
             "--body", body,
             "--client-message-id", client_message_id,
-        ],
-        timeout=30.0,
-    )
+        ]
+    else:
+        args += [
+            "+send-user",
+            "--user-id", str(user_id),
+            "--body", body,
+            "--client-message-id", client_message_id,
+        ]
+    code, stdout, stderr = run_vertu_sync(args, timeout=30.0)
     if code == 0:
         message_id = ""
         try:
@@ -615,7 +628,10 @@ def run_todo_reminders(
         for name in get_settings().todo_remind_skip_owners
         if name.strip()
     }
-    self_user_id = resolve_self_user_id()
+    # 机器人通道：机器人可以给任何人（含机器人属主）发私聊，无需跳过本人；
+    # 登录账号通道：不能与自己创建私聊，需要跳过本人。
+    bot_mode = bool(get_settings().todo_bot_app_id)
+    self_user_id = None if bot_mode else resolve_self_user_id()
 
     # ── 拆分：项目内待办 vs 项目外个人待办 ──────────────────────────────
     # 注意：commit 会过期 ORM 对象（expire_on_commit），因此 commit 后必须
@@ -666,7 +682,7 @@ def run_todo_reminders(
         user_id = user.get("user_id") or user.get("id")
         if not user_id:
             return None, "im_user_missing_id"
-        if user_id == self_user_id:
+        if not bot_mode and user_id == self_user_id:
             return None, "im_self"
         return user_id, ""
 

@@ -74,6 +74,9 @@ class Settings:
             for item in os.environ.get("PDCA_TODO_REMIND_SKIP_OWNERS", "").split(",")
             if item.strip()
         ]
+        # 催办发送通道：配置机器人 App ID 后走 im +bot-send-user（机器人身份
+        # 发私聊，不再用登录账号本人身份）；留空则回退 im +send-user。
+        self.todo_bot_app_id = os.environ.get("PDCA_TODO_BOT_APP_ID", "").strip()
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
