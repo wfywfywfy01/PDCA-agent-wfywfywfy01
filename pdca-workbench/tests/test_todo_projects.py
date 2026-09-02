@@ -227,10 +227,11 @@ class ProjectReminderTests(unittest.TestCase):
         result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
         self.assertEqual(len(result["sent"]), 2)
         by_owner = {s["owner"]: s for s in result["sent"]}
-        self.assertEqual(by_owner["何海文"]["project"], "印度总代/独代谈判")
+        self.assertEqual(by_owner["何海文"]["projects"], ["印度总代/独代谈判"])
         self.assertEqual(by_owner["何海文"]["titles"], ["印度独代谈判：整理总代框架"])
         self.assertEqual(by_owner["杨晶晶"]["titles"], ["印度总代保证金条款确认"])
-        self.assertIn("你名下", by_owner["何海文"]["preview"])
+        self.assertIn("【PDCA 待办汇总】", by_owner["何海文"]["preview"])
+        self.assertIn("印度总代/独代谈判", by_owner["何海文"]["preview"])
 
     def test_project_closed_not_reminded(self):
         self._seed_vemory("印度独代谈判：整理总代框架")
