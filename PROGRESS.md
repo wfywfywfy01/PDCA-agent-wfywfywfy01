@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-09-03: Authenticated dealer knowledge MCP
+
+- Added a Streamable HTTP MCP endpoint at `/mcp/` to the PDCA workbench.
+- Added read-only tools for visible dealers, cited evidence search, and evidence-based answers.
+- Reused PDCA bearer authentication, password-version revocation, dealer scope, data-hub service tokens, redaction, and retrieval audit.
+- Kept the human knowledge page at `/app/knowledge`; browser and AI access share the same authorization boundary.
+
+Verification:
+
+- Backend: `234 passed, 5 skipped`; the skips require a built SPA artifact.
+- MCP transport: missing bearer token returns `401`; valid scoped token lists three tools.
+- Sales scope: assigned dealer succeeds and an unassigned dealer returns `403` before the data-hub call.
+- Python compilation and Docker Compose configuration validation passed.
+
 ## 2026-08-22: Dealer knowledge hub pilot
 
 - Added the `/app/knowledge` entry for human evidence search and cited AI answers.
