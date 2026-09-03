@@ -48,6 +48,7 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 | `/walkin-cockpit/` | 客流/线上 OKR |
 | `/meeting-center/` | 会议中心 |
 | `/app/knowledge` | 经销商资料库（证据检索、AI 回答、图片预览） |
+| `/mcp/` | 经销商资料库 MCP（Streamable HTTP，Bearer 登录令牌） |
 
 ### 表单 POST
 
@@ -114,6 +115,11 @@ PDCA 只在服务端签发最长 5 分钟的作用域 JWT，浏览器不会获�
 4. 用销售账号检查 `/app/knowledge` 只显示本人负责经销商，再用管理员验证原件导出审计。
 
 部门资料范围通过 `PDCA_KNOWLEDGE_HUB_TEAM_MAP` 显式映射，默认把 PDCA 的 `overseas` 映射为 data-hub 的 `overseas-sales`。
+
+AI 客户端使用 `https://pdca-workbench-teams.vertu.cn/mcp/`。先调用
+`POST /api/auth/login` 获取 `access_token`，再把它作为 MCP 的
+`Authorization: Bearer <token>` 请求头。MCP 仅提供只读工具：列出当前账号可见
+经销商、检索脱敏证据、生成带引用回答；权限与网页完全一致。
 
 ## HTTPS
 
