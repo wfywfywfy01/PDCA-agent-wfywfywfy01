@@ -88,6 +88,11 @@ class Settings:
         self.todo_group_notice_time = os.environ.get(
             "PDCA_TODO_GROUP_NOTICE_TIME", "09:00"
         ).strip()
+        # 群知会公示范围：只公示该日期及之后到期的待办（如 2026-09-01 = 只看
+        # 9 月新任务，8 月积压不进公示、仍走私聊跟进）；留空 = 全部。
+        self.todo_group_notice_min_date = os.environ.get(
+            "PDCA_TODO_GROUP_NOTICE_MIN_DATE", ""
+        ).strip()
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
