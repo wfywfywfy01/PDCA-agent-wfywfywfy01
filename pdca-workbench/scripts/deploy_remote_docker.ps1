@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Sha = "",
     [string]$DockerHost = "",
@@ -361,7 +361,10 @@ function Start-PdcaContainer {
         "PDCA_REPORT_WEBHOOK_URL",
         "PDCA_VPS_BOT_APP_ID", "PDCA_VPS_BOT_APP_SECRET", "PDCA_VPS_BOT_CHANNEL_ID",
         "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
-        "PDCA_TODO_REMIND_GRACE_HOURS",
+        "PDCA_TODO_REMIND_GRACE_HOURS", "PDCA_TODO_REMIND_SKIP_OWNERS",
+        "PDCA_TODO_BOT_APP_ID",
+        "PDCA_TODO_GROUP_NOTICE_ENABLED", "PDCA_TODO_GROUP_CHANNEL_ID",
+        "PDCA_TODO_GROUP_NOTICE_TIME",
         "PDCA_VEMORY_OPENAPI_URL", "PDCA_VEMORY_TODO_USERS",
         "PDCA_DAILY_REPORT_ENABLED"
     )) {

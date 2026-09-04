@@ -281,6 +281,28 @@ class TodoReminderTests(unittest.TestCase):
             proj = session.exec(select(TodoProject)).all()[0]
             self.assertEqual(proj.status, "跟进中")
 
+    def test_group_notice_builds_claim_list(self):
+        from app.todos.service import build_group_notice
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            proj = TodoProject(
+                key="mtg:g1", name="群知会项目", kind="meeting",
+                status="跟进中", executors="[]", coordinator="",
+            )
+            session.add(proj)
+            session.commit()
+            session.refresh(proj)
+            _seed(session, task_date=today, title="整理客户档案", owner="测试员", project_id=proj.id)
+            _seed(session, task_date=today, title="发群里", owner="测试员", source="vemory", meeting_date=today)
+            _seed(session, task_date=today, title="散单事项", owner="李四")
+        notice = build_group_notice(today)
+        self.assertEqual(notice["owners"], 2)  # 测试员 + 李四（噪声不计）
+        self.assertEqual(notice["tasks"], 2)
+        self.assertIn("群知会项目", notice["body"])
+        self.assertIn("处理入口", notice["body"])
+        self.assertIn("测试员（1 项）", notice["body"])
+
 
 def _make_task(title: str, task_date: str) -> PdcaTask:
     return PdcaTask(

@@ -77,6 +77,17 @@ class Settings:
         # 催办发送通道：配置机器人 App ID 后走 im +bot-send-user（机器人身份
         # 发私聊，不再用登录账号本人身份）；留空则回退 im +send-user。
         self.todo_bot_app_id = os.environ.get("PDCA_TODO_BOT_APP_ID", "").strip()
+        # 群知会（每天把待办丢到工作大群让大家认领，再进入私聊跟进）：
+        # 启用开关 + 群会话 id + 发送时刻（默认 09:00，早于 09:30 私聊轮）。
+        self.todo_group_notice_enabled = (
+            os.environ.get("PDCA_TODO_GROUP_NOTICE_ENABLED", "0") == "1"
+        )
+        self.todo_group_channel_id = os.environ.get(
+            "PDCA_TODO_GROUP_CHANNEL_ID", ""
+        ).strip()
+        self.todo_group_notice_time = os.environ.get(
+            "PDCA_TODO_GROUP_NOTICE_TIME", "09:00"
+        ).strip()
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",

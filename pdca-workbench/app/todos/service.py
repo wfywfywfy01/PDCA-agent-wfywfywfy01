@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -498,6 +499,101 @@ def build_digest_message(
     else:
         lines.append("（系统自动提醒，完成后无需回复）")
     return "\n".join(lines)
+
+
+def build_group_notice(today: str) -> dict:
+    """群知会消息：把今天的未完成待办按人汇总成认领清单。
+
+    与私聊催办同口径（到期 <= 今天、未完成、owner 非空、噪声过滤），
+    但不做 IM 用户解析、不发私聊、不改库——纯公示文本。
+    返回 {"body", "owners", "tasks", "lines"}。
+    """
+    tasks = list_pending_tasks(today)
+    kept = [
+        task for task in tasks
+        if not (task.source == "vemory" and is_noise(task.title))
+    ]
+    with Session(get_engine()) as session:
+        project_by_key, _ = ensure_projects(session)
+        project_by_id = load_all_projects(session)
+    per_owner: dict[str, dict] = {}
+    for task in kept:
+        owner = (task.owner or "").strip()
+        if not owner:
+            continue
+        entry = per_owner.setdefault(owner, {"count": 0, "projects": []})
+        entry["count"] += 1
+        name: Optional[str] = None
+        if task.project_id and task.project_id in project_by_id:
+            name = project_by_id[task.project_id].name
+        else:
+            rule = match_project(task.title)
+            if rule and rule["key"] in project_by_key:
+                name = rule["name"]
+        if name and name not in entry["projects"]:
+            entry["projects"].append(name)
+    settings = get_settings()
+    lines = [
+        f"【PDCA 待办认领】{today} ｜ 共 {len(per_owner)} 人 {len(kept)} 项待办",
+        "请各自认领以下事项，随后我会一对一私聊跟进：",
+        "",
+    ]
+    for owner in sorted(per_owner, key=lambda o: -per_owner[o]["count"]):
+        entry = per_owner[owner]
+        projects = entry["projects"][:3]
+        project_text = "：" + "、".join(projects) if projects else ""
+        if len(entry["projects"]) > 3:
+            project_text += " 等"
+        lines.append(f"{owner}（{entry['count']} 项）{project_text}")
+    lines += [
+        "",
+        f"处理入口：{settings.workbench_base_url}",
+        "（每日 09:00 群内知会认领，09:30 起私聊跟进；回复私聊可更新状态）",
+    ]
+    return {
+        "body": "\n".join(lines),
+        "owners": len(per_owner),
+        "tasks": len(kept),
+        "lines": lines,
+    }
+
+
+def send_group_notice(today: str, dry_run: bool = False) -> dict:
+    """把群知会发到工作大群（专家智能体/账号通道），不落库不改状态。"""
+    settings = get_settings()
+    channel_id = settings.todo_group_channel_id
+    notice = build_group_notice(today)
+    if not channel_id:
+        return {**notice, "sent": False, "reason": "未配置 PDCA_TODO_GROUP_CHANNEL_ID"}
+    if dry_run:
+        return {**notice, "sent": False, "dry_run": True, "channel_id": channel_id}
+    client_id = "pdca-group-notice-" + today
+    agent_slug = os.environ.get("VERTU_AGENT_SLUG", "").strip()
+    if agent_slug:
+        code, stdout, stderr = run_vertu_sync(
+            [
+                "im", "+agent-notify",
+                "--agent-slug", agent_slug,
+                "--channel-id", channel_id,
+                "--body", notice["body"],
+                "--bot-name", "PDCA待办助手",
+                "--event-id", client_id,
+            ],
+            timeout=30.0,
+        )
+    else:
+        code, stdout, stderr = run_vertu_sync(
+            [
+                "im", "+send",
+                "--channel-id", channel_id,
+                "--body", notice["body"],
+                "--client-message-id", client_id,
+            ],
+            timeout=30.0,
+        )
+    if code != 0:
+        return {**notice, "sent": False, "reason": (stderr or stdout or "发送失败")[:200]}
+    return {**notice, "sent": True, "channel_id": channel_id, "via": "agent" if agent_slug else "account"}
 
 
 def _record_sends(

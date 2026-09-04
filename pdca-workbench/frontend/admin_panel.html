@@ -217,18 +217,22 @@
   <div class="card">
     <div class="card-header">
       <h2>待办催办（直接催本人）</h2>
-      <div style="display:flex;gap:.5rem">
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
         <button class="btn btn-ghost" onclick="loadTodoRemind()">刷新清单</button>
+        <button class="btn btn-ghost" onclick="previewGroupNotice()">预览群知会</button>
+        <button class="btn btn-primary" onclick="sendGroupNotice()">发群知会（认领）</button>
         <button class="btn btn-primary" onclick="sendTodoRemind()">立即催办</button>
       </div>
     </div>
     <div id="alertTodo" class="alert-inline"></div>
     <p style="font-size:.78rem;color:#64748b;margin-bottom:.85rem">
       把「今日 + 逾期」未完成待办通过 VPS IM 私聊直接发给负责人本人；
-      挂项目的待办按<strong>项目卡片</strong>推送（项目名 + 状态 + 协调 + 进度），散单按人平铺兜底。
-      每天 09:30 / 16:30 自动催一轮（同一轮当天不重复）；负责人匹配不到 IM 用户时跳过并列出。
+      挂项目的待办按<strong>项目分节汇总</strong>推送（同类碎片自动合并），散单单独一节。
+      每天 <strong>09:00 群知会认领</strong>、09:30 / 16:30 私聊催办（同一轮当天不重复）；
+      负责人匹配不到 IM 用户时跳过并列出。
       <span id="todoHint" style="color:#94a3b8"></span>
     </p>
+    <div id="groupNoticeBox" style="display:none;margin-bottom:.85rem;background:rgba(78,158,245,.06);border:1px solid rgba(78,158,245,.25);border-radius:9px;padding:.7rem .9rem;font-size:.78rem;white-space:pre-wrap;color:#e2e8f0"></div>
     <div style="overflow-x:auto">
     <table><thead><tr>
       <th>负责人</th><th>IM 用户</th><th>待办数</th><th>待办明细</th><th>状态</th>
@@ -712,6 +716,30 @@ function sendTodoRemind(){
       if(!html){html='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem">没有可催办的待办</td></tr>';}
       document.getElementById('todoTbody').innerHTML=html;
       document.getElementById('todoHint').textContent='—— '+(d.summary||'');
+    });
+}
+function previewGroupNotice(){
+  fetch(API+'/api/todos/notify-group',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({dry_run:true})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d;
+      if(!res.ok){setAlert('alertTodo',d.detail||'预览失败','err');return;}
+      if(!d.body){setAlert('alertTodo',d.reason||'未配置群会话','err');return;}
+      var box=document.getElementById('groupNoticeBox');
+      box.style.display='block';
+      box.textContent=d.body;
+      setAlert('alertTodo','群知会预览：'+d.owners+' 人 '+d.tasks+' 项（未发送）','ok');
+    });
+}
+function sendGroupNotice(){
+  if(!confirm('确定把今天的待办认领清单发到工作大群吗？'))return;
+  fetch(API+'/api/todos/notify-group',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({dry_run:false})})
+    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+    .then(function(res){
+      var d=res.d;
+      if(!res.ok){setAlert('alertTodo',d.detail||'发送失败','err');return;}
+      if(d.sent){setAlert('alertTodo','群知会已发：'+d.owners+' 人 '+d.tasks+' 项（via '+d.via+'）','ok');}
+      else{setAlert('alertTodo',d.reason||'发送失败','err');}
     });
 }
 
