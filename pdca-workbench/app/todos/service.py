@@ -513,6 +513,9 @@ def build_group_notice(today: str) -> dict:
         task for task in tasks
         if not (task.source == "vemory" and is_noise(task.title))
     ]
+    min_date = get_settings().todo_group_notice_min_date
+    if min_date:
+        kept = [task for task in kept if task.task_date and task.task_date >= min_date]
     with Session(get_engine()) as session:
         project_by_key, _ = ensure_projects(session)
         project_by_id = load_all_projects(session)
