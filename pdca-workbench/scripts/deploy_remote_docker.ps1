@@ -483,7 +483,9 @@ Write-Output "Ensuring private dealer knowledge network and shared signing key"
 Initialize-KnowledgeRuntime -Image $image
 
 Write-Output "Preparing immutable release directory for $Sha"
-& git -C $RepoRoot fetch --no-tags origin $Sha
+# git fetch 的进度信息写在 stderr，在 $ErrorActionPreference=Stop 下会被
+# PS 5.1 当成致命错误，必须丢弃 stderr 只凭退出码判断。
+& git -C $RepoRoot fetch --no-tags origin $Sha 2>$null
 if ($LASTEXITCODE -ne 0) { throw "git fetch failed for $Sha" }
 $archive = Join-Path $env:TEMP "pdca-release-$Sha.tar"
 try {
