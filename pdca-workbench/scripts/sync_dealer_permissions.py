@@ -111,12 +111,13 @@ OWNER_ACCOUNTS = {
     "杨晶晶": ("yangjingjing", "April"),
     "何海文": ("hehaiwen", "Haiwen"),
     "于冰": ("yubing", "Ivan"),
-    "马文娜": ("mawenna", "马文娜"),
-    "张晏培": ("zhangyanpei", "张晏培"),
-    "吴佳军": ("wujiajun", "吴佳军"),
-    "刘圣": ("liusheng", "刘圣"),
     "Safae": ("safae", "Safae"),
 }
+
+# These salespeople have no PDCA login account yet.  Their customers remain
+# in the centrally managed pool until an account is explicitly provisioned.
+PUBLIC_POOL_SALES = {"马文娜", "张晏培", "吴佳军", "刘圣"}
+PUBLIC_POOL_OWNER_KEY = "中台公共池"
 
 # Approved exact aliases and multi-store dealer groups. No fuzzy authorization matching.
 STORE_TARGETS = {
@@ -191,7 +192,10 @@ def sync_matrix(session: Session, *, actor: str = "frank") -> dict:
                 targets = [existing]
                 summary["created_stores"] += 1
 
-        owner_key = OWNER_ACCOUNTS[row.sales][1] if row.sales else ""
+        owner_key = (
+            PUBLIC_POOL_OWNER_KEY if row.sales in PUBLIC_POOL_SALES
+            else OWNER_ACCOUNTS[row.sales][1] if row.sales else ""
+        )
         for store in targets:
             before = (store.country, store.sales_owner, store.team_key, store.knowledge_dealer_id)
             if row.country:
