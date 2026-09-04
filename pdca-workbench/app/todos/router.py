@@ -79,6 +79,34 @@ async def remind_now(
     )
     return result
 
+
+@router.post("/api/todos/notify-group")
+async def notify_group(
+    request: Request,
+    payload: Optional[RemindRequest] = None,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """群知会：把今天的待办认领清单发到工作大群（dry_run=true 只预览文本）。"""
+    from app.todos.service import send_group_notice, today_text
+
+    dry_run = bool(payload and payload.dry_run)
+    result = await asyncio.to_thread(send_group_notice, today_text(), dry_run)
+    client_ip = request.client.host if request.client else ""
+    log_action(
+        username=user.username,
+        action="todo_group_notice",
+        resource=result.get("channel_id", ""),
+        detail={
+            "dry_run": dry_run,
+            "owners": result.get("owners"),
+            "tasks": result.get("tasks"),
+            "sent": result.get("sent"),
+            "via": result.get("via", ""),
+        },
+        ip=client_ip,
+    )
+    return result
+
 class ProjectStatusRequest(BaseModel):
     status: str
 
