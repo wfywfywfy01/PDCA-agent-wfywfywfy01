@@ -48,6 +48,7 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 | `/walkin-cockpit/` | 客流/线上 OKR |
 | `/meeting-center/` | 会议中心 |
 | `/app/knowledge` | 经销商资料库（证据检索、AI 回答、图片预览） |
+| `/mcp/` | 经销商资料库 MCP（Streamable HTTP，Bearer 登录令牌） |
 
 ### 表单 POST
 
@@ -82,6 +83,27 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 - `POST /api/knowledge/exports` — 申请 5 分钟、一次性的原件下载授权
 - `POST /api/knowledge/uploads` — 按账号经销商范围流式上传并触发 ETL
 - `GET/POST /api/knowledge/reviews` — 管理员审核隔离的高敏感资料
+- `GET /api/todos/remind/candidates` — 待办催办预览（dry-run，按项目分组）
+- `POST /api/todos/remind` — 立即催办（项目卡片私聊 + 散单个人消息）
+- `GET /api/todos/projects` — 项目列表（kind: keyword/meeting/manual）
+- `POST /api/todos/projects` — 手工创建业务项目
+- `PATCH /api/todos/projects/{id}` — 项目改名 / 协调人 / 状态
+- `PATCH /api/todos/projects/{id}/status` — 项目状态（已闭环不再催办）
+- `POST /api/todos/projects/{id}/merge` — 项目合并（待办并入目标项目）
+- `PATCH /api/todos/tasks/{id}` — 待办转挂项目 / 摘出为散单
+- `GET /api/todos/replies` / `POST …/apply-all` / `POST …/ignore` — IM 回复采集人工确认
+
+### 待办项目收敛
+
+Vemory 会议待办按三级收敛：关键词业务项目（`app/todos/projects.py` 的
+PROJECT_RULES）优先；未命中的按归一化会议主题自动收敛为「会议项目」
+（同一主题多次开会合并、成员随负责人自动刷新、全部完成自动闭环）；
+都挂不上的散单走个人消息兜底。存量回填：
+
+```bash
+python scripts/backfill_meeting_projects.py           # 实际回填（幂等）
+python scripts/backfill_meeting_projects.py --dry-run # 只统计不动库
+```
 
 ## 经销商资料库接入
 
@@ -93,6 +115,11 @@ PDCA 只在服务端签发最长 5 分钟的作用域 JWT，浏览器不会获�
 4. 用销售账号检查 `/app/knowledge` 只显示本人负责经销商，再用管理员验证原件导出审计。
 
 部门资料范围通过 `PDCA_KNOWLEDGE_HUB_TEAM_MAP` 显式映射，默认把 PDCA 的 `overseas` 映射为 data-hub 的 `overseas-sales`。
+
+AI 客户端使用 `https://pdca-workbench-teams.vertu.cn/mcp/`。先调用
+`POST /api/auth/login` 获取 `access_token`，再把它作为 MCP 的
+`Authorization: Bearer <token>` 请求头。MCP 仅提供只读工具：列出当前账号可见
+经销商、检索脱敏证据、生成带引用回答；权限与网页完全一致。
 
 ## HTTPS
 

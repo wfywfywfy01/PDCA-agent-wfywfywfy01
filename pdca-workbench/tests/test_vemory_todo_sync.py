@@ -12,6 +12,7 @@ from unittest.mock import patch
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.pdca_task import PdcaTask
+from app.models.todo_project import TodoProject
 from app.todos import vemory as vmemory
 from app.todos.service import list_pending_tasks
 
@@ -246,6 +247,74 @@ class VemorySyncTests(unittest.TestCase):
             result = vmemory.sync_vemory_todos()
         self.assertEqual(len(result["errors"]), 1)
         self.assertIn("杨晶晶", result["errors"][0])
+
+    # ── 会议主题项目收敛 ──
+    def _project_of(self, row_id):
+        with Session(self.engine) as session:
+            row = session.get(PdcaTask, row_id)
+            return session.get(TodoProject, row.project_id)
+
+    def test_meeting_topic_project_assignment(self):
+        meeting = _meeting("m10", "2026-08-17 越南门店与代理策略同步会")
+        todo = {"id": 30, "content": "整理门店话术手册", "status": 0, "deadline": "", "_meeting": meeting}
+        self._sync({"何海文": [todo]})
+        row = self._rows()[0]
+        self.assertIsNotNone(row.project_id)
+        project = self._project_of(row.id)
+        self.assertEqual(project.kind, "meeting")
+        self.assertEqual(project.name, "越南门店与代理策略")
+
+    def test_keyword_project_priority_over_meeting(self):
+        meeting = _meeting("m11", "2026-08-17 越南门店与代理策略同步会")
+        todo = {"id": 31, "content": "印度总代保证金条款确认", "status": 0, "deadline": "", "_meeting": meeting}
+        self._sync({"何海文": [todo]})
+        row = self._rows()[0]
+        project = self._project_of(row.id)
+        self.assertEqual(project.key, "india-distro")
+        self.assertEqual(project.kind, "keyword")
+
+    def test_existing_project_not_overridden(self):
+        meeting = _meeting("m12", "2026-08-17 越南门店与代理策略同步会")
+        todo = {"id": 32, "content": "整理客户档案", "status": 0, "deadline": "", "_meeting": meeting}
+        self._sync({"何海文": [todo]})
+        with Session(self.engine) as session:
+            row = self._rows()[0]
+            manual = TodoProject(
+                key="man:x1", name="手工项目", kind="manual", status="新建",
+                executors="[]", coordinator="",
+            )
+            session.add(manual)
+            session.commit()
+            session.refresh(manual)
+            manual_id = manual.id
+            row.project_id = manual_id
+            session.add(row)
+            session.commit()
+        self._sync({"何海文": [todo]})  # 再同步：人工归属不被覆盖
+        with Session(self.engine) as session:
+            row = self._rows()[0]
+        self.assertEqual(row.project_id, manual_id)
+
+    def test_auto_close_and_reopen_on_new_task(self):
+        meeting = _meeting("m13", "2026-08-19 模型算账体系与安全规则同步")
+        todo = {"id": 33, "content": "整理模型算账文档", "status": 0, "deadline": "", "_meeting": meeting}
+        self._sync({"何海文": [todo]})
+        row = self._rows()[0]
+        project = self._project_of(row.id)
+        self.assertEqual(project.status, "新建")
+        todo["status"] = 1
+        self._sync({"何海文": [todo]})
+        project = self._project_of(row.id)
+        self.assertEqual(project.status, "已闭环")  # 全部完成自动闭环
+        # 同一主题再开会：新待办挂入 → 项目自动重开
+        todo2 = {"id": 34, "content": "补充安全规则清单", "status": 0, "deadline": "", "_meeting": meeting}
+        self._sync({"何海文": [todo2]})
+        with Session(self.engine) as session:
+            row2 = [r for r in session.exec(select(PdcaTask)).all()
+                    if r.external_todo_id == "vemory:34"][0]
+            project2 = session.get(TodoProject, row2.project_id)
+        self.assertEqual(project2.status, "跟进中")
+        self.assertEqual(project2.id, row.project_id)
 
 
 class VemoryGraceTests(unittest.TestCase):

@@ -11,6 +11,8 @@ from unittest.mock import patch
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.pdca_task import PdcaTask
+from app.models.todo_project import TodoProject
+from app.models.im_replies import ImRemindSend  # noqa: F401 — 保证 create_all 建 im_remind_sends 表
 from app.todos.service import (
     _match_user,
     build_person_message,
@@ -222,6 +224,84 @@ class TodoReminderTests(unittest.TestCase):
             updated = session.get(PdcaTask, task_id)
             self.assertIsNone(updated.last_reminded_at)
             self.assertEqual(updated.remind_count, 0)
+
+    def test_project_id_grouping_preferred_over_title(self):
+        # 行上挂了项目（会议项目），标题不命中任何关键词 → 仍按项目卡片推送
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            proj = TodoProject(
+                key="mtg:abc", name="会议主题项目", kind="meeting",
+                status="跟进中", executors="[]", coordinator="",
+            )
+            session.add(proj)
+            session.commit()
+            session.refresh(proj)
+            _seed(
+                session, task_date=today, title="整理门店话术手册", owner="测试员",
+                status="pending", source="vemory", meeting_name="某会议",
+                project_id=proj.id,
+            )
+        result = run_todo_reminders(today=today, round_label="manual", force=True, dry_run=True)
+        self.assertEqual(len(result["sent"]), 1)
+        self.assertEqual(result["sent"][0]["projects"], ["会议主题项目"])
+        self.assertTrue(result["sent"][0]["digest"])
+        self.assertIn("【PDCA 待办汇总】", result["sent"][0]["preview"])
+        self.assertIn("会议主题项目", result["sent"][0]["preview"])
+
+    def test_unassigned_task_stays_solo_person_message(self):
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            _seed(session, task_date=today, title="没有任何关键词的散单", owner="测试员")
+        result = run_todo_reminders(today=today, round_label="manual", force=True, dry_run=True)
+        self.assertEqual(len(result["sent"]), 1)
+        self.assertEqual(result["sent"][0]["projects"], [])
+        self.assertIn("【PDCA 待办汇总】", result["sent"][0]["preview"])
+        self.assertIn("散单待办", result["sent"][0]["preview"])
+
+    def test_closed_meeting_project_reopened_when_tasks_return(self):
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            proj = TodoProject(
+                key="mtg:xyz", name="已闭环会议项目", kind="meeting",
+                status="已闭环", executors="[]", coordinator="",
+            )
+            session.add(proj)
+            session.commit()
+            session.refresh(proj)
+            _seed(
+                session, task_date=today, title="又冒出来的待办", owner="测试员",
+                status="pending", source="vemory", project_id=proj.id,
+            )
+        result = run_todo_reminders(today=today, round_label="manual", force=True, dry_run=True)
+        self.assertEqual(result["sent"], [])  # dry-run 不改库、不重开 → 已闭环跳过
+        result = run_todo_reminders(today=today, round_label="manual", force=True)
+        self.assertEqual(len(result["sent"]), 1)  # 真实轮自动重开并推送
+        self.assertEqual(result["sent"][0]["project"], "已闭环会议项目")
+        with Session(self.engine) as session:
+            proj = session.exec(select(TodoProject)).all()[0]
+            self.assertEqual(proj.status, "跟进中")
+
+    def test_group_notice_builds_claim_list(self):
+        from app.todos.service import build_group_notice
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            proj = TodoProject(
+                key="mtg:g1", name="群知会项目", kind="meeting",
+                status="跟进中", executors="[]", coordinator="",
+            )
+            session.add(proj)
+            session.commit()
+            session.refresh(proj)
+            _seed(session, task_date=today, title="整理客户档案", owner="测试员", project_id=proj.id)
+            _seed(session, task_date=today, title="发群里", owner="测试员", source="vemory", meeting_date=today)
+            _seed(session, task_date=today, title="散单事项", owner="李四")
+        notice = build_group_notice(today)
+        self.assertEqual(notice["owners"], 2)  # 测试员 + 李四（噪声不计）
+        self.assertEqual(notice["tasks"], 2)
+        self.assertIn("群知会项目", notice["body"])
+        self.assertIn("处理入口", notice["body"])
+        self.assertIn("测试员（1 项）", notice["body"])
 
 
 def _make_task(title: str, task_date: str) -> PdcaTask:

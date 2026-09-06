@@ -4,6 +4,8 @@
 未完成待办 -> VPS IM 私聊本人（vertu-cli im +users / +send-user）。
 
 范围：task_date <= 今天、状态未完成、owner 非空的待办。
+形式：每人一条汇总消息（【PDCA 待办汇总】）：按项目分节 + 同类碎片合并
+      成组合事项（app/todos/compose.py），散单单列一节，最多 10 件折叠。
 频控：同一任务同一天同一轮（morning / afternoon / manual / auto-*）只催一次；
       手动催办（manual）忽略轮次限制（管理员点按钮就是要再催一遍）。
 匹配：owner -> `im +users --query`，按 name/display_name/username/login 精确
@@ -14,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -26,13 +29,19 @@ from app.config import get_settings
 from app.database import get_engine
 from app.models.pdca_task import PdcaTask
 from app.models.todo_project import TodoProject
+from app.todos.compose import compose_tasks
 from app.todos.evidence import (
     fetch_report_text,
     has_followup,
     load_vps_user_map,
     report_window_days,
 )
-from app.todos.projects import ensure_projects, match_project
+from app.todos.projects import (
+    auto_close_meeting_projects,
+    ensure_projects,
+    load_all_projects,
+    match_project,
+)
 from app.todos.sop import PEOPLE, find_mentions, is_noise
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json
 from app.statuses import is_done as _status_is_done
@@ -245,16 +254,29 @@ def send_direct_message(
     body: str,
     client_message_id: str,
 ) -> tuple[bool, str, str]:
-    """给本人发私聊（im +send-user）；返回 (成功, 失败原因, 消息 id)。"""
-    code, stdout, stderr = run_vertu_sync(
-        [
-            "im", "+send-user",
+    """给本人发私聊；返回 (成功, 失败原因, 消息 id)。
+
+    配置 PDCA_TODO_BOT_APP_ID 时走机器人身份（im +bot-send-user），
+    否则回退登录账号身份（im +send-user）。
+    """
+    bot_app_id = get_settings().todo_bot_app_id
+    args = ["im"]
+    if bot_app_id:
+        args += [
+            "+bot-send-user",
+            "--app-id", bot_app_id,
             "--user-id", str(user_id),
             "--body", body,
             "--client-message-id", client_message_id,
-        ],
-        timeout=30.0,
-    )
+        ]
+    else:
+        args += [
+            "+send-user",
+            "--user-id", str(user_id),
+            "--body", body,
+            "--client-message-id", client_message_id,
+        ]
+    code, stdout, stderr = run_vertu_sync(args, timeout=30.0)
     if code == 0:
         message_id = ""
         try:
@@ -281,17 +303,26 @@ def build_person_message(
     has_vemory: bool = False,
     evidence_checked: bool = False,
 ) -> str:
-    """一人一条消息：最多 10 条，其余折叠；无截止标「会议日期」不标逾期。"""
-    shown, folded = _cap_tasks(tasks)
+    """一人一条消息：同类碎片合并为组合事项（compose），最多 10 件折叠；
+    无截止标「会议日期」不标逾期。"""
+    composed = compose_tasks(tasks)
+    shown, folded = _cap_composed(composed)
+    greet = f"{owner}，你好：你还有 {len(tasks)} 项待办未完成"
+    if len(composed) < len(tasks):
+        greet += f"（合并同类后 {len(composed)} 件）"
+    greet += "，请及时跟进："
     lines = [
         "【PDCA 待办催办】",
-        f"{owner}，你好：你还有 {len(tasks)} 项待办未完成，请及时跟进：",
+        greet,
         "",
     ]
-    for index, task in enumerate(shown, 1):
-        lines.append(f"{index}. [{_task_flag(task, today)}] {task.title}")
+    for index, item in enumerate(shown, 1):
+        suffix = f"（同项 {item['count']} 条）" if item["merged"] else ""
+        lines.append(
+            f"{index}. [{_task_flag(item['rep'], today)}] {item['title']}{suffix}"
+        )
     if folded:
-        lines.append(f"……另有 {folded} 项，下轮再列")
+        lines.append(f"……另有 {folded} 件，下轮再列")
     lines += [
         "",
         f"处理入口：{entry_url}",
@@ -356,18 +387,35 @@ def build_project_message(
     today: str,
     entry_url: str,
     evidence_checked: bool,
+    open_total: Optional[int] = None,
+    done_total: Optional[int] = None,
 ) -> str:
-    """项目级消息：按人拆分，最多 10 条折叠；无截止标「会议日期」。"""
-    shown, folded = _cap_tasks(tasks)
-    lines = [
-        "【PDCA 待办催办】项目：" + project.name + "（状态：" + project.status + "）",
-        owner_name + "，你名下还有 " + str(len(tasks)) + " 项未完成，请及时跟进：",
-        "",
-    ]
-    for index, task in enumerate(shown, 1):
-        lines.append(f"{index}. [{_task_flag(task, today)}] {task.title}")
+    """项目卡片消息：项目名/状态/协调/进度 + 按人拆分条目（同类碎片合并，
+    最多 10 件折叠）；无截止标「会议日期」不标逾期。"""
+    composed = compose_tasks(tasks)
+    shown, folded = _cap_composed(composed)
+    lines = ["【PDCA 项目待办】" + project.name]
+    status_line = "状态：" + project.status
+    if project.coordinator:
+        status_line += " ｜ 协调：" + project.coordinator
+    if open_total is not None:
+        done = done_total or 0
+        status_line += " ｜ 项目未完成 " + str(open_total) + " 项"
+        if done:
+            status_line += "（已完成 " + str(done) + " 项）"
+    lines.append(status_line)
+    greet = owner_name + "，你名下还有 " + str(len(tasks)) + " 项未完成"
+    if len(composed) < len(tasks):
+        greet += "（合并同类后 " + str(len(composed)) + " 件）"
+    greet += "，请及时跟进："
+    lines += ["", greet]
+    for index, item in enumerate(shown, 1):
+        suffix = "（同项 " + str(item["count"]) + " 条）" if item["merged"] else ""
+        lines.append(
+            f"{index}. [{_task_flag(item['rep'], today)}] {item['title']}{suffix}"
+        )
     if folded:
-        lines.append("……另有 " + str(folded) + " 项，下轮再列")
+        lines.append("……另有 " + str(folded) + " 件，下轮再列")
     lines += ["", "处理入口：" + entry_url]
     if evidence_checked:
         lines.append(
@@ -377,6 +425,178 @@ def build_project_message(
     else:
         lines.append("（日报系统暂不可用，未做跟进比对）")
     return "\n".join(lines)
+
+
+def build_digest_message(
+    owner: str,
+    sections: list[dict],
+    today: str,
+    entry_url: str,
+    has_vemory: bool = False,
+    evidence_checked: bool = False,
+) -> str:
+    """每人一条汇总消息：按项目分节（┌ 项目名 + 协调/进度），节内同类碎片
+    合并，总数上限 DIGEST_MAX_ITEMS 件，超出折叠到下轮。"""
+    total_raw = sum(len(s["tasks"]) for s in sections)
+    sections_data: list[dict] = []
+    total_composed = 0
+    for s in sections:
+        composed = compose_tasks(s["tasks"])
+        sections_data.append({**s, "composed": composed})
+        total_composed += len(composed)
+
+    lines = ["【PDCA 待办汇总】"]
+    greet = f"{owner}，你还有 {total_raw} 项待办未完成"
+    if total_composed < total_raw:
+        greet += f"（合并同类后 {total_composed} 件）"
+    lines.append(greet + "：")
+
+    budget = DIGEST_MAX_ITEMS
+    folded = 0
+    counter = 0
+    for s in sections_data:
+        if budget <= 0:
+            folded += len(s["composed"])
+            continue
+        lines.append("")
+        if s["project"] is None:
+            lines.append("┌ 散单待办")
+        else:
+            header = "┌ " + s["project"].name
+            extras: list[str] = []
+            if s["project"].coordinator:
+                extras.append("协调：" + s["project"].coordinator)
+            if s["open_total"] is not None:
+                extras.append("项目未完成 " + str(s["open_total"]) + " 项")
+                done = s["done_total"] or 0
+                if done:
+                    extras.append("已完成 " + str(done) + " 项")
+            if extras:
+                header += "（" + " ｜ ".join(extras) + "）"
+            lines.append(header)
+        for item in s["composed"]:
+            if budget <= 0:
+                folded += 1
+                continue
+            budget -= 1
+            counter += 1
+            suffix = f"（同项 {item['count']} 条）" if item["merged"] else ""
+            lines.append(
+                f"{counter}. [{_task_flag(item['rep'], today)}] {item['title']}{suffix}"
+            )
+    lines += ["", "处理入口：" + entry_url]
+    if folded:
+        lines.append(f"……另有 {folded} 件，下轮再列")
+    if has_vemory and evidence_checked:
+        lines.append(
+            "（以上事项已比对日报、未检出明确跟进记录；在 Vemory 更新状态"
+            "或日报注明进展，可停止提醒）"
+        )
+    elif has_vemory:
+        lines.append(
+            "（日报系统暂不可用，未做跟进比对；在 Vemory 更新状态可停止提醒）"
+        )
+    else:
+        lines.append("（系统自动提醒，完成后无需回复）")
+    return "\n".join(lines)
+
+
+def build_group_notice(today: str) -> dict:
+    """群知会消息：把今天的未完成待办按人汇总成认领清单。
+
+    与私聊催办同口径（到期 <= 今天、未完成、owner 非空、噪声过滤），
+    但不做 IM 用户解析、不发私聊、不改库——纯公示文本。
+    返回 {"body", "owners", "tasks", "lines"}。
+    """
+    tasks = list_pending_tasks(today)
+    kept = [
+        task for task in tasks
+        if not (task.source == "vemory" and is_noise(task.title))
+    ]
+    min_date = get_settings().todo_group_notice_min_date
+    if min_date:
+        kept = [task for task in kept if task.task_date and task.task_date >= min_date]
+    with Session(get_engine()) as session:
+        project_by_key, _ = ensure_projects(session)
+        project_by_id = load_all_projects(session)
+    per_owner: dict[str, dict] = {}
+    for task in kept:
+        owner = (task.owner or "").strip()
+        if not owner:
+            continue
+        entry = per_owner.setdefault(owner, {"count": 0, "projects": []})
+        entry["count"] += 1
+        name: Optional[str] = None
+        if task.project_id and task.project_id in project_by_id:
+            name = project_by_id[task.project_id].name
+        else:
+            rule = match_project(task.title)
+            if rule and rule["key"] in project_by_key:
+                name = rule["name"]
+        if name and name not in entry["projects"]:
+            entry["projects"].append(name)
+    settings = get_settings()
+    lines = [
+        f"【PDCA 待办认领】{today} ｜ 共 {len(per_owner)} 人 {len(kept)} 项待办",
+        "请各自认领以下事项，随后我会一对一私聊跟进：",
+        "",
+    ]
+    for owner in sorted(per_owner, key=lambda o: -per_owner[o]["count"]):
+        entry = per_owner[owner]
+        projects = entry["projects"][:3]
+        project_text = "：" + "、".join(projects) if projects else ""
+        if len(entry["projects"]) > 3:
+            project_text += " 等"
+        lines.append(f"{owner}（{entry['count']} 项）{project_text}")
+    lines += [
+        "",
+        f"处理入口：{settings.workbench_base_url}",
+        "（每日 09:00 群内知会认领，09:30 起私聊跟进；回复私聊可更新状态）",
+    ]
+    return {
+        "body": "\n".join(lines),
+        "owners": len(per_owner),
+        "tasks": len(kept),
+        "lines": lines,
+    }
+
+
+def send_group_notice(today: str, dry_run: bool = False) -> dict:
+    """把群知会发到工作大群（专家智能体/账号通道），不落库不改状态。"""
+    settings = get_settings()
+    channel_id = settings.todo_group_channel_id
+    notice = build_group_notice(today)
+    if not channel_id:
+        return {**notice, "sent": False, "reason": "未配置 PDCA_TODO_GROUP_CHANNEL_ID"}
+    if dry_run:
+        return {**notice, "sent": False, "dry_run": True, "channel_id": channel_id}
+    client_id = "pdca-group-notice-" + today
+    agent_slug = os.environ.get("VERTU_AGENT_SLUG", "").strip()
+    if agent_slug:
+        code, stdout, stderr = run_vertu_sync(
+            [
+                "im", "+agent-notify",
+                "--agent-slug", agent_slug,
+                "--channel-id", channel_id,
+                "--body", notice["body"],
+                "--bot-name", "PDCA待办助手",
+                "--event-id", client_id,
+            ],
+            timeout=30.0,
+        )
+    else:
+        code, stdout, stderr = run_vertu_sync(
+            [
+                "im", "+send",
+                "--channel-id", channel_id,
+                "--body", notice["body"],
+                "--client-message-id", client_id,
+            ],
+            timeout=30.0,
+        )
+    if code != 0:
+        return {**notice, "sent": False, "reason": (stderr or stdout or "发送失败")[:200]}
+    return {**notice, "sent": True, "channel_id": channel_id, "via": "agent" if agent_slug else "account"}
 
 
 def _record_sends(
@@ -417,6 +637,7 @@ def _task_flag(task: PdcaTask, today: str) -> str:
 
 
 MAX_MESSAGE_ITEMS = 10
+DIGEST_MAX_ITEMS = 15  # 汇总消息的单条上限（按项目分节，略宽于单项目消息）
 
 
 def _cap_tasks(tasks: list[PdcaTask]) -> tuple[list[PdcaTask], int]:
@@ -424,6 +645,13 @@ def _cap_tasks(tasks: list[PdcaTask]) -> tuple[list[PdcaTask], int]:
     if len(tasks) <= MAX_MESSAGE_ITEMS:
         return tasks, 0
     return tasks[:MAX_MESSAGE_ITEMS], len(tasks) - MAX_MESSAGE_ITEMS
+
+
+def _cap_composed(composed: list[dict]) -> tuple[list[dict], int]:
+    """组合事项最多列 MAX_MESSAGE_ITEMS 件，其余折叠计数。"""
+    if len(composed) <= MAX_MESSAGE_ITEMS:
+        return composed, 0
+    return composed[:MAX_MESSAGE_ITEMS], len(composed) - MAX_MESSAGE_ITEMS
 
 
 def _group_by_owner(items: list[PdcaTask]) -> dict[str, list[PdcaTask]]:
@@ -499,19 +727,49 @@ def run_todo_reminders(
         for name in get_settings().todo_remind_skip_owners
         if name.strip()
     }
-    self_user_id = resolve_self_user_id()
+    # 机器人通道：机器人可以给任何人（含机器人属主）发私聊，无需跳过本人；
+    # 登录账号通道：不能与自己创建私聊，需要跳过本人。
+    bot_mode = bool(get_settings().todo_bot_app_id)
+    self_user_id = None if bot_mode else resolve_self_user_id()
 
     # ── 拆分：项目内待办 vs 项目外个人待办 ──────────────────────────────
+    # 注意：commit 会过期 ORM 对象（expire_on_commit），因此 commit 后必须
+    # 重新 select 一把再关闭 session，否则后面的 project_by_key/project_by_id
+    # 访问会触发 DetachedInstanceError。
     with Session(get_engine()) as session:
-        project_by_key, project_by_id = ensure_projects(session)
+        project_by_key, _ = ensure_projects(session)
+        auto_close_meeting_projects(session)
+        session.commit()
+        project_by_id = load_all_projects(session)
+        project_by_key = {row.key: row for row in project_by_id.values()}
     project_tasks: dict[int, list[PdcaTask]] = defaultdict(list)
     solo_candidates: list[PdcaTask] = []
     for task in tasks:
+        # 行上已有项目归属（关键词/会议/手动）优先，标题关键词匹配兜底
+        pid = task.project_id
+        if pid and pid in project_by_id:
+            project_tasks[pid].append(task)
+            continue
         rule = match_project(task.title)
         if rule and rule["key"] in project_by_key:
             project_tasks[project_by_key[rule["key"]].id].append(task)
         elif force or not _already_reminded_today(task, round_label, today):
             solo_candidates.append(task)
+
+    # 项目进度统计（消息内展示：未完成/已完成）
+    stats_total: dict[int, int] = {}
+    stats_open: dict[int, int] = {}
+    if project_tasks:
+        with Session(get_engine()) as session:
+            project_rows = list(
+                session.exec(
+                    select(PdcaTask).where(PdcaTask.project_id.in_(list(project_tasks)))
+                ).all()
+            )
+        for row in project_rows:
+            stats_total[row.project_id] = stats_total.get(row.project_id, 0) + 1
+            if not is_done(row.status):
+                stats_open[row.project_id] = stats_open.get(row.project_id, 0) + 1
 
     def _resolve_and_check(name: str) -> tuple[Optional[int], str]:
         """返回 (user_id, 跳过原因)；user_id 为 None 表示该人不发。"""
@@ -523,7 +781,7 @@ def run_todo_reminders(
         user_id = user.get("user_id") or user.get("id")
         if not user_id:
             return None, "im_user_missing_id"
-        if user_id == self_user_id:
+        if not bot_mode and user_id == self_user_id:
             return None, "im_self"
         return user_id, ""
 
@@ -552,20 +810,34 @@ def run_todo_reminders(
         keep += [t for t in items if t.source != "vemory"]
         return keep, checked
 
-    # 点名指派的任务按被点名人单独分组（个人消息），不随项目执行人走
+    # 点名指派的任务按被点名人单独分组，不随项目执行人走
     routed: dict[str, list[PdcaTask]] = defaultdict(list)
 
-    # ── 项目级催办：一个项目一条消息，发给全部执行人 ─────────────────────
+    # ── 收集：每人名下的待办按项目分节（每人最后只收一条汇总消息） ──
+    person_sections: dict[str, list[dict]] = defaultdict(list)
+    evidence_by_owner: dict[str, bool] = defaultdict(bool)
+
     for project_id, owned in sorted(project_tasks.items(), key=lambda kv: project_by_id[kv[0]].name):
         project = project_by_id[project_id]
         if project.status == "已闭环":
-            continue
-        if not force and _project_reminded_today(project, round_label, today):
-            continue
-        # 点名指派优先：标题里点谁，就挂到谁的个人消息（项目消息不再重复）
-        # 例：物流项目里「让雨桐完成备货」应催王宇彤，而不是鲜娜/张琪/张懿。
+            # 项目下又出现未完成待办（如 Vemory 重开任务）→ 会议项目自动重开
+            if not dry_run and project.kind == "meeting":
+                with Session(get_engine()) as session:
+                    proj_row = session.get(TodoProject, project_id)
+                    if proj_row is not None and proj_row.status == "已闭环":
+                        proj_row.status = "跟进中"
+                        proj_row.updated_at = datetime.utcnow()
+                        session.add(proj_row)
+                        session.commit()
+                project.status = "跟进中"
+            else:
+                continue
+        # 点名指派优先：标题里点谁，就挂到谁名下（项目节内不再重复）
         project_owned: list[PdcaTask] = []
         for task in owned:
+            # 本轮已催过的行不再进汇总（频控）
+            if not force and _already_reminded_today(task, round_label, today):
+                continue
             mentioned = find_mentions(task.title)
             # 手工锁定（owner_locked）的条目按指定人走，不再按标题点名重路由
             if mentioned and not getattr(task, "owner_locked", False):
@@ -577,131 +849,110 @@ def run_todo_reminders(
                     project_owned.append(task)
             else:
                 project_owned.append(task)
-        owned = project_owned
-        if not owned:
+        if not project_owned:
             continue
         # 证据按子待办各自的 owner 过滤（项目内多人，各自对各自日报）
         kept: list[PdcaTask] = []
-        checked_any = False
-        for owner_name, items in _group_by_owner(owned).items():
+        for owner_name, items in _group_by_owner(project_owned).items():
             k, checked = _filter_evidence(owner_name, items)
             kept += k
-            checked_any = checked_any or checked
+            evidence_by_owner[owner_name] = evidence_by_owner[owner_name] or checked
         if not kept:
             continue
-        # 项目消息按人拆分：每人只收自己名下的条目（张琪只收张琪的，不再三人全量）
-        project_sent = 0
         for owner_name, items in sorted(_group_by_owner(kept).items(), key=lambda kv: kv[0]):
-            user_id, reason = _resolve_and_check(owner_name)
-            if user_id is None:
-                skipped_owners.append(
-                    {"owner": owner_name, "reason": reason, "tasks": len(items)}
-                )
-                continue
-            body = build_project_message(
-                project, owner_name, items, today, entry_url, checked_any
-            )
-            if dry_run:
-                sent.append(
-                    {
-                        "project": project.name,
-                        "owner": owner_name,
-                        "tasks": len(items),
-                        "titles": [t.title for t in items],
-                        "preview": body,
-                        "dry_run": True,
-                    }
-                )
-                continue
-            client_id = (
-                "pdca-project-remind-" + project.key + "-" + owner_name
-                + "-" + today + "-" + round_label
-            )
-            ok, err, message_id = send_direct_message(user_id, body, client_id)
-            if not ok:
-                failed.append({"owner": owner_name, "reason": err, "tasks": len(items)})
-                continue
-            with Session(get_engine()) as session:
-                rows = list(
-                    session.exec(
-                        select(PdcaTask).where(
-                            PdcaTask.id.in_([t.id for t in items if t.id])
-                        )
-                    ).all()
-                )
-                proj_row = session.get(TodoProject, project.id)
-                _mark_reminded_rows(session, rows, proj_row, round_label, now)
-                _record_sends(session, [(owner_name, message_id)], rows, round_label, project.id)
-                session.commit()
-            project_sent += 1
-            sent.append(
+            person_sections[owner_name].append(
                 {
-                    "project": project.name,
-                    "owner": owner_name,
-                    "tasks": len(items),
-                    "titles": [t.title for t in items],
+                    "project": project,
+                    "tasks": items,
+                    "open_total": stats_open.get(project.id),
+                    "done_total": stats_total.get(project.id, 0)
+                    - stats_open.get(project.id, 0),
                 }
             )
-        if not project_sent:
-            continue
 
-    # ── 项目外个人待办：沿用按人催办流程（含点名指派路由） ──────────────
-    by_owner: dict[str, list[PdcaTask]] = defaultdict(list)
+    # 散单 + 点名交办：不挂项目，作为「散单待办」节
+    solo_by_owner: dict[str, list[PdcaTask]] = defaultdict(list)
     for task in solo_candidates:
-        by_owner[task.owner.strip()].append(task)
+        if force or not _already_reminded_today(task, round_label, today):
+            solo_by_owner[task.owner.strip()].append(task)
     for person, items in routed.items():
-        by_owner[person].extend(items)
+        solo_by_owner[person].extend(items)
+    for owner, owned in solo_by_owner.items():
+        keep, checked = _filter_evidence(owner, owned)
+        evidence_by_owner[owner] = evidence_by_owner[owner] or checked
+        if keep:
+            person_sections[owner].append(
+                {"project": None, "tasks": keep, "open_total": None, "done_total": None}
+            )
 
-    for owner in sorted(by_owner, key=str.casefold):
-        owned = by_owner[owner]
-        keep, evidence_checked = _filter_evidence(owner, owned)
-        if not keep:
-            continue
+    # ── 发送：每人一条汇总消息（按项目分节 + 同类合并） ────────────────
+    for owner in sorted(person_sections, key=str.casefold):
+        sections = person_sections[owner]
         user_id, reason = _resolve_and_check(owner)
         if user_id is None:
-            skipped_owners.append({"owner": owner, "reason": reason, "tasks": len(keep)})
+            skipped_owners.append(
+                {
+                    "owner": owner,
+                    "reason": reason,
+                    "tasks": sum(len(s["tasks"]) for s in sections),
+                }
+            )
             continue
-        has_vemory = any(task.source == "vemory" for task in keep)
-        body = build_person_message(
+        has_vemory = any(
+            task.source == "vemory" for s in sections for task in s["tasks"]
+        )
+        body = build_digest_message(
             owner,
-            keep,
+            sections,
             today,
             entry_url,
             has_vemory=has_vemory,
-            evidence_checked=evidence_checked,
+            evidence_checked=evidence_by_owner.get(owner, False),
         )
+        all_tasks = [task for s in sections for task in s["tasks"]]
+        project_names = [s["project"].name for s in sections if s["project"]]
+        solo_included = any(s["project"] is None for s in sections)
+        if len(project_names) == 1 and not solo_included:
+            group_label = project_names[0]
+        elif project_names:
+            group_label = "汇总 " + str(len(project_names)) + " 个项目"
+        else:
+            group_label = ""
+        entry = {
+            "owner": owner,
+            "user_id": user_id,
+            "tasks": len(all_tasks),
+            "titles": [task.title for task in all_tasks],
+            "projects": project_names,
+            "project": group_label,
+            "digest": True,
+        }
         if dry_run:
-            sent.append(
-                {
-                    "owner": owner,
-                    "user_id": user_id,
-                    "tasks": len(keep),
-                    "titles": [task.title for task in keep],
-                    "preview": body,
-                    "dry_run": True,
-                }
-            )
+            entry["preview"] = body
+            entry["dry_run"] = True
+            sent.append(entry)
             continue
-        client_id = (
-            "pdca-todo-remind-" + str(min(task.id or 0 for task in keep))
-            + "-" + today + "-" + round_label
-        )
+        client_id = "pdca-todo-digest-" + owner + "-" + today + "-" + round_label
         ok, err, message_id = send_direct_message(user_id, body, client_id)
         if not ok:
-            failed.append({"owner": owner, "reason": err, "tasks": len(keep)})
+            failed.append({"owner": owner, "reason": err, "tasks": len(all_tasks)})
             continue
-        _mark_reminded([task.id for task in keep if task.id], round_label, now)
         with Session(get_engine()) as session:
-            _record_sends(session, [(owner, message_id)], keep, round_label, None)
+            rows = list(
+                session.exec(
+                    select(PdcaTask).where(
+                        PdcaTask.id.in_([task.id for task in all_tasks if task.id])
+                    )
+                ).all()
+            )
+            _mark_reminded_rows(session, rows, None, round_label, now)
+            for proj_id in {s["project"].id for s in sections if s["project"]}:
+                proj_row = session.get(TodoProject, proj_id)
+                if proj_row is not None:
+                    _mark_reminded_rows(session, [], proj_row, round_label, now)
+            _record_sends(session, [(owner, message_id)], rows, round_label, None)
             session.commit()
-        sent.append(
-            {
-                "owner": owner,
-                "user_id": user_id,
-                "tasks": len(keep),
-                "titles": [task.title for task in keep],
-            }
-        )
+        sent.append(entry)
 
     result = {
         "date": today,
@@ -711,10 +962,10 @@ def run_todo_reminders(
         "candidates": len(solo_candidates)
         + sum(len(v) for v in project_tasks.values()),
         "project_entries": len(
-            [s for s in sent if s.get("project")]
+            [s for s in sent if s.get("projects")]
         ),
         "person_entries": len(
-            [s for s in sent if not s.get("project")]
+            [s for s in sent if not s.get("projects")]
         ),
         "sent": sent,
         "skipped_owners": skipped_owners,
@@ -723,7 +974,7 @@ def run_todo_reminders(
         "noise_skipped": noise_skipped,
         "failed": failed,
         "summary": (
-            "待办 " + str(len(tasks)) + " 项，本轮催办 " + str(len(sent)) + " 条消息"
+            "待办 " + str(len(tasks)) + " 项，本轮催办 " + str(len(sent)) + " 条消息（汇总）"
             " / 跳过 " + str(len(skipped_owners)) + " 人 / 证据暂缓 "
             + str(len(evidence_skipped)) + " 项 / 证据不可用 "
             + str(len(evidence_unavailable)) + " 人 / 失败 " + str(len(failed)) + " 人"

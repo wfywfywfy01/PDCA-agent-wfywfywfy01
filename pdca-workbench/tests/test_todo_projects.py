@@ -13,8 +13,131 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.pdca_task import PdcaTask
 from app.models.todo_project import TodoProject
-from app.todos.projects import PROJECT_RULES, ensure_projects, match_project
-from app.todos.service import run_todo_reminders
+from app.models.im_replies import ImRemindSend  # noqa: F401 — 保证 create_all 建 im_remind_sends 表
+from app.todos.projects import (
+    PROJECT_RULES,
+    auto_close_meeting_projects,
+    ensure_meeting_project,
+    ensure_projects,
+    match_project,
+    normalize_meeting_topic,
+)
+from app.todos.service import build_project_message, run_todo_reminders
+
+
+class MeetingTopicTests(unittest.TestCase):
+    def test_normalize_meeting_topic(self):
+        self.assertEqual(
+            normalize_meeting_topic("2026-08-17 越南门店与代理策略同步会"),
+            "越南门店与代理策略",
+        )
+        self.assertEqual(
+            normalize_meeting_topic("2026-08-17 海外业绩复盘与规则化推进会议"),
+            "海外业绩复盘与规则化推进",
+        )
+        self.assertEqual(
+            normalize_meeting_topic("Virtue and Landmark 第一次会议(杨晶晶&何海文)"),
+            "Virtue and Landmark",
+        )
+        self.assertEqual(
+            normalize_meeting_topic("2026-08-19 多区域业务进展与收款跟进"),
+            "多区域业务进展与收款",
+        )
+        self.assertEqual(
+            normalize_meeting_topic("Sales Target Tracking, Regional Project Proposals, and Contract Closed-Loop Management Meeting"),
+            "Sales Target Tracking, Regional Project Proposals, and Contract Closed-Loop Management",
+        )
+        # 无日期前缀/无后缀的原文保持
+        self.assertEqual(
+            normalize_meeting_topic("汽车改装项目设计方案与出海合作路径研讨"),
+            "汽车改装项目设计方案与出海合作路径",
+        )
+        # 归一化后为空 → 回退去日期原文（避免项目名为空）
+        self.assertEqual(normalize_meeting_topic("2026-08-20 会"), "会")
+        self.assertEqual(normalize_meeting_topic(""), "")
+
+    def test_meeting_project_stable_key_and_kind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'm.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    p1 = ensure_meeting_project(session, "2026-08-17 越南门店与代理策略同步会")
+                    p2 = ensure_meeting_project(session, "2026-08-25 越南门店与代理策略同步会")
+                    self.assertIsNotNone(p1)
+                    self.assertEqual(p1.id, p2.id)  # 同主题合并
+                    self.assertEqual(p1.kind, "meeting")
+                    self.assertEqual(p1.name, "越南门店与代理策略")
+                    self.assertIsNone(ensure_meeting_project(session, ""))
+                    # 超长主题：显示名截短到 40，key 仍按完整主题（不误合并）
+                    long_name = "2026-08-25 " + "海外渠道拓展与经销商网络建设专项" * 3 + "推进会"
+                    p3 = ensure_meeting_project(session, long_name)
+                    self.assertEqual(len(p3.name), 40)
+                    self.assertNotEqual(p3.key, p1.key)
+            finally:
+                engine.dispose()
+
+    def test_auto_close_and_members(self):
+        from app.todos.projects import refresh_meeting_project_members
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'c.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    p = ensure_meeting_project(session, "2026-08-17 越南门店与代理策略同步会")
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="事项A", owner="杨晶晶",
+                        status="done", project_id=p.id,
+                    ))
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="事项B", owner="刘春梅",
+                        status="pending", project_id=p.id,
+                    ))
+                    session.commit()
+                    self.assertEqual(auto_close_meeting_projects(session), 0)
+                    self.assertEqual(refresh_meeting_project_members(session), 1)
+                    session.flush()  # 先落库，refresh 才能看到成员刷新结果
+                    session.refresh(p)
+                    self.assertEqual(json.loads(p.executors), ["刘春梅", "杨晶晶"])
+                    # 全部完成 → 自动闭环
+                    for task in session.exec(select(PdcaTask)).all():
+                        task.status = "done"
+                        session.add(task)
+                    session.commit()
+                    self.assertEqual(auto_close_meeting_projects(session), 1)
+                    session.flush()
+                    session.refresh(p)
+                    self.assertEqual(p.status, "已闭环")
+                    # 重开：新待办挂入已闭环会议项目 → 跟进中，且不再被自动闭环
+                    p.status = "跟进中"
+                    session.add(p)
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="事项C", owner="杨晶晶",
+                        status="pending", project_id=p.id,
+                    ))
+                    session.commit()
+                    self.assertEqual(auto_close_meeting_projects(session), 0)
+            finally:
+                engine.dispose()
+
+    def test_build_project_message_card(self):
+        project = TodoProject(
+            key="mtg:test", name="越南门店与代理策略", kind="meeting",
+            status="跟进中", executors="[]", coordinator="",
+        )
+        body = build_project_message(
+            project, "杨晶晶",
+            [PdcaTask(task_date="2026-08-17", title="给大家写一封邮件", owner="杨晶晶", status="pending")],
+            today="2026-08-28", entry_url="https://example/app/",
+            evidence_checked=False,
+            open_total=5, done_total=3,
+        )
+        self.assertIn("【PDCA 项目待办】越南门店与代理策略", body)
+        self.assertIn("状态：跟进中", body)
+        self.assertIn("项目未完成 5 项（已完成 3 项）", body)
+        self.assertIn("你名下还有 1 项未完成", body)
+        self.assertIn("[逾期 2026-08-17] 给大家写一封邮件", body)
 
 
 class ProjectRuleTests(unittest.TestCase):
@@ -104,10 +227,11 @@ class ProjectReminderTests(unittest.TestCase):
         result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
         self.assertEqual(len(result["sent"]), 2)
         by_owner = {s["owner"]: s for s in result["sent"]}
-        self.assertEqual(by_owner["何海文"]["project"], "印度总代/独代谈判")
+        self.assertEqual(by_owner["何海文"]["projects"], ["印度总代/独代谈判"])
         self.assertEqual(by_owner["何海文"]["titles"], ["印度独代谈判：整理总代框架"])
         self.assertEqual(by_owner["杨晶晶"]["titles"], ["印度总代保证金条款确认"])
-        self.assertIn("你名下", by_owner["何海文"]["preview"])
+        self.assertIn("【PDCA 待办汇总】", by_owner["何海文"]["preview"])
+        self.assertIn("印度总代/独代谈判", by_owner["何海文"]["preview"])
 
     def test_project_closed_not_reminded(self):
         self._seed_vemory("印度独代谈判：整理总代框架")
@@ -150,6 +274,148 @@ class ProjectReminderTests(unittest.TestCase):
         person = [s for s in persons if s.get("owner") == "王宇彤"]
         self.assertEqual(len(person), 1)
         self.assertEqual(person[0]["titles"], ["让雨桐完成备货和标签相关准备"])
+
+
+class TodoTasksEndpointTests(unittest.TestCase):
+    """GET /api/todos/tasks 筛选逻辑（直接调 async 函数，绕过 HTTP）。"""
+
+    def test_list_tasks_filters(self):
+        import asyncio
+
+        from app.todos.router import list_tasks
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 't.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    p = ensure_meeting_project(session, "2026-08-17 越南门店与代理策略同步会")
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="项目内事项", owner="杨晶晶",
+                        status="pending", project_id=p.id,
+                    ))
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="散单事项", owner="刘春梅",
+                        status="pending",
+                    ))
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="已完成事项", owner="杨晶晶",
+                        status="done", project_id=p.id,
+                    ))
+                    session.commit()
+                    pid = p.id
+                with patch("app.database.get_engine", return_value=engine):
+                    by_project = asyncio.run(
+                        list_tasks(project_id=pid, unassigned=False, open_only=True, user=None)
+                    )
+                    self.assertEqual([t["title"] for t in by_project], ["项目内事项"])
+                    solo = asyncio.run(
+                        list_tasks(project_id=None, unassigned=True, open_only=True, user=None)
+                    )
+                    self.assertEqual([t["title"] for t in solo], ["散单事项"])
+                    all_open = asyncio.run(
+                        list_tasks(project_id=None, unassigned=False, open_only=True, user=None)
+                    )
+                    self.assertEqual(len(all_open), 2)  # 已完成被过滤
+            finally:
+                engine.dispose()
+
+    def test_task_create_update_delete_and_overview(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+
+        from app.todos.router import (
+            TaskCreateRequest,
+            TaskUpdateRequest,
+            create_task,
+            delete_task,
+            todo_overview,
+            update_task,
+        )
+
+        req = NS(client=NS(host="t"))
+        usr = NS(username="test")
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'm.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    p = ensure_meeting_project(session, "2026-08-17 越南门店与代理策略同步会")
+                    session.commit()
+                    pid = p.id
+                with patch("app.database.get_engine", return_value=engine), patch(
+                    "app.todos.router.log_action", return_value=None
+                ):
+                    # 新增（挂项目）
+                    created = asyncio.run(
+                        create_task(
+                            TaskCreateRequest(
+                                title="新待办", owner="杨晶晶",
+                                task_date="2026-09-10", project_id=pid,
+                            ),
+                            req, usr,
+                        )
+                    )
+                    task_id = created["id"]
+                    # 改状态/日期/负责人
+                    updated = asyncio.run(
+                        update_task(
+                            task_id,
+                            TaskUpdateRequest(status="done", task_date="2026-09-11", owner="付汪阳"),
+                            req, usr,
+                        )
+                    )
+                    self.assertEqual(updated["status"], "done")
+                    self.assertEqual(updated["task_date"], "2026-09-11")
+                    self.assertEqual(updated["owner"], "付汪阳")
+                    # 摘出散单
+                    moved = asyncio.run(
+                        update_task(task_id, TaskUpdateRequest(project_id=None), req, usr)
+                    )
+                    self.assertIsNone(moved["project_id"])
+                    # 非法日期拒绝
+                    with self.assertRaises(Exception):
+                        asyncio.run(
+                            update_task(
+                                task_id,
+                                TaskUpdateRequest(task_date="2026-9-1"),
+                                req, usr,
+                            )
+                        )
+                    # 删除
+                    deleted = asyncio.run(delete_task(task_id, req, usr))
+                    self.assertTrue(deleted["ok"])
+                    # 总览 KPI
+                    overview = asyncio.run(todo_overview(user=usr))
+                    self.assertIn("overdue_tasks", overview)
+                    self.assertEqual(overview["open_tasks"], 0)
+            finally:
+                engine.dispose()
+
+    def test_export_csv(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+
+        from app.todos.router import export_tasks_csv
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'e.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    session.add(PdcaTask(
+                        task_date="2026-08-17", title="导出事项", owner="杨晶晶",
+                        status="pending",
+                    ))
+                    session.commit()
+                with patch("app.database.get_engine", return_value=engine):
+                    response = asyncio.run(export_tasks_csv(open_only=True, user=None))
+                    content = response.body.decode("utf-8")
+                    self.assertTrue(content.startswith("\ufeff"))
+                    self.assertIn("导出事项", content)
+                    self.assertIn("pdca-todos.csv", response.headers["content-disposition"])
+            finally:
+                engine.dispose()
 
 
 if __name__ == "__main__":

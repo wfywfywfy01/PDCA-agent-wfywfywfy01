@@ -273,6 +273,27 @@ def todo_remind_job(round_label: str) -> None:
         notify("待办催办失败", str(exc)[:300])
 
 
+def todo_group_notice_job() -> None:
+    """09:00 — 待办群知会：把当天认领清单发到工作大群（不落库、不改状态）。"""
+    from app.todos.service import send_group_notice, today_text
+
+    logger.info("待办群知会开始")
+    try:
+        result = send_group_notice(today_text(), dry_run=False)
+        if result.get("sent"):
+            logger.info(
+                "待办群知会完成: {} 人 {} 项（via={}）",
+                result.get("owners"),
+                result.get("tasks"),
+                result.get("via"),
+            )
+        else:
+            logger.warning("待办群知会未发送: {}", result.get("reason") or "未知原因")
+    except Exception as exc:
+        logger.exception("待办群知会异常: {}", exc)
+        notify("待办群知会失败", str(exc)[:300])
+
+
 def vemory_todo_sync_job() -> None:
     """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
 
@@ -447,6 +468,27 @@ def start_scheduler() -> BackgroundScheduler | None:
         max_instances=1,
         coalesce=True,
     )
+
+    # 09:00 — 待办群知会：把当天待办认领清单发到工作大群（早于 09:30 私聊轮）。
+    if settings.todo_group_notice_enabled and settings.todo_group_channel_id:
+        from app.todos.service import round_label_for_time as _round_label
+
+        try:
+            hour_text, minute_text = settings.todo_group_notice_time.split(":", 1)
+            notice_hour = int(hour_text)
+            notice_minute = int(minute_text)
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法群知会时间: {}", settings.todo_group_notice_time)
+        else:
+            _scheduler.add_job(
+                todo_group_notice_job,
+                trigger="cron",
+                hour=notice_hour,
+                minute=notice_minute,
+                id="todo_group_notice",
+                max_instances=1,
+                coalesce=True,
+            )
 
     # 工作时段每 30 分钟 — IM 回复采集（完成/推进/阻塞 → 状态变更）
     _scheduler.add_job(

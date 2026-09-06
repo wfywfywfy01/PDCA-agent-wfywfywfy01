@@ -37,6 +37,7 @@ from app.todos.router import router as todos_router
 from app.walkin.router import router as walkin_router
 from app.acquisition.router import router as acquisition_router
 from app.knowledge.router import router as knowledge_router
+from app.knowledge.mcp import knowledge_mcp, knowledge_mcp_app
 
 PUBLIC_PATHS = {
     "/login",
@@ -104,8 +105,11 @@ async def lifespan(app: FastAPI):
         settings.mvp_root,
         settings.auth_mode,
     )
-    yield
-    stop_scheduler()
+    try:
+        async with knowledge_mcp.session_manager.run():
+            yield
+    finally:
+        stop_scheduler()
     logger.info("PDCA 工作台已关闭")
 
 
@@ -186,7 +190,12 @@ async def auth_redirect_middleware(request: Request, call_next):
     path = request.url.path
     # /app/* 为 Vue3 SPA（含静态资源与客户端路由），公开托管；
     # SPA 数据面走 /api/* 鉴权，未登录由 SPA 内部跳转其登录页。
-    if path in PUBLIC_PATHS or path.startswith("/shared/") or path.startswith("/app/"):
+    if (
+        path in PUBLIC_PATHS
+        or path.startswith("/shared/")
+        or path.startswith("/app/")
+        or path.startswith("/mcp")
+    ):
         return await call_next(request)
     if path.startswith("/api/") and path != "/api/auth/login":
         return await call_next(request)
@@ -290,6 +299,7 @@ app.include_router(admin_router)
 app.include_router(export_router)
 app.include_router(pages_router)
 app.include_router(spa_router)
+app.mount("/mcp", knowledge_mcp_app)
 
 
 @app.get("/health")
