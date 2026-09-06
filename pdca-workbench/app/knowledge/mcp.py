@@ -1,7 +1,8 @@
 """Authenticated MCP tools for dealer knowledge retrieval."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, contextmanager
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -88,6 +89,31 @@ def _build_server() -> FastMCP:
 
 knowledge_mcp = _build_server()
 knowledge_mcp_app = knowledge_mcp.streamable_http_app()
+
+# ── session manager 幂等守卫（同一进程内可多次启动应用）───────────────────────
+# 库约束：一个 StreamableHTTPSessionManager 实例只能 run() 一次（fastmcp 的
+# streamable_http_app 自带 lifespan 也会调 run()）。生产 uvicorn 只运行根应用
+# lifespan（main.py 调 run()），行为不变；但测试进程里可能先启动 /mcp 子应用
+# （test_knowledge_mcp）再启动主应用，第二次 run() 会抛
+# "can only be called once"。守卫语义：
+#   - 已有活动实例（嵌套 lifespan）→ 让位，共享同一次启动；
+#   - 前一次已退出 → 重置库私有标志后重新启动（仅测试进程内多实例场景）。
+_original_run = knowledge_mcp.session_manager.run
+
+
+@asynccontextmanager
+async def _guarded_run() -> AsyncIterator[None]:
+    manager = knowledge_mcp.session_manager
+    if getattr(manager, "_has_started", False):
+        if getattr(manager, "_task_group", None) is not None:
+            yield
+            return
+        manager._has_started = False
+    async with _original_run():
+        yield
+
+
+knowledge_mcp.session_manager.run = _guarded_run  # type: ignore[method-assign]
 
 
 @contextmanager
