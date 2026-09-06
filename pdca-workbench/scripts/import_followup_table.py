@@ -30,6 +30,7 @@ from sqlmodel import Session, select  # noqa: E402
 from app.database import check_db_connection, get_engine, init_db  # noqa: E402
 from app.models.pdca_task import PdcaTask  # noqa: E402
 from app.models.todo_project import TodoProject  # noqa: E402
+from app.statuses import is_done as _status_is_done  # noqa: E402
 
 SOURCE_TAG = "followup-table"
 DATA_FILE = ROOT / "scripts" / "sept_followup_table.json"
@@ -44,12 +45,20 @@ PROJECT_COORDINATORS = {
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="只统计，不改库")
+    parser.add_argument("--input", default=str(DATA_FILE), help="跟进表 JSON 路径")
+    parser.add_argument(
+        "--close-missing",
+        action="store_true",
+        help="把不在本次清单中的 followup-table 未完成待办置为 done"
+        "（跟进表为最新事实源：从表里消失 = 闭环）",
+    )
     args = parser.parse_args()
 
-    if not DATA_FILE.exists():
-        print(f"数据文件不存在: {DATA_FILE}")
+    data_file = Path(args.input)
+    if not data_file.exists():
+        print(f"数据文件不存在: {data_file}")
         return 1
-    payload = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    payload = json.loads(data_file.read_text(encoding="utf-8"))
     specs = payload["projects"]
     items = payload["items"]
 
@@ -141,6 +150,26 @@ def main() -> int:
                         tasks_updated += 1
                     by_owner[owner] += 1
 
+        # 最新事实源：不在本次清单中的 followup-table 未完成待办 → 闭环
+        closed_missing = 0
+        if args.close_missing:
+            wanted: set[tuple] = set()
+            for section_key, section_items in items.items():
+                for item in section_items:
+                    title = item["title"]
+                    for owner in item.get("owners") or []:
+                        wanted.add((title, owner))
+            for row in session.exec(
+                select(PdcaTask).where(PdcaTask.source == SOURCE_TAG)
+            ).all():
+                if (row.title, row.owner) not in wanted and not _status_is_done(
+                    row.status
+                ):
+                    row.status = "done"
+                    row.reply_text = "跟进表移除（最新事实源闭环）"
+                    session.add(row)
+                    closed_missing += 1
+
         # 项目成员（executors 展示用）
         owners_by_project: dict[int, set] = defaultdict(set)
         for row in session.exec(
@@ -169,6 +198,8 @@ def main() -> int:
         f"（共 {total_groups} 组、按人拆分 {sum(by_owner.values())} 条、"
         f"无负责人跳过 {skipped_no_owner} 条）"
     )
+    if args.close_missing:
+        print(f"事实源闭环：表内消失的旧待办置 done {closed_missing} 条")
     print("按负责人分布：")
     for name, count in sorted(by_owner.items(), key=lambda kv: -kv[1]):
         print(f"  {count:3d}  {name}")
