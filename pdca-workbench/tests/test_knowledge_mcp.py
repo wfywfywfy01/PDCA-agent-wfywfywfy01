@@ -60,6 +60,19 @@ class KnowledgeMcpTests(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
 
+    def test_session_manager_survives_multiple_app_startups(self):
+        """回归：同一测试进程内先后启动 /mcp 子应用与主应用，manager 不因二次 run() 崩溃。"""
+        from app.main import app as main_app
+
+        with TestClient(knowledge_mcp_app) as sub:
+            self.assertIsNotNone(sub)
+        with TestClient(main_app) as main:
+            res = main.get("/health")
+        self.assertEqual(res.status_code, 200)
+        # 守卫的重置语义：主应用退出后，子应用仍可独立重启
+        with TestClient(knowledge_mcp_app) as sub_again:
+            self.assertIsNotNone(sub_again)
+
     def test_transport_requires_auth_and_lists_tools_for_valid_token(self):
         token = create_access_token(
             {"sub": "viki", "role": "sales", "pwd_v": 2},
