@@ -216,9 +216,22 @@ function Read-OptionalDotEnvValue {
 }
 
 function Get-AgentCredential {
-    $lines = & vertu-cli agent env --app-id cursor --shell powershell 2>&1
+    # 优先取当前会话的默认 Agent 绑定（不带 --app-id），失败再回退 cursor；
+    # app_id 从输出里解析出来透传给容器。
+    $lines = & vertu-cli agent env --shell powershell 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $lines = & vertu-cli agent env --app-id cursor --shell powershell 2>&1
+    }
     if ($LASTEXITCODE -ne 0) { throw "vertu-cli agent env failed" }
     $text = $lines -join "`n"
+    $appMatch = [regex]::Match(
+        $text, "(?m)^\`$env:VERTU_APP_ID='((?:''|[^'])*)'\s*$"
+    )
+    $script:AgentAppId = if ($appMatch.Success) {
+        $appMatch.Groups[1].Value.Replace("''", "'")
+    } else {
+        "cursor"
+    }
     $result = @{}
     foreach ($name in @("VERTU_APP_KEY", "VERTU_USER_LOGIN")) {
         $match = [regex]::Match(
@@ -353,7 +366,7 @@ function Start-PdcaContainer {
         "-e", "VERTU_COMMAND=vertu-cli",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
-        "-e", "VERTU_APP_ID=cursor"
+        "-e", "VERTU_APP_ID=$($script:AgentAppId)"
     )
     # P1/P5：可选业务开关从 .env 透传（未配置则保持默认行为）
     foreach ($envName in @(
