@@ -312,10 +312,15 @@ class ProductionHardeningTests(unittest.TestCase):
         self.assertNotIn(b"pdca_backup_fresh", response.body)
 
     def test_auth_config_exposes_portal_mode(self):
-        with TestClient(app) as client:
+        # 不用 TestClient 上下文管理器：main 的 /mcp 子应用与主应用合并 lifespan 时
+        # session_manager.run() 会二次调用报错；本测试只验证公开路由，无需启动应用。
+        client = TestClient(app)
+        try:
             res = client.get("/api/auth/config")
-        self.assertEqual(res.status_code, 200)
-        self.assertIn("portal_mode", res.json())
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("portal_mode", res.json())
+        finally:
+            client.close()
 
     def test_dealer_is_denied_on_internal_workbench(self):
         from app.auth.deps import ensure_portal_access
