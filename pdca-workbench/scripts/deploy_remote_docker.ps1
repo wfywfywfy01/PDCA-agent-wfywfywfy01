@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Sha = "",
     [string]$DockerHost = "",
@@ -486,16 +486,29 @@ Write-Output "Preparing immutable release directory for $Sha"
 # git 的进度信息写在 stderr，在 $ErrorActionPreference=Stop 下会被 PS 5.1
 # 当成致命错误（2>$null 也拦不住），经 cmd /c 包一层彻底隔离 stderr。
 & cmd /c "git -C ""$RepoRoot"" fetch --no-tags origin $Sha 2>nul"
-if ($LASTEXITCODE -ne 0) { throw "git fetch failed for $Sha" }
 $archive = Join-Path $env:TEMP "pdca-release-$Sha.tar"
+$archiveIsGzip = $false
 try {
-    & cmd /c "git -C ""$RepoRoot"" archive --format=tar --output=""$archive"" $Sha 2>nul"
-    if ($LASTEXITCODE -ne 0) { throw "git archive failed for $Sha" }
+    if ($LASTEXITCODE -eq 0) {
+        & cmd /c "git -C ""$RepoRoot"" archive --format=tar --output=""$archive"" $Sha 2>nul"
+        if ($LASTEXITCODE -ne 0) { throw "git archive failed for $Sha" }
+    } else {
+        Write-Warning "git fetch failed; downloading the same immutable commit from GitHub codeload"
+        $archive = Join-Path $env:TEMP "pdca-release-$Sha.tar.gz"
+        Invoke-WebRequest -Uri "https://codeload.github.com/$CiRepo/tar.gz/$Sha" `
+            -OutFile $archive -UseBasicParsing -TimeoutSec 180
+        $archiveIsGzip = $true
+    }
+    $extractCommand = if ($archiveIsGzip) {
+        "tar -xzf /tmp/release.tar -C '/releases/$Sha' --strip-components=1"
+    } else {
+        "tar -xf /tmp/release.tar -C '/releases/$Sha'"
+    }
     $helperArgs = @(
         "create", "--entrypoint", "sh",
         "-v", "/opt/PDCA-releases:/releases",
         $HelperImage, "-lc",
-        "set -eu; mkdir -p '/releases/$Sha'; tar -xf /tmp/release.tar -C '/releases/$Sha'; printf '%s\n' '$Sha' > '/releases/$Sha/.pdca-release'"
+        "set -eu; mkdir -p '/releases/$Sha'; $extractCommand; printf '%s\n' '$Sha' > '/releases/$Sha/.pdca-release'"
     )
     $helper = (Invoke-Docker -DockerArgs $helperArgs).Trim()
     try {
