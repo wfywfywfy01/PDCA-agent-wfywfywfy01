@@ -277,6 +277,7 @@ var vpsData = null;
 var activationData = null;
 var loadSeq = 0;
 var currentFilter = 'all';
+var portalMode = 'workbench'; // 由 /api/auth/config 注入；walkin 门户不展示 VPS 面板
 
 // ── 期间工具 ────────────────────────────────────────────────────────────────
 function _fmt(d){var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+dd}
@@ -322,14 +323,19 @@ function setFilter(f){
 }
 
 // ── 认证 + 门店列表 ─────────────────────────────────────────────────────────
-fetch('/api/auth/me',{credentials:'include'})
+fetch('/api/auth/config',{credentials:'include'})
   .then(function(r){return r.ok?r.json():null})
-  .then(function(me){
-    if(!me){location.href='/login?next=/store-five-kit/';return}
-    if(me.role==='viewer'){document.getElementById('entryBtn').style.display='none'}
-    return fetch('/api/my-stores',{credentials:'include'})
-      .then(function(r){return r.ok?r.json():[]})
-      .then(function(s){storeList=s;load()})
+  .then(function(cfg){
+    if(cfg&&cfg.portal_mode==='walkin')portalMode='walkin';
+    return fetch('/api/auth/me',{credentials:'include'})
+      .then(function(r){return r.ok?r.json():null})
+      .then(function(me){
+        if(!me){location.href='/login?next=/store-five-kit/';return}
+        if(me.role==='viewer'){document.getElementById('entryBtn').style.display='none'}
+        return fetch('/api/my-stores',{credentials:'include'})
+          .then(function(r){return r.ok?r.json():[]})
+          .then(function(s){storeList=s;load()})
+      })
   })
   .catch(function(){showError('无法连接服务，请刷新重试')});
 
@@ -347,10 +353,16 @@ function load(){
 
   var p1=fetch('/api/walkin-metrics/summary?'+qs,{credentials:'include',cache:'no-store'})
     .then(function(r){return r.ok?r.json():null}).catch(function(){return null});
-  var p2=fetch('/api/vps/dealer-sales?'+qs,{credentials:'include',cache:'no-store'})
-    .then(function(r){return r.ok?r.json():null}).catch(function(){return null});
-  var p3=fetch('/api/vps/dealer-activation',{credentials:'include',cache:'no-store'})
-    .then(function(r){return r.ok?r.json():null}).catch(function(){return null});
+  // walkin 门户不依赖 vertu-cli：跳过必然失败的 VPS 请求，面板显示降级提示。
+  var vpsOk=portalMode!=='walkin';
+  var p2=vpsOk
+    ? fetch('/api/vps/dealer-sales?'+qs,{credentials:'include',cache:'no-store'})
+      .then(function(r){return r.ok?r.json():null}).catch(function(){return null})
+    : Promise.resolve({unavailable:true});
+  var p3=vpsOk
+    ? fetch('/api/vps/dealer-activation',{credentials:'include',cache:'no-store'})
+      .then(function(r){return r.ok?r.json():null}).catch(function(){return null})
+    : Promise.resolve({unavailable:true,available:false,detail:'本门户不提供激活数据 · 请使用内部工作台'});
 
   Promise.all([p1,p2]).then(function(res){
     if(requestSeq!==loadSeq)return;
@@ -411,7 +423,11 @@ function renderAll(range){
     document.getElementById('k-activated-sub').textContent=act.detail||'激活设备数据暂时不可用';
   }
 
-  if(vps||actUsable){
+  if(vps&&vps.unavailable){
+    var badge=document.getElementById('vpsBadge');
+    badge.style.display='';
+    badge.textContent='本门户不提供 VPS 数据 · 请使用内部工作台';
+  }else if(vps||actUsable){
     var badge=document.getElementById('vpsBadge');
     badge.style.display='';
     badge.textContent=(range?range.label:'')+(act&&act.stale?' · 激活数据为缓存':' · VPS 数据');

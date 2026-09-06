@@ -179,13 +179,15 @@ class ChangePasswordRequest(BaseModel):
 
 @router.get("/config")
 async def auth_config():
-    """公开：前端判断 local / vps / hybrid 认证模式。"""
+    """公开：前端判断 local / vps / hybrid 认证模式与部署形态。"""
     settings = get_settings()
     return {
         "auth_mode": settings.auth_mode,
         "vps_login_url": settings.vps_login_url,
         "trust_proxy_headers": settings.trust_proxy_headers,
         "default_next": "/",
+        # walkin 门户前端据此隐藏依赖 vertu-cli 的 VPS 数据面板。
+        "portal_mode": settings.portal_mode,
     }
 
 
