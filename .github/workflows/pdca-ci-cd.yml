@@ -64,6 +64,24 @@ jobs:
       - name: Verify dependency consistency
         run: python -m pip check
 
+      - name: Set up Node.js for browser regressions
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Build and check the web application
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
+          npm run build
+
+      - name: Install Chromium for offline browser regressions
+        run: python -m playwright install --with-deps chromium
+
       - name: Run unit tests
         run: python -m unittest discover -s tests -p "test_*.py" -q
 

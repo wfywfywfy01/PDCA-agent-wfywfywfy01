@@ -17,7 +17,10 @@ from app.auth.odoo_login_map import should_refuse_odoo_sso_create
 from app.auth.odoo_sso import identity_from_odoo_session, parse_odoo_ticket, resolve_odoo_sso_secret
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
-from app.auth.security import create_access_token, hash_password, revoke_token, verify_password
+from app.auth.security import (
+    KNOWLEDGE_REAUTH_COOKIE, create_access_token, hash_password,
+    request_access_token, revoke_token, verify_password,
+)
 from app.auth.vps_identity import (
     ensure_vps_user,
     fetch_vps_me_payload,
@@ -443,18 +446,20 @@ async def logout(
 ):
     settings = get_settings()
 
-    token = pdca_token
-    if not token:
-        auth = request.headers.get("authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[len("Bearer ") :]
-    if token:
-        revoke_token(token)
+    for token in {
+        pdca_token, request_access_token(request),
+        request.cookies.get(KNOWLEDGE_REAUTH_COOKIE),
+    }:
+        if token:
+            revoke_token(token)
 
     response.delete_cookie(
         "pdca_token",
         secure=settings.secure_cookies,
         samesite="lax",
+    )
+    response.delete_cookie(
+        KNOWLEDGE_REAUTH_COOKIE, secure=settings.secure_cookies, samesite="strict",
     )
     return {"ok": True}
 

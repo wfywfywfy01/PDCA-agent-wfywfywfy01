@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from loguru import logger
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.auth.models import User
@@ -191,6 +192,9 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
     }.get(role, "none")
 
     user = session.exec(select(User).where(User.username == username)).first()
+    if user is not None and not user.is_active:
+        # SSO proves identity, but cannot undo a local administrator's ban.
+        raise HTTPException(status_code=403, detail="账号已停用")
     if not user:
         user = User(
             username=username,
@@ -205,8 +209,6 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
             is_active=True,
         )
     else:
-        if not user.is_active:
-            raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
         user.display_name = name
         if _sync_role_enabled():
             user.role = role

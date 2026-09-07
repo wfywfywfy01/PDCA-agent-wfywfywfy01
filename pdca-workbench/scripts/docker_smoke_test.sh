@@ -130,6 +130,7 @@ PY
 
 # Exercise the real auth lifecycle and representative writable business paths.
 login_json="$(docker exec "$CONTAINER_NAME" curl -fsS -c /tmp/pdca-cookie \
+  -H 'Origin: http://127.0.0.1:8767' \
   -H 'Content-Type: application/json' \
   --data '{"username":"smoke-admin","password":"SmokeAdmin123!"}' \
   http://127.0.0.1:8767/api/auth/login)"
@@ -140,6 +141,7 @@ assert payload["must_change_password"] is True
 PY
 
 docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie -c /tmp/pdca-cookie \
+  -H 'Origin: http://127.0.0.1:8767' \
   -H 'Content-Type: application/json' \
   --data '{"old_password":"SmokeAdmin123!","new_password":"SmokeAdmin456!"}' \
   http://127.0.0.1:8767/api/auth/change-password >/dev/null
@@ -147,16 +149,19 @@ docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie -c /tmp/pdca-cookie 
 docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
   "http://127.0.0.1:8767/questionnaire?date=$SMOKE_DATE" >/dev/null
 questionnaire_status="$(docker exec "$CONTAINER_NAME" curl -sS -o /dev/null -w '%{http_code}' \
+  -H 'Origin: http://127.0.0.1:8767' \
   -b /tmp/pdca-cookie --data-urlencode 'q0=smoke answer' \
   "http://127.0.0.1:8767/questionnaire?date=$SMOKE_DATE")"
 test "$questionnaire_status" = "303"
 docker exec "$CONTAINER_NAME" test -s "/mvp/inputs/questionnaires/${SMOKE_DATE}_questionnaire.md"
 
 docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
+  -H 'Origin: http://127.0.0.1:8767' \
   -H 'Content-Type: application/json' \
   --data '{"store_id":"smoke-store","name":"Smoke Store","region":"其他","country":"Test","dealer_level":"L1","team_key":"overseas"}' \
   http://127.0.0.1:8767/api/admin/stores >/dev/null
 docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
+  -H 'Origin: http://127.0.0.1:8767' \
   -H 'Content-Type: application/json' \
   --data "{\"report_date\":\"$SMOKE_DATE\",\"dealer_id\":\"smoke-store\",\"dealer_name\":\"Smoke Store\",\"walkin_visits\":3,\"touch_count\":2,\"wechat_add_count\":1,\"deal_count\":1,\"deal_amount_yuan\":100}" \
   http://127.0.0.1:8767/api/walkin-metrics >/dev/null

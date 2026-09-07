@@ -16,6 +16,7 @@ from loguru import logger
 from app.admin.router import router as admin_router
 from app.auth.router import router as auth_router
 from app.auth.seed import seed_users
+from app.auth.csrf import browser_write_is_trusted
 from app.config import get_settings
 from app.dashboard.router import router as dashboard_router
 from app.database import bootstrap_database, check_db_connection, get_db_mode
@@ -141,7 +142,8 @@ app.add_middleware(
 def _apply_security_headers(request: Request, response):
     """为正常响应及中间件提前返回统一补齐浏览器安全头。"""
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    # Native form POSTs need a same-origin source for CSRF checks; never send it cross-origin.
+    response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = (
         "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     )
@@ -193,6 +195,10 @@ async def metrics_middleware(request: Request, call_next):
 @app.middleware("http")
 async def auth_redirect_middleware(request: Request, call_next):
     """未登录访问页面时跳转登录（API 返回 401）。"""
+    if not browser_write_is_trusted(request):
+        return _apply_security_headers(
+            request, JSONResponse({"detail": "写请求来源不可信，请从本站页面重试"}, status_code=403)
+        )
     path = request.url.path
     # /app/* 为 Vue3 SPA（含静态资源与客户端路由），公开托管；
     # SPA 数据面走 /api/* 鉴权，未登录由 SPA 内部跳转其登录页。
@@ -218,9 +224,12 @@ async def auth_redirect_middleware(request: Request, call_next):
         from app.database import get_engine
 
         with DbSession(get_engine()) as db:
-            return _apply_security_headers(
-                request, await redirect_from_odoo_query_session(request, db)
-            )
+            try:
+                response = await redirect_from_odoo_query_session(request, db)
+            except StarletteHTTPException as exc:
+                response = await http_exception_handler(request, exc)
+            response.headers["Cache-Control"] = "no-store"
+            return _apply_security_headers(request, response)
     # vps/hybrid：页面放行，由路由 Depends(get_current_user) 鉴权
     if settings.auth_mode in ("vps", "hybrid"):
         return await call_next(request)

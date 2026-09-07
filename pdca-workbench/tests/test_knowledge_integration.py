@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -15,7 +16,7 @@ from sqlalchemy import inspect
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
-from app.auth.security import hash_password
+from app.auth.security import create_access_token, hash_password
 from app.admin.router import StoreCreateBody, StoreUpdateBody, create_store, update_store
 from app.knowledge.client import _service_token, scoped_dealers
 from app.knowledge.router import (
@@ -274,6 +275,7 @@ class KnowledgeIntegrationTests(unittest.TestCase):
             state=SimpleNamespace(request_id="test-request"),
             client=SimpleNamespace(host="127.0.0.1"),
             headers={},
+            cookies={},
         )
         body = ExportBody(
             asset_id=uuid4(), reason="customer contract review", confirmation="export-original"
@@ -296,6 +298,9 @@ class KnowledgeIntegrationTests(unittest.TestCase):
                 patch("app.knowledge.router.log_action"),
                 patch("app.auth.router._clear_fail"),
             ):
+                request.cookies["pdca_token"] = create_access_token(
+                    {"sub": admin.username, "pwd_v": admin.pwd_version}, timedelta(minutes=5)
+                )
                 payload = asyncio.run(reauthenticate_original_export(
                     ReauthBody(password="Correct-password-123"), request, response, admin, session
                 ))

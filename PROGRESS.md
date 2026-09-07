@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-09-07: Knowledge access security remediation
+
+- Preserve disabled SSO identities and invalidate sessions on deactivation.
+- Separate access and step-up JWT purposes; bind exports to the active login
+  and revoke step-up state on logout.
+- Validate browser write origins, retaining same-origin native forms through
+  a same-origin Referrer-Policy without allowing opaque/cross-site origins.
+- Use safe evidence rendering, version-pinned previews and the complete
+  reauthentication/grant/download protocol in the knowledge UI.
+- Verification before main integration: 59 focused offline backend tests,
+  three Chromium scenarios, Vue typecheck and isolated frontend build passed.
+  Independent review found no remaining runtime P1/P2 in the changed paths.
+- Companion datahub and production cutover remain separate release gates.
+
 ## 2026-09-03: Authenticated dealer knowledge MCP
 
 - Added a Streamable HTTP MCP endpoint at `/mcp/` to the PDCA workbench.

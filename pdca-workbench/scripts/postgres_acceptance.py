@@ -26,7 +26,7 @@ def main():
 
     @contextmanager
     def login(username, password, new_password=None):
-        with httpx.Client(base_url=base, timeout=20, trust_env=False) as client:
+        with httpx.Client(base_url=base, headers={"Origin": base}, timeout=20, trust_env=False) as client:
             response = client.post("/api/auth/login", json={"username": username, "password": password})
             response.raise_for_status()
             if response.json().get("must_change_password"):
@@ -35,6 +35,9 @@ def main():
             yield client
 
     with login("smoke-admin", os.environ.get("PDCA_ACCEPTANCE_ADMIN_PASSWORD", "SmokeAdmin123!"), "SmokeAdmin456!") as admin:
+        rejected = admin.post("/api/admin/stores", headers={"Origin": "https://cross-site.invalid"},
+                              json={"store_id": "must-not-be-created"})
+        assert rejected.status_code == 403, "Cross-origin cookie write was accepted"
         for owner in ("a", "b"):
             store = {"store_id": f"isolate-{owner}-{suffix}", "name": f"Isolated Store {owner} {suffix}",
                      "region": "其他", "country": "Test", "team_key": "isolated", "sales_owner": f"owner-{owner}-{suffix}"}

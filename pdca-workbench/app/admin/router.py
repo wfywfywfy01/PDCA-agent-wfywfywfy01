@@ -312,6 +312,8 @@ async def update_user(
     if body.sales_name is not None:
         target.sales_name = body.sales_name.strip()
     if body.is_active is not None:
+        if target.is_active and not body.is_active:
+            target.pwd_version = (target.pwd_version or 0) + 1
         target.is_active = body.is_active
     if body.dealer_id is not None:
         target.dealer_id = body.dealer_id.strip()
@@ -388,6 +390,8 @@ async def deactivate_user(
     target = session.exec(select(User).where(User.username == username)).first()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if target.is_active:
+        target.pwd_version = (target.pwd_version or 0) + 1
     target.is_active = False
     session.add(target)
     session.commit()
