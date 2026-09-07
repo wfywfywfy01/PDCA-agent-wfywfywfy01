@@ -76,7 +76,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
                 yield session
 
         app.dependency_overrides[get_session] = override_session
-        self.client = TestClient(app)
+        self.client = TestClient(app, headers={"Origin": "http://testserver"})
         self._seed_data()
 
     def tearDown(self):

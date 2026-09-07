@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from app.auth.models import ROLE_LEVELS, User
-from app.auth.security import decode_token, is_token_revoked
+from app.auth.security import decode_access_token, is_token_revoked
 from app.auth.vps_identity import (
     ensure_vps_user,
     fetch_vps_me_payload,
@@ -32,7 +32,7 @@ async def _user_from_jwt(
 ) -> User | None:
     if not token:
         return None
-    payload = decode_token(token)
+    payload = decode_access_token(token)
     if not payload or "sub" not in payload or is_token_revoked(payload):
         return None
     username = payload["sub"]

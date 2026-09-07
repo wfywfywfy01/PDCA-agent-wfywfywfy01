@@ -11,8 +11,18 @@ import time
 
 import bcrypt
 from jose import JWTError, jwt
+from starlette.requests import Request
 
 from app.config import get_settings
+
+KNOWLEDGE_REAUTH_COOKIE = "pdca_knowledge_reauth"
+
+
+def request_access_token(request: Request) -> str | None:
+    scheme, _, value = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() == "bearer" and value.strip():
+        return value.strip()
+    return request.cookies.get("pdca_token")
 
 
 
@@ -126,6 +136,12 @@ def decode_token(token: str) -> dict[str, Any] | None:
         return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except JWTError:
         return None
+
+
+def decode_access_token(token: str) -> dict[str, Any] | None:
+    """Step-up and other purpose-specific JWTs are never login credentials."""
+    payload = decode_token(token)
+    return payload if payload and "purpose" not in payload else None
 
 
 def revoke_token(token: str) -> bool:

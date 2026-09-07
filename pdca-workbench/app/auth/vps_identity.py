@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 from loguru import logger
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.auth.models import User
@@ -188,6 +189,9 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
     }.get(role, "none")
 
     user = session.exec(select(User).where(User.username == username)).first()
+    if user is not None and not user.is_active:
+        # SSO proves identity, but cannot undo a local administrator's ban.
+        raise HTTPException(status_code=403, detail="账号已停用")
     if not user:
         user = User(
             username=username,
@@ -213,7 +217,6 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
             user.team_key = team_key
         if not (getattr(user, "data_scope", "") or ""):
             user.data_scope = data_scope
-        user.is_active = True
 
     session.add(user)
     session.commit()

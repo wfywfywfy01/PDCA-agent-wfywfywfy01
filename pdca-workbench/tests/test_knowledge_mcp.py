@@ -109,7 +109,7 @@ class KnowledgeMcpTests(unittest.TestCase):
             patch("app.knowledge.mcp.get_engine", return_value=self.engine),
             patch("app.knowledge.mcp.is_token_revoked", return_value=False),
             patch(
-                "app.knowledge.mcp.decode_token",
+                "app.knowledge.mcp.decode_access_token",
                 return_value={"sub": "viki", "pwd_v": 1, "exp": 2_000_000_000},
             ),
         ):
