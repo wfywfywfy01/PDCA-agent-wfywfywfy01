@@ -36,7 +36,7 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
-    && npm install -g vertu-cli@2.1.10 @vertu-tech/vps-cli@0.1.12 --omit=optional \
+    && npm install -g vertu-cli@2.8.0 @vertu-tech/vps-cli@0.1.12 --omit=optional \
     && vertu-cli --version \
     && vertu --version
 
