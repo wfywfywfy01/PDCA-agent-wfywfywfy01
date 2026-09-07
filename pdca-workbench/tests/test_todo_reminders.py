@@ -59,6 +59,15 @@ class TodoReminderTests(unittest.TestCase):
         )
         self.mock_users = self.patch_users.start()
         self.patch_send.start()
+        # 日报证据接口默认离线（不访问真实网络；证据类单测自行覆盖）
+        # 顺带清掉跨模块进程缓存，避免前一模块的假语料泄漏进来
+        import app.todos.evidence as evidence_mod
+
+        evidence_mod._CORPUS_CACHE.clear()
+        self.patch_evidence = patch(
+            "app.todos.evidence.run_vertu_sync", return_value=(1, "", "offline")
+        )
+        self.patch_evidence.start()
         # 结果落盘不写真实 data/outbox
         self.patch_outbox = patch(
             "app.todos.service._write_outbox", lambda result: None
@@ -67,6 +76,7 @@ class TodoReminderTests(unittest.TestCase):
 
     def tearDown(self):
         self.patch_outbox.stop()
+        self.patch_evidence.stop()
         self.patch_send.stop()
         self.patch_users.stop()
         self.patch_engine.stop()

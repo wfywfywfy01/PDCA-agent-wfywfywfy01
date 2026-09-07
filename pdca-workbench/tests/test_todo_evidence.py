@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""日报证据匹配与催办集成单测（移植自 todo-tracker.mjs selfTest）。"""
+"""日报证据匹配与催办集成单测。"""
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta
@@ -10,12 +11,14 @@ from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine
 
+import app.todos.evidence as evidence_mod
 from app.models.pdca_task import PdcaTask
 from app.todos.evidence import (
     evidence_tokens,
-    fetch_report_text,
+    fetch_department_reports,
     has_followup,
     load_vps_user_map,
+    report_text_for,
 )
 from app.todos.service import run_todo_reminders
 
@@ -62,23 +65,39 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
             "app.todos.service.run_vertu_sync", return_value=(0, "", "")
         )
         self.mock_send = self.patch_send.start()
-        # 名单：何海文 → vps 14113
-        self.patch_vps_map = patch(
-            "app.todos.evidence.load_vemory_users",
-            return_value=[{"name": "何海文", "vemoryUserId": 109, "vpsUserId": 14113}],
-        )
-        self.patch_vps_map.start()
         self.patch_outbox = patch("app.todos.service._write_outbox", lambda result: None)
         self.patch_outbox.start()
+        evidence_mod._CORPUS_CACHE.clear()
 
     def tearDown(self):
         self.patch_outbox.stop()
-        self.patch_vps_map.stop()
         self.patch_send.stop()
         self.patch_users.stop()
         self.patch_engine.stop()
         self.engine.dispose()
         self.temp_dir.cleanup()
+
+    @staticmethod
+    def _daily_json(name="何海文", content="", user_id=14113):
+        return json.dumps(
+            {
+                "ok": True,
+                "query_scope": "all",
+                "count": 1,
+                "submissions": [
+                    {
+                        "user_id": user_id,
+                        "employee_name": name,
+                        "payload": {
+                            "today": [
+                                {"title": "例会", "content": content}
+                            ]
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
 
     def _seed_vemory(self, title, meeting_days_ago=3, owner="何海文"):
         today = datetime.now().strftime("%Y-%m-%d")
@@ -113,7 +132,11 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
         self._seed_vemory("催九六二零机器款项")  # 不命中项目词，走个人催办路径
         with patch(
             "app.todos.evidence.run_vertu_sync",
-            return_value=(0, "今日已处理九六二零款项，等待回款", ""),
+            return_value=(
+                0,
+                self._daily_json(content="今日已处理九六二零款项，等待回款"),
+                "",
+            ),
         ):
             result = run_todo_reminders(round_label="manual", force=True)
         self.assertEqual(result["sent"], [])
@@ -125,7 +148,11 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
         self._seed_vemory("催九六二零机器款项")
         with patch(
             "app.todos.evidence.run_vertu_sync",
-            return_value=(0, "今日处理门店日常沟通", ""),
+            return_value=(
+                0,
+                self._daily_json(content="今日处理门店日常沟通"),
+                "",
+            ),
         ):
             result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
         self.assertEqual(len(result["sent"]), 1)
@@ -144,15 +171,13 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
         self.assertIn("日报系统暂不可用", result["sent"][0].get("preview", ""))
 
     def test_vemory_unmapped_owner_still_sent(self):
-        # IM 可匹配但名单里无 VPS 映射（取不到日报）→ 照常催 + 标注
+        # 日报聚合结果里没有该负责人 → 取不到证据，照常催 + 标注
         self._seed_vemory("催九六二零机器款项")
-        self.patch_vps_map.stop()
         with patch(
-            "app.todos.evidence.load_vemory_users",
-            return_value=[{"name": "杨晶晶", "vmemoryUserId": 69, "vpsUserId": 13122}],
+            "app.todos.evidence.run_vertu_sync",
+            return_value=(0, self._daily_json(name="杨晶晶", content="无关"), ""),
         ):
             result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
-        self.patch_vps_map.start()
         self.assertEqual(len(result["sent"]), 1)
         self.assertEqual(len(result["evidence_unavailable"]), 1)
 
@@ -160,25 +185,26 @@ class EvidenceReminderIntegrationTests(unittest.TestCase):
         self._seed_plain("工作台手工待办")
         with patch(
             "app.todos.evidence.run_vertu_sync",
-            return_value=(0, "完全无关的日报", ""),
+            return_value=(0, self._daily_json(content="完全无关的日报"), ""),
         ):
             result = run_todo_reminders(round_label="manual", force=True, dry_run=True)
         self.assertEqual(len(result["sent"]), 1)
         self.assertEqual(result["sent"][0]["titles"], ["工作台手工待办"])
         self.assertIn("系统自动提醒", result["sent"][0].get("preview", ""))
 
-    def test_report_fetch_cached_per_user(self):
+    def test_report_fetch_once_per_run(self):
         self._seed_vemory("事项A")
         self._seed_vemory("事项B")
         calls = []
 
         def fake_report(args, timeout):
             calls.append(list(args))
-            return (0, "今日处理门店日常沟通", "")
+            return (0, self._daily_json(content="今日处理门店日常沟通"), "")
 
         with patch("app.todos.evidence.run_vertu_sync", side_effect=fake_report):
             run_todo_reminders(round_label="manual", force=True)
-        self.assertEqual(len(calls), 1)  # 同一个人只拉一次日报
+        # 窗口 7 天各拉一次，与任务条数无关（不再按人逐个拉取）
+        self.assertEqual(len(calls), 7)
 
 
 class ChannelsFallbackTests(unittest.TestCase):
@@ -254,6 +280,11 @@ class SelfSkipTests(unittest.TestCase):
             "app.todos.service.run_vertu_sync", return_value=(0, "", "")
         )
         self.mock_send = self.patch_send.start()
+        # 日报证据接口默认离线（不访问真实网络）
+        self.patch_evidence = patch(
+            "app.todos.evidence.run_vertu_sync", return_value=(1, "", "offline")
+        )
+        self.patch_evidence.start()
         self.patch_outbox = patch("app.todos.service._write_outbox", lambda result: None)
         self.patch_outbox.start()
 
@@ -262,6 +293,7 @@ class SelfSkipTests(unittest.TestCase):
 
         service_mod._SELF_USER_ID = None  # 防止单例缓存泄漏到其他测试类
         self.patch_outbox.stop()
+        self.patch_evidence.stop()
         self.patch_send.stop()
         self.patch_engine.stop()
         self.engine.dispose()
@@ -307,13 +339,51 @@ class SelfSkipTests(unittest.TestCase):
 
 
 class ReportFetchTests(unittest.TestCase):
-    def test_fetch_report_ok_and_failure(self):
-        cache = {}
-        with patch("app.todos.evidence.run_vertu_sync", return_value=(0, "日报正文", "")):
-            self.assertEqual(fetch_report_text(14113, "2026-08-15", "2026-08-21", cache), "日报正文")
-        cache2 = {}
+    """部门日报聚合拉取与姓名查文本。"""
+
+    def setUp(self):
+        evidence_mod._CORPUS_CACHE.clear()
+
+    @staticmethod
+    def _payload(name="何海文", content="日报正文"):
+        return json.dumps(
+            {
+                "ok": True,
+                "query_scope": "all",
+                "submissions": [
+                    {
+                        "user_id": 14113,
+                        "employee_name": name,
+                        "payload": {"today": [{"title": "例会", "content": content}]},
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    def test_fetch_department_reports_and_lookup(self):
+        with patch(
+            "app.todos.evidence.run_vertu_sync",
+            return_value=(0, self._payload(content="日报正文"), ""),
+        ):
+            corpus = fetch_department_reports(["2026-09-07"])
+        self.assertEqual(report_text_for("何海文", corpus), "例会\n日报正文")
+        self.assertIsNone(report_text_for("不存在的人", corpus))
+
+    def test_fetch_failure_returns_empty(self):
         with patch("app.todos.evidence.run_vertu_sync", return_value=(1, "", "err")):
-            self.assertIsNone(fetch_report_text(14113, "2026-08-15", "2026-08-21", cache2))
+            corpus = fetch_department_reports(["2026-09-08"])
+        self.assertEqual(corpus, {})
+
+    def test_unique_containment_lookup(self):
+        corpus = {"冯磊-1": {"user_id": 12545, "texts": ["abc"]}}
+        self.assertEqual(report_text_for("冯磊", corpus), "abc")
+        # 包含匹配不唯一时不猜
+        ambiguous = {
+            "张三分": {"user_id": 1, "texts": ["a"]},
+            "张三丰": {"user_id": 2, "texts": ["b"]},
+        }
+        self.assertIsNone(report_text_for("张三", ambiguous))
 
     def test_vps_user_map(self):
         with patch(

@@ -32,9 +32,10 @@ from app.models.pdca_task import PdcaTask
 from app.models.todo_project import TodoProject
 from app.todos.compose import compose_tasks
 from app.todos.evidence import (
-    fetch_report_text,
+    date_range,
+    fetch_department_reports,
     has_followup,
-    load_vps_user_map,
+    report_text_for,
     report_window_days,
 )
 from app.todos.projects import (
@@ -737,9 +738,8 @@ def run_todo_reminders(
     evidence_unavailable: list[dict] = []
     user_cache: dict[str, Optional[dict]] = {}
 
-    vps_map = load_vps_user_map()
-    report_cache: dict[int, Optional[str]] = {}
     report_start, report_end = report_window_days(today)
+    report_corpus = fetch_department_reports(date_range(report_start, report_end))
 
     skip_owners = {
         name.strip()
@@ -810,12 +810,7 @@ def run_todo_reminders(
         checked = False
         vemory_items = [t for t in items if t.source == "vemory"]
         if vemory_items:
-            vps_id = vps_map.get(owner)
-            report = (
-                fetch_report_text(vps_id, report_start, report_end, report_cache)
-                if vps_id
-                else None
-            )
+            report = report_text_for(owner, report_corpus)
             if report is None:
                 evidence_unavailable.append({"owner": owner, "tasks": len(vemory_items)})
                 keep += vemory_items

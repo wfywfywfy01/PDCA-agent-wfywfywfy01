@@ -181,10 +181,14 @@ class ProjectReminderTests(unittest.TestCase):
         self.patch_engine.start()
         self.patch_outbox = patch("app.todos.service._write_outbox", lambda result: None)
         self.patch_outbox.start()
-        self.patch_vps_map = patch(
-            "app.todos.evidence.load_vemory_users", return_value=[]
+        # 日报证据接口默认离线（不访问真实网络）；清掉跨模块缓存
+        import app.todos.evidence as evidence_mod
+
+        evidence_mod._CORPUS_CACHE.clear()
+        self.patch_evidence = patch(
+            "app.todos.evidence.run_vertu_sync", return_value=(1, "", "offline")
         )
-        self.patch_vps_map.start()
+        self.patch_evidence.start()
         # IM：按查询名返回对应用户
         def fake_users(args, timeout):
             if "+me" in args:
@@ -204,7 +208,7 @@ class ProjectReminderTests(unittest.TestCase):
     def tearDown(self):
         self.patch_send.stop()
         self.patch_json.stop()
-        self.patch_vps_map.stop()
+        self.patch_evidence.stop()
         self.patch_outbox.stop()
         self.patch_engine.stop()
         self.engine.dispose()
