@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
+import math
+import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,9 +21,9 @@ from app.auth.scope import scoped_active_store_ids, visible_dealer_names, visibl
 from app.config import get_settings
 from app.database import get_session
 from app.legacy import bridge
-from app.models.dealer_store import DealerStore
-from app.models.walkin_daily_report import WalkinDailyReport
-from app.validation import require_iso_date
+from app.models.dealer_store import DealerStore, is_demo_store
+from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
+from app.validation import require_iso_date, require_iso_month
 from app.vertu.activation import ActivationQueryError, fetch_dealer_activation
 
 router = APIRouter(tags=["walkin"])
@@ -36,7 +39,7 @@ def _revenue_requires_review(amount: float) -> bool:
         settings.max_reported_revenue_usd,
         getattr(settings, "revenue_review_threshold_usd", settings.max_reported_revenue_usd),
     )
-    return amount > threshold
+    return not math.isfinite(amount) or amount < 0 or amount > threshold
 
 
 # ---------------------------------------------------------------------------
@@ -51,9 +54,7 @@ async def walkin_api(
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     date_text = require_iso_date(date or bridge.today_text())
-    month_text = month.strip()
-    if not re.fullmatch(r"\d{4}-\d{2}", month_text):
-        month_text = date_text[:7]
+    month_text = require_iso_month(month.strip() or date_text[:7])
     try:
         payload = bridge.build_walkin_payload(month_text, date_text)
     except Exception as exc:
@@ -62,8 +63,9 @@ async def walkin_api(
     # 将本月五件套真实提交数据合并到 stores 列表
     try:
         payload = _merge_five_kit_into_payload(payload, month_text, session)
-    except Exception:
-        pass  # 合并失败不影响主数据
+    except Exception as exc:
+        logger.warning("五件套数据库读取失败: {}", exc)
+        raise HTTPException(status_code=503, detail="门店实报数据暂时不可用，请稍后重试") from exc
 
     # 按角色过滤：sales 只看自己名下门店
     payload = _filter_walkin_payload(payload, user, session)
@@ -106,7 +108,7 @@ class WalkinMetricsSubmit(BaseModel):
     wechat_add_count: int = Field(0, ge=0)
     deal_count: int = Field(0, ge=0)                # Products Sold 成交台数
     # 历史字段名保留兼容；录入页从一开始使用 $，实际口径为 USD。
-    deal_amount_yuan: float = Field(0.0, ge=0.0)    # Revenue (USD)
+    deal_amount_yuan: float = Field(0.0, ge=0.0, allow_inf_nan=False)    # Revenue (USD)
     notes: str = ""
 
 
@@ -160,7 +162,7 @@ async def submit_walkin_metrics(
         select(DealerStore).where(
             DealerStore.store_id == body.dealer_id,
             DealerStore.is_active == True,  # noqa: E712
-        )
+        ).with_for_update()
     ).first()
     if not dealer_store:
         raise HTTPException(status_code=422, detail="dealer_id 不存在，请从门店列表选择")
@@ -174,7 +176,7 @@ async def submit_walkin_metrics(
         select(WalkinDailyReport).where(
             WalkinDailyReport.report_date == body.report_date,
             WalkinDailyReport.dealer_id == body.dealer_id,
-        )
+        ).order_by(WalkinDailyReport.created_at.desc().nulls_last(), WalkinDailyReport.id.desc())
     ).first()
 
     data = dict(
@@ -199,6 +201,7 @@ async def submit_walkin_metrics(
     if existing:
         for k, v in data.items():
             setattr(existing, k, v)
+        existing.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
         session.add(existing)
     else:
         session.add(WalkinDailyReport(**data))
@@ -212,7 +215,9 @@ async def submit_walkin_metrics(
 
 def _dealer_ids_for_user(user: User, session) -> list[str] | None:
     """返回当前用户可见且启用的 dealer_id 列表。"""
-    return scoped_active_store_ids(user, session)
+    allowed = set(scoped_active_store_ids(user, session))
+    return [row.store_id for row in session.exec(select(DealerStore)).all()
+            if row.store_id in allowed and not is_demo_store(row.store_id, row.name)]
 
 
 def _filter_walkin_payload(payload: dict, user: User, session) -> dict:
@@ -243,7 +248,8 @@ async def list_walkin_metrics(
 ):
     """列出五件套日报，自动按权限过滤可见门店。"""
     stmt = select(WalkinDailyReport)
-    if month and re.fullmatch(r"\d{4}-\d{2}", month):
+    if month:
+        require_iso_month(month)
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
     # 权限过滤
     allowed = _dealer_ids_for_user(user, session)
@@ -254,7 +260,7 @@ async def list_walkin_metrics(
     stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
     if dealer_id:
         stmt = stmt.where(WalkinDailyReport.dealer_id == dealer_id)
-    rows = session.exec(stmt.order_by(WalkinDailyReport.report_date.desc())).all()
+    rows = latest_walkin_reports(session.exec(stmt.order_by(WalkinDailyReport.report_date.desc())).all())
     return {
         "count": len(rows),
         "items": [
@@ -303,19 +309,24 @@ async def walkin_metrics_summary(
     """
     stmt = select(WalkinDailyReport)
     # 日期过滤：start/end 优先，兜底 month 前缀
-    if start and re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) and end and re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+    if start or end:
+        require_iso_date(start, field="start")
+        require_iso_date(end, field="end")
+        if start > end:
+            raise HTTPException(status_code=422, detail="start 不能晚于 end")
         stmt = stmt.where(WalkinDailyReport.report_date >= start)
         stmt = stmt.where(WalkinDailyReport.report_date <= end)
         if not month:
             month = start[:7]
-    elif month and re.fullmatch(r"\d{4}-\d{2}", month):
+    elif month:
+        require_iso_month(month)
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
     allowed = _dealer_ids_for_user(user, session)
     if not allowed:
         rows = []
     else:
         stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
-        rows = session.exec(stmt).all()
+        rows = latest_walkin_reports(session.exec(stmt).all())
 
     if not rows:
         return {
@@ -356,6 +367,7 @@ async def walkin_metrics_summary(
             "walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0,
             "total_visits": 0, "deal_count": 0, "deal_amount_yuan": 0.0,
             "deal_amount_usd": 0.0, "amount_requires_review": False,
+            "valid_amount_count": 0,
         })
         dm["walkin"] += r.walkin_visits
         dm["cross"] += r.cross_visits
@@ -367,10 +379,15 @@ async def walkin_metrics_summary(
         if amount_valid:
             dm["deal_amount_yuan"] += r.deal_amount_yuan
             dm["deal_amount_usd"] += r.deal_amount_yuan
+            dm["valid_amount_count"] += 1
         else:
             dm["amount_requires_review"] = True
 
     total_src = agg["walkin"] + agg["cross"] + agg["online"] + agg["recruit"] + agg["existing"]
+    for item in dealer_map.values():
+        if not item.pop("valid_amount_count"):
+            item["deal_amount_yuan"] = None
+            item["deal_amount_usd"] = None
 
     def pct(n):
         return round(n / total_src * 100, 1) if total_src else 0
@@ -400,10 +417,10 @@ async def walkin_metrics_summary(
             "wechat_add_count": agg["wechat"],
             "deal_count": agg["deal_count"],
             # deal_amount_yuan 为旧客户端兼容字段，金额口径实际为 USD。
-            "deal_amount_yuan": round(agg["deal_amount"], 2),
-            "deal_amount_usd": round(agg["deal_amount"], 2),
+            "deal_amount_yuan": round(agg["deal_amount"], 2) if excluded_amount_count < len(rows) else None,
+            "deal_amount_usd": round(agg["deal_amount"], 2) if excluded_amount_count < len(rows) else None,
         },
-        "by_dealer": sorted(dealer_map.values(), key=lambda x: -x["deal_amount_yuan"]),
+        "by_dealer": sorted(dealer_map.values(), key=lambda x: -(x["deal_amount_yuan"] or 0)),
         "data_quality": {
             "excluded_record_count": excluded_amount_count,
             "reason": "Revenue exceeds the USD review threshold; verify the original currency before including it in totals."
@@ -424,17 +441,17 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
     """
     if not session:
         return payload
-    master_stores = session.exec(
+    master_stores = [row for row in session.exec(
         select(DealerStore)
         .where(DealerStore.is_active == True)
         .order_by(DealerStore.sort_order, DealerStore.store_id)
-    ).all()
+    ).all() if not is_demo_store(row.store_id, row.name)]
     active_ids = {row.store_id for row in master_stores}
     stmt = select(WalkinDailyReport).where(
         WalkinDailyReport.report_date.startswith(month_text),
         WalkinDailyReport.dealer_id.in_(active_ids),
     )
-    rows = session.exec(stmt).all()
+    rows = latest_walkin_reports(session.exec(stmt).all())
 
     # 按 dealer_id 聚合
     dealer_agg: dict[str, dict] = {}
@@ -443,6 +460,7 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
             "walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0,
             "total_visits": 0, "touch": 0, "use": 0, "wechat": 0,
             "deal_count": 0, "deal_amount_yuan": 0.0,
+            "valid_amount_count": 0, "review_count": 0,
         })
         d["walkin"] += r.walkin_visits
         d["cross"] += r.cross_visits
@@ -456,6 +474,9 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
         d["deal_count"] += r.deal_count
         if not _revenue_requires_review(r.deal_amount_yuan):
             d["deal_amount_yuan"] += r.deal_amount_yuan
+            d["valid_amount_count"] += 1
+        else:
+            d["review_count"] += 1
 
     stores = [
         store for store in payload.setdefault("stores", [])
@@ -497,22 +518,16 @@ def _merge_five_kit_into_payload(payload: dict, month_text: str, session) -> dic
                 "total": d["total_visits"],
             }
             # 五件套录入金额为 USD；不得覆盖以人民币计价的销售主指标。
-            if 0 < d["deal_amount_yuan"] <= get_settings().max_reported_revenue_usd:
-                store["reportedSellOutUsd"] = d["deal_amount_yuan"]
-            if d["total_visits"] > 0:
-                store["totalVisitGroups"] = d["total_visits"]
-                store["walkinPeople"] = d["total_visits"]
-                store["avgAddRate"] = min(1.0, round(d["wechat"] / d["total_visits"], 4))
-                store["avgTouchRate"] = min(1.0, round(d["touch"] / d["total_visits"], 4))
-                store["avgUseRate"] = min(1.0, round(d["use"] / d["total_visits"], 4))
-            if d["touch"] > 0:
-                store["touchCount"] = d["touch"]
-            if d["use"] > 0:
-                store["useCount"] = d["use"]
-            if d["wechat"] > 0:
-                store["wechatAddCount"] = d["wechat"]
-            if d["deal_count"] > 0:
-                store["dealGroups"] = d["deal_count"]
+            store["reportedSellOutUsd"] = d["deal_amount_yuan"] if d["valid_amount_count"] else None
+            store["revenueReviewCount"] = d["review_count"]
+            store["totalVisitGroups"] = d["total_visits"]
+            store["walkinPeople"] = d["total_visits"]
+            for field, count in (("avgAddRate", "wechat"), ("avgTouchRate", "touch"), ("avgUseRate", "use")):
+                store[field] = min(1.0, round(d[count] / d["total_visits"], 4)) if d["total_visits"] else 0
+            store["touchCount"] = d["touch"]
+            store["useCount"] = d["use"]
+            store["wechatAddCount"] = d["wechat"]
+            store["dealGroups"] = d["deal_count"]
 
     meta = payload.setdefault("meta", {})
     meta["storeCount"] = len(stores)
@@ -571,11 +586,12 @@ async def vps_dealer_sales(
 
     today = datetime.date.today().isoformat()
 
-    if start and re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) and end and re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
-        start_date = start
-        end_date   = min(end, today)
+    if start or end:
+        start_date = require_iso_date(start, field="start")
+        end_date   = min(require_iso_date(end, field="end"), today)
         run_date   = end_date
-    elif month and re.fullmatch(r"\d{4}-\d{2}", month):
+    elif month:
+        require_iso_month(month)
         y, m = map(int, month.split("-"))
         start_date = f"{month}-01"
         last_day   = _cal.monthrange(y, m)[1]
@@ -586,8 +602,11 @@ async def vps_dealer_sales(
         end_date   = today
         run_date   = today
 
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期或今天")
+
     try:
-        data = _run_dealer_vps_query(run_date, start_date=start_date, end_date=end_date)
+        data = await asyncio.to_thread(_run_dealer_vps_query, run_date, start_date=start_date, end_date=end_date)
         names = visible_dealer_names(user, session)
         if names is not None:
             allowed = {name.casefold() for name in names}

@@ -22,22 +22,30 @@ const finishedAt = ref('')
 
 const STEP_LABELS: Record<string, string> = {
   vps_dealer_sales: '经销商 Sell-in（vertu-cli → DB）',
-  dealer_sales: '经销商 Sell-in（文件回退）',
+  dealer_sales: '经销商 Sell-in 写入结果',
   pdca_tasks: '待办任务（CSV → DB）',
   daily_reports: '日报/报告（outputs → DB）',
   meetings: '会议（Vemory → DB）',
+  vemory_todos: '会议待办（Vemory）',
 }
 
 function fmt(value: unknown): string {
   if (typeof value === 'number') return `${value} 条`
+  if (value && typeof value === 'object') return JSON.stringify(value)
   return String(value ?? '—')
 }
 
 function stepOk(value: unknown): boolean {
-  return typeof value === 'number' || !String(value).startsWith('error:')
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0
+  if (value && typeof value === 'object') {
+    const step = value as { status?: string; ok?: boolean; errors?: unknown[]; error?: unknown }
+    return !step.error && !step.errors?.length && (step.status === 'ok' || step.ok === true)
+  }
+  return value === 'ok'
 }
 
 async function runSync() {
+  if (busy.value) return
   busy.value = true
   error.value = ''
   result.value = null
@@ -66,7 +74,7 @@ onMounted(async () => {
     <header class="head">
       <div>
         <h1>数据同步</h1>
-        <p class="sub">手动触发 vertu-cli / 文件 → 数据库全量同步（每日 06:00 自动执行）</p>
+        <p class="sub">手动刷新业务数据；各数据源的完成情况分别显示。</p>
       </div>
       <button
         v-if="me && (me.role === 'manager' || me.role === 'admin')"
@@ -111,9 +119,9 @@ onMounted(async () => {
       </table>
     </section>
 
-    <section v-else-if="!busy" class="card state">
+    <section v-else-if="!busy && me && (me.role === 'manager' || me.role === 'admin')" class="card state">
       点击「立即同步」执行全量数据同步：Sell-in、待办、日报、会议将刷新进数据库，
-      各页面数据实时来自数据库，无需其他操作。
+      请核对各步骤结果，失败的数据源需要重试或联系管理员。
     </section>
   </main>
 </template>

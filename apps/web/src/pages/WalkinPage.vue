@@ -34,14 +34,14 @@ interface SummaryResponse {
     wechat_add_count: number
     deal_count: number
     deal_amount_yuan: number
-    deal_amount_usd: number
+    deal_amount_usd: number | null
   }
   by_dealer: {
     dealer_id: string
     dealer_name: string
     total_visits: number
     deal_count: number
-    deal_amount_usd: number
+    deal_amount_usd: number | null
     amount_requires_review: boolean
   }[]
   data_quality: { excluded_record_count: number; reason: string }
@@ -69,6 +69,7 @@ const me = ref<Me | null>(null)
 const activeTab = ref<'submit' | 'summary' | 'history'>('submit')
 
 const stores = ref<Store[]>([])
+const storesError = ref('')
 const submitForm = ref({
   dealer_id: '',
   report_date: todayText(),
@@ -92,12 +93,14 @@ const summaryMonth = ref(currentMonth())
 const summary = ref<SummaryResponse | null>(null)
 const summaryLoading = ref(false)
 const summaryError = ref('')
+let summaryLoadId = 0
 
 const historyMonth = ref(currentMonth())
 const historyDealer = ref('')
 const history = ref<ReportItem[]>([])
 const historyLoading = ref(false)
 const historyError = ref('')
+let historyLoadId = 0
 
 const FIVE_KIT_FIELDS = [
   { key: 'walkin_visits', label: '直接进店' },
@@ -118,74 +121,76 @@ function currentMonth(): string {
 }
 
 async function loadStores() {
+  storesError.value = ''
   try {
     stores.value = await apiGet<Store[]>('/api/my-stores')
     if (stores.value.length === 1) submitForm.value.dealer_id = stores.value[0].store_id
-  } catch {
+  } catch (err) {
     stores.value = []
+    storesError.value = err instanceof HttpError ? err.detail : '门店列表加载失败，请刷新重试'
   }
 }
 
 async function submit() {
+  if (submitBusy.value) return
   submitBusy.value = true
   submitError.value = ''
   submitSuccess.value = ''
   const store = stores.value.find((item) => item.store_id === submitForm.value.dealer_id)
   try {
+    if (!store) throw new Error('请先选择有权限的门店')
+    const existing = await apiGet<{ items: ReportItem[] }>(`/api/walkin-metrics?${new URLSearchParams({
+      month: submitForm.value.report_date.slice(0, 7), dealer_id: store.store_id,
+    })}`)
+    if (existing.items.some((row) => row.report_date === submitForm.value.report_date)
+      && !window.confirm(`${store.name} ${submitForm.value.report_date} 已有日报。确认用本次填写的全部数据覆盖？`)) return
     await apiPost('/api/walkin-metrics', {
       ...submitForm.value,
       dealer_name: store?.name || '',
     })
-    submitSuccess.value = '✅ 已保存（同店同日自动覆盖）'
-    submitForm.value = {
-      ...submitForm.value,
-      walkin_visits: 0,
-      cross_visits: 0,
-      online_visits: 0,
-      recruit_visits: 0,
-      existing_visits: 0,
-      touch_count: 0,
-      use_count: 0,
-      wechat_add_count: 0,
-      deal_count: 0,
-      deal_amount_yuan: 0,
-      notes: '',
-    }
+    submitSuccess.value = `${store.name} ${submitForm.value.report_date} 已保存，可到历史明细核对。`
   } catch (err) {
-    submitError.value = err instanceof HttpError ? err.detail : '提交失败，请稍后重试'
+    submitError.value = err instanceof Error ? err.message : '提交失败，请稍后重试'
   } finally {
     submitBusy.value = false
   }
 }
 
 async function loadSummary() {
+  const id = ++summaryLoadId
   summaryLoading.value = true
   summaryError.value = ''
+  summary.value = null
   try {
-    summary.value = await apiGet<SummaryResponse>(
+    const result = await apiGet<SummaryResponse>(
       `/api/walkin-metrics/summary?month=${summaryMonth.value}`,
     )
+    if (id === summaryLoadId) summary.value = result
   } catch (err) {
+    if (id !== summaryLoadId) return
     summaryError.value = err instanceof HttpError ? err.detail : '汇总加载失败'
   } finally {
-    summaryLoading.value = false
+    if (id === summaryLoadId) summaryLoading.value = false
   }
 }
 
 async function loadHistory() {
+  const id = ++historyLoadId
   historyLoading.value = true
   historyError.value = ''
+  history.value = []
   const p = new URLSearchParams({ month: historyMonth.value })
   if (historyDealer.value) p.set('dealer_id', historyDealer.value)
   try {
     const payload = await apiGet<{ count: number; items: ReportItem[] }>(
       `/api/walkin-metrics?${p}`,
     )
-    history.value = payload.items
+    if (id === historyLoadId) history.value = payload.items
   } catch (err) {
+    if (id !== historyLoadId) return
     historyError.value = err instanceof HttpError ? err.detail : '明细加载失败'
   } finally {
-    historyLoading.value = false
+    if (id === historyLoadId) historyLoading.value = false
   }
 }
 
@@ -237,9 +242,13 @@ onMounted(async () => {
       <section class="card form-card">
         <h2>今日五件套上报</h2>
         <p class="hint">零客流也要如实上报，不能把 0 当成未上报。</p>
+        <p v-if="storesError" class="msg bad" role="alert">{{ storesError }}</p>
+        <p v-else-if="me && !stores.length" class="hint">当前账号没有可填报门店，请联系管理员分配。</p>
+        <p v-if="me?.role === 'viewer'" class="hint">当前账号为只读，可查看月度汇总和历史明细。</p>
         <div v-if="submitError" class="msg bad">{{ submitError }}</div>
         <div v-if="submitSuccess" class="msg ok">{{ submitSuccess }}</div>
         <form class="submit-form" @submit.prevent="submit">
+          <fieldset :disabled="submitBusy || !me || me.role === 'viewer' || !stores.length" class="form-fields">
           <label>
             门店 *
             <select v-model="submitForm.dealer_id" class="input" required>
@@ -251,31 +260,31 @@ onMounted(async () => {
           </label>
           <label>
             上报日期
-            <input v-model="submitForm.report_date" type="date" class="input" required />
+            <input v-model="submitForm.report_date" type="date" class="input" :max="todayText()" required />
           </label>
           <label v-for="field in FIVE_KIT_FIELDS" :key="field.key">
             {{ field.label }}
-            <input v-model.number="submitForm[field.key]" type="number" min="0" class="input" />
+            <input v-model.number="submitForm[field.key]" type="number" min="0" step="1" class="input" required />
           </label>
           <label>
             产品展示
-            <input v-model.number="submitForm.touch_count" type="number" min="0" class="input" />
+            <input v-model.number="submitForm.touch_count" type="number" min="0" step="1" class="input" required />
           </label>
           <label>
             体验台数
-            <input v-model.number="submitForm.use_count" type="number" min="0" class="input" />
+            <input v-model.number="submitForm.use_count" type="number" min="0" step="1" class="input" required />
           </label>
           <label>
             留资数
-            <input v-model.number="submitForm.wechat_add_count" type="number" min="0" class="input" />
+            <input v-model.number="submitForm.wechat_add_count" type="number" min="0" step="1" class="input" required />
           </label>
           <label>
             成交台数
-            <input v-model.number="submitForm.deal_count" type="number" min="0" class="input" />
+            <input v-model.number="submitForm.deal_count" type="number" min="0" step="1" class="input" required />
           </label>
           <label>
             Revenue（USD）
-            <input v-model.number="submitForm.deal_amount_yuan" type="number" min="0" step="0.01" class="input" />
+            <input v-model.number="submitForm.deal_amount_yuan" type="number" min="0" step="0.01" class="input" required />
           </label>
           <label class="span-2">
             备注
@@ -286,6 +295,7 @@ onMounted(async () => {
               {{ submitBusy ? '提交中…' : '提交' }}
             </button>
           </div>
+          </fieldset>
         </form>
       </section>
     </template>
@@ -294,7 +304,8 @@ onMounted(async () => {
       <div class="toolbar-row">
         <input v-model="summaryMonth" type="month" class="input month-input" @change="loadSummary" />
       </div>
-      <div v-if="summaryError" class="msg bad">{{ summaryError }}</div>
+      <p v-if="summaryLoading" class="empty">正在读取月度汇总…</p>
+      <div v-else-if="summaryError" class="msg bad">{{ summaryError }}</div>
       <template v-else-if="summary">
         <section class="stats">
           <div class="card stat">
@@ -315,7 +326,7 @@ onMounted(async () => {
           </div>
           <div class="card stat">
             <span class="k">Revenue（USD）</span>
-            <span class="v ok">$ {{ summary.funnel.deal_amount_usd.toLocaleString() }}</span>
+            <span class="v ok">{{ summary.funnel.deal_amount_usd == null ? 'N/A' : '$ ' + summary.funnel.deal_amount_usd.toLocaleString() }}</span>
           </div>
         </section>
         <p v-if="summary.data_quality.excluded_record_count" class="quality-warn">
@@ -356,7 +367,7 @@ onMounted(async () => {
                 </td>
                 <td class="num">{{ row.total_visits }}</td>
                 <td class="num">{{ row.deal_count }}</td>
-                <td class="num">$ {{ row.deal_amount_usd.toLocaleString() }}</td>
+                <td class="num">{{ row.deal_amount_usd == null ? 'N/A' : '$ ' + row.deal_amount_usd.toLocaleString() }}</td>
               </tr>
             </tbody>
           </table>
@@ -374,7 +385,8 @@ onMounted(async () => {
         </select>
       </div>
       <div v-if="historyError" class="msg bad">{{ historyError }}</div>
-      <section class="card panel">
+      <p v-if="historyLoading" class="empty">正在读取历史明细…</p>
+      <section v-else-if="!historyError" class="card panel">
         <h2>日报明细</h2>
         <table v-if="history.length" class="table">
           <thead>
@@ -445,6 +457,7 @@ h2 {
 .tabs {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .tab {
@@ -467,7 +480,10 @@ h2 {
 .form-card,
 .panel {
   padding: 20px 22px;
+  overflow-x: auto;
 }
+
+.form-fields { display: contents; }
 
 .hint {
   color: var(--amber);

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import time
 from datetime import date as _date, datetime, timedelta
@@ -95,7 +96,7 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
         "PDCA_VERTU_SELLIN_DEPARTMENTS",
         "经销商一部,经销商二部,经销商三部",
     )
-    departments = [item.strip() for item in configured.split(",") if item.strip()]
+    departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
     dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
     cache_key = (start, end, period, dept_l1, tuple(departments))
     ttl = _sell_in_cache_seconds()
@@ -125,8 +126,20 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
         else:
             payloads = [await _headline(start, end)]
 
-        amount = sum(float((item.get("period") or {}).get("销额") or 0) for item in payloads)
-        quantity = sum(int((item.get("period") or {}).get("销量") or 0) for item in payloads)
+        amounts, quantities = [], []
+        for item in payloads:
+            try:
+                metrics = item["period"]
+                amount_value = float(metrics["销额"])
+                quantity_value = float(metrics["销量"])
+                if not math.isfinite(amount_value) or not math.isfinite(quantity_value) or not quantity_value.is_integer():
+                    raise ValueError("invalid numeric metric")
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError("vertu-cli Sell-in 缺少有效的销额/销量，拒绝发布为实时零值") from exc
+            amounts.append(amount_value)
+            quantities.append(int(quantity_value))
+        amount = sum(amounts)
+        quantity = sum(quantities)
         label = _PERIOD_LABEL.get(period, "当前区间")
         fetched_at = datetime.now().astimezone()
         result = {
@@ -137,6 +150,9 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
             "as_of": fetched_at.isoformat(timespec="seconds"),
             "cached": False,
             "state": "live",
+            "source": "vertu-cli sales +headline-kpi",
+            "start_date": start,
+            "end_date": end,
         }
         _SELL_IN_CACHE[cache_key] = {
             "monotonic": time.monotonic(),
@@ -159,6 +175,19 @@ def _row_dict(row, columns: list[str]) -> dict:
     return {}
 
 
+def require_sales_number(value, field: str, *, integer: bool = False) -> float | int:
+    """Missing/redacted metrics must fail the batch, never become zero."""
+    try:
+        if value is None or isinstance(value, bool):
+            raise ValueError("missing metric")
+        number = float(value)
+        if not math.isfinite(number) or (integer and not number.is_integer()):
+            raise ValueError("invalid metric")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(f"销售数据缺少有效{field}，整批未保存，请检查上游权限与字段") from exc
+    return int(number) if integer else number
+
+
 def fetch_dealer_sales_orders_sync(start: str, end: str) -> dict:
     """通过 vertu-cli 订单快捷命令按客户聚合经销商销售数据。"""
     payload = run_vertu_sync_json(
@@ -178,16 +207,22 @@ def fetch_dealer_sales_orders_sync(start: str, end: str) -> dict:
     )
     if not isinstance(payload, dict):
         raise RuntimeError("vertu-cli sales +orders 未返回数据")
+    if not isinstance(payload.get("rows"), list):
+        raise RuntimeError("vertu-cli sales +orders 缺少订单行，整批未保存")
+    if (payload.get("pagination") or {}).get("has_more"):
+        raise RuntimeError("vertu-cli sales +orders 分页未完整，整批未保存")
     columns = [str(item) for item in payload.get("columns") or []]
     grouped: dict[str, dict] = {}
     for raw in payload.get("rows") or []:
         row = _row_dict(raw, columns)
+        amount = require_sales_number(row.get("金额"), "金额")
+        quantity = require_sales_number(row.get("数量"), "数量", integer=True)
         name = str(row.get("客户名称") or row.get("客户") or "").strip()
         if not name:
-            continue
+            raise RuntimeError("销售订单缺少客户标识，整批未保存")
         item = grouped.setdefault(name, {"dealer_name": name, "sell_out_yuan": 0.0, "qty": 0})
-        item["sell_out_yuan"] += float(row.get("金额") or 0)
-        item["qty"] += int(float(row.get("数量") or 0))
+        item["sell_out_yuan"] += amount
+        item["qty"] += quantity
     dealers = sorted(grouped.values(), key=lambda item: -item["sell_out_yuan"])
     return {
         "ok": True,

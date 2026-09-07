@@ -18,8 +18,9 @@ from app.auth.models import User
 from app.auth.scope import scoped_active_dealer_names, scoped_active_store_ids
 from app.config import get_settings
 from app.database import get_session
-from app.models.dealer_sales import DealerSales
-from app.models.walkin_daily_report import WalkinDailyReport
+from app.models.dealer_sales import DealerSales, snapshot_amount_state
+from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
+from app.validation import require_iso_month
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -65,9 +66,11 @@ async def export_walkin_metrics(
     stmt = select(WalkinDailyReport).order_by(
         WalkinDailyReport.report_date, WalkinDailyReport.dealer_id
     )
-    if month and re.fullmatch(r"\d{4}-\d{2}", month):
+    if month:
+        require_iso_month(month)
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
-    allowed = scoped_active_store_ids(user, session)
+    from app.walkin.router import _dealer_ids_for_user
+    allowed = _dealer_ids_for_user(user, session)
     if dealer_id and dealer_id not in allowed:
         raise HTTPException(status_code=403, detail="该门店不在当前账号的数据权限范围内")
     if not allowed:
@@ -75,7 +78,7 @@ async def export_walkin_metrics(
     stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
     if dealer_id:
         stmt = stmt.where(WalkinDailyReport.dealer_id == dealer_id)
-    rows = session.exec(stmt).all()
+    rows = latest_walkin_reports(session.exec(stmt).all())
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -136,21 +139,26 @@ async def export_dealer_sales(
         session.exec(stmt.where(DealerSales.dealer_name.in_(names))).all()
         if names else []
     )
+    batches: dict[str, list[DealerSales]] = {}
+    for row in rows:
+        batches.setdefault(row.check_date, []).append(row)
+    amount_states = {day: snapshot_amount_state(batch) for day, batch in batches.items()}
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = f"业绩_{month or '全部'}"
 
     headers = ["日期", "经销商", "区域", "国家",
-                "Sell-in(万)", "Sell-out(万)", "台量", "同步时间"]
+                "Sell-in(万)", "Sell-out(万)", "台量", "同步时间", "Sell-in金额状态"]
     ws.append(headers)
     _header_style(ws, 1, len(headers))
 
     for r in rows:
         ws.append([
             r.check_date, r.dealer_name, r.region, r.country,
-            r.sell_in_wan, r.sell_out_wan, r.units,
+            r.sell_in_wan if amount_states[r.check_date] == "available" else None, r.sell_out_wan, r.units,
             r.synced_at.strftime("%Y-%m-%d %H:%M") if r.synced_at else "",
+            "金额待复核（旧快照有销量但金额全部为零）" if amount_states[r.check_date] == "suspect" else "可用",
         ])
 
     for col in ws.columns:

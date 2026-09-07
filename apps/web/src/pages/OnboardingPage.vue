@@ -62,9 +62,9 @@ async function load() {
   }
   if (curriculumR.status === 'fulfilled') curriculum.value = curriculumR.value
   if (progressR.status === 'fulfilled') progress.value = progressR.value
-  if (curriculumR.status === 'rejected' && progressR.status === 'rejected') {
-    error.value =
-      curriculumR.reason instanceof HttpError ? curriculumR.reason.detail : '培训数据加载失败'
+  const rejected = settle.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (rejected) {
+    error.value = rejected.reason instanceof HttpError ? rejected.reason.detail : '培训数据加载失败，请重试'
   }
   loading.value = false
 }
@@ -78,7 +78,7 @@ function isCurrentDay(day: number): boolean {
 }
 
 async function checkIn(track: Track, moduleItem: ModuleItem) {
-  if (isDone(moduleItem.id)) return
+  if (isDone(moduleItem.id) || checkingIn.value) return
   checkingIn.value = moduleItem.id
   actionMessage.value = ''
   try {
@@ -114,7 +114,7 @@ onMounted(() => {
         <p class="sub">5 天上岗路径 · 模块打卡 · 进度跟踪</p>
       </div>
       <span v-if="progress?.graduated" class="badge badge-live">已毕业</span>
-      <span v-else class="badge badge-stale">培训中</span>
+      <span v-else-if="progress" class="badge badge-stale">培训中</span>
     </header>
 
     <div v-if="error" class="card state error">{{ error }}</div>
@@ -156,7 +156,7 @@ onMounted(() => {
               v-if="!isDone(moduleItem.id)"
               type="button"
               class="btn btn-primary btn-sm"
-              :disabled="checkingIn === moduleItem.id || !me || me.role === 'viewer' || me.role === 'dealer'"
+              :disabled="!!checkingIn || !me || me.role === 'viewer' || me.role === 'dealer'"
               @click="checkIn(track, moduleItem)"
             >
               {{ checkingIn === moduleItem.id ? '打卡中…' : '打卡完成' }}

@@ -132,7 +132,7 @@ async def get_current_user(
     """
     解析当前用户，优先级：
     1. 反向代理 Header（多用户生产）
-    2. JWT Cookie / Bearer（local / hybrid）
+    2. JWT Cookie / Bearer（包括 Odoo SSO 签发的 VPS 会话）
     3. 服务端 vertu-cli hr +me（vps / hybrid 兜底）
     """
     settings = get_settings()
@@ -151,7 +151,7 @@ async def get_current_user(
         return proxy_user
 
     # 2) JWT
-    if mode in ("hybrid", "local"):
+    if mode in ("hybrid", "local", "vps"):
         user = await _user_from_jwt(session, token)
         if user:
             _check_must_change_password(user, request)

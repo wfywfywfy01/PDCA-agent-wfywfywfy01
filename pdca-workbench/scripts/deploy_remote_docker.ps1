@@ -8,6 +8,7 @@ param(
     [ValidateRange(1, 86400)]
     [int]$DockerPullTimeoutSeconds = 900,
     [string]$LogDirectory = "",
+    [string]$EnvFile = "",
     [switch]$SkipCiCheck,
     [switch]$SkipImagePull,
     [switch]$Force
@@ -34,7 +35,7 @@ $ImageRegistry = "ghcr.io/wfywfywfy01/pdca-workbench"
 $CiRepo = "wfywfywfy01/PDCA-agent-wfywfywfy01"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $WorkbenchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$EnvFile = Join-Path $WorkbenchRoot ".env"
+if (-not $EnvFile) { $EnvFile = Join-Path $WorkbenchRoot ".env" }
 $HelperImage = "vertu-registry.cn-chengdu.cr.aliyuncs.com/base/postgres:18.4-bookworm"
 $RuntimeDataRoot = "/opt/PDCA-agent/pdca-workbench/data/runtime"
 $KnowledgeNetwork = "dealer-knowledge"
@@ -205,7 +206,10 @@ function Read-OptionalDotEnvValue {
     $line = Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
         Where-Object { $_ -match "^$([regex]::Escape($Name))=" } |
         Select-Object -Last 1
-    if (-not $line) { return "" }
+    if (-not $line -and $currentObject) {
+        $line = $currentObject.Config.Env | Where-Object { $_.StartsWith("$Name=") } | Select-Object -Last 1
+    }
+    if (-not $line) { return $null }
     $value = $line.Substring($Name.Length + 1).Trim()
     if ($value.Length -ge 2 -and
         (($value.StartsWith('"') -and $value.EndsWith('"')) -or
@@ -216,8 +220,22 @@ function Read-OptionalDotEnvValue {
 }
 
 function Get-AgentCredential {
-    # 优先取当前会话的默认 Agent 绑定（不带 --app-id），失败再回退 cursor；
-    # app_id 从输出里解析出来透传给容器。
+    # 更新已有容器时保留生产身份，避免开发机默认 Agent 改变数据权限。
+    if ($currentObject) {
+        $existing = @{}
+        foreach ($name in @("VERTU_APP_ID", "VERTU_APP_KEY", "VERTU_USER_LOGIN")) {
+            $line = $currentObject.Config.Env |
+                Where-Object { $_.StartsWith("$name=", [StringComparison]::Ordinal) } |
+                Select-Object -Last 1
+            if (-not $line -or [string]::IsNullOrWhiteSpace($line.Substring($name.Length + 1))) {
+                throw "Existing production container is missing $name; refusing to switch Agent identity"
+            }
+            $existing[$name] = $line.Substring($name.Length + 1)
+        }
+        $script:AgentAppId = $existing["VERTU_APP_ID"]
+        return $existing
+    }
+    # 首次部署才取本机默认 Agent，失败再回退 cursor。
     $lines = & vertu-cli agent env --shell powershell 2>&1
     if ($LASTEXITCODE -ne 0) {
         $lines = & vertu-cli agent env --app-id cursor --shell powershell 2>&1
@@ -379,10 +397,18 @@ function Start-PdcaContainer {
         "PDCA_TODO_GROUP_NOTICE_ENABLED", "PDCA_TODO_GROUP_CHANNEL_ID",
         "PDCA_TODO_GROUP_NOTICE_TIME", "PDCA_TODO_GROUP_NOTICE_MIN_DATE",
         "PDCA_VEMORY_OPENAPI_URL", "PDCA_VEMORY_TODO_USERS",
-        "PDCA_DAILY_REPORT_ENABLED"
+        "PDCA_DAILY_REPORT_ENABLED",
+        "PDCA_ODOO_SSO_SECRET", "PDCA_ODOO_BASE_URL", "PDCA_VPS_LOGIN_URL", "PDCA_VPS_SYNC_ROLE",
+        "PDCA_VERTU_SELLIN_DEPARTMENTS", "PDCA_VERTU_DEPT_L1", "PDCA_SELL_IN_CACHE_SECONDS",
+        "PDCA_ACQUISITION_ENABLED", "PDCA_ACQUISITION_URL",
+        "PDCA_KNOWLEDGE_HUB_TEAM_MAP", "PDCA_KNOWLEDGE_HUB_ENABLED", "PDCA_KNOWLEDGE_HUB_TIMEOUT_SECONDS",
+        "PDCA_FRAME_ANCESTORS", "PDCA_TOKEN_EXPIRE_MINUTES"
     )) {
         $envValue = Read-OptionalDotEnvValue $envName
-        if ($envValue) { $dockerArgs += @("-e", "$envName=$envValue") }
+        if ($null -ne $envValue) {
+            if ($envName -match 'SECRET|TOKEN|KEY') { $script:SensitiveValues += $envValue }
+            $dockerArgs += @("-e", "$envName=$envValue")
+        }
     }
     $dockerArgs += $Image
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
@@ -465,13 +491,18 @@ if ($currentInspectResult.ExitCode -eq 0 -and $currentInspect) {
 }
 if ($currentRevision -eq $Sha -and -not $Force) {
     $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 20
-    if ($health.status -eq "ok") {
+    if ($health.status -eq "ok" -and $health.revision -eq $Sha) {
         Write-Output "Already deployed and healthy: $Sha"
         Complete-DeploymentRun -Status "success" -Message "Already deployed and healthy: $Sha"
         exit 0
     }
 }
 if ($Force) { Write-Output "Force redeploy requested; recreating container with current env" }
+
+if ($currentRevision) {
+    $freeBytes = [long](Invoke-Docker -DockerArgs @("exec", "pdca-workbench", "python", "-c", "import shutil; print(shutil.disk_usage('/app/data').free)"))
+    if ($freeBytes -lt 3GB) { throw "Deployment blocked: less than 3 GiB free on the PDCA data filesystem" }
+}
 
 if ($SkipImagePull) {
     Write-Output "Using preloaded tested image $image"
@@ -481,16 +512,15 @@ if ($SkipImagePull) {
     }
     $imageObject = ($imageInspectResult.StdOut | ConvertFrom-Json)[0]
     $sourceRevision = $imageObject.Config.Labels.'com.vertu.pdca.source_revision'
-    if ($sourceRevision -and $sourceRevision -ne $Sha) {
+    if ($sourceRevision -ne $Sha) {
         throw "Preloaded image revision mismatch: expected $Sha"
-    }
-    if (-not $sourceRevision) {
-        Write-Warning "Preloaded image lacks the source_revision label; relying on explicit -Sha and digest pinning"
     }
 } else {
     Write-Output "Pulling tested image $image"
     Invoke-Docker -DockerArgs @("pull", $image) -TimeoutSeconds $DockerPullTimeoutSeconds | Out-Null
 }
+$sourceRevision = (Invoke-Docker -DockerArgs @("image", "inspect", $image, "--format", '{{index .Config.Labels "com.vertu.pdca.source_revision"}}')).Trim()
+if ($sourceRevision -ne $Sha) { throw "Image source revision mismatch: expected $Sha" }
 
 Write-Output "Ensuring private dealer knowledge network and shared signing key"
 Initialize-KnowledgeRuntime -Image $image
@@ -590,6 +620,7 @@ $oldExists = $oldContainerResult.StdOut -eq "pdca-workbench"
 $oldImage = ""
 $oldRevision = "rollback"
 $oldRelease = "/opt/PDCA-agent"
+$rollbackName = "pdca-workbench-rollback-$stamp"
 Write-Output "Inspecting the currently deployed PDCA container"
 if ($oldExists) {
     $oldObject = ((Invoke-Docker -DockerArgs @("inspect", "pdca-workbench")) | ConvertFrom-Json)[0]
@@ -599,10 +630,14 @@ if ($oldExists) {
     $candidateRelease = ($oldObject.Mounts | Where-Object { $_.Destination -eq "/repo" } |
         Select-Object -First 1).Source
     if ($candidateRelease) { $oldRelease = $candidateRelease }
-    Invoke-Docker -DockerArgs @("rm", "-f", "pdca-workbench") | Out-Null
 }
 
 try {
+    if ($oldExists) {
+        # Include stop/rename in recovery; a timeout may still complete remotely.
+        Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldObject.Id) | Out-Null
+        Invoke-Docker -DockerArgs @("rename", $oldObject.Id, $rollbackName) | Out-Null
+    }
     Write-Output "Starting PDCA container for $Sha"
     Start-PdcaContainer $image $releasePath $Sha $secrets $agent
     Write-Output "Waiting for container health"
@@ -611,11 +646,18 @@ try {
     Test-ActivationSource
     Write-Output "Running public health and login smoke checks"
     $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 25
-    if ($health.status -ne "ok" -or -not $health.database_connected -or -not $health.vertu_cli.ok) {
+    if ($health.status -ne "ok" -or -not $health.database_connected -or -not $health.vertu_cli.ok -or $health.revision -ne $Sha) {
         throw "Public health response is not fully healthy"
     }
     $login = Invoke-WebRequest -Uri "$PublicUrl/login" -UseBasicParsing -TimeoutSec 20
     if ($login.StatusCode -ne 200) { throw "Public login page smoke test failed" }
+    $spa = Invoke-WebRequest -Uri "$PublicUrl/app/" -UseBasicParsing -TimeoutSec 20
+    if ($spa.StatusCode -ne 200 -or $spa.Content -notmatch '/app/assets/[^"'']+\.js') {
+        throw "Public Vue application bundle is missing"
+    }
+    $asset = $Matches[0]
+    $bundle = Invoke-WebRequest -Uri "$PublicUrl$asset" -UseBasicParsing -TimeoutSec 20
+    if ($bundle.Headers['Content-Type'] -notmatch 'javascript') { throw "Public Vue asset returned the wrong content type" }
     Write-Output "Deployment healthy: $Sha"
 } catch {
     try {
@@ -629,17 +671,38 @@ try {
         Write-Warning "Unable to collect failed container logs: $($_.Exception.Message)"
     }
     try {
-        Invoke-DockerProcess -DockerArgs @("rm", "-f", "pdca-workbench") `
-            -TimeoutSeconds ([Math]::Min($DockerCommandTimeoutSeconds, 30)) | Out-Null
+        $failed = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-workbench")
+        if ($failed.ExitCode -eq 0) {
+            $failedObject = ($failed.StdOut | ConvertFrom-Json)[0]
+            if ((-not $oldExists -or $failedObject.Id -ne $oldObject.Id) -and
+                $failedObject.Config.Labels.'com.vertu.pdca.revision' -eq $Sha) {
+                Invoke-Docker -DockerArgs @("rm", "-f", $failedObject.Id) | Out-Null
+            }
+        }
     } catch {
         Write-Warning "Unable to remove failed container: $($_.Exception.Message)"
     }
     if ($oldImage) {
         Write-Warning "Deployment failed; rolling back to $oldImage"
-        Start-PdcaContainer $oldImage $oldRelease $oldRevision $secrets $agent
+        $oldState = ((Invoke-Docker -DockerArgs @("inspect", $oldObject.Id)) | ConvertFrom-Json)[0]
+        if ($oldState.Name -ne "/pdca-workbench") {
+            Invoke-Docker -DockerArgs @("rename", $oldObject.Id, "pdca-workbench") | Out-Null
+        }
+        Invoke-Docker -DockerArgs @("start", $oldObject.Id) | Out-Null
         Wait-ContainerHealthy
     }
     throw
 }
 
+# Keep one exact rollback configuration, not an unbounded chain of old images.
+try {
+    $rollbackIds = Invoke-Docker -DockerArgs @("ps", "-a", "--filter", "name=^/pdca-workbench-rollback-", "--format", "{{.ID}}")
+    $rollbackObjects = foreach ($id in ($rollbackIds -split "`n" | Where-Object { $_ })) {
+        ((Invoke-Docker -DockerArgs @("inspect", $id.Trim())) | ConvertFrom-Json)[0]
+    }
+    $rollbackObjects | Where-Object { -not $_.State.Running -and $_.Config.Labels.'com.vertu.pdca.revision' } |
+        Sort-Object Created -Descending | Select-Object -Skip 1 | ForEach-Object {
+            Invoke-Docker -DockerArgs @("rm", "-v", $_.Id) | Out-Null
+        }
+} catch { Write-Warning "Deployment passed; old rollback retention cleanup failed: $($_.Exception.Message)" }
 Complete-DeploymentRun -Status "success" -Message "Deployment healthy: $Sha"

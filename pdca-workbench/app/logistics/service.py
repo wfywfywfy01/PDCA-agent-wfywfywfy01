@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def _is_demo_record(row: dict) -> bool:
         str(row.get(key) or "")
         for key in ("customer", "note", "salesperson")
     ).casefold()
-    return any(token in labels for token in ("演示", "测试客户", "demo", "mock"))
+    return bool(re.search(r"(?:演示运单|演示客户|测试客户)|\b(?:demo|mock)[-_ ]?(?:shipment|customer|tracking)\b", labels))
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -73,6 +74,8 @@ def _load_settings() -> dict:
 def _status_is_delivered(status: str) -> bool:
     value = (status or "").strip().lower()
     if not value:
+        return False
+    if re.search(r"\b(?:not\s+delivered|undelivered)\b|未(?:签收|送达)", value):
         return False
     return (
         "delivered" in value
@@ -290,7 +293,6 @@ def create_shipment(date_text: str, fields: dict, salesperson: str = "") -> str:
     from app.legacy import bridge
     from app.models import writes as db_writes
 
-    bridge.append_logistics(date_text, form)
     db_writes.upsert_logistics_shipment(
         date_text,
         form,
@@ -298,6 +300,11 @@ def create_shipment(date_text: str, fields: dict, salesperson: str = "") -> str:
             salesperson or (form.get("salesperson", [""])[0] or "").strip()
         ),
     )
+    try:
+        bridge.append_logistics(date_text, form)
+    except Exception as exc:
+        # The committed DB row remains authoritative if legacy export is unavailable.
+        logger.warning("物流已保存到数据库，CSV 兼容导出失败: {}", exc)
     return tracking
 
 
@@ -351,7 +358,7 @@ def load_auto_status_map() -> dict[str, object]:
         return {}
 
 
-def _load_db_rows(date_text: str | None = None) -> list[dict]:
+def _load_db_rows(date_text: str | None = None) -> list[dict] | None:
     """P2：从 logistics_shipments 表读取运单（DB 唯一事实源）。
 
     date_text 为 None/"all" 时返回全量；否则只返回该录入批次日。行结构
@@ -369,12 +376,15 @@ def _load_db_rows(date_text: str | None = None) -> list[dict]:
             rows = list(session.exec(stmt).all())
     except Exception as exc:
         logger.warning("读取 logistics_shipments 失败: {}", exc)
-        return []
+        return None
 
     result = []
     for row in rows:
         result.append(
             {
+                "record_date": row.record_date,
+                "synced_at": row.synced_at.isoformat() if row.synced_at else "",
+                "data_source": "logistics_db",
                 "tracking_number": row.tracking_number,
                 "carrier": row.carrier,
                 "customer": row.customer,
@@ -398,7 +408,9 @@ def load_shipments(
     status_group: str = "all",
     query: str = "",
     open_only: bool = False,
-) -> list[dict]:
+    *,
+    return_state: bool = False,
+) -> list[dict] | tuple[list[dict], str]:
     """合并运单数据：DB（logistics_shipments）优先，CSV 历史兜底。
 
     P2 起新录入直接落库（POST /logistics → upsert_logistics_shipment）；
@@ -415,7 +427,8 @@ def load_shipments(
     merged: dict[str, dict] = {}
 
     # 1) DB 行（最高优先）
-    for row in _load_db_rows(date_text):
+    db_rows = _load_db_rows(date_text)
+    for row in db_rows or []:
         tracking = (row.get("tracking_number") or "").strip()
         if not tracking:
             continue
@@ -427,7 +440,7 @@ def load_shipments(
 
     # 2) CSV 历史（只补充 DB 没有的运单）
     if inputs_dir.is_dir():
-        for csv_path in sorted(inputs_dir.glob("*_tracking.csv")):
+        for csv_path in sorted(inputs_dir.glob("*_tracking.csv"), reverse=True):
             file_date = csv_path.stem.replace("_tracking", "")
             if date_text and date_text != "all" and file_date != date_text:
                 continue
@@ -445,10 +458,15 @@ def load_shipments(
                 enriched = dict(row)
                 if tracking in results_by_tracking:
                     enriched.update(results_by_tracking[tracking])
+                enriched["data_source"] = "csv_history"
                 merged[tracking] = _enrich_row(
                     enriched, carriers, cfg, file_date, ref_date, auto_map
                 )
 
+    has_csv = any(row.get("data_source") == "csv_history" for row in merged.values())
+    source_state = ("degraded" if has_csv else "missing") if db_rows is None else (
+        ("mixed" if db_rows else "historical") if has_csv else "available"
+    )
     rows = list(merged.values())
     if salesperson:
         rows = [r for r in rows if _match_sales(r.get("salesperson", ""), salesperson)]
@@ -456,7 +474,8 @@ def load_shipments(
         rows = [r for r in rows if not r.get("is_delivered")]
     rows = [r for r in rows if _match_status_group(r, status_group)]
     rows = [r for r in rows if _match_search(r, query)]
-    return _sort_shipments(rows)
+    rows = _sort_shipments(rows)
+    return (rows, source_state) if return_state else rows
 
 
 def build_summary(shipments: list[dict]) -> dict:
