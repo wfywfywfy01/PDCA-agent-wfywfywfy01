@@ -74,6 +74,21 @@ class Settings:
             for item in os.environ.get("PDCA_TODO_REMIND_SKIP_OWNERS", "").split(",")
             if item.strip()
         ]
+        # 负责人 → VPS user_id 静态映射（JSON 字符串）：im +users 组织搜索
+        # 查不到的人（如外部经销商）在这里兜底，催办/认领直接按 user_id 发送。
+        # 例：PDCA_TODO_USER_ID_OVERRIDES={"徐华俊":13102,"徐豪":12665}
+        raw_overrides = os.environ.get("PDCA_TODO_USER_ID_OVERRIDES", "").strip()
+        overrides: dict[str, int] = {}
+        if raw_overrides:
+            try:
+                parsed_overrides = json.loads(raw_overrides)
+                if isinstance(parsed_overrides, dict):
+                    for name, user_id in parsed_overrides.items():
+                        if isinstance(user_id, int) and user_id > 0:
+                            overrides[str(name).strip()] = user_id
+            except (ValueError, TypeError):
+                pass
+        self.todo_user_id_overrides = overrides
         # 催办发送通道：配置机器人 App ID 后走 im +bot-send-user（机器人身份
         # 发私聊，不再用登录账号本人身份）；留空则回退 im +send-user。
         self.todo_bot_app_id = os.environ.get("PDCA_TODO_BOT_APP_ID", "").strip()

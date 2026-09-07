@@ -38,6 +38,7 @@ from app.todos.evidence import (
     report_text_for,
     report_window_days,
 )
+from app.todos.owners import split_owners
 from app.todos.projects import (
     auto_close_meeting_projects,
     ensure_projects,
@@ -175,14 +176,24 @@ def resolve_self_user_id() -> Optional[int]:
 
 
 def resolve_im_user(owner: str, cache: dict[str, Optional[dict]]) -> Optional[dict]:
-    """owner -> VPS IM 组织成员；结果按 owner 缓存，一轮内不重复查询。"""
+    """owner -> VPS IM 组织成员；结果按 owner 缓存，一轮内不重复查询。
+
+    优先查静态映射（PDCA_TODO_USER_ID_OVERRIDES），其次 im +users 组织
+    搜索，最后从「我的会话」反查 user_id。
+    """
     if owner in cache:
         return cache[owner]
-    payload = run_vertu_sync_json(
-        ["im", "+users", "--query", owner, "--limit", "10"],
-        timeout=30.0,
-    )
-    user = _match_user(owner, _extract_users(payload))
+    user: Optional[dict] = None
+    overrides = get_settings().todo_user_id_overrides
+    user_id_override = overrides.get((owner or "").strip()) if overrides else None
+    if user_id_override:
+        user = {"user_id": user_id_override, "name": owner.strip()}
+    if user is None:
+        payload = run_vertu_sync_json(
+            ["im", "+users", "--query", owner, "--limit", "10"],
+            timeout=30.0,
+        )
+        user = _match_user(owner, _extract_users(payload))
     if user is None:
         # 服务端组织搜索不可用/为空时的兜底：从「我的会话」反查 user_id
         # （direct_key 形如 u:<对方id>:<自己id>，会话名含双方姓名）
@@ -675,9 +686,12 @@ def _cap_composed(composed: list[dict]) -> tuple[list[dict], int]:
 
 
 def _group_by_owner(items: list[PdcaTask]) -> dict[str, list[PdcaTask]]:
+    """按负责人分组；「A&B」合并负责人按人拆分，任务进每个人的消息。"""
     grouped: dict[str, list[PdcaTask]] = defaultdict(list)
     for item in items:
-        grouped[item.owner.strip()].append(item)
+        parts = split_owners(item.owner)
+        for part in parts:
+            grouped[part].append(item)
     return grouped
 
 
@@ -888,7 +902,8 @@ def run_todo_reminders(
     solo_by_owner: dict[str, list[PdcaTask]] = defaultdict(list)
     for task in solo_candidates:
         if force or not _already_reminded_today(task, round_label, today):
-            solo_by_owner[task.owner.strip()].append(task)
+            for part in split_owners(task.owner):
+                solo_by_owner[part].append(task)
     for person, items in routed.items():
         solo_by_owner[person].extend(items)
     for owner, owned in solo_by_owner.items():

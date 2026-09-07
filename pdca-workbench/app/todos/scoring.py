@@ -31,6 +31,7 @@ from app.todos.evidence import (
     has_followup,
     report_text_for,
 )
+from app.todos.owners import split_owners
 
 DONE_WORDS = ("完成", "已完成", "搞定", "做完", "done", "finished", "closed")
 PROGRESS_WORDS = ("推进", "进展", "进行中", "in progress", "处理中", "做了")
@@ -119,13 +120,20 @@ def run_scoring(today: Optional[str] = None, dry_run: bool = False) -> dict:
         for row in rows:
             if _is_done(row.status):
                 continue
-            report = report_text_for(row.owner, report_corpus)
+            reports = []
+            for part in split_owners(row.owner):
+                text = report_text_for(part, report_corpus)
+                if text is not None:
+                    reports.append(text)
             daily_hit: Optional[bool] = None
-            if report is not None:
+            if reports:
                 project_name = project_name_by_id.get(row.project_id) or ""
                 daily_hit = bool(
-                    has_followup(row.title, report)
-                    or (project_name and has_followup(project_name, report))
+                    any(has_followup(row.title, report) for report in reports)
+                    or (
+                        project_name
+                        and any(has_followup(project_name, report) for report in reports)
+                    )
                 )
             result = score_task(row, today, daily_hit=daily_hit)
             if not dry_run:

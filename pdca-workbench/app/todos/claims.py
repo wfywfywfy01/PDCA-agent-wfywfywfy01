@@ -20,6 +20,7 @@ from app.database import get_engine
 from app.models.pdca_task import PdcaTask
 from app.models.todo_group_state import TodoGroupState
 from app.statuses import is_done as _is_done
+from app.todos.owners import split_owners
 from app.vertu.client import run_vertu_sync_json
 
 CLAIM_PATTERNS = re.compile(
@@ -110,12 +111,18 @@ def collect_group_claims(today: str, dry_run: bool = False) -> dict:
             rows = list(
                 session.exec(
                     select(PdcaTask).where(
-                        PdcaTask.owner == name,
+                        (
+                            (PdcaTask.owner == name)
+                            | PdcaTask.owner.contains("&")
+                            | PdcaTask.owner.contains("＆")
+                        ),
                         PdcaTask.task_date <= today,
                         PdcaTask.claimed_at.is_(None),
                     )
                 ).all()
             )
+            # 「A&B」合并负责人：任一人认领即视为该条已认领（整人认领口径）
+            rows = [row for row in rows if name in split_owners(row.owner)]
             open_rows = [row for row in rows if not _is_done(row.status)]
             if not open_rows:
                 continue
