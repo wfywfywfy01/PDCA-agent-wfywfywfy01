@@ -19,11 +19,6 @@ LABEL com.vertu.pdca.source_revision=$SOURCE_REVISION \
 ENV PDCA_RELEASE_SHA=$SOURCE_REVISION
 WORKDIR /app
 
-# 基础镜像内钉的 vertu-cli 为 2.1.10（无 +bot-send-user）；机器人私聊通道
-# 需要 2.8.0，在此增量层内覆盖安装。基础镜像下次重建后此层可移除。
-RUN npm install -g vertu-cli@2.8.0 --omit=optional \
-    && vertu-cli --version
-
 COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
 RUN python -m pip install --no-index --no-deps -r requirements.lock \
     && python -m pip check
