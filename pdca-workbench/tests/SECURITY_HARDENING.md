@@ -81,13 +81,19 @@ Then from `pdca-workbench`:
 python -B tests/test_knowledge_frontend.py
 ```
 
-Two Playwright tests use a fresh Chromium profile and intercept every page request:
+Three Playwright tests use a fresh Chromium profile and intercept every page request:
 only local synthetic responses for `ui.invalid` are served; all other requests
 are aborted. Screenshots/downloads use a temporary directory, never Git.
 Checks: literal malicious titles with no event attributes or script execution,
 version-pinned preview URLs, 1280/390px layouts without horizontal overflow,
 legacy export and Vue password-failure retry followed by reauth/grant/download.
 This checks PDCA UI/protocol behavior, not datahub pixel/PDF redaction.
+
+An additional native-form browser regression reads the actual Referrer-Policy
+assignment and verifies Chromium sends a same-origin Origin on POST. The policy
+is `same-origin`: cross-origin referrers remain suppressed. `no-referrer` is not
+compatible with origin-checked native forms in Chromium, where it creates an
+opaque `Origin: null`; such requests remain rejected instead of bypassing CSRF.
 
 ## Compatibility and retained controls
 

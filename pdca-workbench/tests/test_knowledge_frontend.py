@@ -4,6 +4,7 @@ Run: python -B tests/test_knowledge_frontend.py
 Uses only synthetic API responses and an isolated Chromium profile.
 """
 import base64
+import ast
 import mimetypes
 import os
 from pathlib import Path
@@ -56,6 +57,32 @@ class KnowledgeFrontendTests(unittest.TestCase):
 
     def tearDown(self):
         self.context.close()
+
+    def test_security_policy_preserves_native_form_origin(self):
+        tree = ast.parse((ROOT / "app" / "main.py").read_text(encoding="utf-8"))
+        policy = next(node.value.value for node in ast.walk(tree)
+                      if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                      and any(isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Constant)
+                              and target.slice.value == "Referrer-Policy" for target in node.targets))
+        self.assertEqual(policy, "same-origin")
+        captured = []
+        def native_form(route):
+            request = route.request
+            if urlsplit(request.url).netloc != "ui.invalid":
+                route.abort()
+            elif request.method == "POST":
+                captured.append(request.all_headers())
+                route.fulfill(status=200, content_type="text/html", body="Submitted")
+            else:
+                route.fulfill(status=200, content_type="text/html", headers={"Referrer-Policy": policy},
+                              body='<form method="post" action="/submitted"><input name="title" value="fixture"><button>Submit</button></form>')
+        self.context.unroute("**/*")
+        self.context.route("**/*", native_form)
+        self.page.goto("https://ui.invalid/form")
+        with self.page.expect_navigation():
+            self.page.get_by_role("button", name="Submit", exact=True).click()
+        self.assertEqual(captured[0].get("origin"), "https://ui.invalid")
+        self.assertEqual(captured[0].get("referer"), "https://ui.invalid/form")
 
     def route(self, route):
         request = route.request

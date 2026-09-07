@@ -142,7 +142,8 @@ app.add_middleware(
 def _apply_security_headers(request: Request, response):
     """为正常响应及中间件提前返回统一补齐浏览器安全头。"""
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    # Native form POSTs need a same-origin source for CSRF checks; never send it cross-origin.
+    response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = (
         "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     )
