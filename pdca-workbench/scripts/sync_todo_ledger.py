@@ -25,7 +25,7 @@ load_dotenv(ROOT / ".env")
 
 from sqlmodel import Session, select  # noqa: E402
 
-from app.database import check_db_connection, get_engine  # noqa: E402
+from app.database import check_db_connection, get_engine, init_db  # noqa: E402
 from app.models.pdca_task import PdcaTask  # noqa: E402
 from app.models.todo_group_state import TodoGroupState  # noqa: E402
 from app.statuses import is_done as _is_done  # noqa: E402
@@ -128,6 +128,9 @@ def main() -> int:
     if not check_db_connection():
         print("无法连接 PostgreSQL")
         return 1
+
+    # schema 补丁（claimed_at/score 等新列）幂等
+    init_db()
 
     doc_id, sheet_id = get_or_create_doc()
     today = datetime.now().strftime("%Y-%m-%d")
