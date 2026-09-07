@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""日报证据匹配（移植自 todo-tracker.mjs）。
+"""日报证据匹配：从部门日报接口（vertu-cli report +department）提取跟进证据。
 
-Vemory 待办催办前，拉取负责人最近 7 天日报摘要（vertu-cli report
-+user-summary），用轻量关键词规则判断是否有跟进证据：有证据暂缓催办，
-无证据才催。英文词 + 中文二字片段，停用词过滤，不引入额外依赖。
+催办/打分前拉取窗口期内的日报（--all-departments 全公司范围，权限不足时
+自动回退本部门），按姓名聚合文本，用轻量关键词规则判断负责人是否有跟进
+证据：有证据暂缓催办、打分加分。英文词 + 中文二字片段，停用词过滤，
+不引入额外依赖。
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timedelta
 from typing import Optional
@@ -58,35 +60,127 @@ def load_vps_user_map() -> dict[str, int]:
     return result
 
 
-def fetch_report_text(
-    vps_user_id: int,
-    start_day: str,
-    end_day: str,
-    cache: dict[int, Optional[str]],
-) -> Optional[str]:
-    """拉取日报摘要；失败/不可用返回 None（不抛异常）。按用户缓存。"""
-    if vps_user_id in cache:
-        return cache[vps_user_id]
-    code, stdout, stderr = run_vertu_sync(
-        [
-            "report", "+user-summary",
-            "--user-id", str(vps_user_id),
-            "--start-time", start_day,
-            "--end-time", end_day,
-        ],
-        timeout=30.0,
-    )
-    if code != 0 or not stdout.strip():
-        logger.warning(
-            "日报摘要不可用 user_id={} code={} stderr={}",
-            vps_user_id,
-            code,
-            (stderr or "")[:120],
+_DAILY_TEXT_FIELDS = ("title", "content", "work_name", "task_title")
+
+
+def _submission_texts(submission: dict) -> list[str]:
+    """一条日报提交 → 可检索文本列表（title/content/work_name）。"""
+    payload = submission.get("payload") if isinstance(submission, dict) else None
+    texts: list[str] = []
+    if isinstance(payload, dict):
+        for value in payload.values():
+            if not isinstance(value, list):
+                continue
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                for field in _DAILY_TEXT_FIELDS:
+                    text = item.get(field)
+                    if isinstance(text, str) and text.strip():
+                        texts.append(text.strip())
+    return texts
+
+
+def _parse_department_reports(stdout: str) -> dict[str, dict]:
+    """+department 响应 → 姓名(casefold) → {"user_id", "texts"}。"""
+    try:
+        payload = json.loads(stdout or "")
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    corpus: dict[str, dict] = {}
+    for sub in payload.get("submissions") or []:
+        if not isinstance(sub, dict):
+            continue
+        name = str(sub.get("employee_name") or "").strip()
+        if not name:
+            continue
+        texts = _submission_texts(sub)
+        if not texts:
+            continue
+        entry = corpus.setdefault(name.casefold(), {"user_id": None, "texts": []})
+        if isinstance(sub.get("user_id"), int):
+            entry["user_id"] = sub["user_id"]
+        entry["texts"].extend(texts)
+    return corpus
+
+
+_CORPUS_CACHE: dict[tuple[str, ...], dict[str, dict]] = {}
+
+
+def fetch_department_reports(
+    dates: list[str], timeout: float = 45.0
+) -> dict[str, dict]:
+    """按日拉取部门日报并按姓名聚合；单日失败跳过，返回部分结果。
+
+    进程内按日期集合缓存：morning/afternoon 两轮催办共用同一份拉取。
+    """
+    key = tuple(sorted(set(dates)))
+    if key in _CORPUS_CACHE:
+        return _CORPUS_CACHE[key]
+    corpus: dict[str, dict] = {}
+    for date in key:
+        code, stdout, stderr = run_vertu_sync(
+            [
+                "report", "+department", "--date", date,
+                "--all-departments", "--limit", "500",
+            ],
+            timeout=timeout,
         )
-        cache[vps_user_id] = None
+        if code != 0:
+            # 无全公司日报权限时回退本部门范围
+            code, stdout, stderr = run_vertu_sync(
+                ["report", "+department", "--date", date, "--limit", "500"],
+                timeout=timeout,
+            )
+        if code != 0 or not (stdout or "").strip():
+            logger.warning(
+                "部门日报拉取失败 date={} code={} stderr={}",
+                date, code, (stderr or "")[:120],
+            )
+            continue
+        parsed = _parse_department_reports(stdout)
+        if not parsed:
+            logger.warning("部门日报返回为空 date={}", date)
+        for name, entry in parsed.items():
+            merged = corpus.setdefault(name, {"user_id": None, "texts": []})
+            if entry.get("user_id") is not None:
+                merged["user_id"] = entry["user_id"]
+            merged["texts"].extend(entry.get("texts") or [])
+    _CORPUS_CACHE[key] = corpus
+    return corpus
+
+
+def report_text_for(name: str, corpus: dict[str, dict]) -> Optional[str]:
+    """负责人姓名 → 窗口期内日报合并文本；未找到返回 None。
+
+    先精确匹配，其次唯一包含匹配（如「冯磊」→「冯磊-1」），不唯一不猜。
+    """
+    key = (name or "").strip().casefold()
+    if not key:
         return None
-    cache[vps_user_id] = stdout
-    return stdout
+    entry = corpus.get(key)
+    if entry is None:
+        loose = [e for k, e in corpus.items() if key in k or k in key]
+        entry = loose[0] if len(loose) == 1 else None
+    if entry is None:
+        return None
+    texts = entry.get("texts") or []
+    return "\n".join(texts) if texts else None
+
+
+def date_range(start_day: str, end_day: str) -> list[str]:
+    """[start_day, end_day] 逐日 YYYY-MM-DD 列表（含两端）。"""
+    start = datetime.strptime(start_day, "%Y-%m-%d")
+    end = datetime.strptime(end_day, "%Y-%m-%d")
+    days = (end - start).days
+    if days < 0:
+        return []
+    return [
+        (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(days + 1)
+    ]
 
 
 def report_window_days(today: str, days: int = 6) -> tuple[str, str]:

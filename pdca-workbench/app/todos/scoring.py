@@ -10,8 +10,8 @@
 - 未认领                                  → 10
 - 逾期且未认领、无回复                     → 0
 - 逾期 > 3 天再减 10（下限 0）
-日报证据接口（report +user-summary）已下线，当前标记 unavailable，
-接口恢复后在 fetch_daily_evidence 中接入（有日报跟进记录 +20，上限 100）。
+日报证据来自部门日报接口（report +department）：近 3 天日报中出现待办标题
+或所属项目的跟进记录 → +20（上限 100）；无日报数据标记 unavailable。
 """
 from __future__ import annotations
 
@@ -26,6 +26,11 @@ from app.database import get_engine
 from app.models.pdca_task import PdcaTask
 from app.models.todo_project import TodoProject
 from app.statuses import is_done as _is_done
+from app.todos.evidence import (
+    fetch_department_reports,
+    has_followup,
+    report_text_for,
+)
 
 DONE_WORDS = ("完成", "已完成", "搞定", "做完", "done", "finished", "closed")
 PROGRESS_WORDS = ("推进", "进展", "进行中", "in progress", "处理中", "做了")
@@ -91,6 +96,12 @@ def score_task(
 def run_scoring(today: Optional[str] = None, dry_run: bool = False) -> dict:
     """对全部未完成待办跑一轮三源打分，落库 score/score_at。"""
     today = today or datetime.now().strftime("%Y-%m-%d")
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    # 日报证据窗口：今天往前 3 天（含今天），一次拉全公司日报按姓名聚合
+    dates = [
+        (today_dt - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(3)
+    ]
+    report_corpus = fetch_department_reports(dates)
     rows = []
     with Session(get_engine()) as session:
         rows = list(
@@ -98,6 +109,9 @@ def run_scoring(today: Optional[str] = None, dry_run: bool = False) -> dict:
                 select(PdcaTask).where(PdcaTask.owner != "")
             ).all()
         )
+        project_name_by_id = {
+            p.id: p.name for p in session.exec(select(TodoProject)).all()
+        }
     scored = 0
     buckets = {"100": 0, ">=70": 0, ">=40": 0, ">=20": 0, "<20": 0}
     now = datetime.utcnow()
@@ -105,7 +119,15 @@ def run_scoring(today: Optional[str] = None, dry_run: bool = False) -> dict:
         for row in rows:
             if _is_done(row.status):
                 continue
-            result = score_task(row, today)
+            report = report_text_for(row.owner, report_corpus)
+            daily_hit: Optional[bool] = None
+            if report is not None:
+                project_name = project_name_by_id.get(row.project_id) or ""
+                daily_hit = bool(
+                    has_followup(row.title, report)
+                    or (project_name and has_followup(project_name, report))
+                )
+            result = score_task(row, today, daily_hit=daily_hit)
             if not dry_run:
                 row.score = result["score"]
                 row.score_at = now
