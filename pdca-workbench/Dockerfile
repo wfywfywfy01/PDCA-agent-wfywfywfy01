@@ -13,10 +13,6 @@ COPY apps/web ./
 RUN npm test && npm run typecheck && npm run build
 
 FROM python:3.12-slim
-ARG SOURCE_REVISION
-
-LABEL com.vertu.pdca.source_revision=$SOURCE_REVISION \
-      org.opencontainers.image.revision=$SOURCE_REVISION
 
 WORKDIR /app
 
@@ -44,6 +40,10 @@ COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock
 RUN pip install --no-cache-dir requests pillow rapidocr-onnxruntime pypdf
 RUN python -m playwright install --with-deps chromium
+
+ARG SOURCE_REVISION
+LABEL com.vertu.pdca.source_revision=$SOURCE_REVISION \
+      org.opencontainers.image.revision=$SOURCE_REVISION
 
 COPY pdca-workbench/app ./app
 COPY pdca-workbench/frontend ./frontend

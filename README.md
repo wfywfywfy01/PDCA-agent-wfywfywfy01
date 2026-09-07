@@ -73,6 +73,24 @@ python run.py
 **切到新前端**：生产 `.env` 设 `PDCA_HOME_REDIRECT=/app/`（旧页面共存，可随时回退）。
 **生产运维**：见 `pdca-workbench/docs/运维手册-P5.md`（切换三步曲、监控告警、备份演练、回滚）。
 
+### 生产镜像交付
+
+CI 使用 `pdca-workbench/Dockerfile.release`：基于固定摘要的现役运行时，
+重新执行前端 `npm ci`、测试、类型检查和构建，再替换精确 commit 的源码及
+SPA 产物。旧源码目录先清理，避免已删除文件残留；不修改 `/app/data`、
+`/repo`、`/mvp` 持久卷。镜像标签、OCI/source revision 标签及
+`PDCA_RELEASE_SHA` 使用同一个 commit SHA。
+
+发布层只运行 `pip install --no-index --no-deps -r requirements.lock` 和
+`pip check`。固定运行时未满足锁定依赖时构建必须失败，不能联网补包或
+静默升级。Python、系统包、Node/CLI、浏览器依赖需要变化时，先用保留的
+`pdca-workbench/Dockerfile` 完整重建并验证运行时，再更新 release 文件的
+固定摘要；不能把 `latest` 当作运行时基线。原 Dockerfile 也保留给本地完整构建。
+
+新的发布镜像保留原运行时大层，使已持有该运行时的服务器复用这些层；
+常规源码更新只增加源码、SPA 等小层。CI 的 SQLite 冒烟、PostgreSQL
+并发/权限/故障恢复冒烟、main 分支发布门禁保持不变，测试通过后才推送镜像。
+
 ---
 
 ## 技术栈
