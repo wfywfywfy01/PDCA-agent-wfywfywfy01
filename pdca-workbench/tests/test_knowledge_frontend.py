@@ -130,11 +130,11 @@ class KnowledgeFrontendTests(unittest.TestCase):
         if path == "/legacy":
             route.fulfill(status=200, content_type="text/html", body=(ROOT / "frontend/knowledge_hub.html").read_bytes(),
                           headers={"Content-Security-Policy": CSP})
-        elif path == "/knowledge":
+        elif path == "/app/knowledge":
             route.fulfill(status=200, content_type="text/html", body=(DIST / "index.html").read_bytes(),
                           headers={"Content-Security-Policy": CSP})
-        elif path.startswith("/assets/"):
-            file = (DIST / path.lstrip("/")).resolve()
+        elif path.startswith("/app/assets/"):
+            file = (DIST / path.removeprefix("/app/")).resolve()
             if file.is_relative_to(DIST.resolve()) and file.is_file():
                 route.fulfill(status=200, body=file.read_bytes(), content_type=mimetypes.guess_type(file.name)[0] or "application/octet-stream")
             else:
@@ -175,7 +175,7 @@ class KnowledgeFrontendTests(unittest.TestCase):
 
     def test_vue_safe_render_version_and_export_retry(self):
         self.assertTrue((DIST / "index.html").is_file(), "Build apps/web before running this test")
-        self.page.goto("https://ui.invalid/knowledge")
+        self.page.goto("https://ui.invalid/app/knowledge")
         self.page.locator("#knowledge-query").fill("test")
         self.page.locator(".query-panel button[type=submit]").click()
         self.page.locator(".result img").wait_for()
