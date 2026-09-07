@@ -194,6 +194,10 @@ class DataScopeTests(unittest.TestCase):
         self.assertEqual(visible_store_ids(user, self.session), ["store-a"])
         self.assertEqual(visible_dealer_names(user, self.session), ["Dealer A"])
 
+    def test_dealer_stale_none_scope_still_sees_bound_store(self):
+        user = User(role="dealer", dealer_id="store-a", data_scope="none")
+        self.assertEqual(visible_store_ids(user, self.session), ["store-a"])
+
     def test_sales_scope_uses_store_owner(self):
         user = User(role="sales", username="alice", hashed_password="test", owner_key="alice", data_scope="self")
         self.session.add(user)

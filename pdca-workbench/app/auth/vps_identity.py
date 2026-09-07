@@ -213,6 +213,13 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
             user.team_key = team_key
         if not (getattr(user, "data_scope", "") or ""):
             user.data_scope = data_scope
+        elif (
+            user.role == "dealer"
+            and str(getattr(user, "dealer_id", "") or "").strip()
+            and (getattr(user, "data_scope", "") or "").strip().casefold() == "none"
+        ):
+            user.data_scope = "self"
+        user.must_change_password = False
         user.is_active = True
 
     session.add(user)
