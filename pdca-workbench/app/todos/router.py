@@ -577,6 +577,8 @@ async def list_tasks(
             "source": row.source,
             "meeting_name": row.meeting_name,
             "project_id": row.project_id,
+            "claimed_at": row.claimed_at.isoformat() if row.claimed_at else None,
+            "score": row.score,
         }
         for row in rows
     ]

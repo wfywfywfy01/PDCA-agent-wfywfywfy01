@@ -294,6 +294,54 @@ def todo_group_notice_job() -> None:
         notify("待办群知会失败", str(exc)[:300])
 
 
+def todo_claim_poll_job() -> None:
+    """每 15 分钟 — 群认领采集：群知会后回复「领取/认领/收到」→ 标记知情。"""
+    from app.todos.claims import collect_group_claims
+    from app.todos.service import today_text
+
+    try:
+        result = collect_group_claims(today_text())
+        if result.get("ok") and result.get("claimed_people"):
+            logger.info("群认领采集: {}", result["claimed_people"])
+    except Exception as exc:
+        logger.exception("群认领采集异常: {}", exc)
+
+
+def todo_scoring_job() -> None:
+    """18:00 — 三源印证规则打分（回复/日报/Vemory），落库 score。"""
+    from app.todos.scoring import run_scoring
+
+    try:
+        result = run_scoring()
+        logger.info("待办打分完成: {}", result["buckets"])
+    except Exception as exc:
+        logger.exception("待办打分异常: {}", exc)
+        notify("待办打分失败", str(exc)[:300])
+
+
+def todo_ledger_sync_job() -> None:
+    """18:10 — 台账同步：闭环状态写入 VPS 智能表格。"""
+    import subprocess
+    import sys as _sys
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "sync_todo_ledger.py"
+    try:
+        result = subprocess.run(
+            [_sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            logger.warning("台账同步失败: {}", (result.stderr or result.stdout)[:200])
+            notify("台账同步失败", (result.stderr or result.stdout)[:200])
+        else:
+            logger.info("台账同步完成: {}", (result.stdout or "").strip()[:200])
+    except Exception as exc:
+        logger.exception("台账同步异常: {}", exc)
+        notify("台账同步异常", str(exc)[:200])
+
+
 def vemory_todo_sync_job() -> None:
     """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
 
@@ -489,6 +537,38 @@ def start_scheduler() -> BackgroundScheduler | None:
                 max_instances=1,
                 coalesce=True,
             )
+
+    # 每 15 分钟 — 群认领采集（群知会后回复「领取/认领/收到」→ 知情标记）
+    if settings.todo_group_notice_enabled and settings.todo_group_channel_id:
+        _scheduler.add_job(
+            todo_claim_poll_job,
+            trigger="cron",
+            minute="*/15",
+            hour="9-18",
+            id="todo_claim_poll",
+            max_instances=1,
+            coalesce=True,
+        )
+
+    # 18:00 三源打分 + 18:10 台账同步
+    _scheduler.add_job(
+        todo_scoring_job,
+        trigger="cron",
+        hour=18,
+        minute=0,
+        id="todo_scoring",
+        max_instances=1,
+        coalesce=True,
+    )
+    _scheduler.add_job(
+        todo_ledger_sync_job,
+        trigger="cron",
+        hour=18,
+        minute=10,
+        id="todo_ledger_sync",
+        max_instances=1,
+        coalesce=True,
+    )
 
     # 工作时段每 30 分钟 — IM 回复采集（完成/推进/阻塞 → 状态变更）
     _scheduler.add_job(

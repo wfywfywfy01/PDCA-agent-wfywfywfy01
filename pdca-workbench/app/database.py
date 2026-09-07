@@ -150,6 +150,7 @@ def init_db() -> None:
     from app.models.acquisition_login_ticket import AcquisitionLoginTicket  # noqa: F401
     from app.models.customer_profile import CustomerProfile  # noqa: F401
     from app.models.todo_project import TodoProject  # noqa: F401
+    from app.models.todo_group_state import TodoGroupState  # noqa: F401
     from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
@@ -204,6 +205,10 @@ def _migrate_schema() -> None:
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP",
         # 项目（事项）类型：keyword/meeting/manual
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS kind VARCHAR(16) DEFAULT 'keyword'",
+        # 群认领闭环 + 三源印证打分（2026-09-07）
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS score INTEGER",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS score_at TIMESTAMP",
         # 旧进店来源分类（自然进/预约/潜客/介绍/SA）已废弃，替换为 walkin/cross/online/recruit/existing 五分类；
         # 这几列原来是 NOT NULL，不删掉的话新 taxonomy 的 INSERT 会因为缺列违反约束而失败
         "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS prospect_visits",
@@ -252,6 +257,9 @@ def _migrate_schema() -> None:
         "ALTER TABLE todo_projects ADD COLUMN reply_text VARCHAR(1024) DEFAULT ''",
         "ALTER TABLE todo_projects ADD COLUMN replied_at TIMESTAMP",
         "ALTER TABLE todo_projects ADD COLUMN kind VARCHAR(16) DEFAULT 'keyword'",
+        "ALTER TABLE pdca_tasks ADD COLUMN claimed_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN score INTEGER",
+        "ALTER TABLE pdca_tasks ADD COLUMN score_at TIMESTAMP",
         "ALTER TABLE walkin_daily_reports DROP COLUMN prospect_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN appointment_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN referral_visits",

@@ -44,5 +44,10 @@ class PdcaTask(SQLModel, table=True):
     replied_at: Optional[datetime] = Field(default=None)
     # 手工修正执行人后置锁：True 时 Vemory 同步不再重算 owner
     owner_locked: bool = Field(default=False)
+    # 群认领闭环：该人回复「领取/认领/收到」时记录时间（= 知情时间）
+    claimed_at: Optional[datetime] = Field(default=None)
+    # 三源印证规则打分（0-100）：回复/日报/Vemory 证据加权，见 app/todos/scoring.py
+    score: Optional[int] = Field(default=None)
+    score_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

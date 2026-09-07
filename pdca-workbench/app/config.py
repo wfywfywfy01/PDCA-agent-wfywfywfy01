@@ -93,6 +93,9 @@ class Settings:
         self.todo_group_notice_min_date = os.environ.get(
             "PDCA_TODO_GROUP_NOTICE_MIN_DATE", ""
         ).strip()
+        # 台账（VPS 智能表格）：待办闭环状态同步目标文档 ID；留空则首次同步时
+        # 自动创建「PDCA 待办台账」并写回 todo_group_state。
+        self.todo_ledger_doc_id = os.environ.get("PDCA_TODO_LEDGER_DOC_ID", "").strip()
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
