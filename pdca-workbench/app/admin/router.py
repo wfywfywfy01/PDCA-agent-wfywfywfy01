@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
+import asyncio
 import traceback
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.audit import log_action
@@ -23,7 +24,7 @@ from app.models.dealer_store import DealerStore
 from app.models.monthly_target import MonthlyTarget
 from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 from app.scheduler.jobs import backup_database, daily_sync_job
-from app.validation import require_iso_date
+from app.validation import require_iso_date, require_iso_month
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -120,7 +121,10 @@ async def trigger_vps_sellout_sync(
     端点名 sync-vps-sellout 为历史遗留，实际写入的是 dealer_sales.sell_in_wan。
     """
     date_text = require_iso_date(date or bridge.today_text())
-    count = sync_dealer_sales_from_vps(date_text)
+    try:
+        count = await asyncio.to_thread(sync_dealer_sales_from_vps, date_text)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="销售同步失败，原快照已保留；请检查上游数据与服务日志") from exc
     return {"ok": True, "date": date_text, "synced": count}
 
 
@@ -308,6 +312,8 @@ async def update_user(
     if body.sales_name is not None:
         target.sales_name = body.sales_name.strip()
     if body.is_active is not None:
+        if target.is_active and not body.is_active:
+            target.pwd_version = (target.pwd_version or 0) + 1
         target.is_active = body.is_active
     if body.dealer_id is not None:
         target.dealer_id = body.dealer_id.strip()
@@ -384,6 +390,8 @@ async def deactivate_user(
     target = session.exec(select(User).where(User.username == username)).first()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if target.is_active:
+        target.pwd_version = (target.pwd_version or 0) + 1
     target.is_active = False
     session.add(target)
     session.commit()
@@ -554,10 +562,10 @@ async def update_store(
 class TargetUpsertBody(BaseModel):
     month: str                       # YYYY-MM
     dealer_id: str = ""              # 空 = 全局
-    sell_out_target_yuan: float = 0.0
-    visit_target: int = 0
-    deal_target: int = 0
-    add_rate_target: float = 0.35
+    sell_out_target_yuan: float = Field(0.0, ge=0, allow_inf_nan=False)
+    visit_target: int = Field(0, ge=0)
+    deal_target: int = Field(0, ge=0)
+    add_rate_target: float = Field(0.35, ge=0, le=1, allow_inf_nan=False)
 
 
 @router.get("/targets")
@@ -574,6 +582,7 @@ async def list_targets(
             return []
         stmt = stmt.where(MonthlyTarget.dealer_id.in_(allowed))
     if month:
+        require_iso_month(month)
         stmt = stmt.where(MonthlyTarget.month == month)
     rows = session.exec(stmt.order_by(MonthlyTarget.month.desc())).all()
     return [
@@ -598,8 +607,7 @@ async def upsert_target(
     current_user: Annotated[User, Depends(require_role("manager"))],
     session: Annotated[Session, Depends(get_session)],
 ):
-    if not re.fullmatch(r"\d{4}-\d{2}", body.month):
-        raise HTTPException(status_code=422, detail="month 格式应为 YYYY-MM")
+    require_iso_month(body.month)
     from app.auth.scope import visible_store_ids
     allowed = visible_store_ids(current_user, session)
     if allowed is not None and (not body.dealer_id or body.dealer_id not in allowed):

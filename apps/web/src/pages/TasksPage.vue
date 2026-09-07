@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, apiPatch, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
@@ -29,6 +29,9 @@ const ownerFilter = ref('')
 const tasks = ref<TaskRow[]>([])
 const loading = ref(true)
 const error = ref('')
+let loadId = 0
+const updating = ref(new Set<number>())
+const canWrite = computed(() => !!me.value && ['sales', 'manager', 'admin'].includes(me.value.role))
 
 const showCreate = ref(false)
 const createBusy = ref(false)
@@ -50,36 +53,45 @@ function isDone(status: string): boolean {
 }
 
 async function load() {
+  const id = ++loadId
   loading.value = true
   error.value = ''
+  tasks.value = []
   const p = new URLSearchParams({ date: dateText.value })
   if (statusFilter.value) p.set('status', statusFilter.value)
   if (ownerFilter.value) p.set('owner', ownerFilter.value)
   try {
     const payload = await apiGet<{ items: TaskRow[] }>(`/api/task-center/tasks?${p}`)
-    tasks.value = payload.items
+    if (id === loadId) tasks.value = payload.items
   } catch (err) {
+    if (id !== loadId) return
     if (err instanceof HttpError && err.status === 401) {
       router.replace({ path: '/login', query: { next: '/tasks' } })
       return
     }
     error.value = err instanceof HttpError ? err.detail : '任务加载失败'
   } finally {
-    loading.value = false
+    if (id === loadId) loading.value = false
   }
 }
 
 async function toggle(row: TaskRow) {
+  if (!canWrite.value || updating.value.has(row.id)) return
+  updating.value.add(row.id)
   const next = isDone(row.status) ? 'pending' : 'done'
   try {
     await apiPatch(`/api/task-center/tasks/${row.id}`, { status: next })
     row.status = next
+    if (statusFilter.value && statusFilter.value !== next) tasks.value = tasks.value.filter((item) => item.id !== row.id)
   } catch (err) {
     error.value = err instanceof HttpError ? err.detail : '更新失败'
+  } finally {
+    updating.value.delete(row.id)
   }
 }
 
 async function createTask() {
+  if (createBusy.value || !canWrite.value) return
   createBusy.value = true
   createError.value = ''
   try {
@@ -151,7 +163,7 @@ onMounted(() => {
     <section v-else class="cards">
       <article v-for="row in tasks" :key="row.id" class="card task" :class="{ done: isDone(row.status) }">
         <label class="check-row">
-          <input type="checkbox" :checked="isDone(row.status)" @change="toggle(row)" />
+        <input type="checkbox" :checked="isDone(row.status)" :disabled="!canWrite || updating.has(row.id)" @change="toggle(row)" />
           <span class="t-title">{{ row.title }}</span>
         </label>
         <div class="t-meta">
@@ -160,7 +172,7 @@ onMounted(() => {
           <span class="source">{{ row.source || 'workbench' }}</span>
         </div>
       </article>
-      <p v-if="!tasks.length" class="empty">当日暂无任务，点击右上角新建</p>
+      <p v-if="!tasks.length" class="empty">当前筛选条件下暂无任务{{ canWrite ? '，可点击右上角新建' : '' }}</p>
     </section>
 
     <div v-if="showCreate" class="modal-backdrop" @click.self="showCreate = false">
@@ -172,7 +184,7 @@ onMounted(() => {
             任务标题 *
             <input v-model="createForm.title" class="input" required placeholder="如：跟进 A 类客户 XXX" />
           </label>
-          <label>
+          <label v-if="me?.role !== 'sales'">
             负责人
             <input v-model="createForm.owner" class="input" placeholder="留空 = 未指派" />
           </label>

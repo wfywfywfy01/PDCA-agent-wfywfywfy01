@@ -18,6 +18,7 @@ interface KpiPayload {
   source?: string | null
   state?: string
   currency?: string
+  review_count?: number
 }
 
 interface Fact {
@@ -60,6 +61,8 @@ const customers = ref<CustomerRow[] | null>(null)
 
 const loading = ref(true)
 const error = ref('')
+const sectionErrors = ref<Record<string, string>>({})
+let loadId = 0
 const syncing = ref(false)
 const syncMessage = ref('')
 
@@ -92,8 +95,14 @@ function qs(extra: Record<string, string> = {}): string {
 }
 
 async function loadAll() {
+  const id = ++loadId
   loading.value = true
   error.value = ''
+  sectionErrors.value = {}
+  sellIn.value = null
+  sellOut.value = null
+  today.value = null
+  customers.value = null
   const settle = await Promise.allSettled([
     apiGet<Me>('/api/auth/me'),
     apiGet<KpiPayload>(`/api/dashboard/sell-in?${qs()}`),
@@ -101,6 +110,7 @@ async function loadAll() {
     apiGet<TodayPayload>(`/api/workbench/today?${qs()}`),
     apiGet<CustomerRow[]>('/api/customer-center/summary'),
   ])
+  if (id !== loadId) return
   const [meR, sellInR, sellOutR, todayR, customersR] = settle
 
   if (meR.status === 'fulfilled') me.value = meR.value
@@ -108,6 +118,12 @@ async function loadAll() {
   if (sellOutR.status === 'fulfilled') sellOut.value = sellOutR.value
   if (todayR.status === 'fulfilled') today.value = todayR.value
   if (customersR.status === 'fulfilled') customers.value = customersR.value
+  const keys = ['账号', 'sellIn', 'sellOut', 'today', 'customers']
+  settle.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      sectionErrors.value[keys[index]] = result.reason instanceof HttpError ? result.reason.detail : '加载失败，请重试'
+    }
+  })
 
   const rejected = settle.find(
     (r): r is PromiseRejectedResult =>
@@ -129,7 +145,7 @@ async function syncData() {
   syncing.value = true
   syncMessage.value = '⏳ 正在同步数据…（约 1 分钟）'
   try {
-    await apiPost('/api/dashboard/refresh', { date: dateText.value })
+    await apiPost(`/api/dashboard/refresh?date=${encodeURIComponent(dateText.value)}`)
     syncMessage.value = '✅ 同步完成'
     await loadAll()
   } catch (err) {
@@ -142,14 +158,19 @@ async function syncData() {
 
 function badgeClass(state?: string): string {
   if (state === 'live') return 'badge badge-live'
-  if (state === 'stale') return 'badge badge-stale'
+  if (state === 'stale' || state === 'partial') return 'badge badge-stale'
   return 'badge badge-missing'
 }
 
 function badgeLabel(state?: string): string {
   if (state === 'live') return '实时'
   if (state === 'stale') return '数据过期'
+  if (state === 'partial') return '部分金额待复核'
   return '缺失'
+}
+
+function factLabel(state: string): string {
+  return { available: '已核验', mixed: '含历史记录', historical: '历史记录', degraded: '数据源异常', stale: '数据过期' }[state] || '数据不可用'
 }
 
 function factBadgeClass(state: string): string {
@@ -159,10 +180,10 @@ function factBadgeClass(state: string): string {
 }
 
 function kpiAmount(p: KpiPayload | null): string {
-  if (!p) return '—'
+  if (!p) return loading.value ? '…' : 'N/A'
   if (p.wan != null) return p.wan + ' 万'
   if (p.amount != null) return p.currency === 'USD' ? '$ ' + p.amount.toLocaleString() : '¥ ' + p.amount.toLocaleString()
-  return '—'
+  return 'N/A'
 }
 
 onMounted(loadAll)
@@ -213,7 +234,7 @@ onMounted(loadAll)
         <span class="kpi-value">{{ kpiAmount(sellIn) }}</span>
         <span class="kpi-note">
           <span :class="badgeClass(sellIn?.state)">{{ badgeLabel(sellIn?.state) }}</span>
-          {{ sellIn?.note || '加载中…' }}
+          {{ sectionErrors.sellIn || sellIn?.note || (loading ? '加载中…' : '数据不可用') }}
         </span>
       </div>
       <div class="card kpi">
@@ -221,17 +242,18 @@ onMounted(loadAll)
         <span class="kpi-value">{{ kpiAmount(sellOut) }}</span>
         <span class="kpi-note">
           <span :class="badgeClass(sellOut?.state)">{{ badgeLabel(sellOut?.state) }}</span>
-          {{ sellOut?.note || '加载中…' }}
+          {{ sectionErrors.sellOut || sellOut?.note || (loading ? '加载中…' : '数据不可用') }}
+          <span v-if="sellOut?.review_count">{{ sellOut.review_count }} 条待复核金额未计入</span>
         </span>
       </div>
       <div v-for="[key, fact] in visibleFacts" :key="key" class="card kpi">
         <span class="kpi-label">{{ FACT_LABELS[key] || key }}</span>
-        <span class="kpi-value">{{ fact.state === 'available' ? (fact.value ?? '—') : '—' }}</span>
+        <span class="kpi-value">{{ fact.state === 'available' ? (fact.value ?? 'N/A') : 'N/A' }}</span>
         <span class="kpi-note">
           <span :class="factBadgeClass(fact.state)">
-            {{ fact.state === 'available' ? '正常' : '未同步' }}
+            {{ factLabel(fact.state) }}
           </span>
-          来源：{{ fact.source }}
+          {{ fact.message || '' }}
         </span>
       </div>
     </section>
@@ -239,7 +261,8 @@ onMounted(loadAll)
     <div class="two-col">
       <section class="card panel">
         <h2>今日待处理</h2>
-        <template v-if="today?.actions?.length">
+        <p v-if="sectionErrors.today" class="empty" role="alert">待处理事项加载失败：{{ sectionErrors.today }}</p>
+        <template v-else-if="today?.actions?.length">
           <a
             v-for="(action, index) in today.actions"
             :key="index"
@@ -250,12 +273,15 @@ onMounted(loadAll)
             <span>{{ action.message }}</span>
           </a>
         </template>
-        <p v-else class="empty">当前没有已识别的待处理异常</p>
+        <p v-else-if="loading" class="empty">加载中…</p>
+        <p v-else-if="today" class="empty">当前没有已识别的待处理异常</p>
+        <p v-else class="empty">待处理事项暂不可用</p>
       </section>
 
       <section class="card panel">
         <h2>客户分层（仅已建档客户）</h2>
-        <div v-if="customers?.length" class="customer-grid">
+        <p v-if="sectionErrors.customers" class="empty" role="alert">客户分层加载失败：{{ sectionErrors.customers }}</p>
+        <div v-else-if="customers?.length" class="customer-grid">
           <article v-for="row in customers" :key="row.level" class="customer-card">
             <span class="c-label">{{ row.level }} 类</span>
             <b>{{ row.total }}</b>

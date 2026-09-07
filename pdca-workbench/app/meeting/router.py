@@ -86,8 +86,7 @@ def _db_meetings(start: str, finish: str, name: str, session: Session) -> dict |
     from app.models.meeting import MeetingRecord
 
     stmt = select(MeetingRecord).where(MeetingRecord.meeting_date >= start)
-    if finish:
-        stmt = stmt.where(MeetingRecord.meeting_date <= finish)
+    stmt = stmt.where(MeetingRecord.meeting_date <= (finish or start))
     db_rows = list(session.exec(stmt).all())
     if not db_rows:
         return None
@@ -111,6 +110,7 @@ def _db_meetings(start: str, finish: str, name: str, session: Session) -> dict |
         meetings.append(
             {
                 "id": row.external_id,
+                "meeting_date": row.meeting_date,
                 "title": row.title,
                 "meeting_type": row.meeting_type,
                 "bucket": row.bucket,
@@ -139,6 +139,8 @@ def _load_meetings(
     user: User,
     session: Session,
 ) -> dict:
+    if finish and finish < start:
+        raise HTTPException(status_code=422, detail="end_date 不能早于 date")
     scope = resolve_data_scope(user, session)
     if not scope.unrestricted and not scope.owner_keys:
         return {"ok": True, "date": start, "date_end": finish, "meetings": [], "summary": _meeting_summary([]), "counts": _meeting_counts([]), "scope": scope.mode}
@@ -159,6 +161,14 @@ def _load_meetings(
         finish,
         default={"ok": False, "error": "会议数据服务不可用", "meetings": []},
     )
+    for row in payload.get("meetings", []) or []:
+        source_date = str(row.get("meeting_date") or row.get("started_at") or "")[:10]
+        if not source_date and (not finish or finish == start):
+            source_date = start
+        try:
+            row["meeting_date"] = require_iso_date(source_date, field="meeting_date")
+        except HTTPException:
+            row["meeting_date"] = None
     return _apply_meeting_scope(payload, user, session)
 
 

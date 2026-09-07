@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
 from app.database import get_engine
-from app.models.walkin_daily_report import WalkinDailyReport
+from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
+from app.models.dealer_store import is_demo_store
 from app.vertu.sales import fetch_sell_in
 
 
@@ -41,7 +43,10 @@ def _as_of(payloads: tuple[dict, dict]) -> str:
     if not latest:
         return "N/A"
     try:
-        return datetime.fromisoformat(latest).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        value = datetime.fromisoformat(latest)
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S %z")
     except ValueError:
         return "N/A"
 
@@ -53,14 +58,14 @@ def build_report(day: str) -> str:
     month_wan, month_units = _validated_sales(sales[1], "本月")
 
     with Session(get_engine()) as session:
-        reports = session.exec(
+        reports = latest_walkin_reports(session.exec(
             select(WalkinDailyReport).where(WalkinDailyReport.report_date == yesterday)
-        ).all()
+        ).all())
     reported_ids = {
         row.dealer_id
         for row in reports
         if row.dealer_id
-        and not row.dealer_id.lower().startswith(("qa-", "test-", "demo-"))
+        and not is_demo_store(row.dealer_id, row.dealer_name)
     }
 
     return "\n".join(

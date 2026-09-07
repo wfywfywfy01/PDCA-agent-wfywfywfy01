@@ -16,9 +16,10 @@ from loguru import logger
 from app.admin.router import router as admin_router
 from app.auth.router import router as auth_router
 from app.auth.seed import seed_users
+from app.auth.csrf import browser_write_is_trusted
 from app.config import get_settings
 from app.dashboard.router import router as dashboard_router
-from app.database import bootstrap_database, get_db_mode
+from app.database import bootstrap_database, check_db_connection, get_db_mode
 from app.logging_setup import setup_logging
 from app.logistics.router import router as logistics_router
 from app.meeting.router import router as meeting_router
@@ -141,7 +142,8 @@ app.add_middleware(
 def _apply_security_headers(request: Request, response):
     """为正常响应及中间件提前返回统一补齐浏览器安全头。"""
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    # Native form POSTs need a same-origin source for CSRF checks; never send it cross-origin.
+    response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = (
         "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     )
@@ -179,14 +181,24 @@ async def security_headers_middleware(request: Request, call_next):
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
     """P5：记录请求指标（Prometheus）。"""
-    response = await call_next(request)
-    record_request(request.method, request.url.path, response.status_code)
-    return response
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        # Never retain customer IDs, filenames, or arbitrary 404 paths as labels.
+        route = request.scope.get("route")
+        record_request(request.method, getattr(route, "path", "<unmatched>"), status)
 
 
 @app.middleware("http")
 async def auth_redirect_middleware(request: Request, call_next):
     """未登录访问页面时跳转登录（API 返回 401）。"""
+    if not browser_write_is_trusted(request):
+        return _apply_security_headers(
+            request, JSONResponse({"detail": "写请求来源不可信，请从本站页面重试"}, status_code=403)
+        )
     path = request.url.path
     # /app/* 为 Vue3 SPA（含静态资源与客户端路由），公开托管；
     # SPA 数据面走 /api/* 鉴权，未登录由 SPA 内部跳转其登录页。
@@ -212,9 +224,12 @@ async def auth_redirect_middleware(request: Request, call_next):
         from app.database import get_engine
 
         with DbSession(get_engine()) as db:
-            return _apply_security_headers(
-                request, await redirect_from_odoo_query_session(request, db)
-            )
+            try:
+                response = await redirect_from_odoo_query_session(request, db)
+            except StarletteHTTPException as exc:
+                response = await http_exception_handler(request, exc)
+            response.headers["Cache-Control"] = "no-store"
+            return _apply_security_headers(request, response)
     # vps/hybrid：页面放行，由路由 Depends(get_current_user) 鉴权
     if settings.auth_mode in ("vps", "hybrid"):
         return await call_next(request)
@@ -306,7 +321,7 @@ app.mount("/mcp", knowledge_mcp_app)
 async def health():
     """健康检查（含数据库连通性）。"""
     mode = get_db_mode()
-    db_ok = mode in ("postgresql", "sqlite", "sqlite-fallback")
+    db_ok = mode in ("postgresql", "sqlite", "sqlite-fallback") and await asyncio.to_thread(check_db_connection)
     settings = get_settings()
     raw_backup = backup_status()
     # 本地开发不要求已有备份；生产环境必须把备份失败暴露给监控。
@@ -342,6 +357,7 @@ async def health():
     payload = {
         "status": "ok" if ok else "degraded",
         "service": "pdca-workbench",
+        "revision": os.environ.get("PDCA_RELEASE_SHA", "unknown"),
         "database": mode,
         "database_connected": db_ok,
         "backup": backup,

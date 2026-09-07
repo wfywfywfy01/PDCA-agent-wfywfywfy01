@@ -65,7 +65,7 @@ def issue_odoo_ticket(
 def parse_odoo_ticket(ticket: str, secret: str) -> dict[str, Any] | None:
     """校验签名与过期时间。非法返回 None。"""
     normalized = (ticket or "").strip()
-    if "." not in normalized or len(normalized) > 2048:
+    if not secret or len(normalized) > 2048 or not re.fullmatch(r"[A-Za-z0-9_-]+\.[0-9a-f]{64}", normalized):
         return None
     body, _, sig = normalized.partition(".")
     if not body or not sig:

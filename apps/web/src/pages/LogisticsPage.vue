@@ -5,6 +5,7 @@ import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
 
 interface Summary {
+  source_state?: string
   total: number
   delivered: number
   in_transit: number
@@ -16,6 +17,7 @@ interface Summary {
 }
 
 interface Shipment {
+  data_source?: string
   tracking_number: string
   carrier: string
   customer: string
@@ -77,6 +79,8 @@ const summary = ref<Summary | null>(null)
 const shipments = ref<Shipment[]>([])
 const loading = ref(true)
 const error = ref('')
+let loadId = 0
+let freightLoadId = 0
 
 const trackQuery = ref({ carrier: 'UPS', tracking_number: '' })
 const trackBusy = ref(false)
@@ -208,13 +212,17 @@ function params() {
 }
 
 async function load() {
+  const id = ++loadId
   loading.value = true
   error.value = ''
+  summary.value = null
+  shipments.value = []
   const qs = params()
   const settle = await Promise.allSettled([
     apiGet<Summary>(`/api/logistics/summary?${qs}`),
     apiGet<{ items: Shipment[] }>(`/api/logistics/shipments?${qs}`),
   ])
+  if (id !== loadId) return
   const [summaryR, shipmentsR] = settle
   for (const r of settle) {
     if (
@@ -228,9 +236,9 @@ async function load() {
   }
   if (summaryR.status === 'fulfilled') summary.value = summaryR.value
   if (shipmentsR.status === 'fulfilled') shipments.value = shipmentsR.value.items
-  if (summaryR.status === 'rejected' && shipmentsR.status === 'rejected') {
-    error.value =
-      summaryR.reason instanceof HttpError ? summaryR.reason.detail : '物流数据加载失败'
+  const rejected = settle.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (rejected) {
+    error.value = rejected.reason instanceof HttpError ? rejected.reason.detail : '物流数据加载失败，请重试'
   }
   loading.value = false
 }
@@ -245,7 +253,7 @@ async function loadDates() {
 }
 
 async function singleTrack() {
-  if (!trackQuery.value.tracking_number.trim()) return
+  if (trackBusy.value || !trackQuery.value.tracking_number.trim()) return
   trackBusy.value = true
   trackResult.value = null
   try {
@@ -285,6 +293,7 @@ onMounted(() => {
 })
 
 async function loadFreight() {
+  const id = ++freightLoadId
   freightBusy.value = true
   freightError.value = ''
   const p = new URLSearchParams()
@@ -296,18 +305,34 @@ async function loadFreight() {
       summary: FreightSummary
       items: FreightItem[]
     }>(`/api/logistics/freight?${p.toString()}`)
+    if (id !== freightLoadId) return
     freightAvailable.value = payload.available
     freightSummary.value = payload.summary
     freightItems.value = payload.items
   } catch (err) {
+    if (id !== freightLoadId) return
     if (err instanceof HttpError && err.status === 401) {
       router.replace({ path: '/login', query: { next: '/logistics' } })
       return
     }
     freightError.value = err instanceof HttpError ? err.detail : '货代台账加载失败'
   } finally {
-    freightBusy.value = false
+    if (id === freightLoadId) freightBusy.value = false
   }
+}
+
+function sourceMessage(state?: string): string {
+  const labels: Record<string, string> = {
+    mixed: '部分运单来自历史记录，请结合每票来源核对。',
+    historical: '当前仅有历史运单，不能据此判断实时物流情况。',
+    degraded: '物流数据库暂不可用，以下仅为历史记录，实时统计为 N/A。',
+    missing: '物流数据源暂不可用，统计为 N/A。',
+  }
+  return labels[state || ''] || ''
+}
+
+function summaryValue(value: number | undefined): string | number {
+  return ['historical', 'degraded', 'missing'].includes(summary.value?.source_state || '') ? 'N/A' : value ?? 'N/A'
 }
 
 watch([date, status, q], () => {
@@ -345,7 +370,7 @@ watch(me, (value) => {
     <div class="tabs board-tabs">
       <button type="button" :class="['tab', { active: board === 'dealer' }]" @click="board = 'dealer'">经销商运单</button>
       <button
-        v-if="!me || me.role !== 'dealer'"
+        v-if="me && me.role !== 'dealer'"
         type="button"
         :class="['tab', { active: board === 'freight' }]"
         @click="board = 'freight'"
@@ -379,33 +404,35 @@ watch(me, (value) => {
       <input v-model="q" class="input search" type="search" placeholder="搜索运单号/客户/销售/状态…" />
     </section>
 
-    <div v-if="error" class="card state error">{{ error }}</div>
+    <div v-if="loading" class="card state">正在读取物流数据…</div>
+    <div v-else-if="error" class="card state error">{{ error }}</div>
 
     <template v-else>
+      <p v-if="sourceMessage(summary?.source_state)" class="entry-msg" role="status">{{ sourceMessage(summary?.source_state) }}</p>
       <section v-if="summary" class="stats">
         <div class="card stat">
           <span class="k">总运单</span>
-          <span class="v">{{ summary.total }}</span>
+          <span class="v">{{ summaryValue(summary.total) }}</span>
         </div>
         <div class="card stat">
           <span class="k">运输中</span>
-          <span class="v">{{ summary.in_transit }}</span>
+          <span class="v">{{ summaryValue(summary.in_transit) }}</span>
         </div>
         <div class="card stat">
           <span class="k">异常/待关注</span>
-          <span class="v warn">{{ summary.abnormal }}</span>
+          <span class="v warn">{{ summaryValue(summary.abnormal) }}</span>
         </div>
         <div class="card stat">
           <span class="k">待核查</span>
-          <span class="v warn">{{ summary.pending }}</span>
+          <span class="v warn">{{ summaryValue(summary.pending) }}</span>
         </div>
         <div class="card stat">
           <span class="k">已签收</span>
-          <span class="v ok">{{ summary.delivered }}</span>
+          <span class="v ok">{{ summaryValue(summary.delivered) }}</span>
         </div>
         <div class="card stat">
           <span class="k">签收率</span>
-          <span class="v">{{ summary.delivery_rate_pct }}%</span>
+          <span class="v">{{ summaryValue(summary.delivery_rate_pct) }}{{ summaryValue(summary.delivery_rate_pct) === 'N/A' ? '' : '%' }}</span>
         </div>
       </section>
 
@@ -415,6 +442,7 @@ watch(me, (value) => {
             <span class="tracking">{{ ship.tracking_number }}</span>
             <span class="badge-carrier">{{ ship.carrier }}</span>
             <span :class="['judge', judgementClass(ship.judgement)]">{{ ship.judgement }}</span>
+            <span v-if="ship.data_source === 'csv_history'" class="badge-carrier">历史记录</span>
           </div>
           <div class="meta">
             <span><b>客户</b>{{ ship.customer || '—' }}</span>
@@ -478,7 +506,7 @@ watch(me, (value) => {
       </section>
       <div v-if="freightError" class="card state error">{{ freightError }}</div>
       <p v-else-if="freightBusy" class="card state">加载货代台账…</p>
-      <p v-else-if="!freightAvailable" class="card state">货代台账还没同步。等服务器 09:00/15:00 跑完 logibot，或容器里执行 python /app/logibot/bot.py run。</p>
+      <p v-else-if="!freightAvailable" class="card state">货代台账尚未同步，请稍后刷新；持续无数据时联系管理员。</p>
       <template v-else>
         <section v-if="freightSummary" class="stats">
           <div class="card stat"><span class="k">总票</span><span class="v">{{ freightSummary.total }}</span></div>

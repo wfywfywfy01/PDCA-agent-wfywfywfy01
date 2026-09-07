@@ -9,7 +9,9 @@ import subprocess
 import time
 from typing import Any
 
+from fastapi import HTTPException
 from loguru import logger
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.auth.models import User
@@ -176,7 +178,9 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
     username = vps_username(vps)
     name = vps_display_name(vps)
     role = infer_pdca_role(vps)
-    sales_name = name if role == "sales" else ""
+    # A display name is not an ownership binding. Only explicitly configured
+    # source mappings may grant access to salesperson-keyed business rows.
+    sales_name = _nested(vps, "sales_name") if role == "sales" else ""
     owner_key = _nested(vps, "owner_key") if role == "sales" else ""
     team_key = _nested(vps, "team_key") if role == "manager" else ""
     data_scope = {
@@ -188,6 +192,9 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
     }.get(role, "none")
 
     user = session.exec(select(User).where(User.username == username)).first()
+    if user is not None and not user.is_active:
+        # SSO proves identity, but cannot undo a local administrator's ban.
+        raise HTTPException(status_code=403, detail="账号已停用")
     if not user:
         user = User(
             username=username,
@@ -213,14 +220,6 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
             user.team_key = team_key
         if not (getattr(user, "data_scope", "") or ""):
             user.data_scope = data_scope
-        elif (
-            user.role == "dealer"
-            and str(getattr(user, "dealer_id", "") or "").strip()
-            and (getattr(user, "data_scope", "") or "").strip().casefold() == "none"
-        ):
-            user.data_scope = "self"
-        user.must_change_password = False
-        user.is_active = True
 
     session.add(user)
     session.commit()
@@ -240,7 +239,7 @@ def vps_profile(vps: dict) -> dict:
     return {
         "username": vps_username(vps),
         "display_name": name,
-        "sales_name": name if role == "sales" else "",
+        "sales_name": _nested(vps, "sales_name") if role == "sales" else "",
         "owner_key": _nested(vps, "owner_key") if role == "sales" else "",
         "team_key": _nested(vps, "team_key") if role == "manager" else "",
         "data_scope": {"admin": "all", "manager": "team", "sales": "self", "dealer": "self", "viewer": "none"}.get(role, "none"),

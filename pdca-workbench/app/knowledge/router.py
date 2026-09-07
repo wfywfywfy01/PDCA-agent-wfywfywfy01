@@ -27,7 +27,10 @@ from sqlmodel import Session
 from app.auth.deps import get_current_user
 from app.auth.models import User
 from app.auth.router import _check_rate_limit, _clear_fail, _rate_limit_key, _record_fail
-from app.auth.security import create_access_token, decode_token, verify_password
+from app.auth.security import (
+    KNOWLEDGE_REAUTH_COOKIE, create_access_token, decode_access_token, decode_token,
+    is_token_revoked, request_access_token, verify_password,
+)
 from app.auth.scope import resolve_data_scope
 from app.audit import log_action
 from app.config import get_settings
@@ -86,7 +89,7 @@ class ReviewDecisionBody(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
-_REAUTH_COOKIE = "pdca_knowledge_reauth"
+_REAUTH_COOKIE = KNOWLEDGE_REAUTH_COOKIE
 _REAUTH_PURPOSE = "knowledge-original-export"
 _REAUTH_SECONDS = 300
 _UPLOAD_CHUNK_SIZE = 1024 * 1024
@@ -103,14 +106,28 @@ def _require_upload_access(user: User, session: Session, dealer_id: UUID) -> Non
     require_knowledge_access(user, session, dealer_id)
 
 
-def _reauthenticated_at(token: str | None, user: User) -> int:
+def _login_jti(request: Request, user: User) -> str:
+    payload = decode_access_token(request_access_token(request) or "")
+    if (
+        not payload or payload.get("sub") != user.username
+        or payload.get("pwd_v", 0) != (user.pwd_version or 0)
+        or not isinstance(payload.get("jti"), str) or not payload["jti"]
+        or is_token_revoked(payload)
+    ):
+        raise HTTPException(status_code=403, detail="请重新登录后验证原件导出")
+    return payload["jti"]
+
+
+def _reauthenticated_at(token: str | None, user: User, request: Request) -> int:
     payload = decode_token(token or "")
-    if not payload or payload.get("sub") != user.username:
+    if not payload or payload.get("sub") != user.username or is_token_revoked(payload):
         raise HTTPException(status_code=403, detail="导出原件前请重新验证密码")
     if payload.get("purpose") != _REAUTH_PURPOSE:
         raise HTTPException(status_code=403, detail="重新验证凭据用途无效")
     if payload.get("pwd_v") != (getattr(user, "pwd_version", 0) or 0):
         raise HTTPException(status_code=403, detail="密码已变更，请重新验证")
+    if payload.get("login_jti") != _login_jti(request, user):
+        raise HTTPException(status_code=403, detail="登录会话已变更，请重新验证")
     try:
         return int(payload["iat"])
     except (KeyError, TypeError, ValueError) as exc:
@@ -154,6 +171,7 @@ async def reauthenticate_original_export(
     session: Annotated[Session, Depends(get_session)],
 ):
     _require_original_export_admin(user, session)
+    login_jti = _login_jti(request, user)
     key = _rate_limit_key(request, user.username)
     _check_rate_limit(key)
     if not verify_password(body.password, user.hashed_password):
@@ -164,6 +182,7 @@ async def reauthenticate_original_export(
         {
             "sub": user.username,
             "purpose": _REAUTH_PURPOSE,
+            "login_jti": login_jti,
             "pwd_v": getattr(user, "pwd_version", 0) or 0,
         },
         timedelta(seconds=_REAUTH_SECONDS),
@@ -385,10 +404,14 @@ async def preview_asset(
     request: Request,
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
+    asset_version_id: UUID | None = None,
 ):
     require_knowledge_access(user, session)
+    path = f"/v1/assets/{asset_id}/content"
+    if asset_version_id is not None:
+        path += f"?asset_version_id={asset_version_id}"
     return await request_content(
-        "GET", f"/v1/assets/{asset_id}/content", user=user, session=session,
+        "GET", path, user=user, session=session,
         request_id=getattr(request.state, "request_id", ""),
     )
 
@@ -405,7 +428,7 @@ async def export_original(
     pdca_knowledge_reauth: Annotated[str | None, Cookie()] = None,
 ):
     _require_original_export_admin(user, session)
-    reauthenticated_at = _reauthenticated_at(pdca_knowledge_reauth, user)
+    reauthenticated_at = _reauthenticated_at(pdca_knowledge_reauth, user, request)
     grant = await request_json(
         "POST", "/v1/exports", user=user, session=session,
         request_id=getattr(request.state, "request_id", ""),

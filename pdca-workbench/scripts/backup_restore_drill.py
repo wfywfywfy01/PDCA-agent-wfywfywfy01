@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 WORKBENCH_ROOT = SCRIPT_DIR.parent
@@ -29,7 +30,6 @@ if str(WORKBENCH_ROOT) not in sys.path:
 
 from app.config import get_settings  # noqa: E402
 
-SCRATCH_DB = "pdca_restore_check"
 CHECK_TABLES = ["users", "dealer_sales", "walkin_daily_reports", "meeting_records", "pdca_tasks"]
 
 
@@ -57,7 +57,7 @@ def _latest_backup(explicit: str) -> Path | None:
     return files[0] if files else None
 
 
-def _run_psql(psql: str, info: dict, args: list[str]) -> tuple[int, str]:
+def _run_psql(psql: str, info: dict, args: list[str], *, timeout: int = 300) -> tuple[int, str]:
     env = os.environ.copy()
     if info.get("password"):
         env["PGPASSWORD"] = info["password"]
@@ -70,25 +70,15 @@ def _run_psql(psql: str, info: dict, args: list[str]) -> tuple[int, str]:
         "-X", "-q",
         *args,
     ]
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
 def _admin_sql(psql: str, info: dict, sql: str) -> tuple[int, str]:
-    """连接默认库（postgres）执行管理语句。"""
-    env = os.environ.copy()
-    if info.get("password"):
-        env["PGPASSWORD"] = info["password"]
-    cmd = [
-        psql,
-        "-h", info.get("host", "localhost"),
-        "-p", str(info.get("port") or 5432),
-        "-U", info.get("user") or "",
-        "-d", info.get("database") or "postgres",
-        "-X", "-q", "-c", sql,
-    ]
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
-    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+    """连接现有管理库执行语句，绝不把备份恢复到该库。"""
+    return _run_psql(
+        psql, info, ["-d", info.get("database") or "postgres", "-c", sql], timeout=120,
+    )
 
 
 def main() -> int:
@@ -110,43 +100,54 @@ def main() -> int:
     print(f"演练目标: {backup.name} ({backup.stat().st_size} bytes)")
     print(f"连接目标: {info.get('host')}:{info.get('port')}/{info.get('database')}")
 
-    print(f"[1/4] 清理旧临时库 {SCRATCH_DB}…")
-    rc, output = _admin_sql(psql, info, f'DROP DATABASE IF EXISTS {SCRATCH_DB}')
-    if rc != 0 and "does not exist" not in output:
-        # DROP IF EXISTS 出错以外的失败才中止
+    scratch_db = f"pdca_restore_{uuid4().hex}"
+    created = False
+    cleanup_ok = True
+    try:
+        print(f"[1/4] 创建临时库 {scratch_db}…")
+        rc, output = _admin_sql(psql, info, f'CREATE DATABASE "{scratch_db}"')
         if rc != 0:
-            pass
-    print(f"[2/4] 创建临时库 {SCRATCH_DB}…")
-    rc, output = _admin_sql(psql, info, f'CREATE DATABASE {SCRATCH_DB}')
-    if rc != 0:
-        print(f"[FAIL] 创建临时库失败:\n{output[:400]}")
-        return 1
-    print(f"[3/4] 恢复备份到 {SCRATCH_DB}…")
-    env = os.environ.copy()
-    if info.get("password"):
-        env["PGPASSWORD"] = info["password"]
-    proc = subprocess.run(
-        [psql, "-h", info.get("host", "localhost"), "-p", str(info.get("port") or 5432),
-         "-U", info.get("user") or "", "-d", SCRATCH_DB, "-v", "ON_ERROR_STOP=1", "-X", "-q", "-f", str(backup)],
-        env=env, capture_output=True, text=True, timeout=600,
-    )
-    if proc.returncode != 0:
-        print(f"[FAIL] 恢复执行失败:\n{(proc.stderr or proc.stdout)[:400]}")
-        return 1
-    print(f"[4/4] 校验关键表结构…")
-    for table in CHECK_TABLES:
+            print(f"[FAIL] 创建临时库失败:\n{output[:400]}")
+            return 1
+        created = True
+        print(f"[2/4] 恢复备份到 {scratch_db}…")
         rc, output = _run_psql(
-            psql, info,
-            ["-d", SCRATCH_DB, "-t", "-A", "-c", f"SELECT count(*) FROM {table}"],
+            psql, info, ["-d", scratch_db, "-f", str(backup)], timeout=600,
         )
         if rc != 0:
-            print(f"[FAIL] 表 {table} 不存在或不可查询:\n{output[:200]}")
-            if not args.keep_scratch:
-                _admin_sql(psql, info, f'DROP DATABASE IF EXISTS {SCRATCH_DB}')
+            print(f"[FAIL] 恢复执行失败:\n{output[:400]}")
             return 1
-        count = int("".join(ch for ch in output if ch.isdigit()) or "0")
-        print(f"  {table}: {count} 行")
-    _admin_sql(psql, info, f'DROP DATABASE IF EXISTS {SCRATCH_DB}')
+        print("[3/4] 校验关键表结构…")
+        for table in CHECK_TABLES:
+            rc, output = _run_psql(
+                psql, info, ["-d", scratch_db, "-t", "-A", "-c", f"SELECT count(*) FROM {table}"],
+            )
+            if rc != 0:
+                print(f"[FAIL] 表 {table} 不存在或不可查询:\n{output[:200]}")
+                return 1
+            count = int(output.strip())
+            if count < 0 or (table == "users" and count == 0):
+                print(f"[FAIL] 表 {table} 行数无效: {count}")
+                return 1
+            print(f"  {table}: {count} 行")
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        print(f"[FAIL] 恢复演练中止: {type(exc).__name__}")
+        return 1
+    finally:
+        if created:
+            if args.keep_scratch:
+                print(f"[4/4] 保留临时库 {scratch_db}")
+            else:
+                print(f"[4/4] 清理本次临时库 {scratch_db}…")
+                try:
+                    rc, output = _admin_sql(psql, info, f'DROP DATABASE "{scratch_db}"')
+                    cleanup_ok = rc == 0
+                except (OSError, subprocess.SubprocessError):
+                    cleanup_ok = False
+                if not cleanup_ok:
+                    print(f"[FAIL] 临时库清理失败，请检查 {scratch_db}")
+    if not cleanup_ok:
+        return 1
     print("\n[PASS] 备份恢复演练通过：备份可完整恢复，关键表结构正常。")
     return 0
 

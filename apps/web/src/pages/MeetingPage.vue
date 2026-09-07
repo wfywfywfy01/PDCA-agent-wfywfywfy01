@@ -5,6 +5,7 @@ import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
 
 interface MeetingItem {
+  meeting_date?: string
   id: string
   title: string
   meeting_type: string
@@ -18,6 +19,7 @@ interface MeetingItem {
 
 interface MeetingsPayload {
   ok: boolean
+  error?: string
   date: string
   date_end?: string
   meetings: MeetingItem[]
@@ -39,6 +41,7 @@ const endDate = ref('')
 const payload = ref<MeetingsPayload | null>(null)
 const loading = ref(true)
 const error = ref('')
+let loadId = 0
 
 const showDispatch = ref(false)
 const dispatchMeeting = ref<MeetingItem | null>(null)
@@ -60,18 +63,29 @@ function qs(): string {
 }
 
 async function load() {
+  const id = ++loadId
   loading.value = true
   error.value = ''
+  payload.value = null
+  if (!startDate.value || (endDate.value && endDate.value < startDate.value)) {
+    error.value = '请选择有效日期范围，结束日期不能早于开始日期'
+    loading.value = false
+    return
+  }
   try {
-    payload.value = await apiGet<MeetingsPayload>(`/api/meeting-center/meetings?${qs()}`)
+    const result = await apiGet<MeetingsPayload>(`/api/meeting-center/meetings?${qs()}`)
+    if (id !== loadId) return
+    if (result.ok === false) throw new Error(result.error || '会议数据源暂不可用，请稍后重试')
+    payload.value = result
   } catch (err) {
+    if (id !== loadId) return
     if (err instanceof HttpError && err.status === 401) {
       router.replace({ path: '/login', query: { next: '/meetings' } })
       return
     }
-    error.value = err instanceof HttpError ? err.detail : '会议数据加载失败'
+    error.value = err instanceof Error ? err.message : '会议数据加载失败'
   } finally {
-    loading.value = false
+    if (id === loadId) loading.value = false
   }
 }
 
@@ -112,7 +126,12 @@ function removeAssignment(index: number) {
 }
 
 async function submitDispatch() {
-  if (!dispatchMeeting.value) return
+  if (!dispatchMeeting.value || dispatchBusy.value) return
+  const meetingDate = dispatchMeeting.value.meeting_date || (!endDate.value || endDate.value === startDate.value ? startDate.value : '')
+  if (!meetingDate) {
+    dispatchError.value = '该会议缺少可核验日期，请先按会议当天查询后再派发'
+    return
+  }
   const rows = assignments.value.filter((item) => item.title.trim() && item.owner.trim())
   if (!rows.length) {
     dispatchError.value = '请至少填写一条待办（负责人 + 内容）'
@@ -121,17 +140,18 @@ async function submitDispatch() {
   dispatchBusy.value = true
   dispatchError.value = ''
   try {
-    await apiPost('/api/meeting-center/dispatch', {
-      date: startDate.value,
+    const result = await apiPost<{ ok?: boolean; error?: string }>('/api/meeting-center/dispatch', {
+      date: meetingDate,
       meeting_id: dispatchMeeting.value.id,
       meeting_title: dispatchMeeting.value.title,
       assignments: rows,
     })
+    if (result.ok === false) throw new Error(result.error || '派发未完成，请核对结果后重试')
     dispatchSuccess.value = '✅ 已派发，待办将同步到 VPS 任务'
     showDispatch.value = false
     await load()
   } catch (err) {
-    dispatchError.value = err instanceof HttpError ? err.detail : '派发失败，请稍后重试'
+    dispatchError.value = err instanceof Error ? err.message : '派发失败，请稍后重试'
   } finally {
     dispatchBusy.value = false
   }
@@ -156,14 +176,15 @@ watch([startDate, endDate], load)
         <p class="sub">会议记录 · 待办派发 · 闭环跟踪</p>
       </div>
       <div class="date-row">
-        <input v-model="startDate" type="date" class="input" />
+        <input v-model="startDate" type="date" class="input" aria-label="会议开始日期" />
         <span class="sep">至</span>
-        <input v-model="endDate" type="date" class="input" />
+        <input v-model="endDate" type="date" class="input" :min="startDate" aria-label="会议结束日期" />
         <button v-if="endDate" type="button" class="btn" @click="endDate = ''">清除</button>
       </div>
     </header>
 
     <p v-if="payload?.scope_message" class="scope-note">🔒 {{ payload.scope_message }}</p>
+    <p v-if="dispatchSuccess" class="entry-msg ok" role="status">{{ dispatchSuccess }}</p>
 
     <div v-if="loading" class="card state">正在读取会议数据…</div>
     <div v-else-if="error" class="card state error">{{ error }}</div>
@@ -192,6 +213,7 @@ watch([startDate, endDate], load)
         <article v-for="meeting in payload.meetings" :key="meeting.id" class="card meeting">
           <div class="meeting-head">
             <span class="title">{{ meeting.title }}</span>
+            <span v-if="meeting.meeting_date" class="tag">{{ meeting.meeting_date }}</span>
             <span class="tag">{{ typeLabel(meeting.meeting_type) }}</span>
             <span class="tag tag-bucket">{{ BUCKET_LABELS[meeting.bucket] || meeting.bucket }}</span>
             <span class="tag tag-min">{{ meeting.duration_minutes }} 分钟</span>
@@ -225,7 +247,7 @@ watch([startDate, endDate], load)
             </button>
           </div>
         </article>
-        <p v-if="!payload.meetings.length" class="empty">该时段暂无会议记录（库内无数据时会自动回退 Vemory 实时拉取）</p>
+        <p v-if="!payload.meetings.length" class="empty">当前权限范围内，该时段暂无会议记录</p>
       </section>
     </template>
 
@@ -286,6 +308,7 @@ h2 {
 
 .date-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }

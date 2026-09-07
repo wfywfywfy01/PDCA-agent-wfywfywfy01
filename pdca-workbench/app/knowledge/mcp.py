@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 
 from app.auth.deps import ensure_portal_access
 from app.auth.models import User
-from app.auth.security import decode_token, is_token_revoked
+from app.auth.security import decode_access_token, is_token_revoked
 from app.config import get_settings
 from app.database import get_engine
 from app.knowledge.client import request_json, require_knowledge_access, scoped_dealers
@@ -29,7 +29,7 @@ class PDCATokenVerifier:
     """Accept active PDCA user JWTs; reject revoked or stale credentials."""
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        payload = decode_token(token)
+        payload = decode_access_token(token)
         if not payload or is_token_revoked(payload):
             return None
         username = str(payload.get("sub") or "")

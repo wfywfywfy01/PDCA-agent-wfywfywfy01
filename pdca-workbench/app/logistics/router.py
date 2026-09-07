@@ -42,16 +42,18 @@ def _load_scoped(
     open_only: bool,
     user: User,
     session: Session,
-) -> tuple[list[dict], str, str]:
+) -> tuple[list[dict], str, str, str]:
     date_key = date or "all"
-    rows = service.load_shipments(date_key, None, status, q, open_only)
+    if date_key != "all":
+        require_iso_date(date_key)
+    rows, source_state = service.load_shipments(date_key, None, status, q, open_only, return_state=True)
     rows, label = _scoped_shipments(rows, user, session)
     scope = resolve_data_scope(user, session)
     if salesperson.strip() and scope.unrestricted:
         requested = service.canonical_sales_name(salesperson)
         rows = [row for row in rows if service.canonical_sales_name(row.get("salesperson", "")) == requested]
         label = requested
-    return rows, label, date_key
+    return rows, label, date_key, source_state
 
 
 def _scope_freight(items: list[dict], user: User, session: Session) -> tuple[list[dict], str]:
@@ -162,9 +164,10 @@ async def logistics_dates(
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    rows, _label = _scoped_shipments(service.load_shipments("all"), user, session)
+    rows, source_state = service.load_shipments("all", return_state=True)
+    rows, _label = _scoped_shipments(rows, user, session)
     dates = sorted({str(row.get("record_date") or "") for row in rows if row.get("record_date")}, reverse=True)
-    return {"items": dates}
+    return {"items": dates, "source_state": source_state}
 
 
 @router.get("/summary")
@@ -177,8 +180,8 @@ async def logistics_summary(
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    shipments, label, date_key = _load_scoped(date, salesperson, status, q, open_only, user, session)
-    return {"date": date_key, "salesperson": label, "role": user.role, **service.build_summary(shipments)}
+    shipments, label, date_key, source_state = _load_scoped(date, salesperson, status, q, open_only, user, session)
+    return {"date": date_key, "salesperson": label, "role": user.role, "source_state": source_state, **service.build_summary(shipments)}
 
 
 @router.get("/shipments")
@@ -191,8 +194,8 @@ async def logistics_shipments(
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
-    rows, label, date_key = _load_scoped(date, salesperson, status, q, open_only, user, session)
-    return {"date": date_key, "salesperson": label, "count": len(rows), "items": rows}
+    rows, label, date_key, source_state = _load_scoped(date, salesperson, status, q, open_only, user, session)
+    return {"date": date_key, "salesperson": label, "source_state": source_state, "count": len(rows), "items": rows}
 
 
 @router.get("/salespeople")

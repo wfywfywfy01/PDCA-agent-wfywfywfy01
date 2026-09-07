@@ -61,6 +61,7 @@ const search = ref('')
 
 const loading = ref(true)
 const error = ref('')
+let loadId = 0
 
 const editCustomer = ref<CustomerRow | null>(null)
 const editBusy = ref(false)
@@ -80,8 +81,12 @@ function baseParams(): string {
 }
 
 async function load() {
+  const id = ++loadId
   loading.value = true
   error.value = ''
+  summary.value = null
+  customers.value = []
+  followups.value = []
   const base = baseParams()
   const extra = new URLSearchParams()
   if (abcdFilter.value !== 'all') extra.set('abcd', abcdFilter.value)
@@ -91,6 +96,7 @@ async function load() {
     apiGet<{ items: CustomerRow[] }>(`/api/signalseller/customers?${base}&${extra}`),
     apiGet<{ items: FollowupTask[] }>(`/api/signalseller/followup-tasks?${base}`),
   ])
+  if (id !== loadId) return
   const [summaryR, customersR, followupsR] = settle
   for (const r of settle) {
     if (r.status === 'rejected' && r.reason instanceof HttpError && r.reason.status === 401) {
@@ -101,8 +107,9 @@ async function load() {
   if (summaryR.status === 'fulfilled') summary.value = summaryR.value
   if (customersR.status === 'fulfilled') customers.value = customersR.value.items
   if (followupsR.status === 'fulfilled') followups.value = followupsR.value.items
-  if (summaryR.status === 'rejected' && customersR.status === 'rejected') {
-    error.value = summaryR.reason instanceof HttpError ? summaryR.reason.detail : '获客数据加载失败'
+  const rejected = settle.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (rejected) {
+    error.value = rejected.reason instanceof HttpError ? rejected.reason.detail : '获客数据加载失败，请重试'
   }
   loading.value = false
 }
@@ -142,7 +149,7 @@ function openEdit(customer: CustomerRow) {
 }
 
 async function submitEdit() {
-  if (!editCustomer.value) return
+  if (!editCustomer.value || editBusy.value) return
   editBusy.value = true
   editError.value = ''
   try {
@@ -170,9 +177,10 @@ function openOutreach(customer: CustomerRow) {
 }
 
 async function generateOutreach() {
-  if (!outreachCustomer.value) return
+  if (!outreachCustomer.value || outreachBusy.value) return
   outreachBusy.value = true
   outreachError.value = ''
+  outreachResult.value = ''
   try {
     const payload = await apiPost<{ content?: string; text?: string; message?: string }>(
       '/api/signalseller/outreach/generate',

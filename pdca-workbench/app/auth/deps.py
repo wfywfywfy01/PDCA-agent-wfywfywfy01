@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from app.auth.models import ROLE_LEVELS, User
-from app.auth.security import decode_token, is_token_revoked
+from app.auth.security import decode_access_token, is_token_revoked
 from app.auth.vps_identity import (
     ensure_vps_user,
     fetch_vps_me_payload,
@@ -32,7 +32,7 @@ async def _user_from_jwt(
 ) -> User | None:
     if not token:
         return None
-    payload = decode_token(token)
+    payload = decode_access_token(token)
     if not payload or "sub" not in payload or is_token_revoked(payload):
         return None
     username = payload["sub"]
@@ -132,7 +132,7 @@ async def get_current_user(
     """
     解析当前用户，优先级：
     1. 反向代理 Header（多用户生产）
-    2. JWT Cookie / Bearer（local / hybrid）
+    2. JWT Cookie / Bearer（包括 Odoo SSO 签发的 VPS 会话）
     3. 服务端 vertu-cli hr +me（vps / hybrid 兜底）
     """
     settings = get_settings()
@@ -151,7 +151,7 @@ async def get_current_user(
         return proxy_user
 
     # 2) JWT
-    if mode in ("hybrid", "local"):
+    if mode in ("hybrid", "local", "vps"):
         user = await _user_from_jwt(session, token)
         if user:
             _check_must_change_password(user, request)

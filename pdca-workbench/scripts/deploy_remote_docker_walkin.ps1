@@ -8,6 +8,7 @@ param(
     [ValidateRange(1, 86400)]
     [int]$DockerPullTimeoutSeconds = 900,
     [string]$LogDirectory = "",
+    [string]$EnvFile = "",
     [switch]$SkipCiCheck,
     [switch]$SkipImagePull
 )
@@ -36,7 +37,7 @@ $ImageRegistry = "ghcr.io/wfywfywfy01/pdca-workbench"
 # 会误查上游 Frankie-Foo 的 CI；显式锁定 fork 仓库。
 $CiRepo = "wfywfywfy01/PDCA-agent-wfywfywfy01"
 $WorkbenchRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$EnvFile = Join-Path $WorkbenchRoot ".env.walkin"
+if (-not $EnvFile) { $EnvFile = Join-Path $WorkbenchRoot ".env.walkin" }
 $HelperImage = "vertu-registry.cn-chengdu.cr.aliyuncs.com/base/postgres:18.4-bookworm"
 $ContainerName = "pdca-walkin-portal"
 $HostPort = 8769
@@ -203,6 +204,23 @@ function Read-DotEnvValue {
     return $value
 }
 
+function Read-OptionalDotEnvValue {
+    param([string]$Name)
+    $line = Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
+        Where-Object { $_.StartsWith("$Name=") } | Select-Object -Last 1
+    if (-not $line -and $currentObject) {
+        $line = $currentObject.Config.Env | Where-Object { $_.StartsWith("$Name=") } | Select-Object -Last 1
+    }
+    if (-not $line) { return $null }
+    $value = $line.Substring($Name.Length + 1).Trim()
+    if ($value.Length -ge 2 -and
+        (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+         ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+    return $value
+}
+
 function Wait-ContainerHealthy {
     param([int]$TimeoutSeconds = 120)
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -255,9 +273,17 @@ function Start-PdcaWalkinContainer {
         "-e", "PDCA_SCHEDULER_ENABLED=0",
         "-e", "PDCA_HOME_REDIRECT=/walkin-submit",
         "-e", "PDCA_PORTAL_MODE=walkin",
-        "-e", "PDCA_LOG_LEVEL=INFO",
-        $Image
+        "-e", "PDCA_LOG_LEVEL=INFO"
     )
+    foreach ($envName in @("PDCA_ODOO_SSO_SECRET", "PDCA_ODOO_BASE_URL", "PDCA_VPS_LOGIN_URL",
+            "PDCA_VPS_SYNC_ROLE", "PDCA_FRAME_ANCESTORS", "PDCA_TOKEN_EXPIRE_MINUTES")) {
+        $envValue = Read-OptionalDotEnvValue $envName
+        if ($null -ne $envValue) {
+            if ($envName -match 'SECRET|TOKEN|KEY') { $script:SensitiveValues += $envValue }
+            $dockerArgs += @("-e", "$envName=$envValue")
+        }
+    }
+    $dockerArgs += $Image
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
 }
 
@@ -308,11 +334,16 @@ if ($currentInspectResult.ExitCode -eq 0 -and $currentInspect) {
 }
 if ($currentRevision -eq $Sha) {
     $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 20
-    if ($health.status -eq "ok") {
+    if ($health.status -eq "ok" -and $health.revision -eq $Sha) {
         Write-Output "Already deployed and healthy: $Sha"
         Complete-DeploymentRun -Status "success" -Message "Already deployed and healthy: $Sha"
         exit 0
     }
+}
+
+if ($currentRevision) {
+    $freeBytes = [long](Invoke-Docker -DockerArgs @("exec", $ContainerName, "python", "-c", "import shutil; print(shutil.disk_usage('/app/data').free)"))
+    if ($freeBytes -lt 3GB) { throw "Deployment blocked: less than 3 GiB free on the PDCA data filesystem" }
 }
 
 if ($SkipImagePull) {
@@ -325,6 +356,8 @@ if ($SkipImagePull) {
     Write-Output "Pulling tested image $image"
     Invoke-Docker -DockerArgs @("pull", $image) -TimeoutSeconds $DockerPullTimeoutSeconds | Out-Null
 }
+$sourceRevision = (Invoke-Docker -DockerArgs @("image", "inspect", $image, "--format", '{{index .Config.Labels "com.vertu.pdca.source_revision"}}')).Trim()
+if ($sourceRevision -ne $Sha) { throw "Image source revision mismatch: expected $Sha" }
 
 $secrets = @{
     PDCA_WALKIN_SECRET_KEY = Read-DotEnvValue "PDCA_WALKIN_SECRET_KEY"
@@ -372,16 +405,20 @@ if ($oldContainerResult.ExitCode -ne 0) {
 $oldExists = $oldContainerResult.StdOut -eq $ContainerName
 $oldImage = ""
 $oldRevision = "rollback"
+$rollbackName = "$ContainerName-rollback-$stamp"
 Write-Output "Inspecting the currently deployed $ContainerName container"
 if ($oldExists) {
     $oldObject = ((Invoke-Docker -DockerArgs @("inspect", $ContainerName)) | ConvertFrom-Json)[0]
     $oldImage = $oldObject.Config.Image
     $candidateRevision = $oldObject.Config.Labels.'com.vertu.pdca.revision'
     if ($candidateRevision) { $oldRevision = $candidateRevision }
-    Invoke-Docker -DockerArgs @("rm", "-f", $ContainerName) | Out-Null
 }
 
 try {
+    if ($oldExists) {
+        Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldObject.Id) | Out-Null
+        Invoke-Docker -DockerArgs @("rename", $oldObject.Id, $rollbackName) | Out-Null
+    }
     Write-Output "Starting $ContainerName for $Sha"
     Start-PdcaWalkinContainer $image $Sha $secrets
     Write-Output "Waiting for container health"
@@ -392,7 +429,7 @@ try {
     # to be false/unavailable -- unlike the internal workbench deploy script, do not treat
     # it as a failure condition. The app's own /health "status" field already accounts for
     # vertu_required=false correctly, so checking status + database_connected is sufficient.
-    if ($health.status -ne "ok" -or -not $health.database_connected) {
+    if ($health.status -ne "ok" -or -not $health.database_connected -or $health.revision -ne $Sha) {
         throw "Public health response is not fully healthy"
     }
     $login = Invoke-WebRequest -Uri "$PublicUrl/login" -UseBasicParsing -TimeoutSec 20
@@ -421,17 +458,37 @@ try {
         Write-Warning "Unable to collect failed container logs: $($_.Exception.Message)"
     }
     try {
-        Invoke-DockerProcess -DockerArgs @("rm", "-f", $ContainerName) `
-            -TimeoutSeconds ([Math]::Min($DockerCommandTimeoutSeconds, 30)) | Out-Null
+        $failed = Invoke-DockerProcess -DockerArgs @("inspect", $ContainerName)
+        if ($failed.ExitCode -eq 0) {
+            $failedObject = ($failed.StdOut | ConvertFrom-Json)[0]
+            if ((-not $oldExists -or $failedObject.Id -ne $oldObject.Id) -and
+                $failedObject.Config.Labels.'com.vertu.pdca.revision' -eq $Sha) {
+                Invoke-Docker -DockerArgs @("rm", "-f", $failedObject.Id) | Out-Null
+            }
+        }
     } catch {
         Write-Warning "Unable to remove failed container: $($_.Exception.Message)"
     }
     if ($oldImage) {
         Write-Warning "Deployment failed; rolling back to $oldImage"
-        Start-PdcaWalkinContainer $oldImage $oldRevision $secrets
+        $oldState = ((Invoke-Docker -DockerArgs @("inspect", $oldObject.Id)) | ConvertFrom-Json)[0]
+        if ($oldState.Name -ne "/$ContainerName") {
+            Invoke-Docker -DockerArgs @("rename", $oldObject.Id, $ContainerName) | Out-Null
+        }
+        Invoke-Docker -DockerArgs @("start", $oldObject.Id) | Out-Null
         Wait-ContainerHealthy
     }
     throw
 }
 
+try {
+    $rollbackIds = Invoke-Docker -DockerArgs @("ps", "-a", "--filter", "name=^/$ContainerName-rollback-", "--format", "{{.ID}}")
+    $rollbackObjects = foreach ($id in ($rollbackIds -split "`n" | Where-Object { $_ })) {
+        ((Invoke-Docker -DockerArgs @("inspect", $id.Trim())) | ConvertFrom-Json)[0]
+    }
+    $rollbackObjects | Where-Object { -not $_.State.Running -and $_.Config.Labels.'com.vertu.pdca.revision' } |
+        Sort-Object Created -Descending | Select-Object -Skip 1 | ForEach-Object {
+            Invoke-Docker -DockerArgs @("rm", "-v", $_.Id) | Out-Null
+        }
+} catch { Write-Warning "Deployment passed; old rollback retention cleanup failed: $($_.Exception.Message)" }
 Complete-DeploymentRun -Status "success" -Message "Deployment healthy: $Sha"

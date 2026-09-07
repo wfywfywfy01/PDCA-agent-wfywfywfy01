@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -25,3 +26,17 @@ class DealerSales(SQLModel, table=True):
     activation_rate: float = Field(default=0.0)  # 累计激活率 %（activated/shipped）
     source_file: str = Field(default="", max_length=512)
     synced_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+def snapshot_amount_state(rows: list[DealerSales]) -> str:
+    """Retain old raw snapshots but quarantine unverifiable zero amounts."""
+    if not rows:
+        return "missing"
+    if any(row.sell_in_wan is None or not math.isfinite(row.sell_in_wan) for row in rows):
+        return "suspect"
+    legacy_sources = {"vertu-cli:sales-orders", "sync_from_vertu"}
+    if (all(row.sell_in_wan == 0 for row in rows)
+            and any(row.units != 0 for row in rows)
+            and any(row.source_file in legacy_sources for row in rows)):
+        return "suspect"
+    return "available"

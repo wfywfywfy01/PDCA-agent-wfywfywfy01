@@ -34,6 +34,12 @@ def require_iso_date(value: str, *, field: str = "date") -> str:
     return value
 
 
+def require_iso_month(value: str, *, field: str = "month") -> str:
+    """Validate a real calendar month, including API query parameters."""
+    require_iso_date(f"{value}-01", field=field)
+    return value
+
+
 def resolve_file_under(root: Path, rel_path: str) -> Path:
     """解析静态资源，拒绝绝对路径、目录穿越和目录本身。"""
     root_resolved = root.resolve()
