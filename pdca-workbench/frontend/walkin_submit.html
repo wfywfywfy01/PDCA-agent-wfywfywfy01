@@ -353,7 +353,6 @@ fetch('/api/auth/me', {credentials:'include'})
         });
         // dealer role: hide store filter in history
         if (_role === 'dealer') {
-          hSel.parentElement && (hSel.parentElement.style.display = 'none');
           hSel.style.display = 'none';
         }
         // dealer role: lock to single store; or pre-select from URL param
@@ -499,14 +498,15 @@ function loadHistory(){
       document.getElementById('histFooter').textContent='';
       return;
     }
-    var html=''; var totVisit=0,totShown=0,totSold=0,totAmt=0;
+    var html=''; var totVisit=0,totShown=0,totSold=0,totAmt=0,verifiedAmounts=0,pendingAmounts=0;
     rows.forEach(function(r){
       var fk = r.five_kit||{}; var fn = r.funnel||{};
       var tv  = fk.total||0;
-      var amt = fn.deal_amount_usd != null ? fn.deal_amount_usd : (fn.deal_amount_yuan||0);
+      var amt = fn.deal_amount_usd != null ? fn.deal_amount_usd : fn.deal_amount_yuan;
       var amountNeedsReview = !!fn.amount_requires_review;
       totVisit+=tv; totShown+=fn.touch_count||0; totSold+=fn.deal_count||0;
-      if (!amountNeedsReview) totAmt+=amt;
+      if (amountNeedsReview || amt == null) pendingAmounts++;
+      else { totAmt+=amt; verifiedAmounts++; }
       function n(v){ return (v||0)===0 ? '<span class="num-zero">0</span>' : v; }
       html+='<tr>'
         +'<td class="left">'+esc(r.report_date)+'</td>'
@@ -522,16 +522,17 @@ function loadHistory(){
         +'<td>'+n(fn.deal_count)+'</td>'
         +'<td>'+(amountNeedsReview
           ? '<span style="color:#b45309;font-weight:700">Check currency</span>'
-          : fmtAmt(amt)
-          ? '<span class="tag-green">'+fmtAmt(amt)+'</span>'
-          : '<span class="num-zero">—</span>')+'</td>'
+          : amt == null ? '<span class="num-zero">N/A</span>'
+          : '<span class="tag-green">'+(fmtAmt(amt)||'$0')+'</span>')+'</td>'
         +'<td style="color:var(--s400);font-size:.72rem">'+esc(r.submitted_by||'—')+'</td>'
         +'</tr>';
     });
     document.getElementById('histBody').innerHTML = html;
     document.getElementById('histFooter').textContent =
       rows.length+' records  |  Total Visits: '+totVisit+'  |  Shown: '+totShown
-      +'  |  Sold: '+totSold+'  |  Sell-out: '+(fmtAmt(totAmt)||'$0');
+      +'  |  Sold: '+totSold+'  |  '+(pendingAmounts ? 'Verified Sell-out: ' : 'Sell-out: ')
+      +(verifiedAmounts ? (fmtAmt(totAmt)||'$0') : 'N/A')
+      +(pendingAmounts ? '  |  Pending amount review: '+pendingAmounts : '');
   })
   .catch(function(error){
     if (requestId!==historyRequestId) return;
