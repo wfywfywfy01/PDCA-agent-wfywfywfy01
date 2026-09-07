@@ -12,7 +12,7 @@ RUN npm ci --no-audit --no-fund
 COPY apps/web ./
 RUN npm test && npm run typecheck && npm run build
 
-FROM ghcr.io/wfywfywfy01/pdca-workbench@sha256:be0de3310a9460187415ddc31c3a47bed919c354fde404a2fa2ab2d72e79a5d8
+FROM ghcr.io/wfywfywfy01/pdca-workbench@sha256:3712e373df47385929c91e2edcfc89cd00ec508b62923a7fcd609c676ec94345
 ARG SOURCE_REVISION
 LABEL com.vertu.pdca.source_revision=$SOURCE_REVISION \
       org.opencontainers.image.revision=$SOURCE_REVISION
