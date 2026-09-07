@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -249,6 +250,24 @@ def _resolve_via_channels(name: str) -> Optional[dict]:
     return _lookup_cached(name, wanted_cache)
 
 
+def _send_with_body_file(
+    args: list[str],
+    body: str,
+    timeout: float = 30.0,
+) -> tuple[int, str, str]:
+    """多行正文经 --body-file 传递，避免 --body 参数在换行处被截断。"""
+    fd, path = tempfile.mkstemp(prefix="pdca-im-", suffix=".txt")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file_obj:
+            file_obj.write(body)
+        return run_vertu_sync(args + ["--body-file", path], timeout=timeout)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 def send_direct_message(
     user_id: int | str,
     body: str,
@@ -258,6 +277,7 @@ def send_direct_message(
 
     配置 PDCA_TODO_BOT_APP_ID 时走机器人身份（im +bot-send-user），
     否则回退登录账号身份（im +send-user）。
+    多行正文一律经 --body-file 传递（--body 参数在换行处会被截断）。
     """
     bot_app_id = get_settings().todo_bot_app_id
     args = ["im"]
@@ -266,17 +286,14 @@ def send_direct_message(
             "+bot-send-user",
             "--app-id", bot_app_id,
             "--user-id", str(user_id),
-            "--body", body,
-            "--client-message-id", client_message_id,
         ]
     else:
         args += [
             "+send-user",
             "--user-id", str(user_id),
-            "--body", body,
-            "--client-message-id", client_message_id,
         ]
-    code, stdout, stderr = run_vertu_sync(args, timeout=30.0)
+    args += ["--client-message-id", client_message_id]
+    code, stdout, stderr = _send_with_body_file(args, body, timeout=30.0)
     if code == 0:
         message_id = ""
         try:
@@ -573,6 +590,8 @@ def send_group_notice(today: str, dry_run: bool = False) -> dict:
     client_id = "pdca-group-notice-" + today
     agent_slug = os.environ.get("VERTU_AGENT_SLUG", "").strip()
     if agent_slug:
+        # 专家智能体通道暂不支持 --body-file，多行正文存在截断风险；
+        # 待接入 slug 后实测，必要时改走单行格式或通道升级。
         code, stdout, stderr = run_vertu_sync(
             [
                 "im", "+agent-notify",
@@ -585,13 +604,13 @@ def send_group_notice(today: str, dry_run: bool = False) -> dict:
             timeout=30.0,
         )
     else:
-        code, stdout, stderr = run_vertu_sync(
+        code, stdout, stderr = _send_with_body_file(
             [
                 "im", "+send",
                 "--channel-id", channel_id,
-                "--body", notice["body"],
                 "--client-message-id", client_id,
             ],
+            notice["body"],
             timeout=30.0,
         )
     if code != 0:
