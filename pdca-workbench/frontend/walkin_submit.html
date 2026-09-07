@@ -153,8 +153,9 @@
 <!-- ══════════ Submit Tab ══════════ -->
 <div id="tab-submit" class="tab-panel active">
 <div class="container">
-  <div id="alert" class="alert"></div>
+  <div id="alert" class="alert" role="status"></div>
   <form id="kitForm" novalidate>
+    <fieldset id="kitFields" style="border:0;min-width:0">
 
     <!-- Basic Info -->
     <div class="card">
@@ -228,7 +229,7 @@
       <!-- Sell-out -->
       <div class="sellout-box">
         <label for="deal_amount_yuan">Revenue (USD $)</label>
-        <input type="number" id="deal_amount_yuan" min="0" max="5000000" value="" placeholder="0" step="100" />
+        <input type="number" id="deal_amount_yuan" min="0" max="5000000" value="" placeholder="0" step="0.01" />
         <div class="sellout-note">Enter USD only. Do not enter VND, THB, CNY or another local currency.</div>
       </div>
     </div>
@@ -240,6 +241,7 @@
     </div>
 
     <button type="submit" class="btn-submit" id="submitBtn">Submit</button>
+    </fieldset>
   </form>
 </div>
 </div>
@@ -286,7 +288,25 @@
 var API = '';
 var storeMap = {};
 var _role = '';
+var submitBusy = false;
+var historyRequestId = 0;
 function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
+
+function loginUrl(){return '/login?next='+encodeURIComponent(location.pathname+location.search);}
+function readJson(response){
+  return response.json().catch(function(){return {};}).then(function(data){
+    if (!response.ok){
+      var message = response.status === 401 ? 'Session expired. Please sign in again.'
+        : (typeof data.detail === 'string' ? data.detail : 'Request failed (HTTP '+response.status+')');
+      var error = new Error(message); error.status=response.status; throw error;
+    }
+    return data;
+  });
+}
+function errorHtml(error, fallback){
+  return esc(error.message || fallback)+(error.status===401
+    ? ' <a href="'+esc(loginUrl())+'">Sign in again</a>' : '');
+}
 
 function fmtAmt(v) {
   if (!v || v <= 0) return null;
@@ -301,6 +321,7 @@ function fmtAmt(v) {
   var today = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   var ym    = today.slice(0,7);
   document.getElementById('report_date').value = today;
+  document.getElementById('report_date').max = today;
   document.getElementById('hist_month').value  = ym;
   document.getElementById('exportBtn').href = API + '/api/export/walkin-metrics?month=' + ym;
 })();
@@ -310,12 +331,12 @@ var _presetStore = new URLSearchParams(location.search).get('store') || '';
 
 // Load current user + visible stores
 fetch('/api/auth/me', {credentials:'include'})
-  .then(function(r){ return r.ok ? r.json() : null; })
+  .then(readJson)
   .then(function(me){
     if (!me) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
     _role = me.role || '';
     return fetch(API + '/api/my-stores', {credentials:'include'})
-      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(readJson)
       .then(function(stores){
         var sel  = document.getElementById('dealer_id');
         var hSel = document.getElementById('hist_dealer');
@@ -362,7 +383,10 @@ fetch('/api/auth/me', {credentials:'include'})
         }
       });
   })
-  .catch(function(){});
+  .catch(function(error){
+    if (error.status===401){location.href=loginUrl(); return;}
+    showErr(error.message || 'Unable to load your stores. Please refresh and retry.');
+  });
 
 // Tab switch
 function switchTab(tab, btn){
@@ -389,8 +413,9 @@ srcIds.concat(['touch_count','deal_count']).forEach(function(id){
 });
 
 // Submit
-document.getElementById('kitForm').addEventListener('submit', function(e){
+document.getElementById('kitForm').addEventListener('submit', async function(e){
   e.preventDefault();
+  if (submitBusy) return;
   var alertEl = document.getElementById('alert');
   alertEl.className = 'alert';
   var date    = document.getElementById('report_date').value;
@@ -399,6 +424,7 @@ document.getElementById('kitForm').addEventListener('submit', function(e){
   var dname   = (dSel.selectedOptions[0] && dSel.selectedOptions[0].getAttribute('data-name')) || did;
   if (!date){ showErr('Please select a date'); return; }
   if (!did){  showErr('Please select a store'); return; }
+  if (!this.reportValidity()) return;
   var body = {
     report_date: date, dealer_id: did, dealer_name: dname,
     walkin_visits:       pInt('walkin_visits'),
@@ -412,26 +438,34 @@ document.getElementById('kitForm').addEventListener('submit', function(e){
     notes:               document.getElementById('notes').value.trim()
   };
   var btn = document.getElementById('submitBtn');
+  var fields = document.getElementById('kitFields');
+  submitBusy = true;
+  fields.disabled = true;
   btn.disabled = true; btn.textContent = 'Submitting…';
-  fetch(API+'/api/walkin-metrics',{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(body), credentials:'include'
-  })
-  .then(function(r){
-    if (r.status===401){ location.href='/login?next=/walkin-submit/'; return null; }
-    return r.json().then(function(d){ return {ok:r.ok,d:d}; });
-  })
-  .then(function(res){
-    if (!res) return;
-    if (res.ok){
-      alertEl.className='alert ok';
-      alertEl.textContent='✓ Saved — '+dname+' · '+date;
-      window.scrollTo({top:0,behavior:'smooth'});
-      resetForm();
-    } else { showErr((res.d&&res.d.detail)||'Submit failed'); }
-  })
-  .catch(function(){ showErr('Network error, please retry'); })
-  .finally(function(){ btn.disabled=false; btn.textContent='Submit'; });
+  try {
+    var existing = await fetch(API+'/api/walkin-metrics?month='+encodeURIComponent(date.slice(0,7))
+      +'&dealer_id='+encodeURIComponent(did),{credentials:'include',cache:'no-store'}).then(readJson);
+    if (!Array.isArray(existing.items)) throw new Error('Unable to verify the existing report. Please retry.');
+    var previous = existing.items.find(function(row){return row.report_date===date && row.dealer_id===did;});
+    if (previous){
+      if (!window.confirm(dname+' · '+date+' already has a report. Replace it with these values?')) return;
+      // The external form does not edit these SPA-only fields. Preserve them.
+      body.use_count = (previous.funnel || {}).use_count || 0;
+      body.wechat_add_count = (previous.funnel || {}).wechat_add_count || 0;
+    }
+    await fetch(API+'/api/walkin-metrics',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body),credentials:'include'
+    }).then(readJson);
+    alertEl.className='alert ok';
+    alertEl.textContent='✓ Saved — '+dname+' · '+date+'. Values are kept for verification in History.';
+    window.scrollTo({top:0,behavior:'smooth'});
+  } catch(error){
+    alertEl.className='alert err';
+    alertEl.innerHTML=errorHtml(error,'Network error, please retry. Your entries have been kept.');
+  } finally {
+    submitBusy=false; fields.disabled=false; btn.disabled=false; btn.textContent='Submit';
+  }
 });
 
 function pInt(id){ return parseInt(document.getElementById(id).value||'0',10)||0; }
@@ -440,16 +474,9 @@ function showErr(msg){
   a.className='alert err'; a.textContent='✕ '+msg;
   window.scrollTo({top:0,behavior:'smooth'});
 }
-function resetForm(){
-  srcIds.forEach(function(id){ document.getElementById(id).value='0'; });
-  ['touch_count','deal_count'].forEach(function(id){ document.getElementById(id).value='0'; });
-  document.getElementById('deal_amount_yuan').value='';
-  document.getElementById('notes').value='';
-  updateCalc();
-}
-
 // History
 function loadHistory(){
+  var requestId = ++historyRequestId;
   var month  = document.getElementById('hist_month').value;
   var dealer = document.getElementById('hist_dealer').value;
   document.getElementById('exportBtn').href =
@@ -459,10 +486,13 @@ function loadHistory(){
                 +'&dealer_id='+encodeURIComponent(dealer);
   document.getElementById('histBody').innerHTML =
     '<tr><td colspan="12" class="empty">Loading…</td></tr>';
-  fetch(url,{credentials:'include'})
-  .then(function(r){ return r.json(); })
+  document.getElementById('histFooter').textContent='';
+  fetch(url,{credentials:'include',cache:'no-store'})
+  .then(readJson)
   .then(function(data){
-    var rows = data.items||[];
+    if (requestId!==historyRequestId) return;
+    if (!Array.isArray(data.items)) throw new Error('History response is invalid. Please retry.');
+    var rows = data.items;
     if (!rows.length){
       document.getElementById('histBody').innerHTML =
         '<tr><td colspan="12" class="empty">No data this period</td></tr>';
@@ -503,9 +533,11 @@ function loadHistory(){
       rows.length+' records  |  Total Visits: '+totVisit+'  |  Shown: '+totShown
       +'  |  Sold: '+totSold+'  |  Sell-out: '+(fmtAmt(totAmt)||'$0');
   })
-  .catch(function(){
+  .catch(function(error){
+    if (requestId!==historyRequestId) return;
     document.getElementById('histBody').innerHTML=
-      '<tr><td colspan="12" class="empty">Failed to load</td></tr>';
+      '<tr><td colspan="12" class="empty" role="alert">'+errorHtml(error,'Failed to load history. Please retry.')+'</td></tr>';
+    document.getElementById('histFooter').textContent='';
   });
 }
 document.getElementById('hist_month').addEventListener('change',loadHistory);
