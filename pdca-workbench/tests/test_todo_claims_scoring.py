@@ -151,6 +151,16 @@ class RunScoringTests(unittest.TestCase):
             t1 = session.get(PdcaTask, id1)
         self.assertEqual(t1.score, 70)  # 无日报数据：不加分也不报错
 
+    def test_combined_owner_daily_evidence(self):
+        # 「A&B」合并负责人：任一人的日报命中即算日报证据
+        corpus = {"测试员": {"user_id": 99, "texts": ["推进迈凯伦配件报价整理"]}}
+        self.mock_reports.return_value = corpus
+        id1 = self._seed(title="推进迈凯伦配件报价", owner="测试员&测试员B")
+        run_scoring(today="2026-09-07")
+        with Session(self.engine) as session:
+            t1 = session.get(PdcaTask, id1)
+        self.assertEqual(t1.score, 30)  # 10 未认领 + 20 日报证据
+
 
 if __name__ == "__main__":
     unittest.main()
