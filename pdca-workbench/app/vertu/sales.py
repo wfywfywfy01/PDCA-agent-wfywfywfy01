@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import time
 from datetime import date as _date, datetime, timedelta
@@ -95,7 +96,7 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
         "PDCA_VERTU_SELLIN_DEPARTMENTS",
         "经销商一部,经销商二部,经销商三部",
     )
-    departments = [item.strip() for item in configured.split(",") if item.strip()]
+    departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
     dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
     cache_key = (start, end, period, dept_l1, tuple(departments))
     ttl = _sell_in_cache_seconds()
@@ -125,8 +126,20 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
         else:
             payloads = [await _headline(start, end)]
 
-        amount = sum(float((item.get("period") or {}).get("销额") or 0) for item in payloads)
-        quantity = sum(int((item.get("period") or {}).get("销量") or 0) for item in payloads)
+        amounts, quantities = [], []
+        for item in payloads:
+            try:
+                metrics = item["period"]
+                amount_value = float(metrics["销额"])
+                quantity_value = float(metrics["销量"])
+                if not math.isfinite(amount_value) or not math.isfinite(quantity_value) or not quantity_value.is_integer():
+                    raise ValueError("invalid numeric metric")
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError("vertu-cli Sell-in 缺少有效的销额/销量，拒绝发布为实时零值") from exc
+            amounts.append(amount_value)
+            quantities.append(int(quantity_value))
+        amount = sum(amounts)
+        quantity = sum(quantities)
         label = _PERIOD_LABEL.get(period, "当前区间")
         fetched_at = datetime.now().astimezone()
         result = {
@@ -137,6 +150,9 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
             "as_of": fetched_at.isoformat(timespec="seconds"),
             "cached": False,
             "state": "live",
+            "source": "vertu-cli sales +headline-kpi",
+            "start_date": start,
+            "end_date": end,
         }
         _SELL_IN_CACHE[cache_key] = {
             "monotonic": time.monotonic(),

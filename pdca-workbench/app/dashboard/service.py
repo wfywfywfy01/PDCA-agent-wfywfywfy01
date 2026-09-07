@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 
 from app.config import get_settings
 from app.legacy import bridge
@@ -130,7 +131,7 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
     dealers = [
         {"name": item["name"], "wan": round(item["wan"], 2), "quantity": item["quantity"]}
         for item in grouped.values()
-        if item["wan"] > 0 or item["quantity"] > 0
+        if item["wan"] != 0 or item["quantity"] != 0
     ]
     dealers.sort(key=lambda item: item["wan"], reverse=True)
     for index, dealer in enumerate(dealers):
@@ -145,14 +146,17 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
             current += 12
             current_year -= 1
         mo = f"{current_year:04d}-{current:02d}"
-        mo_total = round(sum(float(row.sell_in_wan or 0) for row in _month_rows(mo)), 2)
-        trend.append({"month": mo, "wan": mo_total})
+        mo_rows = _month_rows(mo)
+        mo_total = round(sum(float(row.sell_in_wan or 0) for row in mo_rows), 2) if mo_rows else None
+        trend.append({"month": mo, "wan": mo_total, "has_data": bool(mo_rows),
+                      "snapshot_date": max((row.check_date for row in mo_rows), default=None)})
 
     return {
         "month": month,
-        "total_wan": round(sum(item["wan"] for item in dealers), 2),
+        "total_wan": round(sum(float(row.sell_in_wan or 0) for row in rows), 2) if rows else None,
         "dealers": dealers,
-        "has_data": bool(dealers),
+        "has_data": bool(rows),
+        "snapshot_date": max((row.check_date for row in rows), default=None),
         "trend": trend,
         "source": "dealer_sales_db_latest_snapshot",
         "as_of": max(
@@ -201,7 +205,7 @@ def db_customer_center_summary(session, user=None) -> list[dict] | None:
     ]
 
 
-def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
+def merge_db_sales(data: dict, date_text: str, session, user=None, *, period: str = "day") -> dict:
     """Use authoritative database rows to override legacy-source values.
 
     数据优先级（高 → 低）：
@@ -213,15 +217,20 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
 
     from sqlmodel import select
     from app.models.dealer_sales import DealerSales
-    from app.models.walkin_daily_report import WalkinDailyReport
+    from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
     from app.auth.scope import resolve_data_scope, scoped_active_dealer_names, scoped_active_store_ids
 
     month = date_text[:7]
 
     # ── 1. dealer_sales 表（sync_from_vertu 写入的 Odoo 数据，最高优先）─────────────
-    dealer_stmt = select(DealerSales).where(DealerSales.check_date.startswith(month))
+    dealer_stmt = select(DealerSales).where(
+        DealerSales.check_date.startswith(month), DealerSales.check_date <= date_text,
+    )
     # store_ids 无论是否 unrestricted 都需要（walkin 汇总用到），提前解析。
     store_ids = scoped_active_store_ids(user, session) if user is not None else []
+    from app.models.dealer_store import DealerStore, is_demo_store
+    store_ids = [row.store_id for row in session.exec(select(DealerStore)).all()
+                 if row.store_id in store_ids and not is_demo_store(row.store_id, row.name)]
     # VPS ``sales +orders`` 返回的客户名已脱敏（如 "未知客户"/"H*****"），无法按名称
     # 匹配门店主数据。管理员（unrestricted）直接汇总全量；受限账号仍按名称过滤。
     if user is not None and resolve_data_scope(user, session).unrestricted:
@@ -233,32 +242,33 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
             if names else []
         )
 
+    # Each row is a month-to-date snapshot, never a daily transaction.
+    latest_date = max((row.check_date for row in db_rows), default=None)
+    db_rows = [row for row in db_rows if row.check_date == latest_date] if period == "month" else []
     if db_rows:
         total_in_wan  = sum(r.sell_in_wan  for r in db_rows)
-        total_out_wan = sum(r.sell_out_wan for r in db_rows)
         dealer_count  = len({r.dealer_name for r in db_rows})
         batch_date = max((r.check_date for r in db_rows if r.check_date), default=month)
         synced_at = max((r.synced_at for r in db_rows if r.synced_at), default=None)
         if synced_at is not None:
-            data["dataAsOf"] = synced_at.isoformat(timespec="seconds")
+            data["dataAsOf"] = _utc_iso(synced_at)
 
         # A successful source row whose value is zero is a real zero, not a
         # missing value.  Always override legacy/derived values when rows exist.
         data["sellInWan"] = round(total_in_wan, 2)
         data["sellInAmount"] = _fmt_cny(total_in_wan * 10000)
         data["sellInSub"] = f"Odoo同步 · 批次 {batch_date} · {dealer_count}家经销商"
-        data["sellOutWan"] = round(total_out_wan, 2)
-        data["sellOutAmount"] = _fmt_cny(total_out_wan * 10000)
-        data["sellOutSub"] = f"Odoo同步 · 批次 {batch_date} · {dealer_count}家经销商"
-        data.setdefault("dataState", {}).update({"sellIn": "live", "sellOut": "live"})
-        data.setdefault("dataSource", {}).update({"sellIn": "dealer_sales_db", "sellOut": "dealer_sales_db"})
+        data.setdefault("dataState", {}).update({"sellIn": "live"})
+        data.setdefault("dataSource", {}).update({"sellIn": "dealer_sales_db_latest_snapshot"})
 
     # ── 2. walkin_daily_reports（经销商真实录入，USD 与客流口径）────────────────────
+    from app.vertu.sales import _date_range
+    start, end = _date_range(date_text, period)
     walkin_stmt = select(WalkinDailyReport).where(
-        WalkinDailyReport.report_date.startswith(month)
+        WalkinDailyReport.report_date >= start, WalkinDailyReport.report_date <= end,
     )
     walkin_rows = (
-        session.exec(walkin_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))).all()
+        latest_walkin_reports(session.exec(walkin_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))).all())
         if store_ids else []
     )
     if walkin_rows:
@@ -272,15 +282,17 @@ def merge_db_sales(data: dict, date_text: str, session, user=None) -> dict:
             settings.max_reported_revenue_usd,
             getattr(settings, "revenue_review_threshold_usd", settings.max_reported_revenue_usd),
         )
-        valid_revenue = [r.deal_amount_yuan for r in walkin_rows if r.deal_amount_yuan <= review_threshold]
-        data["reportedRevenueUsd"] = round(sum(valid_revenue), 2)
+        valid_revenue = [r.deal_amount_yuan for r in walkin_rows
+                         if math.isfinite(r.deal_amount_yuan) and 0 <= r.deal_amount_yuan <= review_threshold]
+        data["reportedRevenueUsd"] = round(sum(valid_revenue), 2) if valid_revenue else None
         data["reportedRevenueReviewCount"] = len(walkin_rows) - len(valid_revenue)
         # 终销（Sell-out）口径为 USD（门店五件套上报），不是 CNY 万。用独立字段表达，
         # 供前端 Sell-out 卡片直接展示；不再复用 dealer_sales.sell_out_wan（该列已清空）。
         store_count = len({r.dealer_id for r in walkin_rows})
-        data["sellOutUsd"] = round(sum(valid_revenue), 2)
+        data["sellOutUsd"] = data["reportedRevenueUsd"]
         data["sellOutSub"] = f"门店五件套上报 · {store_count} 家门店 · USD"
-        data.setdefault("dataState", {}).update({"sellOut": "live"})
+        state = ("partial" if len(valid_revenue) < len(walkin_rows) else "live") if valid_revenue else "missing"
+        data.setdefault("dataState", {}).update({"sellOut": state})
         data.setdefault("dataSource", {}).update({"sellOut": "five_kit_db"})
 
     return data

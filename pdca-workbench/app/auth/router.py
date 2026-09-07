@@ -42,39 +42,38 @@ _fail_log: dict[str, list[float]] = defaultdict(list)
 def _db_fail_tools():
     """懒加载数据库工具，避免导入环；环境不支持时返回 None。"""
     try:
-        from sqlalchemy import delete, func
+        from sqlalchemy import delete
 
         from app.auth.security_state import LoginFailRecord
         from app.database import get_engine
     except Exception:  # pragma: no cover
         return None
-    return Session, LoginFailRecord, get_engine, delete, func
+    return Session, LoginFailRecord, get_engine, delete
 
 
-def _db_fail_stats(key: str, since: float) -> tuple[int, float | None]:
-    """窗口内失败数与最早失败时间；数据库不可用返回 (0, None)。"""
+def _db_fail_times(key: str, since: float) -> list[float] | None:
+    """读取共享失败时间；数据库不可用时由内存记录兜底。"""
     tools = _db_fail_tools()
     if not tools:
-        return 0, None
-    _, LoginFailRecord, get_engine, _, func = tools
+        return None
+    _, LoginFailRecord, get_engine, _ = tools
     try:
         with Session(get_engine()) as session:
-            row = session.exec(
-                select(func.count(), func.min(LoginFailRecord.failed_at)).where(
+            return list(session.exec(
+                select(LoginFailRecord.failed_at).where(
                     LoginFailRecord.key == key,
                     LoginFailRecord.failed_at >= since,
                 )
-            ).one()
-            return int(row[0] or 0), (float(row[1]) if row[1] is not None else None)
+            ).all())
     except Exception:
-        return 0, None
+        return None
 
 
 def _db_record_fail(key: str, now: float) -> None:
     tools = _db_fail_tools()
     if not tools:
         return
-    _, LoginFailRecord, get_engine, delete, _ = tools
+    _, LoginFailRecord, get_engine, delete = tools
     try:
         with Session(get_engine()) as session:
             session.add(LoginFailRecord(key=key, failed_at=now))
@@ -94,7 +93,7 @@ def _db_clear_fail(key: str) -> None:
     tools = _db_fail_tools()
     if not tools:
         return
-    _, LoginFailRecord, get_engine, delete, _ = tools
+    _, LoginFailRecord, get_engine, delete = tools
     try:
         with Session(get_engine()) as session:
             session.exec(delete(LoginFailRecord).where(LoginFailRecord.key == key))
@@ -127,21 +126,27 @@ def _rate_limit_key(request: Request, username: str) -> str:
 
 def _check_rate_limit(key: str) -> None:
     now = time.time()
-    times = _fail_log[key]
-    _fail_log[key] = [t for t in times if now - t < _FAIL_WINDOW]
-    db_count, db_oldest = _db_fail_stats(key, now - _FAIL_WINDOW)
-    fail_count = len(_fail_log[key]) + db_count
-    if fail_count >= _MAX_FAILS:
-        oldest_candidates = []
-        if _fail_log[key]:
-            oldest_candidates.append(_fail_log[key][0])
-        if db_oldest is not None:
-            oldest_candidates.append(db_oldest)
-        oldest = min(oldest_candidates) if oldest_candidates else now
-        wait = int(_LOCKOUT_SEC - (now - oldest))
+    since = now - _FAIL_WINDOW - _LOCKOUT_SEC
+    local = [t for t in _fail_log.get(key, []) if t >= since]
+    if local:
+        _fail_log[key] = local
+    else:
+        _fail_log.pop(key, None)
+    # The shared table is authoritative, including successful logins that
+    # clear failures in another worker. Memory is only the outage fallback.
+    shared = _db_fail_times(key, since)
+    times = sorted(local if shared is None else shared)
+    locked_until = max((
+        times[index] + _LOCKOUT_SEC
+        for index in range(_MAX_FAILS - 1, len(times))
+        if times[index] - times[index - _MAX_FAILS + 1] < _FAIL_WINDOW
+    ), default=0)
+    if locked_until > now:
+        wait = max(1, int(locked_until - now))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"登录失败次数过多，请 {max(wait // 60, 1)} 分钟后再试",
+            headers={"Retry-After": str(wait)},
         )
 
 
@@ -235,7 +240,8 @@ async def vps_check(request: Request):
 
 def _safe_next_path(raw: str | None) -> str:
     value = (raw or "/").strip() or "/"
-    if not value.startswith("/") or value.startswith("//"):
+    if (not value.startswith("/") or value.startswith("//")
+            or "\\" in value or any(ord(char) < 32 for char in value)):
         return "/"
     return value
 

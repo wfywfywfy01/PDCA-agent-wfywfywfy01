@@ -9,7 +9,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.audit import log_action
@@ -23,7 +23,7 @@ from app.models.dealer_store import DealerStore
 from app.models.monthly_target import MonthlyTarget
 from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 from app.scheduler.jobs import backup_database, daily_sync_job
-from app.validation import require_iso_date
+from app.validation import require_iso_date, require_iso_month
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -554,10 +554,10 @@ async def update_store(
 class TargetUpsertBody(BaseModel):
     month: str                       # YYYY-MM
     dealer_id: str = ""              # 空 = 全局
-    sell_out_target_yuan: float = 0.0
-    visit_target: int = 0
-    deal_target: int = 0
-    add_rate_target: float = 0.35
+    sell_out_target_yuan: float = Field(0.0, ge=0, allow_inf_nan=False)
+    visit_target: int = Field(0, ge=0)
+    deal_target: int = Field(0, ge=0)
+    add_rate_target: float = Field(0.35, ge=0, le=1, allow_inf_nan=False)
 
 
 @router.get("/targets")
@@ -574,6 +574,7 @@ async def list_targets(
             return []
         stmt = stmt.where(MonthlyTarget.dealer_id.in_(allowed))
     if month:
+        require_iso_month(month)
         stmt = stmt.where(MonthlyTarget.month == month)
     rows = session.exec(stmt.order_by(MonthlyTarget.month.desc())).all()
     return [
@@ -598,8 +599,7 @@ async def upsert_target(
     current_user: Annotated[User, Depends(require_role("manager"))],
     session: Annotated[Session, Depends(get_session)],
 ):
-    if not re.fullmatch(r"\d{4}-\d{2}", body.month):
-        raise HTTPException(status_code=422, detail="month 格式应为 YYYY-MM")
+    require_iso_month(body.month)
     from app.auth.scope import visible_store_ids
     allowed = visible_store_ids(current_user, session)
     if allowed is not None and (not body.dealer_id or body.dealer_id not in allowed):

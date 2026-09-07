@@ -20,12 +20,14 @@ interface DealerRow {
 
 interface TrendRow {
   month: string
-  wan: number
+  wan: number | null
+  has_data?: boolean
+  snapshot_date?: string | null
 }
 
 interface SellinSummary {
   month: string
-  total_wan: number
+  total_wan: number | null
   dealers: DealerRow[]
   has_data: boolean
   trend: TrendRow[]
@@ -40,6 +42,7 @@ const loading = ref(true)
 const error = ref('')
 const chartEl = ref<HTMLDivElement | null>(null)
 let chart: ECharts | null = null
+let loadId = 0
 
 const totalQuantity = computed(() =>
   data.value?.dealers.reduce((sum, row) => sum + Number(row.quantity || 0), 0) || 0,
@@ -47,9 +50,16 @@ const totalQuantity = computed(() =>
 const monthOverMonth = computed<number | null>(() => {
   const rows = data.value?.trend || []
   if (rows.length < 2) return null
-  const previous = Number(rows[rows.length - 2].wan || 0)
+  const prior = rows[rows.length - 2]
+  const current = rows[rows.length - 1]
+  if (prior.wan == null || current.wan == null || prior.has_data === false || current.has_data === false) return null
+  // Partial month snapshots are not comparable with a completed previous month.
+  if (!prior.snapshot_date || !current.snapshot_date) return null
+  const monthEnd = (value: string) => new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)), 0).getDate()
+  if (Number(prior.snapshot_date.slice(8, 10)) !== monthEnd(prior.month) || Number(current.snapshot_date.slice(8, 10)) !== monthEnd(current.month)) return null
+  const previous = Number(prior.wan)
   if (!previous) return null
-  return ((Number(rows[rows.length - 1].wan || 0) - previous) / previous) * 100
+  return ((Number(current.wan) - previous) / Math.abs(previous)) * 100
 })
 
 function sourceLabel(source?: string): string {
@@ -68,20 +78,34 @@ function currentMonth(): string {
 }
 
 async function load() {
+  const id = ++loadId
   loading.value = true
   error.value = ''
+  data.value = null
+  chart?.dispose()
+  chart = null
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month.value)) {
+    error.value = '请选择有效月份'
+    loading.value = false
+    return
+  }
   try {
-    data.value = await apiGet<SellinSummary>(`/api/dealer/sellin-summary?month=${month.value}`)
+    const result = await apiGet<SellinSummary>(`/api/dealer/sellin-summary?month=${month.value}`)
+    if (id !== loadId) return
+    data.value = result
   } catch (err) {
+    if (id !== loadId) return
     if (err instanceof HttpError && err.status === 401) {
       router.replace({ path: '/login', query: { next: '/dashboard' } })
       return
     }
     error.value = err instanceof HttpError ? err.detail : '数据加载失败，请稍后重试'
   } finally {
-    loading.value = false
-    await nextTick()
-    renderChart()
+    if (id === loadId) {
+      loading.value = false
+      await nextTick()
+      if (id === loadId) renderChart()
+    }
   }
 }
 
@@ -114,7 +138,8 @@ function renderChart() {
       {
         type: 'line',
         data: data.value.trend.map((row) => row.wan),
-        smooth: true,
+        smooth: false,
+        connectNulls: false,
         symbolSize: 7,
         lineStyle: { color: '#4e9ef5', width: 2.5 },
         itemStyle: { color: '#4e9ef5' },
@@ -155,7 +180,7 @@ watch(month, load)
         <h1>数据看板</h1>
         <p class="sub">经销商进货（Sell-in）· 月度汇总与近 6 月趋势</p>
       </div>
-      <input v-model="month" class="input month-picker" type="month" />
+      <input v-model="month" class="input month-picker" type="month" aria-label="业绩月份" />
     </header>
 
     <div v-if="loading" class="card state">正在读取 {{ month }} 数据…</div>
@@ -165,17 +190,17 @@ watch(month, load)
       <section class="kpi-row">
         <div class="card kpi">
           <span class="kpi-label">当月 Sell-in 合计</span>
-          <span class="kpi-value">{{ data.total_wan }} <small>万</small></span>
+          <span class="kpi-value">{{ data.has_data ? data.total_wan : 'N/A' }} <small v-if="data.has_data">万 CNY</small></span>
           <span class="kpi-note">{{ sourceLabel(data.source) }} · {{ asOfLabel(data.as_of) }}</span>
         </div>
         <div class="card kpi">
-          <span class="kpi-label">有业绩经销商</span>
-          <span class="kpi-value">{{ data.dealers.length }} <small>家</small></span>
-          <span class="kpi-note">可下钻查看排名与金额</span>
+          <span class="kpi-label">订单客户名称数</span>
+          <span class="kpi-value">{{ data.has_data ? data.dealers.length : 'N/A' }}</span>
+          <span class="kpi-note">按源系统名称分组；脱敏名称可能合并，不能等同真实客户数</span>
         </div>
         <div class="card kpi">
           <span class="kpi-label">当月台数</span>
-          <span class="kpi-value">{{ totalQuantity }} <small>台</small></span>
+          <span class="kpi-value">{{ data.has_data ? totalQuantity : 'N/A' }} <small v-if="data.has_data">台</small></span>
           <span class="kpi-note">与金额使用同一快照</span>
         </div>
         <div class="card kpi">
@@ -183,7 +208,7 @@ watch(month, load)
           <span class="kpi-value">
             {{ monthOverMonth == null ? 'N/A' : `${monthOverMonth >= 0 ? '+' : ''}${monthOverMonth.toFixed(1)}%` }}
           </span>
-          <span class="kpi-note">基于最近两个月末快照</span>
+          <span class="kpi-note">仅在相邻两月均有月末快照时比较</span>
         </div>
       </section>
 
@@ -304,6 +329,7 @@ h2 {
 
 .chart-card,
 .table-card {
+  overflow-x: auto;
   padding: 20px 22px;
   margin-bottom: 16px;
 }

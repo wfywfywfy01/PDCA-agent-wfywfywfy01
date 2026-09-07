@@ -264,6 +264,7 @@ class ProductionHardeningTests(unittest.TestCase):
         settings = SimpleNamespace(environment="production", require_vertu=True)
         with (
             patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.check_db_connection", return_value=True),
             patch("app.main.backup_status", return_value={"ok": False}),
             patch("app.main.get_settings", return_value=settings),
             patch("app.main.vertu_health", new=AsyncMock(return_value={"ok": True})),
@@ -276,6 +277,7 @@ class ProductionHardeningTests(unittest.TestCase):
         settings = SimpleNamespace(environment="production", require_vertu=False, scheduler_enabled=False)
         with (
             patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.check_db_connection", return_value=True),
             patch("app.main.backup_status", return_value={"ok": False}),
             patch("app.main.get_settings", return_value=settings),
             patch("app.main.vertu_health", new=AsyncMock(return_value={"ok": False})),
@@ -290,6 +292,7 @@ class ProductionHardeningTests(unittest.TestCase):
         vertu_mock = AsyncMock(return_value={"ok": True})
         with (
             patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.check_db_connection", return_value=True),
             patch("app.main.backup_status", return_value={"ok": False, "latest_at": None, "last_error": "x"}),
             patch("app.main.get_settings", return_value=settings),
             patch("app.main.vertu_health", new=vertu_mock),

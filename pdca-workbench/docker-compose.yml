@@ -10,7 +10,9 @@
 
 services:
   pdca-app:
-    build: .
+    build:
+      context: ..
+      dockerfile: pdca-workbench/Dockerfile
     image: ${PDCA_IMAGE:-pdca-workbench:local}
     container_name: pdca-workbench
     ports:

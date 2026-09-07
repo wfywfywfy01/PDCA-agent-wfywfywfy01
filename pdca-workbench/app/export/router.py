@@ -19,7 +19,8 @@ from app.auth.scope import scoped_active_dealer_names, scoped_active_store_ids
 from app.config import get_settings
 from app.database import get_session
 from app.models.dealer_sales import DealerSales
-from app.models.walkin_daily_report import WalkinDailyReport
+from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
+from app.validation import require_iso_month
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -65,9 +66,11 @@ async def export_walkin_metrics(
     stmt = select(WalkinDailyReport).order_by(
         WalkinDailyReport.report_date, WalkinDailyReport.dealer_id
     )
-    if month and re.fullmatch(r"\d{4}-\d{2}", month):
+    if month:
+        require_iso_month(month)
         stmt = stmt.where(WalkinDailyReport.report_date.startswith(month))
-    allowed = scoped_active_store_ids(user, session)
+    from app.walkin.router import _dealer_ids_for_user
+    allowed = _dealer_ids_for_user(user, session)
     if dealer_id and dealer_id not in allowed:
         raise HTTPException(status_code=403, detail="该门店不在当前账号的数据权限范围内")
     if not allowed:
@@ -75,7 +78,7 @@ async def export_walkin_metrics(
     stmt = stmt.where(WalkinDailyReport.dealer_id.in_(allowed))
     if dealer_id:
         stmt = stmt.where(WalkinDailyReport.dealer_id == dealer_id)
-    rows = session.exec(stmt).all()
+    rows = latest_walkin_reports(session.exec(stmt).all())
 
     wb = openpyxl.Workbook()
     ws = wb.active

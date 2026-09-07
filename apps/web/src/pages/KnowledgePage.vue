@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppNav from '@/components/AppNav.vue'
-import { apiGet, apiPost, HttpError } from '@/api/client'
+import { apiGet, apiPost, apiRequest, HttpError } from '@/api/client'
 
 interface Dealer { store_id: string; name: string; dealer_id: string }
 interface Scope { enabled: boolean; scope: string; dealers: Dealer[]; can_export_original: boolean }
@@ -28,6 +28,13 @@ const busy = ref(false)
 const error = ref('')
 const results = ref<Result[]>([])
 const answer = ref<Answer | null>(null)
+const searched = ref(false)
+const exportDialog = ref<HTMLDialogElement | null>(null)
+const exportRow = ref<Result | null>(null)
+const exportReason = ref('')
+const exportPassword = ref('')
+const exportBusy = ref(false)
+const exportError = ref('')
 
 const categories: Record<string, string> = {
   dealer_profile: '经销商档案', contract_compliance: '合同与合规', store_display: '门店陈列',
@@ -82,12 +89,14 @@ async function loadScope() {
 }
 
 async function submit() {
+  if (busy.value) return
   const value = query.value.trim()
   if (!value) return
   busy.value = true
   error.value = ''
   results.value = []
   answer.value = null
+  searched.value = false
   const body = {
     query: value,
     dealer_id: dealerId.value || undefined,
@@ -101,6 +110,7 @@ async function submit() {
       const payload = await apiPost<{ items: Result[] }>('/api/knowledge/search', body)
       results.value = payload.items || []
     }
+    searched.value = true
   } catch (err) {
     if (err instanceof HttpError && err.status === 401) {
       router.replace({ path: '/login', query: { next: '/knowledge' } })
@@ -112,28 +122,50 @@ async function submit() {
   }
 }
 
-async function downloadOriginal(row: Result) {
-  const reason = window.prompt('请输入导出原件用途（至少 10 个字符）。')?.trim()
-  if (!reason || reason.length < 10) return
+function openExport(row: Result) {
+  exportRow.value = row
+  exportReason.value = ''
+  exportPassword.value = ''
+  exportError.value = ''
+  exportDialog.value?.showModal()
+}
+
+async function downloadOriginal() {
+  if (!exportRow.value || exportBusy.value) return
+  const row = exportRow.value
+  exportBusy.value = true
+  exportError.value = ''
   try {
-    const response = await fetch('/api/knowledge/exports', {
+    await apiPost('/api/knowledge/reauth', { password: exportPassword.value })
+    exportPassword.value = ''
+    const grant = await apiPost<{ download_url: string; download_token: string }>('/api/knowledge/exports', {
+      asset_id: row.asset_id,
+      reason: exportReason.value.trim(),
+      confirmation: 'export-original',
+    }, { 'Idempotency-Key': crypto.randomUUID() })
+    if (!/^\/api\/knowledge\/exports\/[0-9a-f-]+\/download$/i.test(grant.download_url)) {
+      throw new Error('下载授权无效，请重新申请')
+    }
+    const response = await apiRequest(grant.download_url, {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ asset_id: row.asset_id, reason, confirmation: 'export-original' }),
+      body: JSON.stringify({ export_token: grant.download_token }),
     })
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}))
-      throw new Error(payload.detail || '原件导出失败')
-    }
     const blob = await response.blob()
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
     link.download = row.citation.original_name || 'knowledge-asset'
+    document.body.append(link)
     link.click()
-    URL.revokeObjectURL(url)
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    exportDialog.value?.close()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '原件导出失败'
+    exportError.value = err instanceof Error ? err.message : '原件导出失败'
+  } finally {
+    exportPassword.value = ''
+    exportBusy.value = false
   }
 }
 
@@ -150,14 +182,14 @@ onMounted(loadScope)
         <p class="sub">按当前账号的数据范围检索，结果脱敏并保留文件、页码或时间戳引用。</p>
       </div>
       <span :class="['service', scope?.enabled ? 'online' : 'offline']">
-        {{ scope?.enabled ? '服务已连接' : '服务未启用' }}
+        {{ scope ? (scope.enabled ? '服务已启用' : '服务未启用') : '正在读取服务配置' }}
       </span>
     </header>
 
     <form class="query-panel" @submit.prevent="submit">
       <div class="mode" aria-label="查询模式">
-        <button type="button" :class="{ active: mode === 'evidence' }" @click="mode = 'evidence'">查证据</button>
-        <button type="button" :class="{ active: mode === 'answer' }" @click="mode = 'answer'">AI 回答</button>
+        <button type="button" :disabled="busy" :class="{ active: mode === 'evidence' }" @click="mode = 'evidence'">查证据</button>
+        <button type="button" :disabled="busy" :class="{ active: mode === 'answer' }" @click="mode = 'answer'">AI 回答</button>
       </div>
       <div class="filters">
         <label>
@@ -189,6 +221,7 @@ onMounted(loadScope)
 
     <div v-if="error" class="notice error" role="alert">{{ error }}</div>
     <div v-else-if="busy" class="notice" role="status">正在读取已处理资料...</div>
+    <div v-else-if="searched && !hasOutput" class="notice">当前权限范围和筛选条件下未找到相关证据。</div>
     <div v-else-if="!hasOutput" class="notice">查询结果只显示当前账号有权访问的资料。图片为带水印预览，原件仅管理员可导出。</div>
 
     <section v-if="answer" class="answer" aria-labelledby="answer-title">
@@ -231,10 +264,28 @@ onMounted(loadScope)
             <span>{{ sensitivity[row.sensitivity] || row.sensitivity }}</span>
             <span v-if="citationLocation(row.citation)">{{ citationLocation(row.citation) }}</span>
           </div>
-          <button v-if="scope?.can_export_original" class="export" type="button" @click="downloadOriginal(row)">导出原件</button>
+          <button v-if="scope?.can_export_original" class="export" type="button" @click="openExport(row)">导出原件</button>
         </div>
       </article>
     </section>
+    <dialog ref="exportDialog" class="export-dialog" aria-labelledby="export-title" @cancel="exportBusy ? $event.preventDefault() : exportPassword = ''">
+      <form @submit.prevent="downloadOriginal">
+        <h2 id="export-title">导出原件</h2>
+        <p>{{ exportRow?.citation.original_name }}</p>
+        <p class="sub">请验证当前账号密码并填写用途。每次下载都会记录审计日志。</p>
+        <label>导出用途
+          <textarea v-model="exportReason" class="input" minlength="10" maxlength="500" required :disabled="exportBusy"></textarea>
+        </label>
+        <label>当前账号密码
+          <input v-model="exportPassword" class="input" type="password" autocomplete="current-password" required :disabled="exportBusy" />
+        </label>
+        <p v-if="exportError" class="notice error" role="alert">{{ exportError }}</p>
+        <div class="export-actions">
+          <button class="btn" type="button" :disabled="exportBusy" @click="exportDialog?.close(); exportPassword = ''">取消</button>
+          <button class="btn btn-primary" type="submit" :disabled="exportBusy">{{ exportBusy ? '下载中…' : '验证并下载' }}</button>
+        </div>
+      </form>
+    </dialog>
   </main>
 </template>
 
@@ -278,6 +329,12 @@ blockquote { margin: 12px 0; padding: 10px 12px; border-left: 2px solid var(--am
 .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--faint); font-size: 11px; overflow-wrap: anywhere; }
 .export { margin-top: 12px; padding: 0; border: 0; background: none; color: var(--blue); cursor: pointer; font-size: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.export-dialog { width: min(480px, calc(100% - 28px)); max-height: 90vh; overflow: auto; background: var(--card); color: var(--text); border: 1px solid var(--border-strong); border-radius: 12px; padding: 24px; }
+.export-dialog::backdrop { background: rgba(0,0,0,.65); }
+.export-dialog label { display: grid; gap: 7px; margin-top: 16px; font-size: 13px; }
+.export-dialog textarea { min-height: 90px; resize: vertical; }
+.export-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.result-body:only-child { grid-column: 1 / -1; }
 @media (max-width: 700px) {
   .knowledge { padding: 20px 14px 48px; }
   .page-head { display: block; }

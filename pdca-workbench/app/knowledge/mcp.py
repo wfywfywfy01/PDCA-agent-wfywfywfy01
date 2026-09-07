@@ -30,7 +30,7 @@ class PDCATokenVerifier:
 
     async def verify_token(self, token: str) -> AccessToken | None:
         payload = decode_token(token)
-        if not payload or is_token_revoked(payload):
+        if not payload or payload.get("purpose") or is_token_revoked(payload):
             return None
         username = str(payload.get("sub") or "")
         if not username:

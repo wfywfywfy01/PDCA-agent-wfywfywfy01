@@ -111,6 +111,23 @@ if ! printf '%s' "$headers" | grep -Eiq '^x-content-type-options:[[:space:]]*nos
   exit 1
 fi
 
+# Verify shipped SPA HTML, hashed assets, and runtime revision (not merely /login).
+docker exec -i --env EXPECTED_REVISION="$EXPECTED_REVISION" "$CONTAINER_NAME" python - <<'PY'
+import json, os, re, urllib.request
+base = "http://127.0.0.1:8767"
+health = json.load(urllib.request.urlopen(base + "/health"))
+if os.environ["EXPECTED_REVISION"]:
+    assert health["revision"] == os.environ["EXPECTED_REVISION"]
+html = urllib.request.urlopen(base + "/app/").read().decode()
+assets = re.findall(r'(?:src|href)="(/app/assets/[^\"]+)"', html)
+assert any(asset.endswith(".js") for asset in assets), "SPA script missing"
+for asset in assets:
+    response = urllib.request.urlopen(base + asset)
+    assert response.status == 200
+    assert "text/html" not in response.headers.get("Content-Type", ""), asset
+    assert response.read(), asset
+PY
+
 # Exercise the real auth lifecycle and representative writable business paths.
 login_json="$(docker exec "$CONTAINER_NAME" curl -fsS -c /tmp/pdca-cookie \
   -H 'Content-Type: application/json' \

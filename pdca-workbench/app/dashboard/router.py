@@ -18,9 +18,10 @@ from app.dashboard import service
 from app.database import get_session
 from app.auth.scope import resolve_data_scope, visible_dealer_names
 from app.legacy import bridge
-from app.validation import require_iso_date
-from app.models.dealer_store import DealerStore
-from app.models.walkin_daily_report import WalkinDailyReport
+from app.validation import require_iso_date, require_iso_month
+from app.models.dealer_sales import DealerSales
+from app.models.dealer_store import DealerStore, is_demo_store
+from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
 from app.models.pdca_task import PdcaTask
 
 router = APIRouter(tags=["dashboard"])
@@ -122,9 +123,9 @@ def _freshness_state(as_of: str | None) -> str:
         return "missing"
     try:
         dt = datetime.fromisoformat(str(as_of))
-        now = datetime.now().astimezone()
+        now = datetime.now(timezone.utc)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=now.tzinfo)
+            dt = dt.replace(tzinfo=timezone.utc)
         age_seconds = (now - dt.astimezone(now.tzinfo)).total_seconds()
         return "stale" if age_seconds > _STALE_HOURS * 3600 else "live"
     except ValueError:
@@ -142,7 +143,7 @@ def _sales_payload(data: dict, prefix: str) -> dict:
         "as_of": as_of,
         "source": (data.get("dataSource") or {}).get(prefix),
         "cached": bool(as_of),
-        "state": _freshness_state(as_of),
+        "state": _freshness_state(as_of) if wan is not None else "missing",
     }
 
 
@@ -155,55 +156,42 @@ async def workbench_today(
     """Return truthful, scoped facts and next actions for the current account."""
     date_text = _date_or_today(date)
     scope = resolve_data_scope(user, session)
-    if scope.unrestricted:
-        stores = [
+    stores = [
             row for row in session.exec(
                 select(DealerStore).where(DealerStore.is_active == True)  # noqa: E712
             ).all()
-            if not row.store_id.lower().startswith(("qa-", "test-", "demo-"))
-            and not any(marker in row.name.lower() for marker in ("测试", "演示", "demo"))
+            if not is_demo_store(row.store_id, row.name)
+            and (scope.unrestricted or row.store_id in scope.store_ids)
         ]
-        store_ids = {row.store_id for row in stores}
-    else:
-        store_ids = set(scope.store_ids)
+    store_ids = {row.store_id for row in stores}
 
     report_stmt = select(WalkinDailyReport).where(WalkinDailyReport.report_date == date_text)
     if store_ids:
         report_stmt = report_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))
-        reports = list(session.exec(report_stmt).all())
+        reports = latest_walkin_reports(session.exec(report_stmt).all())
     else:
         reports = []
     reported_ids = {row.dealer_id for row in reports if row.dealer_id in store_ids}
     expected = len(store_ids)
     missing = max(expected - len(reported_ids), 0)
 
-    # Logistics currently comes from its canonical CSV/tracking merge.  An
-    # absent source directory is explicitly "missing", never a synthetic zero.
-    from app.config import get_settings
+    # The canonical loader distinguishes a healthy empty DB from source failure.
     from app.logistics import service as logistics_service
     from app.logistics.router import _scoped_shipments
 
-    logistics_source = get_settings().mvp_root / "inputs" / "logistics"
-    if logistics_source.is_dir() and any(logistics_source.glob("*_tracking.csv")):
-        shipments, _ = _scoped_shipments(logistics_service.load_shipments("all"), user, session)
-        logistics_summary = logistics_service.build_summary(shipments)
-        logistics_fact = _fact(
-            logistics_summary.get("abnormal", 0) + logistics_summary.get("pending", 0),
-            "available",
-            "logistics_tracking",
-            date_text,
-            scope.mode,
-            "异常与待核查运单",
-        )
-    else:
-        logistics_fact = _fact(
-            None,
-            "missing",
-            "logistics_tracking",
-            date_text,
-            scope.mode,
-            "物流源数据尚未同步",
-        )
+    shipments, logistics_state = logistics_service.load_shipments("all", return_state=True)
+    shipments, _ = _scoped_shipments(shipments, user, session)
+    logistics_summary = logistics_service.build_summary(shipments)
+    logistics_fact = _fact(
+        logistics_summary["abnormal"] + logistics_summary["pending"]
+        if logistics_state in {"available", "mixed"} else None,
+        logistics_state,
+        "logistics_db" if logistics_state == "available" else "logistics_db+csv_history",
+        max((str(row.get("synced_at") or "") for row in shipments), default=""),
+        scope.mode,
+        "异常与待核查运单" if logistics_state == "available" else
+        "含 CSV 历史运单" if logistics_state == "mixed" else "物流实时源不可用，仅可核查历史记录",
+    )
 
     facts = {
         "store_count": _fact(expected, "available", "dealer_store_db", date_text, scope.mode),
@@ -233,7 +221,7 @@ async def workbench_today(
             "message": f"系统已收到 {len(reported_ids)} 家；应报门店清单尚未确认，不展示虚假完成率。",
             "href": "/app/walkin",
         })
-    if logistics_fact["state"] == "available" and logistics_fact["value"]:
+    if logistics_fact["state"] in {"available", "mixed"} and logistics_fact["value"]:
         actions.append({
             "priority": "high",
             "title": f"处理 {logistics_fact['value']} 条物流异常/待核查",
@@ -270,7 +258,7 @@ async def workbench_today(
 @router.get("/api/dashboard/overview")
 async def overview(
     date: str | None = None,
-    period: str = Query("day"),
+    period: str = Query("day", pattern="^(day|week|month|quarter)$"),
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
@@ -280,7 +268,7 @@ async def overview(
     # 用云端 DB 数据覆盖 bridge 返回的 sellin/sellout（公网环境无本地文件时生效）
     if isinstance(data, dict):
         try:
-            data = service.merge_db_sales(data, date_text, session, user)
+            data = service.merge_db_sales(data, date_text, session, user, period=period)
         except Exception as exc:
             logger.warning("merge_db_sales 失败: {}", exc)
     # F1：数据更新时间以数据库同步时刻为准（dealer_sales.synced_at），
@@ -331,7 +319,7 @@ async def dashboard_refresh(
             ).order_by(DealerSales.synced_at.desc())
         ).first()
         if latest is not None:
-            updated_at = int(latest.replace(tzinfo=None).timestamp() * 1000)
+            updated_at = int(datetime.fromisoformat(service._utc_iso(latest)).timestamp() * 1000)
     except Exception as exc:  # 数据时间获取失败不影响同步结果
         logger.warning("读取 synced_at 失败: {}", exc)
     return {"ok": True, "date": date_text, "dataUpdatedAt": updated_at, "sync": result}
@@ -340,7 +328,7 @@ async def dashboard_refresh(
 @router.get("/api/dashboard/sell-in")
 async def sell_in(
     date: str | None = None,
-    period: str = Query("day"),
+    period: str = Query("day", pattern="^(day|week|month|quarter)$"),
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
@@ -348,7 +336,7 @@ async def sell_in(
     date_text = _date_or_today(date)
     if not resolve_data_scope(user, session).unrestricted:
         data = service.workbench_overview(date_text, period, _session_user(user, session))
-        data = service.merge_db_sales(data, date_text, session, user)
+        data = service.merge_db_sales(data, date_text, session, user, period=period)
         return _sales_payload(data, "sellIn")
     try:
         payload = await fetch_sell_in(date_text, period)
@@ -357,38 +345,28 @@ async def sell_in(
     except Exception as exc:
         logger.warning("vertu sell-in 失败，回退数据库快照: {}", exc)
         data = service.workbench_overview(date_text, period, _session_user(user, session))
-        data = service.merge_db_sales(data, date_text, session, user)
+        data = service.merge_db_sales(data, date_text, session, user, period=period)
         return _sales_payload(data, "sellIn")
 
 
 @router.get("/api/dashboard/sell-out")
 async def sell_out(
     date: str | None = None,
-    period: str = Query("day"),
+    period: str = Query("day", pattern="^(day|week|month|quarter)$"),
     user: Annotated[User, Depends(require_role("viewer"))] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     date_text = _date_or_today(date)
     start_text = _period_start(date_text, period)
-    scope = resolve_data_scope(user, session)
+    from app.walkin.router import _dealer_ids_for_user, _revenue_requires_review
+    store_ids = _dealer_ids_for_user(user, session)
     stmt = select(WalkinDailyReport).where(
         WalkinDailyReport.report_date >= start_text,
         WalkinDailyReport.report_date <= date_text,
+        WalkinDailyReport.dealer_id.in_(store_ids),
     )
-    if not scope.unrestricted:
-        stmt = stmt.where(WalkinDailyReport.dealer_id.in_(scope.store_ids))
-    rows = [
-        row for row in session.exec(stmt).all()
-        if not row.dealer_id.lower().startswith(("qa-", "test-", "demo-"))
-    ]
-    from app.config import get_settings
-
-    settings = get_settings()
-    threshold = min(
-        settings.max_reported_revenue_usd,
-        settings.revenue_review_threshold_usd,
-    )
-    valid_rows = [row for row in rows if row.deal_amount_yuan <= threshold]
+    rows = latest_walkin_reports(session.exec(stmt).all())
+    valid_rows = [row for row in rows if not _revenue_requires_review(row.deal_amount_yuan)]
     as_of = max((row.created_at for row in rows if row.created_at), default=None)
     as_of_text = (
         as_of.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
@@ -397,7 +375,7 @@ async def sell_out(
     )
     labels = {"day": "今日", "week": "本周", "month": "本月", "quarter": "本季度"}
     return {
-        "amount": round(sum(row.deal_amount_yuan for row in valid_rows), 2) if rows else None,
+        "amount": round(sum(row.deal_amount_yuan for row in valid_rows), 2) if valid_rows else None,
         "wan": None,
         "note": (
             f"{labels.get(period, '当前区间')}五件套实报 · {len({row.dealer_id for row in rows})} 家门店 · USD"
@@ -406,7 +384,7 @@ async def sell_out(
         "currency": "USD",
         "as_of": as_of_text,
         "source": "five_kit_db",
-        "state": "live" if rows else "missing",
+        "state": ("partial" if len(valid_rows) < len(rows) else "live") if valid_rows else "missing",
         "review_count": len(rows) - len(valid_rows),
     }
 
@@ -478,7 +456,7 @@ async def dealer_sellin_summary(
     session: Annotated[Session, Depends(get_session)] = None,
 ):
     from datetime import date as _date
-    m = month or _date.today().strftime("%Y-%m")
+    m = require_iso_month(month or _date.today().strftime("%Y-%m"))
     # 排行与趋势读取已同步的每日月累计快照。实时订单明细接口可能超过
     # 60 秒，不能阻塞用户页面；首页总额仍使用快速 headline-kpi 实时接口。
     data = service.db_sellin_summary(m, session, user)
@@ -494,9 +472,7 @@ async def dealer_sellin_summary(
     scoped["total_wan"] = round(
         sum(float(row.get("wan") or row.get("sell_in_wan") or 0) for row in scoped["dealers"]),
         2,
-    )
-    scoped["has_data"] = bool(scoped["dealers"])
-    scoped["trend"] = []
+    ) if data["has_data"] else None
     return scoped
 
 
@@ -601,7 +577,7 @@ async def task_center_create(
         raise HTTPException(status_code=403, detail="负责人不在当前账号权限范围内")
     from app.models import writes as db_writes
 
-    db_writes.insert_pdca_task(
+    saved = db_writes.insert_pdca_task(
         task_date=date_text,
         title=body.title.strip(),
         owner=owner,
@@ -609,6 +585,8 @@ async def task_center_create(
         priority=body.priority.strip() or "normal",
         source="workbench",
     )
+    if not saved:
+        raise HTTPException(status_code=503, detail="待办保存失败，请稍后重试")
     from app.audit import log_action
 
     log_action(

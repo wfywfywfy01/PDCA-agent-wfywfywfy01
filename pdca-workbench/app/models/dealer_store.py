@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
+
+
+def is_demo_store(store_id: str, name: str = "") -> bool:
+    """Only explicit test labels; real names containing 'demo' stay visible."""
+    return any(
+        re.match(r"^(?:qa|test|demo)(?:[-_\s]|测试|演示|$)|^(?:测试|演示)", str(value or "").strip(), re.IGNORECASE)
+        for value in (store_id, name)
+    )
 
 
 class DealerStore(SQLModel, table=True):

@@ -71,18 +71,31 @@ jobs:
         run: python -m compileall -q app scripts tests run.py logibot
 
       - name: Validate deployment scripts
-        run: bash -n scripts/deploy_internal.sh scripts/docker_up.sh scripts/deploy_release.sh scripts/docker_smoke_test.sh
+        run: bash -n scripts/deploy_internal.sh scripts/docker_up.sh scripts/deploy_release.sh scripts/docker_smoke_test.sh scripts/docker_postgres_smoke_test.sh
 
       - name: Validate Docker Compose configuration
         env:
           PDCA_SECRET_KEY: ci-only-secret-key-at-least-32-characters
+          PDCA_WALKIN_SECRET_KEY: ci-only-walkin-key-at-least-32-characters
           PDCA_DATABASE_URL: postgresql+psycopg2://pdca:dummy@postgres.invalid:5432/pdca
           VERTU_APP_KEY: ci-only-not-a-real-key
           VERTU_USER_LOGIN: ci@example.invalid
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.walkin.yml config --quiet
+
+      - name: Parse PowerShell deployment scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/deploy_remote_docker*.ps1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
 
   image:
     name: Container build
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -107,6 +120,9 @@ jobs:
 
       - name: Start container and run smoke tests
         run: bash pdca-workbench/scripts/docker_smoke_test.sh "pdca-workbench:${{ github.sha }}" "${{ github.sha }}"
+
+      - name: Verify PostgreSQL concurrency, scope, and outage recovery signals
+        run: bash pdca-workbench/scripts/docker_postgres_smoke_test.sh "pdca-workbench:${{ github.sha }}"
 
       - name: Log in to GitHub Container Registry
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -152,7 +168,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ github.token }}
           GHCR_USER: ${{ github.actor }}
-          PDCA_IMAGE_REGISTRY: ghcr.io/frankie-foo/pdca-workbench
+          PDCA_IMAGE_REGISTRY: ghcr.io/wfywfywfy01/pdca-workbench
         with:
           host: ${{ secrets.PDCA_DEPLOY_HOST }}
           port: ${{ secrets.PDCA_DEPLOY_PORT || '22' }}
