@@ -18,7 +18,7 @@ from app.auth.router import router as auth_router
 from app.auth.seed import seed_users
 from app.config import get_settings
 from app.dashboard.router import router as dashboard_router
-from app.database import bootstrap_database, get_db_mode
+from app.database import bootstrap_database, check_db_connection, get_db_mode
 from app.logging_setup import setup_logging
 from app.logistics.router import router as logistics_router
 from app.meeting.router import router as meeting_router
@@ -179,9 +179,15 @@ async def security_headers_middleware(request: Request, call_next):
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
     """P5：记录请求指标（Prometheus）。"""
-    response = await call_next(request)
-    record_request(request.method, request.url.path, response.status_code)
-    return response
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        # Never retain customer IDs, filenames, or arbitrary 404 paths as labels.
+        route = request.scope.get("route")
+        record_request(request.method, getattr(route, "path", "<unmatched>"), status)
 
 
 @app.middleware("http")
@@ -306,7 +312,7 @@ app.mount("/mcp", knowledge_mcp_app)
 async def health():
     """健康检查（含数据库连通性）。"""
     mode = get_db_mode()
-    db_ok = mode in ("postgresql", "sqlite", "sqlite-fallback")
+    db_ok = mode in ("postgresql", "sqlite", "sqlite-fallback") and await asyncio.to_thread(check_db_connection)
     settings = get_settings()
     raw_backup = backup_status()
     # 本地开发不要求已有备份；生产环境必须把备份失败暴露给监控。
@@ -342,6 +348,7 @@ async def health():
     payload = {
         "status": "ok" if ok else "degraded",
         "service": "pdca-workbench",
+        "revision": os.environ.get("PDCA_RELEASE_SHA", "unknown"),
         "database": mode,
         "database_connected": db_ok,
         "backup": backup,

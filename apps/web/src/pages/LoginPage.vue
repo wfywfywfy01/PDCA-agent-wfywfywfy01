@@ -20,11 +20,14 @@ const mustChange = ref(false)
 const oldPassword = ref('')
 const newPassword = ref('')
 
-const nextPath = typeof route.query.next === 'string' ? route.query.next : '/'
+const requestedNext = typeof route.query.next === 'string' ? route.query.next : '/'
+const nextPath = requestedNext.startsWith('/') && !requestedNext.startsWith('//') && !requestedNext.includes('\\') && !requestedNext.startsWith('/login')
+  ? requestedNext : '/'
 
 onMounted(async () => {
   try {
     config.value = await apiGet<AuthConfig>('/api/auth/config')
+    if (route.query.change_password === '1') mustChange.value = true
   } catch {
     error.value = '无法连接工作台服务，请稍后重试或联系管理员。'
   }
@@ -82,7 +85,7 @@ function goVps() {
 
       <div v-if="error" class="alert">{{ error }}</div>
 
-      <form v-if="!mustChange" @submit.prevent="doLogin">
+      <form v-if="!mustChange && config && config.auth_mode !== 'vps'" @submit.prevent="doLogin">
         <label class="field">
           <span>用户名</span>
           <input
@@ -111,7 +114,7 @@ function goVps() {
         </button>
       </form>
 
-      <form v-else @submit.prevent="doChangePassword">
+      <form v-else-if="mustChange" @submit.prevent="doChangePassword">
         <p class="notice">首次登录或密码已过期，请设置新密码（至少 12 位）。</p>
         <label class="field">
           <span>旧密码</span>
@@ -143,9 +146,10 @@ function goVps() {
         </button>
       </form>
 
-      <div v-if="config && config.auth_mode !== 'local'" class="vps-row">
-        <span class="divider">或</span>
-        <button class="btn btn-block" type="button" @click="goVps">使用 VPS / Odoo 账号登录</button>
+      <div v-if="config && config.auth_mode !== 'local' && !mustChange" class="vps-row">
+        <span v-if="config.auth_mode === 'hybrid'" class="divider">或</span>
+        <button v-if="config.vps_login_url" class="btn btn-block" type="button" @click="goVps">使用 VPS / Odoo 账号登录</button>
+        <p v-else class="hint">请从 VPS / Odoo 的 PDCA 入口进入；单点登录入口尚未配置。</p>
       </div>
 
       <p v-if="!config && !error" class="hint">正在读取认证配置…</p>

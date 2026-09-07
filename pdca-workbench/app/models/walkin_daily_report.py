@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -55,3 +55,17 @@ class WalkinDailyReport(SQLModel, table=True):
             + self.recruit_visits
             + self.existing_visits
         )
+
+
+def latest_walkin_reports(rows: Iterable[WalkinDailyReport]) -> list[WalkinDailyReport]:
+    """One current report per store/day, without deleting historical duplicates."""
+    latest: dict[tuple[str, str], tuple[tuple[datetime, int], WalkinDailyReport]] = {}
+    for row in rows:
+        timestamp = row.created_at or datetime.min
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        version = (timestamp.astimezone(timezone.utc), row.id or 0)
+        key = (row.dealer_id, row.report_date)
+        if key not in latest or version > latest[key][0]:
+            latest[key] = (version, row)
+    return [row for _, row in latest.values()]

@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { apiGet, apiPost } from '@/api/client'
+import { apiGet, apiPost, HttpError } from '@/api/client'
 
 interface Me {
   username: string
   display_name: string
   role: string
+  must_change_password?: boolean
 }
 
 const router = useRouter()
 const me = ref<Me | null>(null)
+const logoutBusy = ref(false)
+const logoutError = ref('')
 
 const ROLE_LABELS: Record<string, string> = {
   admin: '系统管理员',
@@ -23,18 +26,26 @@ const ROLE_LABELS: Record<string, string> = {
 onMounted(async () => {
   try {
     me.value = await apiGet<Me>('/api/auth/me')
+    if (me.value.must_change_password) {
+      router.replace({ path: '/login', query: { change_password: '1', next: router.currentRoute.value.fullPath } })
+    }
   } catch {
     me.value = null
   }
 })
 
 async function logout() {
+  if (logoutBusy.value) return
+  logoutBusy.value = true
+  logoutError.value = ''
   try {
     await apiPost('/api/auth/logout')
-  } catch {
-    /* 忽略登出失败，本地跳登录即可 */
+    router.replace('/login')
+  } catch (err) {
+    logoutError.value = err instanceof HttpError ? err.detail : '退出失败，请重试'
+  } finally {
+    logoutBusy.value = false
   }
-  router.replace('/login')
 }
 </script>
 
@@ -42,7 +53,7 @@ async function logout() {
   <header class="nav">
     <div class="nav-inner">
       <router-link class="brand" to="/">PDCA 工作台</router-link>
-      <nav class="links">
+      <nav class="links" aria-label="工作台导航">
         <router-link to="/">今日工作台</router-link>
         <router-link to="/dashboard">数据看板</router-link>
         <router-link to="/logistics">物流中心</router-link>
@@ -61,9 +72,10 @@ async function logout() {
           {{ me.display_name || me.username }}
           <span class="role-badge">{{ ROLE_LABELS[me.role] || me.role }}</span>
         </span>
-        <button class="btn btn-logout" type="button" @click="logout">退出</button>
+        <button class="btn btn-logout" type="button" :disabled="logoutBusy" @click="logout">{{ logoutBusy ? '退出中…' : '退出' }}</button>
       </div>
     </div>
+    <p v-if="logoutError" class="logout-error" role="alert">{{ logoutError }}</p>
   </header>
 </template>
 
@@ -87,12 +99,14 @@ async function logout() {
 }
 
 .brand {
+  flex: 0 0 auto;
   font-weight: 700;
   color: var(--text);
   font-size: 15px;
 }
 
 .links {
+  min-width: 0;
   display: flex;
   gap: 4px;
   flex: 1;
@@ -119,6 +133,7 @@ async function logout() {
 }
 
 .user {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -145,13 +160,18 @@ async function logout() {
   font-size: 12px;
 }
 
+.logout-error { margin: 0; padding: 4px 20px 10px; color: var(--red); font-size: 13px; }
+
 @media (max-width: 640px) {
   .who {
     display: none;
   }
   .nav-inner {
+    flex-wrap: wrap;
     gap: 10px;
     padding: 10px 12px;
   }
+  .links { order: 3; flex-basis: 100%; }
+  .user { margin-left: auto; }
 }
 </style>

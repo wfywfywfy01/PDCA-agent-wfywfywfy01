@@ -19,13 +19,17 @@ _requests_total = 0
 _requests_by_path: dict[str, int] = defaultdict(int)
 _status_counts: dict[str, int] = defaultdict(int)
 _errors_total = 0
-_sync_ok = 1.0  # 0 失败 / 1 成功 / -1 从未运行
+_sync_ok = -1.0  # 0 失败 / 1 成功 / -1 从未运行
 _sync_last_success = 0.0  # epoch 秒
 
 
 def record_request(method: str, path: str, status: int) -> None:
     """每个 HTTP 请求结束后调用（中间件钩子）。"""
     global _requests_total, _errors_total
+    if path == "/metrics":
+        return
+    if method not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"}:
+        method = "OTHER"
     with _LOCK:
         _requests_total += 1
         _requests_by_path[f"{method} {path}"] += 1
@@ -79,7 +83,7 @@ def export_prometheus(backup_status_fn=None) -> str:
     for path, count in sorted(by_path.items(), key=lambda item: -item[1]):
         if path == "GET /metrics":
             continue
-        safe = path.replace("\\", "\\\\").replace('"', '\\"')
+        safe = path.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         lines.append(f'pdca_requests_by_path_total{{path="{safe}"}} {count}')
     lines += [
         "# HELP pdca_sync_last_success_ok 1=last daily sync succeeded, 0=failed, -1=never ran.",

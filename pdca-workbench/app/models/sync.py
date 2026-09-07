@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
+from sqlalchemy import delete, text
 from sqlmodel import Session, select
 
 from app.config import get_settings
@@ -220,12 +221,12 @@ def sync_meetings(date_text: str) -> int:
 def sync_dealer_sales_from_vps(date_text: str) -> int:
     """通过 vertu-cli 拉取经销商进货（Sell-in）汇总，同步到 dealer_sales 表。
 
-    以 (check_date, dealer_name) 做 upsert；当天运行多次会覆盖同日记录。
+    整批验证后原子替换指定日期的 VPS 快照；失败保留此前快照。
     ``sales +orders`` 返回的是 VERTU 卖给经销商的订单，即经销商进货（Sell-in），
     不是终端 Sell-out。fetch_dealer_sales_orders_sync 的历史字段名叫
     ``sell_out_yuan``，实际语义是进货金额，此处写入 sell_in_wan。
     """
-    from app.vertu.sales import fetch_dealer_sales_orders_sync
+    from app.vertu.sales import fetch_dealer_sales_orders_sync, require_sales_number
 
     start_date = date_text[:8] + "01"
     try:
@@ -233,46 +234,52 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
         dealers = result.get("dealers", [])
     except Exception as exc:
         logger.warning("vertu-cli 经销商同步失败: {}", exc)
+        raise
+
+    # Validate the whole batch before opening a write transaction; bad input
+    # must not overwrite a previously valid snapshot with fabricated zeros.
+    for item in dealers:
+        if not str(item.get("dealer_name") or "").strip():
+            raise RuntimeError("销售数据缺少客户标识，整批未保存")
+        require_sales_number(item.get("sell_out_yuan"), "金额")
+        require_sales_number(item.get("qty"), "数量", integer=True)
+    if not dealers:
         return 0
 
     count = 0
     with Session(get_engine()) as session:
-        # 一次性拉取当日已有记录，避免逐条 SELECT（N+1 → 1）
+        if session.get_bind().dialect.name == "postgresql":
+            # Serialize same-day refreshes even when the first snapshot is empty.
+            session.execute(text("SELECT pg_advisory_xact_lock(:namespace, :day)"),
+                            {"namespace": 1346650945, "day": int(date_text.replace("-", ""))})
+        vps_sources = {"vertu-cli:sales-orders", "vertu-cli:sales-orders:validated", "sync_from_vertu"}
         existing_rows = session.exec(
             select(DealerSales).where(DealerSales.check_date == date_text)
         ).all()
-        existing_map: dict[str, DealerSales] = {r.dealer_name: r for r in existing_rows}
+        if any(row.source_file not in vps_sources for row in existing_rows):
+            raise RuntimeError("该日期存在非 VPS 来源快照，请先核对来源；本批未保存")
+        session.execute(delete(DealerSales).where(
+            DealerSales.check_date == date_text, DealerSales.source_file.in_(vps_sources),
+        ))
         for item in dealers:
             name = (item.get("dealer_name") or "").strip()
             if not name:
                 continue
-            sell_in_yuan = float(item.get("sell_out_yuan") or 0)
-            phone_qty = int(item.get("qty") or 0)
+            sell_in_yuan = require_sales_number(item.get("sell_out_yuan"), "金额")
+            phone_qty = require_sales_number(item.get("qty"), "数量", integer=True)
             activation_rate = 0.0
             sell_in_wan = round(sell_in_yuan / 10000, 4)
 
-            existing = existing_map.get(name)
-            if existing:
-                existing.sell_in_wan = sell_in_wan
-                existing.phone_qty = phone_qty
-                existing.activation_rate = activation_rate
-                existing.units = phone_qty
-                existing.synced_at = datetime.utcnow()
-                existing.source_file = "vertu-cli:sales-orders"
-                session.add(existing)
-            else:
-                new_row = DealerSales(
-                    check_date=date_text,
-                    dealer_name=name,
-                    sell_in_wan=sell_in_wan,
-                    sell_out_wan=0.0,
-                    units=phone_qty,
-                    phone_qty=phone_qty,
-                    activation_rate=activation_rate,
-                    source_file="vertu-cli:sales-orders",
-                )
-                session.add(new_row)
-                existing_map[name] = new_row
+            session.add(DealerSales(
+                check_date=date_text,
+                dealer_name=name,
+                sell_in_wan=sell_in_wan,
+                sell_out_wan=0.0,
+                units=phone_qty,
+                phone_qty=phone_qty,
+                activation_rate=activation_rate,
+                source_file="vertu-cli:sales-orders:validated",
+            ))
             count += 1
         session.commit()
 

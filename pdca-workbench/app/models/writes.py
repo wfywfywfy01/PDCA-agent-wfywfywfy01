@@ -57,14 +57,15 @@ def insert_pdca_task(
     priority: str = "normal",
     source: str = "workbench",
     vps_todo_id: str = "",
-) -> None:
+) -> bool:
     """新增待办记录；同日同名已存在时更新状态/负责人/优先级。
 
     ``post_router.py::post_todos`` 依赖本函数；此前缺失导致 POST /todos
     落库路径抛 AttributeError（待办只写进了 CSV 文件，库内无记录）。
+    返回是否成功落库；DB 主存储 API 必须检查，CSV 镜像调用方可忽略。
     """
     if not title.strip():
-        return
+        return False
     try:
         with Session(get_engine()) as session:
             row = session.exec(
@@ -94,8 +95,10 @@ def insert_pdca_task(
                     ),
                 )
             session.commit()
+            return True
     except Exception as exc:
         logger.warning("插入 pdca_tasks 失败: {}", exc)
+        return False
 
 
 def update_pdca_task_by_id(
@@ -199,3 +202,4 @@ def upsert_logistics_shipment(
             session.commit()
     except Exception as exc:
         logger.warning("写入 logistics_shipments 失败: {}", exc)
+        raise RuntimeError("物流保存失败，请稍后重试") from exc

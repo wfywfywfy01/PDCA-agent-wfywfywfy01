@@ -10,7 +10,7 @@ RUN printf '%s\n' "$SOURCE_REVISION" > /tmp/pdca-source-revision
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/web ./
-RUN npm run build
+RUN npm test && npm run typecheck && npm run build
 
 FROM python:3.12-slim
 ARG SOURCE_REVISION
@@ -54,6 +54,7 @@ COPY pdca-workbench/logibot ./logibot
 COPY --from=web-build /web/dist ./spa-dist
 
 ENV PDCA_HOST=0.0.0.0
+ENV PDCA_RELEASE_SHA=$SOURCE_REVISION
 ENV PDCA_WORKBENCH_PORT=8767
 ENV PDCA_MVP_ROOT=/mvp
 ENV PDCA_REPO_ROOT=/repo
