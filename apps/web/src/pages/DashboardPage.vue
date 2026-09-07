@@ -12,9 +12,9 @@ import AppNav from '@/components/AppNav.vue'
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 interface DealerRow {
-  rank: number
+  rank: number | null
   name: string
-  wan: number
+  wan: number | null
   quantity: number
 }
 
@@ -33,6 +33,8 @@ interface SellinSummary {
   trend: TrendRow[]
   source?: string
   as_of?: string | null
+  amount_state?: 'available' | 'suspect' | 'missing'
+  amount_message?: string
 }
 
 const router = useRouter()
@@ -121,7 +123,7 @@ function renderChart() {
   chart.setOption({
     backgroundColor: 'transparent',
     grid: { left: 46, right: 16, top: 24, bottom: 28 },
-    tooltip: { trigger: 'axis', valueFormatter: (v: number) => v + ' 万' },
+    tooltip: { trigger: 'axis', valueFormatter: (v: number | null) => v == null ? 'N/A' : v + ' 万' },
     xAxis: {
       type: 'category',
       data: data.value.trend.map((row) => row.month.slice(5) + '月'),
@@ -187,10 +189,13 @@ watch(month, load)
     <div v-else-if="error" class="card state error">{{ error }}</div>
 
     <template v-else-if="data">
+      <p v-if="data.amount_state === 'suspect'" class="amount-warning" role="status">
+        金额待核验：{{ data.amount_message || '当前快照金额存在疑点，暂不展示金额及排名；已记录销量仍保留。' }}
+      </p>
       <section class="kpi-row">
         <div class="card kpi">
           <span class="kpi-label">当月 Sell-in 合计</span>
-          <span class="kpi-value">{{ data.has_data ? data.total_wan : 'N/A' }} <small v-if="data.has_data">万 CNY</small></span>
+          <span class="kpi-value">{{ data.total_wan ?? 'N/A' }} <small v-if="data.total_wan != null">万 CNY</small></span>
           <span class="kpi-note">{{ sourceLabel(data.source) }} · {{ asOfLabel(data.as_of) }}</span>
         </div>
         <div class="card kpi">
@@ -219,7 +224,7 @@ watch(month, load)
       </section>
 
       <section class="card table-card">
-        <h2>订单客户排行</h2>
+        <h2>{{ data.amount_state === 'suspect' ? '订单客户明细（金额待核验）' : '订单客户排行' }}</h2>
         <p class="table-note">名称按源系统权限展示，脱敏或未知名称不推断真实客户。</p>
         <table v-if="data.dealers.length" class="table">
           <thead>
@@ -232,10 +237,10 @@ watch(month, load)
           </thead>
           <tbody>
             <tr v-for="dealer in data.dealers" :key="dealer.name + dealer.rank">
-              <td>{{ dealer.rank }}</td>
+              <td>{{ dealer.rank ?? 'N/A' }}</td>
               <td class="name">{{ dealer.name }}</td>
               <td class="num">{{ dealer.quantity }}</td>
-              <td class="num">{{ dealer.wan }}</td>
+              <td class="num">{{ dealer.wan ?? 'N/A' }}</td>
             </tr>
           </tbody>
         </table>
@@ -341,6 +346,14 @@ h2 {
 .table-note {
   margin: -4px 0 14px;
   color: var(--muted);
+  font-size: 13px;
+}
+
+.amount-warning {
+  padding: 12px 14px;
+  color: var(--amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
   font-size: 13px;
 }
 

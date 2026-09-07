@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import asyncio
 import traceback
 from datetime import datetime
 from typing import Annotated
@@ -120,7 +121,10 @@ async def trigger_vps_sellout_sync(
     端点名 sync-vps-sellout 为历史遗留，实际写入的是 dealer_sales.sell_in_wan。
     """
     date_text = require_iso_date(date or bridge.today_text())
-    count = sync_dealer_sales_from_vps(date_text)
+    try:
+        count = await asyncio.to_thread(sync_dealer_sales_from_vps, date_text)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="销售同步失败，原快照已保留；请检查上游数据与服务日志") from exc
     return {"ok": True, "date": date_text, "synced": count}
 
 

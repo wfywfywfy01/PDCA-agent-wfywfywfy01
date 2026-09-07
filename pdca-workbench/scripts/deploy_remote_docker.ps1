@@ -220,8 +220,22 @@ function Read-OptionalDotEnvValue {
 }
 
 function Get-AgentCredential {
-    # 优先取当前会话的默认 Agent 绑定（不带 --app-id），失败再回退 cursor；
-    # app_id 从输出里解析出来透传给容器。
+    # 更新已有容器时保留生产身份，避免开发机默认 Agent 改变数据权限。
+    if ($currentObject) {
+        $existing = @{}
+        foreach ($name in @("VERTU_APP_ID", "VERTU_APP_KEY", "VERTU_USER_LOGIN")) {
+            $line = $currentObject.Config.Env |
+                Where-Object { $_.StartsWith("$name=", [StringComparison]::Ordinal) } |
+                Select-Object -Last 1
+            if (-not $line -or [string]::IsNullOrWhiteSpace($line.Substring($name.Length + 1))) {
+                throw "Existing production container is missing $name; refusing to switch Agent identity"
+            }
+            $existing[$name] = $line.Substring($name.Length + 1)
+        }
+        $script:AgentAppId = $existing["VERTU_APP_ID"]
+        return $existing
+    }
+    # 首次部署才取本机默认 Agent，失败再回退 cursor。
     $lines = & vertu-cli agent env --shell powershell 2>&1
     if ($LASTEXITCODE -ne 0) {
         $lines = & vertu-cli agent env --app-id cursor --shell powershell 2>&1

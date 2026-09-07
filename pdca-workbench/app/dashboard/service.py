@@ -104,7 +104,7 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
     has_data, trend}。受限账号按 scope 经销商名过滤（与调用方后过滤一致）。
     """
     from sqlmodel import select
-    from app.models.dealer_sales import DealerSales
+    from app.models.dealer_sales import DealerSales, snapshot_amount_state
     from app.auth.scope import resolve_data_scope, scoped_active_dealer_names
 
     names = None
@@ -120,6 +120,7 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
         return [row for row in rows if row.check_date == latest_date]
 
     rows = _month_rows(month)
+    amount_state = snapshot_amount_state(rows)
     grouped: dict[str, dict] = {}
     for row in rows:
         item = grouped.setdefault(
@@ -129,13 +130,13 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
         item["wan"] += float(row.sell_in_wan or 0)
         item["quantity"] += int(row.units or 0)
     dealers = [
-        {"name": item["name"], "wan": round(item["wan"], 2), "quantity": item["quantity"]}
+        {"name": item["name"], "wan": round(item["wan"], 2) if amount_state == "available" else None, "quantity": item["quantity"]}
         for item in grouped.values()
         if item["wan"] != 0 or item["quantity"] != 0
     ]
-    dealers.sort(key=lambda item: item["wan"], reverse=True)
+    dealers.sort(key=lambda item: item["wan"] if item["wan"] is not None else item["quantity"], reverse=True)
     for index, dealer in enumerate(dealers):
-        dealer["rank"] = index + 1
+        dealer["rank"] = index + 1 if amount_state == "available" else None
 
     trend = []
     year, number = int(month[:4]), int(month[5:7])
@@ -147,13 +148,17 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
             current_year -= 1
         mo = f"{current_year:04d}-{current:02d}"
         mo_rows = _month_rows(mo)
-        mo_total = round(sum(float(row.sell_in_wan or 0) for row in mo_rows), 2) if mo_rows else None
+        mo_state = snapshot_amount_state(mo_rows)
+        mo_total = round(sum(float(row.sell_in_wan or 0) for row in mo_rows), 2) if mo_state == "available" else None
         trend.append({"month": mo, "wan": mo_total, "has_data": bool(mo_rows),
+                      "amount_state": mo_state,
                       "snapshot_date": max((row.check_date for row in mo_rows), default=None)})
 
     return {
         "month": month,
-        "total_wan": round(sum(float(row.sell_in_wan or 0) for row in rows), 2) if rows else None,
+        "total_wan": round(sum(float(row.sell_in_wan or 0) for row in rows), 2) if amount_state == "available" else None,
+        "amount_state": amount_state,
+        "amount_message": "旧快照存在销量但金额全部为零，金额待复核；原始数据和销量已保留" if amount_state == "suspect" else "",
         "dealers": dealers,
         "has_data": bool(rows),
         "snapshot_date": max((row.check_date for row in rows), default=None),
@@ -216,7 +221,7 @@ def merge_db_sales(data: dict, date_text: str, session, user=None, *, period: st
         return data
 
     from sqlmodel import select
-    from app.models.dealer_sales import DealerSales
+    from app.models.dealer_sales import DealerSales, snapshot_amount_state
     from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
     from app.auth.scope import resolve_data_scope, scoped_active_dealer_names, scoped_active_store_ids
 
@@ -245,7 +250,14 @@ def merge_db_sales(data: dict, date_text: str, session, user=None, *, period: st
     # Each row is a month-to-date snapshot, never a daily transaction.
     latest_date = max((row.check_date for row in db_rows), default=None)
     db_rows = [row for row in db_rows if row.check_date == latest_date] if period == "month" else []
-    if db_rows:
+    if snapshot_amount_state(db_rows) == "suspect":
+        data["sellInWan"] = None
+        data["sellInAmount"] = "—"
+        data["sellInSub"] = f"批次 {latest_date} 金额待复核：旧快照存在销量但金额全部为零"
+        data.setdefault("dataState", {})["sellIn"] = "suspect"
+        data.setdefault("dataSource", {})["sellIn"] = "dealer_sales_db_latest_snapshot"
+        data["dataAsOf"] = max((_utc_iso(row.synced_at) for row in db_rows if row.synced_at), default=None)
+    elif db_rows:
         total_in_wan  = sum(r.sell_in_wan  for r in db_rows)
         dealer_count  = len({r.dealer_name for r in db_rows})
         batch_date = max((r.check_date for r in db_rows if r.check_date), default=month)

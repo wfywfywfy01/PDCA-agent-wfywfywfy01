@@ -175,6 +175,19 @@ def _row_dict(row, columns: list[str]) -> dict:
     return {}
 
 
+def require_sales_number(value, field: str, *, integer: bool = False) -> float | int:
+    """Missing/redacted metrics must fail the batch, never become zero."""
+    try:
+        if value is None or isinstance(value, bool):
+            raise ValueError("missing metric")
+        number = float(value)
+        if not math.isfinite(number) or (integer and not number.is_integer()):
+            raise ValueError("invalid metric")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError(f"销售数据缺少有效{field}，整批未保存，请检查上游权限与字段") from exc
+    return int(number) if integer else number
+
+
 def fetch_dealer_sales_orders_sync(start: str, end: str) -> dict:
     """通过 vertu-cli 订单快捷命令按客户聚合经销商销售数据。"""
     payload = run_vertu_sync_json(
@@ -194,16 +207,22 @@ def fetch_dealer_sales_orders_sync(start: str, end: str) -> dict:
     )
     if not isinstance(payload, dict):
         raise RuntimeError("vertu-cli sales +orders 未返回数据")
+    if not isinstance(payload.get("rows"), list):
+        raise RuntimeError("vertu-cli sales +orders 缺少订单行，整批未保存")
+    if (payload.get("pagination") or {}).get("has_more"):
+        raise RuntimeError("vertu-cli sales +orders 分页未完整，整批未保存")
     columns = [str(item) for item in payload.get("columns") or []]
     grouped: dict[str, dict] = {}
     for raw in payload.get("rows") or []:
         row = _row_dict(raw, columns)
+        amount = require_sales_number(row.get("金额"), "金额")
+        quantity = require_sales_number(row.get("数量"), "数量", integer=True)
         name = str(row.get("客户名称") or row.get("客户") or "").strip()
         if not name:
-            continue
+            raise RuntimeError("销售订单缺少客户标识，整批未保存")
         item = grouped.setdefault(name, {"dealer_name": name, "sell_out_yuan": 0.0, "qty": 0})
-        item["sell_out_yuan"] += float(row.get("金额") or 0)
-        item["qty"] += int(float(row.get("数量") or 0))
+        item["sell_out_yuan"] += amount
+        item["qty"] += quantity
     dealers = sorted(grouped.values(), key=lambda item: -item["sell_out_yuan"])
     return {
         "ok": True,

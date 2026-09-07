@@ -143,7 +143,7 @@ def _sales_payload(data: dict, prefix: str) -> dict:
         "as_of": as_of,
         "source": (data.get("dataSource") or {}).get(prefix),
         "cached": bool(as_of),
-        "state": _freshness_state(as_of) if wan is not None else "missing",
+        "state": _freshness_state(as_of) if wan is not None else (data.get("dataState") or {}).get(prefix, "missing"),
     }
 
 
@@ -472,7 +472,7 @@ async def dealer_sellin_summary(
     scoped["total_wan"] = round(
         sum(float(row.get("wan") or row.get("sell_in_wan") or 0) for row in scoped["dealers"]),
         2,
-    ) if data["has_data"] else None
+    ) if data.get("amount_state") == "available" else None
     return scoped
 
 

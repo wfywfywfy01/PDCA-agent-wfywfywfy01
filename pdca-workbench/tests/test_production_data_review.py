@@ -259,6 +259,110 @@ class ProductionDataReviewTests(unittest.TestCase):
         self.assertFalse(is_demo_store("real-id", "Democratic Electronics"))
         self.assertFalse(is_demo_store("real-id", "Qatar Luxury Store"))
 
+    def test_order_batch_rejects_missing_redacted_and_nonfinite_amounts(self):
+        for value in (None, "", "***", float("nan"), float("inf")):
+            payload = {"columns": ["客户名称", "金额", "数量"], "rows": [["Real Store", value, 703]]}
+            with patch.object(sales, "run_vertu_sync_json", return_value=payload), self.assertRaises(RuntimeError):
+                sales.fetch_dealer_sales_orders_sync("2026-08-01", "2026-08-31")
+        with patch.object(sales, "run_vertu_sync_json", return_value={"rows": [{"客户名称": "Real Store", "数量": 703}]}), self.assertRaises(RuntimeError):
+            sales.fetch_dealer_sales_orders_sync("2026-08-01", "2026-08-31")
+
+    def test_order_batch_rejects_missing_customer_but_accepts_named_zero(self):
+        payload = {"columns": ["客户名称", "金额", "数量"], "rows": [["Real Store", 0, 1], [" ", 100, 2]]}
+        with patch.object(sales, "run_vertu_sync_json", return_value=payload), self.assertRaisesRegex(RuntimeError, "缺少客户标识"):
+            sales.fetch_dealer_sales_orders_sync("2026-08-01", "2026-08-31")
+        payload["rows"] = [["Real Store", 0, 1]]
+        with patch.object(sales, "run_vertu_sync_json", return_value=payload):
+            result = sales.fetch_dealer_sales_orders_sync("2026-08-01", "2026-08-31")
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["dealers"][0]["qty"], 1)
+        self.assertEqual(result["dealers"][0]["dealer_name"], "Real Store")
+
+    def test_suspect_legacy_snapshot_keeps_quantity_but_not_false_zero_amount(self):
+        from app.export.router import export_dealer_sales
+        exported = []
+        with Session(self.engine) as session:
+            session.add(DealerSales(check_date="2026-08-31", dealer_name="Real Store", sell_in_wan=0, units=703, source_file="vertu-cli:sales-orders"))
+            session.commit()
+            summary = service.db_sellin_summary("2026-08", session)
+            overview = service.merge_db_sales({}, "2026-08-31", session, self.admin, period="month")
+            raw = session.exec(select(DealerSales).where(DealerSales.check_date == "2026-08-31")).one()
+            with patch("app.export.router._wb_response", side_effect=lambda wb, name: exported.append(wb)):
+                asyncio.run(export_dealer_sales(self.admin, session, month="2026-08"))
+        self.assertTrue(summary["has_data"])
+        self.assertEqual(summary["snapshot_date"], "2026-08-31")
+        self.assertEqual(summary["amount_state"], "suspect")
+        self.assertIsNone(summary["total_wan"])
+        self.assertIsNone(summary["dealers"][0]["wan"])
+        self.assertIsNone(summary["dealers"][0]["rank"])
+        self.assertEqual(summary["dealers"][0]["quantity"], 703)
+        self.assertIsNone(summary["trend"][-1]["wan"])
+        self.assertIsNone(overview["sellInWan"])
+        self.assertEqual(raw.sell_in_wan, 0)
+        exported_row = next(row for row in exported[0].active.iter_rows(values_only=True) if row[0] == "2026-08-31")
+        self.assertIsNone(exported_row[4])
+        self.assertIn("待复核", exported_row[-1])
+
+    def test_verified_zero_amount_remains_real_zero_with_units(self):
+        from app.models.dealer_sales import snapshot_amount_state
+        self.assertEqual(snapshot_amount_state([DealerSales(check_date="2026-08-31", dealer_name="Real Store", sell_in_wan=0, units=1, source_file="vertu-cli:sales-orders:validated")]), "available")
+
+    def _seed_vps_snapshot(self, *, source="vertu-cli:sales-orders"):
+        with Session(self.engine) as session:
+            session.add_all([
+                DealerSales(check_date="2026-08-31", dealer_name="Real Store", sell_in_wan=42, units=7, source_file=source),
+                DealerSales(check_date="2026-08-31", dealer_name="Removed Store", sell_in_wan=12, units=2, source_file=source),
+            ])
+            session.commit()
+
+    def test_sync_bad_amount_preserves_existing_snapshot(self):
+        from app.models import sync
+        self._seed_vps_snapshot()
+        with patch.object(sync, "get_engine", return_value=self.engine), patch.object(sales, "fetch_dealer_sales_orders_sync", return_value={"dealers": [{"dealer_name": "Real Store", "qty": 703}]}):
+            with self.assertRaises(RuntimeError):
+                sync.sync_dealer_sales_from_vps("2026-08-31")
+        with Session(self.engine) as session:
+            self.assertEqual(sum(row.sell_in_wan for row in session.exec(select(DealerSales).where(DealerSales.check_date == "2026-08-31")).all()), 54)
+
+    def test_sync_atomically_replaces_only_requested_vps_date(self):
+        from app.models import sync
+        self._seed_vps_snapshot()
+        with patch.object(sync, "get_engine", return_value=self.engine), patch.object(sales, "fetch_dealer_sales_orders_sync", return_value={"dealers": [{"dealer_name": "Real Store", "qty": 703, "sell_out_yuan": 7880563.34}]}):
+            self.assertEqual(sync.sync_dealer_sales_from_vps("2026-08-31"), 1)
+        with Session(self.engine) as session:
+            current = session.exec(select(DealerSales).where(DealerSales.check_date == "2026-08-31")).all()
+            previous = session.exec(select(DealerSales).where(DealerSales.check_date != "2026-08-31")).all()
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0].dealer_name, "Real Store")
+        self.assertEqual(current[0].source_file, "vertu-cli:sales-orders:validated")
+        self.assertEqual(len(previous), 3)
+
+    def test_sync_commit_failure_rolls_back_deleted_snapshot(self):
+        from app.models import sync
+        self._seed_vps_snapshot()
+        with patch.object(sync, "get_engine", return_value=self.engine), patch.object(sales, "fetch_dealer_sales_orders_sync", return_value={"dealers": [{"dealer_name": "Real Store", "qty": 703, "sell_out_yuan": 10000}]}), patch.object(Session, "commit", side_effect=RuntimeError("commit failed")):
+            with self.assertRaisesRegex(RuntimeError, "commit failed"):
+                sync.sync_dealer_sales_from_vps("2026-08-31")
+        with Session(self.engine) as session:
+            old = session.exec(select(DealerSales).where(DealerSales.check_date == "2026-08-31")).all()
+        self.assertEqual(len(old), 2)
+        self.assertEqual(sum(row.sell_in_wan for row in old), 54)
+
+    def test_sync_never_deletes_manual_import_rows(self):
+        from app.models import sync
+        self._seed_vps_snapshot(source="manual-import.json")
+        with patch.object(sync, "get_engine", return_value=self.engine), patch.object(sales, "fetch_dealer_sales_orders_sync", return_value={"dealers": [{"dealer_name": "Real Store", "qty": 703, "sell_out_yuan": 10000}]}):
+            with self.assertRaisesRegex(RuntimeError, "非 VPS 来源"):
+                sync.sync_dealer_sales_from_vps("2026-08-31")
+        with Session(self.engine) as session:
+            self.assertEqual(len(session.exec(select(DealerSales).where(DealerSales.source_file == "manual-import.json")).all()), 2)
+
+    def test_sync_api_reports_failure_instead_of_zero_row_success(self):
+        from app.admin.router import trigger_vps_sellout_sync
+        with patch("app.admin.router.sync_dealer_sales_from_vps", side_effect=RuntimeError("invalid upstream amount")), self.assertRaises(HTTPException) as exc:
+            asyncio.run(trigger_vps_sellout_sync("2026-08-31", self.admin))
+        self.assertEqual(exc.exception.status_code, 503)
+
 
 if __name__ == "__main__":
     unittest.main()
