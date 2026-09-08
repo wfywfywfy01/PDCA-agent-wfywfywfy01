@@ -10,6 +10,8 @@ from unittest.mock import patch
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.daily_report import build_report
+from app.models.dealer_store import DealerStore
+from app.models.logistics import LogisticsShipment
 from app.models.walkin_daily_report import WalkinDailyReport
 
 
@@ -56,12 +58,40 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("昨日（08-29）：22.88 万 · 16 台", text)
         self.assertIn("本月累计：700.80 万 · 636 台", text)
         self.assertIn("系统收到 1 家门店填报", text)
-        self.assertIn("应报门店清单尚未确认", text)
+        self.assertIn("应报 8 家", text)
+        self.assertIn("缺报 8 家", text)
+        self.assertIn("Luxem Store", text)
+        self.assertIn("reStore", text)
+        self.assertIn("【物流】近 7 天在途 0 单 · 异常 0 单", text)
         self.assertNotIn("4.41 万", text)
         self.assertNotIn("/44", text)
-        self.assertNotIn("物流", text)
         self.assertNotIn("会议", text)
         self.assertNotIn("待办", text)
+
+    def test_missing_list_respects_required_stores_and_logistics_transit(self):
+        with Session(self.engine) as session:
+            session.add(DealerStore(store_id="me003", name="Billionaire Collections"))
+            session.add(WalkinDailyReport(
+                report_date="2026-08-29", dealer_id="me003", dealer_name="Billionaire Collections",
+            ))
+            session.add(LogisticsShipment(
+                record_date="2026-08-28", tracking_number="T1", carrier="DHL",
+                customer="x", current_status="运输中", ship_date="2026-08-28", progress_pct=50,
+            ))
+            session.add(LogisticsShipment(
+                record_date="2026-08-28", tracking_number="T2", carrier="DHL",
+                customer="x", current_status="已签收", ship_date="2026-08-28", progress_pct=100,
+            ))
+            session.commit()
+
+        text = build_report("2026-08-30")
+
+        self.assertIn("系统收到 1 家门店填报", text)
+        self.assertIn("应报 8 家", text)
+        self.assertIn("缺报 7 家", text)
+        self.assertIn("Luxem Store", text)
+        self.assertNotIn("Billionaire Collections", text)
+        self.assertIn("【物流】近 7 天在途 1 单 · 异常 0 单", text)
 
     def test_non_live_sales_fails_closed(self):
         with patch(
