@@ -16,7 +16,7 @@ from app.auth import router as auth_router
 from app.auth.models import User
 from app.auth.odoo_sso import issue_odoo_ticket, parse_odoo_ticket
 from app.auth.scope import resolve_data_scope
-from app.auth.security import create_access_token
+from app.auth.security import create_access_token, hash_password
 from app.auth.security_state import LoginFailRecord
 from app.auth.vps_identity import ensure_vps_user
 from app.database import get_session
@@ -89,6 +89,46 @@ class ProductionAuthReviewTests(unittest.TestCase):
         self.assertEqual(following.status_code, 200)
         self.assertEqual(following.json()["username"], "employee")
         self.assertEqual(self.client.post("/api/auth/login", json={"username": "employee", "password": "unused"}).status_code, 403)
+
+    def test_odoo_sso_unlocks_seeded_user_and_revokes_default_password(self):
+        with Session(self.engine) as session:
+            session.add(User(
+                username="initial-user",
+                hashed_password=hash_password("known-default"),
+                role="sales",
+                data_scope="self",
+                must_change_password=True,
+                pwd_version=4,
+            ))
+            session.commit()
+
+        ticket = issue_odoo_ticket(
+            login="initial-user", uid=456, name="Initial User",
+            secret="test-sso-secret",
+        )
+        response = self.client.get(
+            "/api/auth/odoo-sso", params={"ticket": ticket}, follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        token = response.cookies["pdca_token"]
+        following = self.client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(following.status_code, 200)
+        self.assertFalse(following.json()["must_change_password"])
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login",
+                json={"username": "initial-user", "password": "known-default"},
+            ).status_code,
+            401,
+        )
+        with Session(self.engine) as session:
+            user = session.exec(
+                select(User).where(User.username == "initial-user")
+            ).one()
+            self.assertFalse(user.must_change_password)
+            self.assertEqual(user.pwd_version, 5)
 
     def test_sso_display_name_does_not_grant_owner_data_scope(self):
         for login in ("new-sales", "employee"):

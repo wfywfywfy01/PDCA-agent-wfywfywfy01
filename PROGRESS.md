@@ -7,6 +7,8 @@
   targets now degrade to `N/A` instead of producing invented completion rates.
 - Applied one authoritative row-level owner/team scope to todo projects, tasks,
   replies, exports, reminders, and group notices. Mixed-team projects fail closed.
+- Odoo/VPS SSO now unlocks legacy seeded users after verified identity while
+  rotating their local password and password version, so old defaults stay invalid.
 - Added durable daily-report delivery claims, separate alert routing, disabled
   unfinished scoring/ledger schedules by default, and made ledger dry-runs free
   of database, document, or messaging writes.
@@ -16,7 +18,7 @@
 
 Verification:
 
-- Backend: `366 tests` passed in `40.431s`; Python compilation passed.
+- Backend: `367 tests` passed in `45.619s`; Python compilation passed.
 - Frontend: `6 tests` passed; Vue typecheck and production build passed.
 - Migrations: one head (`010`); fresh, historical-unversioned, and runtime-built
   database upgrades all reached `010 (head)`.
