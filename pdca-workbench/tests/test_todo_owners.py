@@ -8,10 +8,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.todos.evidence as evidence_mod
 from app.models.pdca_task import PdcaTask
+from app.models.todo_group_state import TodoGroupState
 from app.todos.owners import split_owners
 
 
@@ -269,6 +270,40 @@ class CombinedOwnerClaimTests(unittest.TestCase):
         with Session(self.engine) as session:
             row = session.get(PdcaTask, task_id)
         self.assertIsNotNone(row.claimed_at)
+
+    def test_existing_cursor_advances_to_newest_message(self):
+        from app.todos.claims import collect_group_claims
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            session.add(TodoGroupState(key="last_claim_message_id", value="m1"))
+            session.add(PdcaTask(
+                task_date=today, title="新消息认领", owner="Sissi",
+                status="pending", source="followup-table",
+            ))
+            session.commit()
+
+        def fake_json(args, timeout):
+            if "+history" in args:
+                return {"messages": [
+                    {"id": "m2", "sender_user_id": 12345, "body": "收到"},
+                    {"id": "m1", "sender_user_id": 12345, "body": "旧消息"},
+                ]}
+            if "+personnel-info" in args:
+                return {"rows": [{"name": "Sissi"}]}
+            return None
+
+        with patch("app.todos.claims.run_vertu_sync_json", side_effect=fake_json):
+            first = collect_group_claims(today)
+            second = collect_group_claims(today)
+
+        self.assertEqual(first["scanned"], 1)
+        self.assertEqual(second["scanned"], 0)
+        with Session(self.engine) as session:
+            cursor = session.exec(
+                select(TodoGroupState).where(TodoGroupState.key == "last_claim_message_id")
+            ).first()
+        self.assertEqual(cursor.value, "m2")
 
 
 if __name__ == "__main__":

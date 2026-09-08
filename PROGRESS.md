@@ -1,5 +1,31 @@
 # Progress
 
+## 2026-09-08: PDCA production hardening
+
+- Corrected five-kit completion and daily-report metrics so only required stores
+  contribute to the denominator and reported count; missing or invalid sales
+  targets now degrade to `N/A` instead of producing invented completion rates.
+- Applied one authoritative row-level owner/team scope to todo projects, tasks,
+  replies, exports, reminders, and group notices. Mixed-team projects fail closed.
+- Added durable daily-report delivery claims, separate alert routing, disabled
+  unfinished scoring/ledger schedules by default, and made ledger dry-runs free
+  of database, document, or messaging writes.
+- Repaired the Alembic revision chain, added delivery-safety schema migration,
+  and made remote deployment migrate a tested candidate image after database
+  backup and before cutover.
+
+Verification:
+
+- Backend: `366 tests` passed in `40.431s`; Python compilation passed.
+- Frontend: `6 tests` passed; Vue typecheck and production build passed.
+- Migrations: one head (`010`); fresh, historical-unversioned, and runtime-built
+  database upgrades all reached `010 (head)`.
+- Container: final local candidate `sha256:ecf9607d9821...` passed SQLite smoke
+  tests with revision label `working-tree-20260908-final`.
+- PostgreSQL: login/password change, upsert/zero overwrite, owner isolation,
+  cross-owner/admin denial, SPA assets, and outage-to-HTTP-503 checks passed.
+- Production cutover remains gated on the exact-SHA CI image and public smoke test.
+
 ## 2026-09-07: Knowledge access security remediation
 
 - Preserve disabled SSO identities and invalidate sessions on deactivation.

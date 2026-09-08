@@ -93,6 +93,27 @@ class PushChannelOverrideTests(unittest.TestCase):
         sent_json = self.post_mock.call_args.kwargs["json"]
         self.assertEqual(sent_json["channel_id"], "alert-env-channel")
 
+    def test_alert_never_falls_back_to_business_channel(self):
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+            "PDCA_VPS_BOT_CHANNEL_ID": "business-channel",
+        }, clear=True):
+            result = vps_im_push.push_vps_alert("boom")
+        self.assertFalse(result)
+        self.post_mock.assert_not_called()
+
+    def test_alert_rejects_same_channel_as_business(self):
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+            "PDCA_ALERT_BOT_CHANNEL_ID": "same-channel",
+            "PDCA_VPS_BOT_CHANNEL_ID": "same-channel",
+        }, clear=True):
+            result = vps_im_push.push_vps_alert("boom")
+        self.assertFalse(result)
+        self.post_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

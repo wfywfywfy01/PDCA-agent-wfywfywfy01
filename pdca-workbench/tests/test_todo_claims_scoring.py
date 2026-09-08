@@ -43,6 +43,13 @@ class ScoringTests(unittest.TestCase):
         task = _task(reply_text="第1条完成", replied_at=datetime.utcnow())
         self.assertEqual(score_task(task, "2026-09-07")["score"], 90)
 
+    def test_negated_completion_is_not_done(self):
+        for text in ("这项还未完成", "没有完成", "not done"):
+            task = _task(reply_text=text, replied_at=datetime.utcnow())
+            result = score_task(task, "2026-09-07")
+            self.assertNotEqual(result["evidence"]["reply"], "done", text)
+            self.assertLess(result["score"], 90, text)
+
     def test_reply_progress_scores_70(self):
         task = _task(reply_text="在推进了", replied_at=datetime.utcnow())
         self.assertEqual(score_task(task, "2026-09-07")["score"], 70)

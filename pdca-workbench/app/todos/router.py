@@ -24,6 +24,14 @@ from app.auth.deps import require_role
 from app.auth.models import User
 from app.statuses import is_done as _status_is_done
 from app.todos.service import run_todo_reminders
+from app.todos.scope import (
+    allowed_owner_keys,
+    owner_allowed,
+    project_allowed,
+    require_project,
+    require_task,
+    task_allowed,
+)
 
 router = APIRouter(tags=["todos"])
 
@@ -39,12 +47,17 @@ async def remind_candidates(
     user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
     """预览待催清单：不发送、不改库（owner 匹配仍会查 IM 组织）。"""
+    from sqlmodel import Session
+    from app.database import get_engine
+    with Session(get_engine()) as session:
+        allowed = allowed_owner_keys(user, session)
     return await asyncio.to_thread(
         run_todo_reminders,
         None,
         "manual",
         True,
         True,
+        allowed,
     )
 
 
@@ -56,12 +69,17 @@ async def remind_now(
 ):
     """立即催办：manual 轮次、忽略当日频控。dry_run=true 只预览。"""
     dry_run = bool(payload and payload.dry_run)
+    from sqlmodel import Session
+    from app.database import get_engine
+    with Session(get_engine()) as session:
+        allowed = allowed_owner_keys(user, session)
     result = await asyncio.to_thread(
         run_todo_reminders,
         None,
         "manual",
         True,
         dry_run,
+        allowed,
     )
     client_ip = request.client.host if request.client else ""
     log_action(
@@ -90,7 +108,11 @@ async def notify_group(
     from app.todos.service import send_group_notice, today_text
 
     dry_run = bool(payload and payload.dry_run)
-    result = await asyncio.to_thread(send_group_notice, today_text(), dry_run)
+    from sqlmodel import Session
+    from app.database import get_engine
+    with Session(get_engine()) as session:
+        allowed = allowed_owner_keys(user, session)
+    result = await asyncio.to_thread(send_group_notice, today_text(), dry_run, allowed)
     client_ip = request.client.host if request.client else ""
     log_action(
         username=user.username,
@@ -159,10 +181,19 @@ async def list_projects(
     with Session(get_engine()) as session:
         ensure_projects(session)
         rows = list(session.exec(select(TodoProject)).all())
-        stats: dict[int, dict] = {}
-        for task in session.exec(
+        tasks = list(session.exec(
             select(PdcaTask).where(PdcaTask.project_id.is_not(None))
-        ).all():
+        ).all())
+        allowed = allowed_owner_keys(user, session)
+        rows = [
+            row for row in rows
+            if project_allowed(row, session, allowed, tasks)
+        ]
+        visible_project_ids = {row.id for row in rows}
+        stats: dict[int, dict] = {}
+        for task in tasks:
+            if task.project_id not in visible_project_ids or not task_allowed(task, allowed):
+                continue
             entry = stats.setdefault(
                 task.project_id,
                 {"open": 0, "done": 0, "overdue": 0},
@@ -188,7 +219,7 @@ async def list_projects(
             "remind_count": row.remind_count or 0,
             "last_reminded_round": row.last_reminded_round or "",
         }
-        for row in sorted(rows, key=lambda r: -(open_counts.get(r.id, 0)))
+        for row in sorted(rows, key=lambda r: -stats.get(r.id, {}).get("open", 0))
     ]
 
 
@@ -213,11 +244,8 @@ async def update_project_status(
 
         raise HTTPException(status_code=422, detail="非法状态")
     with Session(get_engine()) as session:
-        row = session.get(TodoProject, project_id)
-        if row is None:
-            from fastapi import HTTPException
-
-            raise HTTPException(status_code=404, detail="项目不存在")
+        allowed = allowed_owner_keys(user, session)
+        row = require_project(session.get(TodoProject, project_id), session, allowed)
         row.status = status
         row.updated_at = datetime.utcnow()
         session.add(row)
@@ -249,9 +277,8 @@ async def update_project(
     from app.models.todo_project import PROJECT_STATUSES, TodoProject
 
     with Session(get_engine()) as session:
-        row = session.get(TodoProject, project_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
+        allowed = allowed_owner_keys(user, session)
+        row = require_project(session.get(TodoProject, project_id), session, allowed)
         if payload.status is not None:
             status = payload.status.strip()
             if status not in PROJECT_STATUSES:
@@ -263,6 +290,8 @@ async def update_project(
                 raise HTTPException(status_code=422, detail="项目名不能为空")
             row.name = name[:256]
         if payload.coordinator is not None:
+            if not owner_allowed(payload.coordinator, allowed):
+                raise HTTPException(status_code=422, detail="协调人不在当前团队范围")
             row.coordinator = (payload.coordinator or "").strip()[:128]
         row.updated_at = datetime.utcnow()
         session.add(row)
@@ -305,6 +334,9 @@ async def create_project(
     ).hexdigest()[:12]
     coordinator = (payload.coordinator or "").strip()[:128]
     with Session(get_engine()) as session:
+        allowed = allowed_owner_keys(user, session)
+        if not owner_allowed(coordinator, allowed):
+            raise HTTPException(status_code=422, detail="协调人不在当前团队范围")
         row = TodoProject(
             key=key,
             name=name[:256],
@@ -348,10 +380,9 @@ async def merge_project(
     if payload.target_id == project_id:
         raise HTTPException(status_code=422, detail="目标项目不能是源项目自身")
     with Session(get_engine()) as session:
-        source = session.get(TodoProject, project_id)
-        target = session.get(TodoProject, payload.target_id)
-        if source is None or target is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
+        allowed = allowed_owner_keys(user, session)
+        source = require_project(session.get(TodoProject, project_id), session, allowed)
+        target = require_project(session.get(TodoProject, payload.target_id), session, allowed)
         moved = 0
         for task in session.exec(
             select(PdcaTask).where(PdcaTask.project_id == project_id)
@@ -398,14 +429,13 @@ async def update_task(
     from app.todos.projects import refresh_meeting_project_members
 
     with Session(get_engine()) as session:
-        row = session.get(PdcaTask, task_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="待办不存在")
+        allowed = allowed_owner_keys(user, session)
+        row = require_task(session.get(PdcaTask, task_id), allowed)
         if "project_id" in payload.model_fields_set:
             if payload.project_id is not None:
-                project = session.get(TodoProject, payload.project_id)
-                if project is None:
-                    raise HTTPException(status_code=422, detail="项目不存在")
+                project = require_project(
+                    session.get(TodoProject, payload.project_id), session, allowed
+                )
                 if project.status == "已闭环":
                     project.status = "跟进中"
                     project.updated_at = datetime.utcnow()
@@ -423,6 +453,8 @@ async def update_task(
                 raise HTTPException(status_code=422, detail="日期需为 YYYY-MM-DD")
             row.task_date = date_text
         if payload.owner is not None:
+            if not owner_allowed(payload.owner, allowed):
+                raise HTTPException(status_code=422, detail="负责人不在当前团队范围")
             row.owner = payload.owner.strip()[:128]
         row.updated_at = datetime.utcnow()
         session.add(row)
@@ -479,9 +511,12 @@ async def create_task(
     if not date_text or not _ISO_DATE_FULL.fullmatch(date_text):
         raise HTTPException(status_code=422, detail="日期需为 YYYY-MM-DD")
     with Session(get_engine()) as session:
+        allowed = allowed_owner_keys(user, session)
+        if not owner_allowed(owner, allowed):
+            raise HTTPException(status_code=422, detail="负责人不在当前团队范围")
         project_id = payload.project_id
-        if project_id is not None and session.get(TodoProject, project_id) is None:
-            raise HTTPException(status_code=422, detail="项目不存在")
+        if project_id is not None:
+            require_project(session.get(TodoProject, project_id), session, allowed)
         row = PdcaTask(
             task_date=date_text,
             title=title[:512],
@@ -524,9 +559,8 @@ async def delete_task(
     from app.todos.projects import refresh_meeting_project_members
 
     with Session(get_engine()) as session:
-        row = session.get(PdcaTask, task_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="待办不存在")
+        allowed = allowed_owner_keys(user, session)
+        row = require_task(session.get(PdcaTask, task_id), allowed)
         title = row.title
         session.delete(row)
         session.commit()
@@ -559,12 +593,14 @@ async def list_tasks(
     from app.models.pdca_task import PdcaTask
 
     with Session(get_engine()) as session:
+        allowed = allowed_owner_keys(user, session)
         query = select(PdcaTask)
         if unassigned:
             query = query.where(PdcaTask.project_id.is_(None))
         elif project_id is not None:
             query = query.where(PdcaTask.project_id == project_id)
         rows = list(session.exec(query.order_by(PdcaTask.task_date.asc())).all())
+        rows = [row for row in rows if task_allowed(row, allowed)]
     if open_only:
         rows = [row for row in rows if not _status_is_done(row.status)]
     return [
@@ -601,8 +637,16 @@ async def todo_overview(
     today_text = date.today().isoformat()
     week_end = (date.today() + timedelta(days=7)).isoformat()
     with Session(get_engine()) as session:
-        projects = list(session.exec(select(TodoProject)).all())
-        tasks = list(session.exec(select(PdcaTask)).all())
+        allowed = allowed_owner_keys(user, session)
+        all_tasks = list(session.exec(select(PdcaTask)).all())
+        projects = [
+            row for row in session.exec(select(TodoProject)).all()
+            if project_allowed(row, session, allowed, all_tasks)
+        ]
+        tasks = [
+            row for row in all_tasks
+            if task_allowed(row, allowed)
+        ]
     active_projects = [p for p in projects if p.status != "已闭环"]
     open_rows = [t for t in tasks if not _status_is_done(t.status)]
     done_rows = [t for t in tasks if _status_is_done(t.status)]
@@ -651,14 +695,18 @@ async def export_tasks_csv(
     from app.models.todo_project import TodoProject
 
     with Session(get_engine()) as session:
-        project_names = {
-            row.id: row.name for row in session.exec(select(TodoProject)).all()
-        }
-        rows = list(
+        allowed = allowed_owner_keys(user, session)
+        all_tasks = list(
             session.exec(
                 select(PdcaTask).order_by(PdcaTask.task_date.asc(), PdcaTask.id.asc())
             ).all()
         )
+        project_names = {
+            row.id: row.name
+            for row in session.exec(select(TodoProject)).all()
+            if project_allowed(row, session, allowed, all_tasks)
+        }
+        rows = [row for row in all_tasks if task_allowed(row, allowed)]
     if open_only:
         rows = [row for row in rows if not _status_is_done(row.status)]
     buffer = _io.StringIO()
@@ -699,11 +747,14 @@ async def list_replies(
     from app.models.im_replies import TodoReply
 
     with Session(get_engine()) as session:
+        allowed = allowed_owner_keys(user, session)
         rows = list(
             session.exec(
-                select(TodoReply).order_by(TodoReply.at.desc()).limit(min(limit, 500))
+                select(TodoReply).order_by(TodoReply.at.desc())
             ).all()
         )
+        rows = [row for row in rows if owner_allowed(row.person, allowed)]
+        rows = rows[:min(limit, 500)]
     return [
         {
             "id": row.id,
@@ -740,7 +791,8 @@ async def apply_reply_all(
 
     with Session(get_engine()) as session:
         row = session.get(TodoReply, reply_id)
-        if row is None:
+        allowed = allowed_owner_keys(user, session)
+        if row is None or not owner_allowed(row.person, allowed):
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404, detail="回复不存在")
@@ -759,6 +811,7 @@ async def apply_reply_all(
                     select(PdcaTask).where(PdcaTask.id.in_([int(t) for t in task_ids]))
                 ).all()
             )
+            tasks = [task for task in tasks if task_allowed(task, allowed)]
             now = datetime.utcnow()
             for task in tasks:
                 task.status = "done"
@@ -793,7 +846,8 @@ async def ignore_reply(
 
     with Session(get_engine()) as session:
         row = session.get(TodoReply, reply_id)
-        if row is None:
+        allowed = allowed_owner_keys(user, session)
+        if row is None or not owner_allowed(row.person, allowed):
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404, detail="回复不存在")

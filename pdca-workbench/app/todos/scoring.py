@@ -32,23 +32,11 @@ from app.todos.evidence import (
     report_text_for,
 )
 from app.todos.owners import apply_alias, split_owners
-
-DONE_WORDS = ("完成", "已完成", "搞定", "做完", "done", "finished", "closed")
-PROGRESS_WORDS = ("推进", "进展", "进行中", "in progress", "处理中", "做了")
-BLOCKED_WORDS = ("阻塞", "卡住", "卡在", "blocked", "受阻", "做不了")
+from app.todos.reply_signals import classify_reply
 
 
 def _reply_signal(reply_text: str) -> Optional[str]:
-    text = (reply_text or "").casefold()
-    if not text:
-        return None
-    if any(word in text for word in DONE_WORDS):
-        return "done"
-    if any(word in text for word in BLOCKED_WORDS):
-        return "blocked"
-    if any(word in text for word in PROGRESS_WORDS):
-        return "progress"
-    return "reply"
+    return classify_reply(reply_text)
 
 
 def score_task(
