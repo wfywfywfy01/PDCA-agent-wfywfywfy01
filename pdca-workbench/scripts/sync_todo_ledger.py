@@ -26,9 +26,11 @@ load_dotenv(ROOT / ".env")
 from sqlmodel import Session, select  # noqa: E402
 
 from app.database import check_db_connection, get_engine, init_db  # noqa: E402
+from app.config import get_settings  # noqa: E402
 from app.models.pdca_task import PdcaTask  # noqa: E402
 from app.models.todo_group_state import TodoGroupState  # noqa: E402
 from app.statuses import is_done as _is_done  # noqa: E402
+from app.todos.owners import split_owners  # noqa: E402
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json  # noqa: E402
 
 HEADERS = [
@@ -76,7 +78,12 @@ def get_or_create_doc() -> tuple[str, str]:
 
 
 def build_rows(today: str) -> list[list[str]]:
-    """按得分升序输出行（低分/风险在上）。"""
+    """按得分升序输出行（低分/风险在上）。催办排除名单不进台账。"""
+    skip_names = {
+        name.strip().casefold()
+        for name in get_settings().todo_remind_skip_owners
+        if name.strip()
+    }
     with Session(get_engine()) as session:
         rows = list(session.exec(select(PdcaTask)).all())
         project_names = {}
@@ -91,6 +98,12 @@ def build_rows(today: str) -> list[list[str]]:
     for row in rows:
         if _is_done(row.status) and (row.task_date or "") < cutoff:
             continue  # 7 天前已完成的进历史，不进台账
+        active_parts = [
+            part for part in split_owners(row.owner)
+            if part.casefold() not in skip_names
+        ]
+        if not active_parts:
+            continue  # 负责人全部在催办排除名单里 → 不进台账
         project = project_names.get(row.project_id, "") if row.project_id else ""
         done = _is_done(row.status)
         reply_text = (row.reply_text or "").casefold()

@@ -313,6 +313,33 @@ class TodoReminderTests(unittest.TestCase):
         self.assertIn("处理入口", notice["body"])
         self.assertIn("测试员（1 项）", notice["body"])
 
+    def test_group_notice_excludes_skip_owners(self):
+        from unittest.mock import MagicMock
+
+        from app.todos.service import build_group_notice
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            _seed(session, task_date=today, title="孔健的画像任务", owner="孔健")
+            _seed(session, task_date=today, title="Jim 的话术任务", owner="Jim")
+            _seed(session, task_date=today, title="共同签署协议", owner="谢涛&Sissi")
+            _seed(session, task_date=today, title="徐豪实地考察", owner="Sissi&徐豪")
+            _seed(session, task_date=today, title="正常人的任务", owner="李四")
+        fake_settings = MagicMock()
+        fake_settings.workbench_base_url = "https://example/app/"
+        fake_settings.todo_group_notice_min_date = ""
+        fake_settings.todo_remind_skip_owners = ["孔健", "Jim", "Sissi"]
+        with patch("app.todos.service.get_settings", return_value=fake_settings):
+            notice = build_group_notice(today)
+        # 排除名单整人不出现在公示；合并负责人按未排除的人公示
+        self.assertEqual(notice["owners"], 3)  # 谢涛 + 徐豪 + 李四
+        self.assertEqual(notice["tasks"], 3)
+        self.assertIn("谢涛（1 项）", notice["body"])
+        self.assertIn("徐豪（1 项）", notice["body"])
+        self.assertNotIn("孔健", notice["body"])
+        self.assertNotIn("Jim", notice["body"])
+        self.assertNotIn("Sissi", notice["body"])
+
 
 def _make_task(title: str, task_date: str) -> PdcaTask:
     return PdcaTask(
