@@ -21,6 +21,7 @@ class FakeSettings:
     todo_remind_skip_owners: list[str] = []
     todo_bot_app_id = ""
     todo_user_id_overrides: dict[str, int] = {}
+    todo_owner_aliases: dict[str, str] = {}
     todo_group_channel_id = ""
     todo_group_notice_enabled = False
     todo_group_notice_min_date = ""
@@ -168,6 +169,9 @@ class CombinedOwnerClaimTests(unittest.TestCase):
     """任一共有人认领即视为该条已认领。"""
 
     def setUp(self):
+        import app.todos.claims as claims_mod
+
+        claims_mod.USER_ID_CACHE.clear()
         self.temp_dir = tempfile.TemporaryDirectory()
         database_path = Path(self.temp_dir.name) / "owners-claim.sqlite"
         self.engine = create_engine(f"sqlite:///{database_path.as_posix()}")
@@ -232,6 +236,39 @@ class CombinedOwnerClaimTests(unittest.TestCase):
             solo_row = session.get(PdcaTask, solo_id)
         self.assertIsNotNone(combined_row.claimed_at)  # Sissi 认领 → 共同条目已认领
         self.assertIsNone(solo_row.claimed_at)  # 纯 Jim 条目不受影响
+
+    def test_claim_via_alias_marks_alias_tasks(self):
+        """丁晓茜认领 == Sissi 名下待办也认领（别名口径）。"""
+        from app.todos.claims import collect_group_claims
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            task = PdcaTask(
+                task_date=today, title="汽车落地签署", owner="Sissi",
+                status="pending", source="followup-table",
+            )
+            session.add(task)
+            session.commit()
+            task_id = task.id
+        self.fake_settings.todo_owner_aliases = {"sissi": "丁晓茜"}
+
+        def fake_json(args, timeout):
+            if "+history" in args:
+                return {
+                    "messages": [
+                        {"id": "m9", "sender_user_id": 14519, "body": "收到"},
+                    ]
+                }
+            if "+personnel-info" in args:
+                return {"rows": [{"name": "丁晓茜"}]}
+            return None
+
+        with patch("app.todos.claims.run_vertu_sync_json", side_effect=fake_json):
+            result = collect_group_claims(today)
+        self.assertEqual(result["claimed_people"][0]["owner"], "丁晓茜")
+        with Session(self.engine) as session:
+            row = session.get(PdcaTask, task_id)
+        self.assertIsNotNone(row.claimed_at)
 
 
 if __name__ == "__main__":

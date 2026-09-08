@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Optional
 
 from loguru import logger
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.config import get_settings
@@ -108,11 +109,20 @@ def collect_group_claims(today: str, dry_run: bool = False) -> dict:
             name = _user_name(int(sender_id))
             if not name:
                 continue
+            # 别名归属：丁晓茜认领 == Sissi 名下待办也认领（如 Sissi → 丁晓茜）
+            alias_names = {
+                alias
+                for alias, target in get_settings().todo_owner_aliases.items()
+                if target.casefold() == name.casefold()
+            }
             rows = list(
                 session.exec(
                     select(PdcaTask).where(
                         (
                             (PdcaTask.owner == name)
+                            | func.lower(PdcaTask.owner).in_(
+                                [alias.casefold() for alias in alias_names]
+                            )
                             | PdcaTask.owner.contains("&")
                             | PdcaTask.owner.contains("＆")
                         ),
@@ -122,7 +132,11 @@ def collect_group_claims(today: str, dry_run: bool = False) -> dict:
                 ).all()
             )
             # 「A&B」合并负责人：任一人认领即视为该条已认领（整人认领口径）
-            rows = [row for row in rows if name in split_owners(row.owner)]
+            match_names = {name.casefold(), *alias_names}
+            rows = [
+                row for row in rows
+                if any(part.casefold() in match_names for part in split_owners(row.owner))
+            ]
             open_rows = [row for row in rows if not _is_done(row.status)]
             if not open_rows:
                 continue

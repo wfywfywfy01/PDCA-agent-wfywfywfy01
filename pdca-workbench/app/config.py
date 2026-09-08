@@ -89,6 +89,23 @@ class Settings:
             except (ValueError, TypeError):
                 pass
         self.todo_user_id_overrides = overrides
+        # 负责人别名 → HR 姓名（JSON 字符串，键统一小写）：日报证据与群认领
+        # 按 HR 口径匹配（如 Sissi → 丁晓茜）。例：
+        # PDCA_TODO_OWNER_ALIASES={"Sissi":"丁晓茜"}
+        raw_aliases = os.environ.get("PDCA_TODO_OWNER_ALIASES", "").strip()
+        aliases: dict[str, str] = {}
+        if raw_aliases:
+            try:
+                parsed_aliases = json.loads(raw_aliases)
+                if isinstance(parsed_aliases, dict):
+                    for alias, target in parsed_aliases.items():
+                        alias_name = str(alias).strip().casefold()
+                        target_name = str(target).strip()
+                        if alias_name and target_name:
+                            aliases[alias_name] = target_name
+            except (ValueError, TypeError):
+                pass
+        self.todo_owner_aliases = aliases
         # 催办发送通道：配置机器人 App ID 后走 im +bot-send-user（机器人身份
         # 发私聊，不再用登录账号本人身份）；留空则回退 im +send-user。
         self.todo_bot_app_id = os.environ.get("PDCA_TODO_BOT_APP_ID", "").strip()
