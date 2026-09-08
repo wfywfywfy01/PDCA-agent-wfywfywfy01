@@ -26,7 +26,10 @@ Verification:
   tests with revision label `working-tree-20260908-final`.
 - PostgreSQL: login/password change, upsert/zero overwrite, owner isolation,
   cross-owner/admin denial, SPA assets, and outage-to-HTTP-503 checks passed.
-- Production cutover remains gated on the exact-SHA CI image and public smoke test.
+- Production cutover completed at exact SHA `9faa04842f5845d2556d7d9d6a7a6a7332eb2d65`:
+  PostgreSQL backup and migration succeeded; public health, login, SPA assets,
+  six key browser routes, core counts, and zero browser-console business errors
+  were verified after deployment.
 
 ## 2026-09-07: Knowledge access security remediation
 
