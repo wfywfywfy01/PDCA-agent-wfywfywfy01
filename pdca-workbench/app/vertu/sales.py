@@ -295,3 +295,47 @@ async def fetch_sellin_summary(month: str | None = None) -> dict:
         "trend": trend,
         "source": "vertu-cli sales +orders",
     }
+
+
+async def _dept_target_async(month_start: str, month_end: str) -> float:
+    """月度业绩目标合计（元）：按配置的经销商部门逐部求和（全月口径）。
+
+    vertu-cli sales +target-achievement 的 target_amount 按窗口天数折算，
+    因此这里传整月窗口（月初~月末）拿到全月目标。
+    """
+    configured = os.environ.get(
+        "PDCA_VERTU_SELLIN_DEPARTMENTS",
+        "经销商一部,经销商二部,经销商三部",
+    )
+    departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+    dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
+    total = 0.0
+    for department in departments:
+        payload = await run_vertu_json(
+            [
+                "sales",
+                "+target-achievement",
+                "--start-date",
+                month_start,
+                "--end-date",
+                month_end,
+                "--dept-l1",
+                dept_l1,
+                "--dept-l2",
+                department,
+            ],
+            timeout=45.0,
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("vertu-cli sales +target-achievement 未返回 JSON")
+        for row in payload.get("rows") or []:
+            try:
+                total += float(row.get("target_amount") or 0)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
+def fetch_dept_monthly_target(month_start: str, month_end: str) -> float:
+    """同步包装：查询本月业绩目标合计（元）。"""
+    return asyncio.run(_dept_target_async(month_start, month_end))

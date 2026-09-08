@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import calendar as _calendar
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from loguru import logger
 from sqlmodel import Session, select
 
 from app.database import get_engine
 from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
 from app.models.dealer_store import DealerStore, is_demo_store
 from app.models.logistics import LogisticsShipment
-from app.vertu.sales import fetch_sell_in
+from app.vertu.sales import fetch_dept_monthly_target, fetch_sell_in
 
 # 业务确认的每日必报五件套门店清单（store_id → 名称兜底；展示名以门店主数据为准）
 REQUIRED_FIVE_KIT_STORES: dict[str, str] = {
@@ -48,6 +50,13 @@ def _validated_sales(payload: dict, label: str) -> tuple[float, int]:
         raise RuntimeError(f"{label} Sell-in 返回缺少金额或销量") from exc
 
 
+def _time_progress(day: str) -> float:
+    """本月已过天数 / 本月总天数（0~1）。"""
+    value = date.fromisoformat(day)
+    total_days = _calendar.monthrange(value.year, value.month)[1]
+    return value.day / total_days
+
+
 def _as_of(payloads: tuple[dict, dict]) -> str:
     latest = max(
         (str(item.get("as_of") or "") for item in payloads if item.get("as_of")),
@@ -70,6 +79,15 @@ def build_report(day: str) -> str:
     sales = _fetch_live_sales(yesterday, day)
     yesterday_wan, yesterday_units = _validated_sales(sales[0], "昨日")
     month_wan, month_units = _validated_sales(sales[1], "本月")
+
+    # 月度目标：目标查询失败时不阻塞日报（省略目标板块，仅记日志）。
+    month_target_yuan: float | None = None
+    try:
+        year, month_number = int(day[:4]), int(day[5:7])
+        month_end = f"{day[:7]}-{_calendar.monthrange(year, month_number)[1]:02d}"
+        month_target_yuan = fetch_dept_monthly_target(f"{day[:7]}-01", month_end)
+    except Exception as exc:  # noqa: BLE001 — 目标板块是增强项，失败可降级
+        logger.warning("月度目标查询失败，日报省略目标板块: {}", exc)
 
     with Session(get_engine()) as session:
         reports = latest_walkin_reports(session.exec(
@@ -115,6 +133,20 @@ def build_report(day: str) -> str:
             continue
         transit += 1
 
+    target_lines: list[str] = []
+    if month_target_yuan and month_target_yuan > 0:
+        completion_pct = month_wan * 10000.0 / month_target_yuan * 100.0
+        progress_pct = _time_progress(day) * 100.0
+        gap_pp = completion_pct - progress_pct
+        target_lines = [
+            "【业绩目标（本月）】",
+            f"· 目标 {month_target_yuan / 10000:,.1f} 万 · 实际 {month_wan:,.2f} 万 · 完成率 {completion_pct:.1f}%",
+            (
+                f"· 时间进度 {progress_pct:.1f}% · "
+                f"{'领先' if gap_pp >= 0 else '落后'} {abs(gap_pp):.1f} 个百分点"
+            ),
+        ]
+
     five_kit_lines = [
         f"【门店五件套回执（{yesterday[5:]}）】",
         f"· 系统收到 {len(reported_ids)} 家门店填报",
@@ -132,6 +164,8 @@ def build_report(day: str) -> str:
             "【Sell-in｜Vertu 实时查询】",
             f"· 昨日（{yesterday[5:]}）：{yesterday_wan:,.2f} 万 · {yesterday_units} 台",
             f"· 本月累计：{month_wan:,.2f} 万 · {month_units} 台",
+            "",
+            *target_lines,
             "",
             *five_kit_lines,
             "",

@@ -38,10 +38,16 @@ class DailyReportTests(unittest.TestCase):
                 },
             ),
         )
+        self.target_patch = patch(
+            "app.daily_report.fetch_dept_monthly_target",
+            return_value=8_050_000.0,  # 三部全月目标 805 万（元）
+        )
         self.engine_patch.start()
         self.sales_patch.start()
+        self.target_patch.start()
 
     def tearDown(self):
+        self.target_patch.stop()
         self.sales_patch.stop()
         self.engine_patch.stop()
         self.engine.dispose()
@@ -57,6 +63,8 @@ class DailyReportTests(unittest.TestCase):
 
         self.assertIn("昨日（08-29）：22.88 万 · 16 台", text)
         self.assertIn("本月累计：700.80 万 · 636 台", text)
+        self.assertIn("目标 805.0 万 · 实际 700.80 万 · 完成率 87.1%", text)
+        self.assertIn("时间进度 96.8% · 落后 9.7 个百分点", text)
         self.assertIn("系统收到 1 家门店填报", text)
         self.assertIn("应报 8 家", text)
         self.assertIn("缺报 8 家", text)
@@ -92,6 +100,14 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("Luxem Store", text)
         self.assertNotIn("Billionaire Collections", text)
         self.assertIn("【物流】近 7 天在途 1 单 · 异常 0 单", text)
+
+    def test_target_query_failure_omits_section(self):
+        with patch("app.daily_report.fetch_dept_monthly_target", side_effect=RuntimeError("boom")):
+            text = build_report("2026-08-30")
+
+        self.assertNotIn("业绩目标", text)
+        self.assertIn("系统收到 0 家门店填报", text)
+        self.assertIn("【物流】", text)
 
     def test_non_live_sales_fails_closed(self):
         with patch(
