@@ -1,0 +1,69 @@
+# -*- coding: utf-8 -*-
+"""app.vps_im_push tests: persistent channel override."""
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from app import vps_im_push
+
+
+class PushChannelOverrideTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.settings_patch = patch(
+            "app.vps_im_push.get_settings",
+            return_value=type("SettingsStub", (), {"data_dir": Path(self.temp_dir.name)})(),
+        )
+        self.settings_patch.start()
+        self.post = patch("app.vps_im_push.httpx.post")
+        self.post_mock = self.post.start()
+        self.post_mock.return_value.status_code = 200
+        self.post_mock.return_value.json.return_value = {"ok": True}
+
+    def tearDown(self):
+        self.post.stop()
+        self.settings_patch.stop()
+        self.temp_dir.cleanup()
+
+    def _write_override(self, value: str) -> None:
+        runtime = Path(self.temp_dir.name) / 'runtime'
+        runtime.mkdir(parents=True, exist_ok=True)
+        (runtime / 'push_channel.txt').write_text(value, encoding='utf-8')
+
+    def test_override_file_wins_over_env(self):
+        self._write_override('channel-from-file')
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+            "PDCA_VPS_BOT_CHANNEL_ID": "channel-from-env",
+        }):
+            result = vps_im_push.push_vps_message("hi")
+        self.assertTrue(result)
+        sent_json = self.post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_json["channel_id"], "channel-from-file")
+
+    def test_env_fallback_when_no_override(self):
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+            "PDCA_VPS_BOT_CHANNEL_ID": "channel-from-env",
+        }):
+            result = vps_im_push.push_vps_message("hi")
+        self.assertTrue(result)
+        sent_json = self.post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_json["channel_id"], "channel-from-env")
+
+    def test_no_channel_returns_false(self):
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+        }, clear=True):
+            self.assertFalse(vps_im_push.push_vps_message("hi"))
+        self.post_mock.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
