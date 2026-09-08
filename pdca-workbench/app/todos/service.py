@@ -545,6 +545,20 @@ def build_group_notice(today: str) -> dict:
     min_date = get_settings().todo_group_notice_min_date
     if min_date:
         kept = [task for task in kept if task.task_date and task.task_date >= min_date]
+    # 催办排除名单同样不进群公示（不推送的人不在认领清单里出现；
+    # 「A&B」合并负责人只要还有任一未排除的人就按该人公示）
+    skip_names = {
+        name.strip().casefold()
+        for name in get_settings().todo_remind_skip_owners
+        if name.strip()
+    }
+    kept = [
+        task for task in kept
+        if any(
+            part.casefold() not in skip_names
+            for part in split_owners(task.owner)
+        )
+    ]
     with Session(get_engine()) as session:
         project_by_key, _ = ensure_projects(session)
         project_by_id = load_all_projects(session)
@@ -553,8 +567,12 @@ def build_group_notice(today: str) -> dict:
         owner = (task.owner or "").strip()
         if not owner:
             continue
-        entry = per_owner.setdefault(owner, {"count": 0, "projects": []})
-        entry["count"] += 1
+        active_parts = [
+            part for part in split_owners(owner)
+            if part.casefold() not in skip_names
+        ]
+        if not active_parts:
+            continue
         name: Optional[str] = None
         if task.project_id and task.project_id in project_by_id:
             name = project_by_id[task.project_id].name
@@ -562,8 +580,11 @@ def build_group_notice(today: str) -> dict:
             rule = match_project(task.title)
             if rule and rule["key"] in project_by_key:
                 name = rule["name"]
-        if name and name not in entry["projects"]:
-            entry["projects"].append(name)
+        for part in active_parts:
+            entry = per_owner.setdefault(part, {"count": 0, "projects": []})
+            entry["count"] += 1
+            if name and name not in entry["projects"]:
+                entry["projects"].append(name)
     settings = get_settings()
     lines = [
         f"【PDCA 待办认领】{today} ｜ 共 {len(per_owner)} 人 {len(kept)} 项待办",
