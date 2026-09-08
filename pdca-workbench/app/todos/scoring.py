@@ -31,7 +31,7 @@ from app.todos.evidence import (
     has_followup,
     report_text_for,
 )
-from app.todos.owners import split_owners
+from app.todos.owners import apply_alias, split_owners
 
 DONE_WORDS = ("完成", "已完成", "搞定", "做完", "done", "finished", "closed")
 PROGRESS_WORDS = ("推进", "进展", "进行中", "in progress", "处理中", "做了")
@@ -103,6 +103,7 @@ def run_scoring(today: Optional[str] = None, dry_run: bool = False) -> dict:
         (today_dt - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(3)
     ]
     report_corpus = fetch_department_reports(dates)
+    owner_aliases = get_settings().todo_owner_aliases
     rows = []
     with Session(get_engine()) as session:
         rows = list(
@@ -122,7 +123,8 @@ def run_scoring(today: Optional[str] = None, dry_run: bool = False) -> dict:
                 continue
             reports = []
             for part in split_owners(row.owner):
-                text = report_text_for(part, report_corpus)
+                # 别名归一到 HR 姓名（如 Sissi → 丁晓茜）再查日报
+                text = report_text_for(apply_alias(part, owner_aliases), report_corpus)
                 if text is not None:
                     reports.append(text)
             daily_hit: Optional[bool] = None

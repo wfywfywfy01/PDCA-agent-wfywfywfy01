@@ -38,7 +38,7 @@ from app.todos.evidence import (
     report_text_for,
     report_window_days,
 )
-from app.todos.owners import split_owners
+from app.todos.owners import apply_alias, split_owners
 from app.todos.projects import (
     auto_close_meeting_projects,
     ensure_projects,
@@ -775,6 +775,7 @@ def run_todo_reminders(
 
     report_start, report_end = report_window_days(today)
     report_corpus = fetch_department_reports(date_range(report_start, report_end))
+    owner_aliases = get_settings().todo_owner_aliases
 
     skip_owners = {
         name.strip()
@@ -845,7 +846,8 @@ def run_todo_reminders(
         checked = False
         vemory_items = [t for t in items if t.source == "vemory"]
         if vemory_items:
-            report = report_text_for(owner, report_corpus)
+            # 别名先归一到 HR 姓名（如 Sissi → 丁晓茜）再查日报
+            report = report_text_for(apply_alias(owner, owner_aliases), report_corpus)
             if report is None:
                 evidence_unavailable.append({"owner": owner, "tasks": len(vemory_items)})
                 keep += vemory_items

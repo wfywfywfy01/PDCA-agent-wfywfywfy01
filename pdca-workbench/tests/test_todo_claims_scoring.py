@@ -161,6 +161,18 @@ class RunScoringTests(unittest.TestCase):
             t1 = session.get(PdcaTask, id1)
         self.assertEqual(t1.score, 30)  # 10 未认领 + 20 日报证据
 
+    def test_alias_owner_daily_evidence(self):
+        # 别名口径：Sissi 的日报按 HR 姓名丁晓茜命中
+        corpus = {"丁晓茜": {"user_id": 14519, "texts": ["推进迈凯伦配件报价整理"]}}
+        self.mock_reports.return_value = corpus
+        with patch("app.todos.scoring.get_settings") as mock_settings:
+            mock_settings.return_value.todo_owner_aliases = {"sissi": "丁晓茜"}
+            id1 = self._seed(title="推进迈凯伦配件报价", owner="Sissi")
+            run_scoring(today="2026-09-07")
+        with Session(self.engine) as session:
+            t1 = session.get(PdcaTask, id1)
+        self.assertEqual(t1.score, 30)  # 10 未认领 + 20 日报证据（别名命中）
+
 
 if __name__ == "__main__":
     unittest.main()

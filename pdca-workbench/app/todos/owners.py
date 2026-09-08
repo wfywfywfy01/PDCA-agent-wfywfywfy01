@@ -16,3 +16,14 @@ def split_owners(owner: str) -> list[str]:
         return []
     parts = [part.strip() for part in _SPLIT_RE.split(owner) if part.strip()]
     return parts or [owner.strip()]
+
+
+def apply_alias(name: str, aliases: dict[str, str]) -> str:
+    """别名 → 规范姓名（如 Sissi → 丁晓茜）；无映射原样返回。
+
+    aliases 键应为小写别名，值为 HR 姓名。
+    """
+    key = (name or "").strip().casefold()
+    if key and key in aliases:
+        return str(aliases[key]).strip()
+    return (name or "").strip()
