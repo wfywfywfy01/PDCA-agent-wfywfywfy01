@@ -37,9 +37,9 @@ def notify(title: str, detail: str = "") -> None:
     message = f"[PDCA 告警] {title}\n{detail}"
 
     try:
-        from app.vps_im_push import push_vps_message
+        from app.vps_im_push import push_vps_alert
 
-        if push_vps_message(message):
+        if push_vps_alert(message):
             return
     except Exception as exc:  # noqa: BLE001
         logger.warning("VPS 告警推送失败: {}", exc)

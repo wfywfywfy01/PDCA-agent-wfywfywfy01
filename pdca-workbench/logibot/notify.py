@@ -42,6 +42,22 @@ def _summarize(ch: dict) -> dict:
     }
 
 
+def _alert_channel_file() -> str:
+    """告警频道持久化覆盖（与工作台 alert_channel.txt 同源），跨部署存活。"""
+    for root in ("/app/data", os.environ.get("LOGIBOT_DATA_DIR", "")):
+        if not root:
+            continue
+        path = os.path.join(root, "runtime", "alert_channel.txt")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                value = fh.read().strip()
+            if value:
+                return value
+        except OSError:
+            continue
+    return ""
+
+
 def push(body: str, channel_id: str | None = None, attachments: list | None = None) -> dict:
     """推到指定群。
     @param {str} body
@@ -52,7 +68,12 @@ def push(body: str, channel_id: str | None = None, attachments: list | None = No
     headers = _bot_headers()
     if not headers:
         raise RuntimeError("缺少 VPS_IM_APP_ID / VPS_IM_APP_SECRET")
-    cid = channel_id or os.environ.get("VPS_IM_CHANNEL_ID") or os.environ.get("PDCA_VPS_BOT_CHANNEL_ID")
+    cid = (
+        channel_id
+        or os.environ.get("VPS_IM_CHANNEL_ID")
+        or _alert_channel_file()
+        or os.environ.get("PDCA_VPS_BOT_CHANNEL_ID")
+    )
     if not cid:
         raise RuntimeError("缺少 VPS_IM_CHANNEL_ID，先 python bot.py channels")
     payload = {"channel_id": cid, "body": body}

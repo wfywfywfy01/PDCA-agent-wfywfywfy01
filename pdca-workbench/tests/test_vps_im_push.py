@@ -64,6 +64,35 @@ class PushChannelOverrideTests(unittest.TestCase):
             self.assertFalse(vps_im_push.push_vps_message("hi"))
         self.post_mock.assert_not_called()
 
+    def _write_alert_override(self, value: str) -> None:
+        runtime = Path(self.temp_dir.name) / 'runtime'
+        runtime.mkdir(parents=True, exist_ok=True)
+        (runtime / 'alert_channel.txt').write_text(value, encoding='utf-8')
+
+    def test_alert_override_file_wins(self):
+        self._write_alert_override('alert-from-file')
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+            "PDCA_VPS_BOT_CHANNEL_ID": "channel-from-env",
+        }):
+            result = vps_im_push.push_vps_alert("boom")
+        self.assertTrue(result)
+        sent_json = self.post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_json["channel_id"], "alert-from-file")
+
+    def test_alert_env_fallback_chain(self):
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+            "PDCA_ALERT_BOT_CHANNEL_ID": "alert-env-channel",
+            "PDCA_VPS_BOT_CHANNEL_ID": "default-channel",
+        }):
+            result = vps_im_push.push_vps_alert("boom")
+        self.assertTrue(result)
+        sent_json = self.post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_json["channel_id"], "alert-env-channel")
+
 
 if __name__ == "__main__":
     unittest.main()
