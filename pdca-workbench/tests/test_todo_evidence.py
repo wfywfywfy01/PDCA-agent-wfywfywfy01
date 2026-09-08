@@ -276,6 +276,14 @@ class SelfSkipTests(unittest.TestCase):
             "app.todos.service.get_engine", return_value=self.engine
         )
         self.patch_engine.start()
+        # 固定为「无机器人」配置：登录账号通道才有跳过本人的语义，
+        # 不随本机 .env 里的 PDCA_TODO_BOT_APP_ID 变化。
+        from test_todo_owners import FakeSettings
+
+        self.patch_settings = patch(
+            "app.todos.service.get_settings", return_value=FakeSettings()
+        )
+        self.patch_settings.start()
         self.patch_send = patch(
             "app.todos.service.run_vertu_sync", return_value=(0, "", "")
         )
@@ -295,6 +303,7 @@ class SelfSkipTests(unittest.TestCase):
         self.patch_outbox.stop()
         self.patch_evidence.stop()
         self.patch_send.stop()
+        self.patch_settings.stop()
         self.patch_engine.stop()
         self.engine.dispose()
         self.temp_dir.cleanup()
