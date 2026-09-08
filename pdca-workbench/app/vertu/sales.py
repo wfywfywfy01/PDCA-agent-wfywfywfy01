@@ -97,6 +97,8 @@ async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
         "经销商一部,经销商二部,经销商三部",
     )
     departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+    if not departments:
+        raise RuntimeError("目标数据不完整：未配置经销商部门")
     dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
     cache_key = (start, end, period, dept_l1, tuple(departments))
     ttl = _sell_in_cache_seconds()
@@ -328,11 +330,19 @@ async def _dept_target_async(month_start: str, month_end: str) -> float:
         )
         if not isinstance(payload, dict):
             raise RuntimeError("vertu-cli sales +target-achievement 未返回 JSON")
-        for row in payload.get("rows") or []:
+        rows = payload.get("rows")
+        if not isinstance(rows, list) or not rows:
+            raise RuntimeError(f"目标数据不完整：{department} 无有效记录")
+        for row in rows:
+            if not isinstance(row, dict) or row.get("target_amount") is None:
+                raise RuntimeError(f"目标数据不完整：{department} 缺少 target_amount")
             try:
-                total += float(row.get("target_amount") or 0)
+                value = float(row["target_amount"])
             except (TypeError, ValueError):
-                continue
+                raise RuntimeError(f"目标数据不完整：{department} target_amount 非数值") from None
+            if not math.isfinite(value) or value < 0:
+                raise RuntimeError(f"目标数据不完整：{department} target_amount 非法")
+            total += value
     return total
 
 

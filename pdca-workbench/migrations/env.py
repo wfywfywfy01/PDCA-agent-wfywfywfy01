@@ -22,6 +22,10 @@ from app.models.monthly_target import MonthlyTarget  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
 from app.models.tracking_status import TrackingAutoStatus  # noqa: F401
 from app.models.acquisition_login_ticket import AcquisitionLoginTicket  # noqa: F401
+from app.models.todo_project import TodoProject  # noqa: F401
+from app.models.todo_group_state import TodoGroupState  # noqa: F401
+from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
+from app.models.scheduled_job_run import ScheduledJobRun  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

@@ -87,15 +87,16 @@ def collect_group_claims(today: str, dry_run: bool = False) -> dict:
     if isinstance(payload, dict):
         messages = payload.get("messages") or []
     new_messages = []
-    last_id = cursor
+    newest_id = ""
     for msg in messages:
         if not isinstance(msg, dict):
             continue
         msg_id = str(msg.get("id") or "")
         if cursor and msg_id == cursor:
             break  # 历史按时间倒序，遇到游标即停
+        if not newest_id and msg_id:
+            newest_id = msg_id
         new_messages.append(msg)
-        last_id = last_id or msg_id
     new_messages.reverse()  # 回到时间正序
 
     claimed_people: list[dict] = []
@@ -147,8 +148,8 @@ def collect_group_claims(today: str, dry_run: bool = False) -> dict:
             claimed_people.append(
                 {"owner": name, "tasks": len(open_rows), "reply": body[:80]}
             )
-        if last_id:
-            _set_state(session, "last_claim_message_id", last_id)
+        if newest_id:
+            _set_state(session, "last_claim_message_id", newest_id)
         if dry_run:
             session.rollback()
         else:

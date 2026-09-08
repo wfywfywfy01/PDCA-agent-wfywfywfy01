@@ -2,6 +2,8 @@
 """app.daily_report 单测。"""
 from __future__ import annotations
 
+import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -65,7 +67,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("本月累计：700.80 万 · 636 台", text)
         self.assertIn("目标 805.0 万 · 实际 700.80 万 · 完成率 87.1%", text)
         self.assertIn("时间进度 96.8% · 落后 9.7 个百分点", text)
-        self.assertIn("系统收到 1 家门店填报", text)
+        self.assertIn("系统收到 0 家必报门店填报", text)
         self.assertIn("应报 8 家", text)
         self.assertIn("缺报 8 家", text)
         self.assertIn("Luxem Store", text)
@@ -94,7 +96,7 @@ class DailyReportTests(unittest.TestCase):
 
         text = build_report("2026-08-30")
 
-        self.assertIn("系统收到 1 家门店填报", text)
+        self.assertIn("系统收到 1 家必报门店填报", text)
         self.assertIn("应报 8 家", text)
         self.assertIn("缺报 7 家", text)
         self.assertIn("Luxem Store", text)
@@ -106,7 +108,7 @@ class DailyReportTests(unittest.TestCase):
             text = build_report("2026-08-30")
 
         self.assertNotIn("业绩目标", text)
-        self.assertIn("系统收到 0 家门店填报", text)
+        self.assertIn("系统收到 0 家必报门店填报", text)
         self.assertIn("【物流】", text)
 
     def test_non_live_sales_fails_closed(self):
@@ -116,6 +118,50 @@ class DailyReportTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "不是实时状态"):
                 build_report("2026-08-30")
+
+
+class TargetValidationTests(unittest.TestCase):
+    def test_incomplete_department_target_fails_closed(self):
+        from app.vertu.sales import _dept_target_async
+
+        async def fake_target(args, timeout):
+            department = args[args.index("--dept-l2") + 1]
+            if department == "经销商一部":
+                return {"rows": [{"target_amount": 100_000}]}
+            return {"rows": [{"target_amount": None}]}
+
+        with patch.dict(os.environ, {
+            "PDCA_VERTU_SELLIN_DEPARTMENTS": "经销商一部,经销商二部",
+            "PDCA_VERTU_DEPT_L1": "海外渠道",
+        }), patch("app.vertu.sales.run_vertu_json", side_effect=fake_target):
+            with self.assertRaisesRegex(RuntimeError, "目标数据不完整"):
+                asyncio.run(_dept_target_async("2026-08-01", "2026-08-31"))
+
+
+class DailyReportJobTests(unittest.TestCase):
+    def test_generation_failure_only_uses_alert_channel(self):
+        from app.scheduler.jobs import daily_report_job
+
+        with patch("app.daily_report.build_report", side_effect=RuntimeError("upstream failed")), \
+                patch("app.vps_im_push.push_vps_message") as business_push, \
+                patch("app.scheduler.run_ledger.claim_run", return_value=True), \
+                patch("app.scheduler.run_ledger.finish_run") as finish_run, \
+                patch("app.scheduler.jobs.notify") as notify:
+            daily_report_job()
+
+        business_push.assert_not_called()
+        finish_run.assert_called_once()
+        notify.assert_called_once()
+
+    def test_same_day_duplicate_does_not_build_or_send(self):
+        from app.scheduler.jobs import daily_report_job
+
+        with patch("app.scheduler.run_ledger.claim_run", return_value=False), \
+                patch("app.daily_report.build_report") as build_report, \
+                patch("app.vps_im_push.push_vps_message") as business_push:
+            daily_report_job()
+        build_report.assert_not_called()
+        business_push.assert_not_called()
 
 
 if __name__ == "__main__":

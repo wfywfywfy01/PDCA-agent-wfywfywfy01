@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """003：客户画像表正式化 + 激活率列补丁守卫化
 
-Revision ID: 003
-Revises: 002
+Revision ID: 003_customer
+Revises: 003
 Create Date: 2026-08-21
 
 收敛原则（P5 整改）：新表一律进 alembic 迁移链；已由运行时 create_all/
@@ -13,8 +13,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "003"
-down_revision: Union[str, None] = "002"
+revision: str = "003_customer"
+down_revision: Union[str, None] = "003"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

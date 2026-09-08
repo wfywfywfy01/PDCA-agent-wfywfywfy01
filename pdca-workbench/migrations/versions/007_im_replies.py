@@ -36,27 +36,30 @@ def upgrade() -> None:
     _add_column("pdca_tasks", "replied_at", sa.DateTime(), nullable=True)
     _add_column("todo_projects", "reply_text", sa.String(1024), server_default="")
     _add_column("todo_projects", "replied_at", sa.DateTime(), nullable=True)
-    op.create_table(
-        "im_remind_sends",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("person", sa.String(128), nullable=False, index=True),
-        sa.Column("sent_at", sa.DateTime(), nullable=False),
-        sa.Column("message_id", sa.String(128), server_default=""),
-        sa.Column("item_task_ids", sa.Text(), server_default="[]"),
-        sa.Column("project_id", sa.Integer(), nullable=True),
-        sa.Column("round", sa.String(32), server_default=""),
-    )
-    op.create_table(
-        "todo_replies",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("person", sa.String(128), nullable=False, index=True),
-        sa.Column("text", sa.String(1024), nullable=False),
-        sa.Column("at", sa.DateTime(), nullable=False),
-        sa.Column("signal", sa.String(32), server_default=""),
-        sa.Column("status", sa.String(32), server_default="unreviewed"),
-        sa.Column("target_task_id", sa.Integer(), nullable=True),
-        sa.Column("target_project_id", sa.Integer(), nullable=True),
-    )
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table("im_remind_sends"):
+        op.create_table(
+            "im_remind_sends",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("person", sa.String(128), nullable=False, index=True),
+            sa.Column("sent_at", sa.DateTime(), nullable=False),
+            sa.Column("message_id", sa.String(128), server_default=""),
+            sa.Column("item_task_ids", sa.Text(), server_default="[]"),
+            sa.Column("project_id", sa.Integer(), nullable=True),
+            sa.Column("round", sa.String(32), server_default=""),
+        )
+    if not inspector.has_table("todo_replies"):
+        op.create_table(
+            "todo_replies",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("person", sa.String(128), nullable=False, index=True),
+            sa.Column("text", sa.String(1024), nullable=False),
+            sa.Column("at", sa.DateTime(), nullable=False),
+            sa.Column("signal", sa.String(32), server_default=""),
+            sa.Column("status", sa.String(32), server_default="unreviewed"),
+            sa.Column("target_task_id", sa.Integer(), nullable=True),
+            sa.Column("target_project_id", sa.Integer(), nullable=True),
+        )
 
 
 def downgrade() -> None:

@@ -530,7 +530,7 @@ def build_digest_message(
     return "\n".join(lines)
 
 
-def build_group_notice(today: str) -> dict:
+def build_group_notice(today: str, allowed_owners: set[str] | None = None) -> dict:
     """群知会消息：把今天的未完成待办按人汇总成认领清单。
 
     与私聊催办同口径（到期 <= 今天、未完成、owner 非空、噪声过滤），
@@ -538,6 +538,9 @@ def build_group_notice(today: str) -> dict:
     返回 {"body", "owners", "tasks", "lines"}。
     """
     tasks = list_pending_tasks(today)
+    if allowed_owners is not None:
+        from app.todos.scope import task_allowed
+        tasks = [task for task in tasks if task_allowed(task, allowed_owners)]
     kept = [
         task for task in tasks
         if not (task.source == "vemory" and is_noise(task.title))
@@ -611,11 +614,15 @@ def build_group_notice(today: str) -> dict:
     }
 
 
-def send_group_notice(today: str, dry_run: bool = False) -> dict:
+def send_group_notice(
+    today: str,
+    dry_run: bool = False,
+    allowed_owners: set[str] | None = None,
+) -> dict:
     """把群知会发到工作大群（专家智能体/账号通道），不落库不改状态。"""
     settings = get_settings()
     channel_id = settings.todo_group_channel_id
-    notice = build_group_notice(today)
+    notice = build_group_notice(today, allowed_owners)
     if not channel_id:
         return {**notice, "sent": False, "reason": "未配置 PDCA_TODO_GROUP_CHANNEL_ID"}
     if dry_run:
@@ -742,6 +749,7 @@ def run_todo_reminders(
     round_label: str = "manual",
     force: bool = False,
     dry_run: bool = False,
+    allowed_owners: set[str] | None = None,
 ) -> dict:
     """执行一轮待办催办。
 
@@ -754,6 +762,9 @@ def run_todo_reminders(
     today = today or today_text()
     now = datetime.now()
     tasks = list_pending_tasks(today)
+    if allowed_owners is not None:
+        from app.todos.scope import task_allowed
+        tasks = [task for task in tasks if task_allowed(task, allowed_owners)]
 
     # 噪声过滤：会议杂事（纯沟通类且无实质内容）不进催办，保留在库
     noise_skipped: list[dict] = []

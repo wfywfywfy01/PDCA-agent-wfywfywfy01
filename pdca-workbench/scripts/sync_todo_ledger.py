@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -31,6 +33,7 @@ from app.models.pdca_task import PdcaTask  # noqa: E402
 from app.models.todo_group_state import TodoGroupState  # noqa: E402
 from app.statuses import is_done as _is_done  # noqa: E402
 from app.todos.owners import split_owners  # noqa: E402
+from app.todos.reply_signals import classify_reply  # noqa: E402
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json  # noqa: E402
 
 HEADERS = [
@@ -38,23 +41,35 @@ HEADERS = [
     "领取时间", "结束时间", "进度(回复)", "得分",
 ]
 
-DONE_WORDS = ("完成", "搞定", "做完", "done", "finished")
-BLOCKED_WORDS = ("阻塞", "卡住", "卡在", "blocked")
+MAX_DATA_ROWS = 500
 
 
-def get_or_create_doc() -> tuple[str, str]:
-    """返回 (doc_id, sheet_id)；未配置则创建并落 state。"""
-    import os
-
+def get_existing_doc() -> tuple[str, str]:
+    """只读返回已有台账位置；不会创建文档或修改数据库。"""
     doc_id = os.environ.get("PDCA_TODO_LEDGER_DOC_ID", "").strip()
+    sheet_id = "sheet-1"
     if not doc_id:
         with Session(get_engine()) as session:
-            row = session.exec(
-                select(TodoGroupState).where(TodoGroupState.key == "ledger_doc_id")
-            ).first()
-            doc_id = row.value if row else ""
+            states = {
+                row.key: row.value
+                for row in session.exec(
+                    select(TodoGroupState).where(
+                        TodoGroupState.key.in_(["ledger_doc_id", "ledger_sheet_id"])
+                    )
+                ).all()
+            }
+        doc_id = states.get("ledger_doc_id", "")
+        sheet_id = states.get("ledger_sheet_id", sheet_id) or sheet_id
+    return doc_id, sheet_id
+
+
+def get_or_create_doc(create: bool = False) -> tuple[str, str]:
+    """返回台账位置；仅显式 --create 时允许创建外部文档。"""
+    doc_id, sheet_id = get_existing_doc()
     if doc_id:
-        return doc_id, "sheet-1"
+        return doc_id, sheet_id
+    if not create:
+        raise RuntimeError("未配置 PDCA_TODO_LEDGER_DOC_ID；如需首次创建请显式使用 --create")
     payload = run_vertu_sync_json(
         ["docs", "+create", "--type", "sheet", "--title", "PDCA 待办台账"],
         timeout=30.0,
@@ -75,6 +90,40 @@ def get_or_create_doc() -> tuple[str, str]:
                 session.add(row)
         session.commit()
     return doc_id, "sheet-1"
+
+
+def _state_int(key: str) -> int:
+    with Session(get_engine()) as session:
+        row = session.exec(select(TodoGroupState).where(TodoGroupState.key == key)).first()
+    try:
+        return max(int(row.value), 0) if row else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _set_state_value(key: str, value: str) -> None:
+    with Session(get_engine()) as session:
+        row = session.exec(select(TodoGroupState).where(TodoGroupState.key == key)).first()
+        if row is None:
+            session.add(TodoGroupState(key=key, value=value))
+        else:
+            row.value = value
+            row.updated_at = datetime.utcnow()
+            session.add(row)
+        session.commit()
+
+
+def build_updates(rows: list[list[str]], previous_row_count: int = 0) -> list[dict[str, str]]:
+    """生成完整矩形覆盖；历史多余行以空值清除，超限则整体拒绝。"""
+    if len(rows) > MAX_DATA_ROWS:
+        raise RuntimeError(f"台账数据 {len(rows)} 行超过安全上限 {MAX_DATA_ROWS}，未写入")
+    clear_count = max(previous_row_count - len(rows), 0)
+    matrix = [HEADERS] + rows + [[""] * len(HEADERS) for _ in range(clear_count)]
+    return [
+        {"cell": f"{chr(65 + col)}{row_index + 1}", "value": value}
+        for row_index, row in enumerate(matrix)
+        for col, value in enumerate(row)
+    ]
 
 
 def build_rows(today: str) -> list[list[str]]:
@@ -106,13 +155,13 @@ def build_rows(today: str) -> list[list[str]]:
             continue  # 负责人全部在催办排除名单里 → 不进台账
         project = project_names.get(row.project_id, "") if row.project_id else ""
         done = _is_done(row.status)
-        reply_text = (row.reply_text or "").casefold()
+        reply_signal = classify_reply(row.reply_text) if row.replied_at else None
         progress = ""
         if done:
             progress = "已完成"
-        elif any(word in reply_text for word in DONE_WORDS):
+        elif reply_signal == "done":
             progress = "完成(待核)"
-        elif any(word in reply_text for word in BLOCKED_WORDS):
+        elif reply_signal == "blocked":
             progress = "阻塞"
         elif row.replied_at:
             progress = "有回复"
@@ -133,35 +182,39 @@ def build_rows(today: str) -> list[list[str]]:
     return out
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--create", action="store_true", help="首次运行时显式创建外部台账")
+    args = parser.parse_args(argv)
 
     if not check_db_connection():
         print("无法连接 PostgreSQL")
         return 1
 
-    # schema 补丁（claimed_at/score 等新列）幂等
-    init_db()
-
-    doc_id, sheet_id = get_or_create_doc()
+    if not args.dry_run:
+        init_db()
     today = datetime.now().strftime("%Y-%m-%d")
     rows = build_rows(today)
-    updates = [
-        {"cell": f"{chr(65 + col)}{row_index + 1}", "value": value}
-        for row_index, row in enumerate([HEADERS] + rows)
-        for col, value in enumerate(row)
-    ]
-    if len(updates) > 5000:
-        updates = updates[:5000]
     if args.dry_run:
+        doc_id, sheet_id = get_existing_doc()
+        updates = build_updates(rows)
+        doc_id = doc_id or "(未配置)"
         print(f"dry-run: doc={doc_id} sheet={sheet_id} rows={len(rows)} updates={len(updates)}")
         for row in rows[:8]:
             print("  ", " | ".join(row))
         return 0
-    tmp = ROOT / "_ledger_updates.json"
-    tmp.write_text(json.dumps(updates, ensure_ascii=False), encoding="utf-8")
+
+    # 真实同步才允许创建外部文档及写状态。
+    doc_id, sheet_id = get_or_create_doc(create=args.create)
+    previous_row_count = _state_int("ledger_row_count")
+    updates = build_updates(rows, previous_row_count)
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", prefix="pdca-ledger-", encoding="utf-8",
+        delete=False,
+    ) as handle:
+        json.dump(updates, handle, ensure_ascii=False)
+        tmp = Path(handle.name)
     try:
         code, stdout, stderr = run_vertu_sync(
             [
@@ -177,6 +230,7 @@ def main() -> int:
     if code != 0:
         print("台账写入失败:", (stderr or stdout)[:200])
         return 1
+    _set_state_value("ledger_row_count", str(len(rows)))
     print(f"台账已同步：doc={doc_id} 行={len(rows)}")
     return 0
 

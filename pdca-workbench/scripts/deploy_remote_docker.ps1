@@ -389,11 +389,13 @@ function Start-PdcaContainer {
     # P1/P5：可选业务开关从 .env 透传（未配置则保持默认行为）
     foreach ($envName in @(
         "PDCA_HOME_REDIRECT", "PDCA_ALERT_WEBHOOK_URL",
+        "PDCA_ALERT_BOT_CHANNEL_ID",
         "PDCA_REPORT_WEBHOOK_URL",
         "PDCA_VPS_BOT_APP_ID", "PDCA_VPS_BOT_APP_SECRET", "PDCA_VPS_BOT_CHANNEL_ID",
         "LOGIBOT_ENABLED", "LOGIBOT_ROOT", "LOGIBOT_DATA_DIR",
         "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_APP_TOKEN", "FEISHU_TABLE_ID",
         "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
+        "PDCA_TODO_SCORING_ENABLED", "PDCA_TODO_LEDGER_SYNC_ENABLED",
         "PDCA_TODO_REMIND_GRACE_HOURS", "PDCA_TODO_REMIND_SKIP_OWNERS",
         "PDCA_TODO_BOT_APP_ID",
         "PDCA_TODO_USER_ID_OVERRIDES",
@@ -447,6 +449,29 @@ function Initialize-RemoteRuntimeDirectories {
         $HelperImage, "-lc",
         'set -eu; mkdir -p /pdca-data/runtime; for name in inputs outputs outbox; do dest="/pdca-data/runtime/$name"; src="/mvp-release/$name"; mkdir -p "$dest"; if [ -d "$src" ] && [ -z "$(find "$dest" -mindepth 1 -maxdepth 1 -print -quit)" ]; then cp -a "$src/." "$dest/"; fi; chmod 700 "$dest"; done; chmod 700 /pdca-data/runtime'
     ) | Out-Null
+}
+
+function Invoke-DatabaseMigration {
+    param(
+        [string]$Image,
+        [hashtable]$Secrets,
+        [hashtable]$Agent
+    )
+    $secretEnvFile = New-SecretEnvFile -Secrets $Secrets -Agent $Agent
+    try {
+        Invoke-Docker -DockerArgs @(
+            "run", "--rm",
+            "--network", $KnowledgeNetwork,
+            "--env-file", $secretEnvFile,
+            "-e", "PDCA_ENV=production",
+            "-e", "PDCA_REQUIRE_VERTU=0",
+            "--entrypoint", "python",
+            $Image,
+            "/app/scripts/migrate.py"
+        ) -TimeoutSeconds 300 | Out-Null
+    } finally {
+        Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 trap {
@@ -614,6 +639,8 @@ Invoke-Docker -DockerArgs @(
     "-v", "/opt/PDCA-agent/pdca-workbench/backups:/backups",
     $HelperImage, "-lc", "chmod 600 '/backups/$backupName'"
 ) | Out-Null
+Write-Output "Running explicit database migration with the tested candidate image"
+Invoke-DatabaseMigration -Image $image -Secrets $secrets -Agent $agent
 
 $oldContainerResult = Invoke-DockerProcess -DockerArgs @(
     "ps", "-a", "--filter", "name=^/pdca-workbench$", "--format", "{{.Names}}"

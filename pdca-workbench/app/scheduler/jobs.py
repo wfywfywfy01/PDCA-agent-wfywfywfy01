@@ -379,23 +379,27 @@ def daily_report_job() -> None:
     from datetime import date
 
     from app.daily_report import build_report
+    from app.scheduler.run_ledger import claim_run, finish_run
     from app.vps_im_push import push_vps_message
 
     day = date.today().isoformat()
+    if not claim_run("daily_report", day):
+        logger.info("日报本日已执行，跳过重复外发 {}", day)
+        return
     try:
         message = build_report(day)
     except Exception as exc:
         logger.exception("日报生成失败: {}", exc)
-        push_vps_message(
-            f"⚠️ PDCA 经营日报 {day} 生成失败\n"
-            f"{type(exc).__name__}: {str(exc)[:150]}"
-        )
+        finish_run("daily_report", day, "failed", f"{type(exc).__name__}: {exc}")
         notify("每日经营日报生成失败", str(exc)[:200])
         return
     if push_vps_message(message):
+        finish_run("daily_report", day, "sent")
         logger.info("日报已推送 {}", day)
     else:
+        finish_run("daily_report", day, "failed", "VPS 机器人未配置或推送异常")
         logger.warning("日报推送失败（VPS 机器人未配置或推送异常）{}", day)
+        notify("每日经营日报推送失败", day)
 
 
 def start_scheduler() -> BackgroundScheduler | None:
@@ -550,25 +554,27 @@ def start_scheduler() -> BackgroundScheduler | None:
             coalesce=True,
         )
 
-    # 18:00 三源打分 + 18:10 台账同步
-    _scheduler.add_job(
-        todo_scoring_job,
-        trigger="cron",
-        hour=18,
-        minute=0,
-        id="todo_scoring",
-        max_instances=1,
-        coalesce=True,
-    )
-    _scheduler.add_job(
-        todo_ledger_sync_job,
-        trigger="cron",
-        hour=18,
-        minute=10,
-        id="todo_ledger_sync",
-        max_instances=1,
-        coalesce=True,
-    )
+    # 派生写任务必须分别显式启用，避免部署即写分数/外部台账。
+    if getattr(settings, "todo_scoring_enabled", False):
+        _scheduler.add_job(
+            todo_scoring_job,
+            trigger="cron",
+            hour=18,
+            minute=0,
+            id="todo_scoring",
+            max_instances=1,
+            coalesce=True,
+        )
+    if getattr(settings, "todo_ledger_sync_enabled", False):
+        _scheduler.add_job(
+            todo_ledger_sync_job,
+            trigger="cron",
+            hour=18,
+            minute=10,
+            id="todo_ledger_sync",
+            max_instances=1,
+            coalesce=True,
+        )
 
     # 工作时段每 30 分钟 — IM 回复采集（完成/推进/阻塞 → 状态变更）
     _scheduler.add_job(

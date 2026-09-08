@@ -106,11 +106,12 @@ def build_report(day: str) -> str:
         if row.dealer_id
         and not is_demo_store(row.dealer_id, row.dealer_name)
     }
+    required_reported_ids = reported_ids.intersection(REQUIRED_FIVE_KIT_STORES)
 
     name_by_id = {store.store_id: store.name for store in required_stores}
     for sid, fallback_name in REQUIRED_FIVE_KIT_STORES.items():
         name_by_id.setdefault(sid, fallback_name)
-    missing_ids = [sid for sid in REQUIRED_FIVE_KIT_STORES if sid not in reported_ids]
+    missing_ids = [sid for sid in REQUIRED_FIVE_KIT_STORES if sid not in required_reported_ids]
     missing_names = [name_by_id[sid] for sid in missing_ids]
 
     # 物流：近 7 天在途/异常（复用物流服务的统一判定）
@@ -149,7 +150,7 @@ def build_report(day: str) -> str:
 
     five_kit_lines = [
         f"【门店五件套回执（{yesterday[5:]}）】",
-        f"· 系统收到 {len(reported_ids)} 家门店填报",
+        f"· 系统收到 {len(required_reported_ids)} 家必报门店填报",
         f"· 应报 {len(REQUIRED_FIVE_KIT_STORES)} 家",
     ]
     if missing_ids:

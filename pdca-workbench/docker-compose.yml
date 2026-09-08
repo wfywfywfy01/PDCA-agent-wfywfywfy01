@@ -55,6 +55,9 @@ services:
       PDCA_VPS_BOT_APP_ID: ${PDCA_VPS_BOT_APP_ID:-}
       PDCA_VPS_BOT_APP_SECRET: ${PDCA_VPS_BOT_APP_SECRET:-}
       PDCA_VPS_BOT_CHANNEL_ID: ${PDCA_VPS_BOT_CHANNEL_ID:-}
+      PDCA_ALERT_BOT_CHANNEL_ID: ${PDCA_ALERT_BOT_CHANNEL_ID:-}
+      PDCA_TODO_SCORING_ENABLED: ${PDCA_TODO_SCORING_ENABLED:-0}
+      PDCA_TODO_LEDGER_SYNC_ENABLED: ${PDCA_TODO_LEDGER_SYNC_ENABLED:-0}
     volumes:
       - ./data:/app/data
       # Persist legacy `vertu login` sessions when Bot Key authentication is not used.

@@ -93,6 +93,16 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q app scripts tests run.py logibot
 
+      - name: Validate migration graph and fresh upgrade
+        env:
+          PDCA_ENV: development
+          PDCA_DATABASE_URL: sqlite:////tmp/pdca-migration-ci.sqlite
+          PDCA_SECRET_KEY: ci-migration-secret-key-at-least-32-characters
+        run: |
+          alembic -c migrations/alembic.ini heads
+          python scripts/migrate.py
+          alembic -c migrations/alembic.ini current
+
       - name: Validate deployment scripts
         run: bash -n scripts/deploy_internal.sh scripts/docker_up.sh scripts/deploy_release.sh scripts/docker_smoke_test.sh scripts/docker_postgres_smoke_test.sh
 

@@ -131,7 +131,7 @@ def check_db_connection() -> bool:
         return False
 
 
-def init_db() -> None:
+def init_db(apply_patches: bool = True) -> None:
     """创建所有表（首次启动或迁移前）。"""
     from app.auth.models import User  # noqa: F401
     from app.auth.security_state import LoginFailRecord, TokenRevocation  # noqa: F401
@@ -152,9 +152,11 @@ def init_db() -> None:
     from app.models.todo_project import TodoProject  # noqa: F401
     from app.models.todo_group_state import TodoGroupState  # noqa: F401
     from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
+    from app.models.scheduled_job_run import ScheduledJobRun  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
-    _migrate_schema()
+    if apply_patches:
+        _migrate_schema()
     logger.info("数据库表已就绪")
 
 

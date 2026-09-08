@@ -46,8 +46,12 @@ def push_vps_alert(message: str) -> bool:
     channel_id = (
         _file_channel(_ALERT_CHANNEL_OVERRIDE)
         or os.environ.get("PDCA_ALERT_BOT_CHANNEL_ID", "").strip()
-        or os.environ.get("PDCA_VPS_BOT_CHANNEL_ID", "").strip()
     )
+    business_channel = _file_channel(_PUSH_CHANNEL_OVERRIDE) or os.environ.get(
+        "PDCA_VPS_BOT_CHANNEL_ID", ""
+    ).strip()
+    if channel_id and channel_id == business_channel:
+        return False
     return _push(message, channel_id)
 
 

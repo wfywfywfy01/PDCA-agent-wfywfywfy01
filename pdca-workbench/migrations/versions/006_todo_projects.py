@@ -24,20 +24,21 @@ def _column_names(table: str) -> set[str]:
 
 
 def upgrade() -> None:
-    op.create_table(
-        "todo_projects",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("key", sa.String(64), nullable=False, unique=True),
-        sa.Column("name", sa.String(256), nullable=False),
-        sa.Column("status", sa.String(32), server_default="新建"),
-        sa.Column("executors", sa.String(512), server_default="[]"),
-        sa.Column("coordinator", sa.String(128), server_default=""),
-        sa.Column("last_reminded_at", sa.DateTime(), nullable=True),
-        sa.Column("last_reminded_round", sa.String(32), server_default=""),
-        sa.Column("remind_count", sa.Integer(), server_default="0"),
-        sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(), nullable=True),
-    )
+    if not sa.inspect(op.get_bind()).has_table("todo_projects"):
+        op.create_table(
+            "todo_projects",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("key", sa.String(64), nullable=False, unique=True),
+            sa.Column("name", sa.String(256), nullable=False),
+            sa.Column("status", sa.String(32), server_default="新建"),
+            sa.Column("executors", sa.String(512), server_default="[]"),
+            sa.Column("coordinator", sa.String(128), server_default=""),
+            sa.Column("last_reminded_at", sa.DateTime(), nullable=True),
+            sa.Column("last_reminded_round", sa.String(32), server_default=""),
+            sa.Column("remind_count", sa.Integer(), server_default="0"),
+            sa.Column("created_at", sa.DateTime(), nullable=True),
+            sa.Column("updated_at", sa.DateTime(), nullable=True),
+        )
     if "pdca_tasks" in sa.inspect(op.get_bind()).get_table_names():
         if "project_id" not in _column_names("pdca_tasks"):
             op.add_column("pdca_tasks", sa.Column("project_id", sa.Integer(), nullable=True))

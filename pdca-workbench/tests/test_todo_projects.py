@@ -13,6 +13,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.pdca_task import PdcaTask
 from app.models.todo_project import TodoProject
+from app.models.dealer_store import DealerStore
+from app.auth.models import User
 from app.models.im_replies import ImRemindSend  # noqa: F401 — 保证 create_all 建 im_remind_sends 表
 from app.todos.projects import (
     PROJECT_RULES,
@@ -283,6 +285,22 @@ class ProjectReminderTests(unittest.TestCase):
 class TodoTasksEndpointTests(unittest.TestCase):
     """GET /api/todos/tasks 筛选逻辑（直接调 async 函数，绕过 HTTP）。"""
 
+    def test_list_projects_with_seeded_rows(self):
+        import asyncio
+
+        from app.todos.router import list_projects
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'projects.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with patch("app.database.get_engine", return_value=engine):
+                    result = asyncio.run(list_projects(user=None))
+                self.assertEqual(len(result), len(PROJECT_RULES))
+                self.assertTrue(all("open_tasks" in row for row in result))
+            finally:
+                engine.dispose()
+
     def test_list_tasks_filters(self):
         import asyncio
 
@@ -338,7 +356,7 @@ class TodoTasksEndpointTests(unittest.TestCase):
         )
 
         req = NS(client=NS(host="t"))
-        usr = NS(username="test")
+        usr = NS(username="test", role="admin")
         with tempfile.TemporaryDirectory() as tmp:
             engine = create_engine(f"sqlite:///{Path(tmp) / 'm.sqlite'}")
             SQLModel.metadata.create_all(engine)
@@ -393,6 +411,60 @@ class TodoTasksEndpointTests(unittest.TestCase):
                     overview = asyncio.run(todo_overview(user=usr))
                     self.assertIn("overdue_tasks", overview)
                     self.assertEqual(overview["open_tasks"], 0)
+            finally:
+                engine.dispose()
+
+    def test_manager_only_sees_and_changes_own_team_tasks(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+        from fastapi import HTTPException
+
+        from app.todos.router import TaskUpdateRequest, list_tasks, update_task
+
+        req = NS(client=NS(host="t"))
+        manager = User(
+            username="april-manager",
+            hashed_password="x",
+            role="manager",
+            team_key="april-team",
+            data_scope="team",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'scope.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    session.add(DealerStore(
+                        store_id="april-1", name="April 门店",
+                        sales_owner="April", team_key="april-team",
+                    ))
+                    session.add(DealerStore(
+                        store_id="bob-1", name="Bob 门店",
+                        sales_owner="Bob", team_key="bob-team",
+                    ))
+                    april = PdcaTask(
+                        task_date="2026-09-08", title="April 事项",
+                        owner="April", status="pending",
+                    )
+                    bob = PdcaTask(
+                        task_date="2026-09-08", title="Bob 事项",
+                        owner="Bob", status="pending",
+                    )
+                    session.add(april)
+                    session.add(bob)
+                    session.commit()
+                    bob_id = bob.id
+
+                with patch("app.database.get_engine", return_value=engine), patch(
+                    "app.todos.router.log_action", return_value=None
+                ):
+                    rows = asyncio.run(list_tasks(open_only=False, user=manager))
+                    self.assertEqual([row["title"] for row in rows], ["April 事项"])
+                    with self.assertRaises(HTTPException) as denied:
+                        asyncio.run(update_task(
+                            bob_id, TaskUpdateRequest(status="done"), req, manager
+                        ))
+                    self.assertEqual(denied.exception.status_code, 404)
             finally:
                 engine.dispose()
 

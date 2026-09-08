@@ -215,6 +215,21 @@ class TodoReminderTests(unittest.TestCase):
             self.assertIsNone(updated.last_reminded_at)
             self.assertEqual(updated.remind_count, 0)
 
+    def test_allowed_owner_scope_filters_before_reminding(self):
+        today = datetime.now().strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            _seed(session, task_date=today, title="本团队", owner="测试员")
+            _seed(session, task_date=today, title="其他团队", owner="其他人")
+        result = run_todo_reminders(
+            today=today,
+            round_label="manual",
+            force=True,
+            dry_run=True,
+            allowed_owners={"测试员".casefold()},
+        )
+        titles = [title for sent in result["sent"] for title in sent["titles"]]
+        self.assertEqual(titles, ["本团队"])
+
     def test_send_failure_reported_and_not_marked(self):
         today = datetime.now().strftime("%Y-%m-%d")
         with Session(self.engine) as session:
