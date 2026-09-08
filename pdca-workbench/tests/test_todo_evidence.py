@@ -278,10 +278,20 @@ class SelfSkipTests(unittest.TestCase):
         self.patch_engine.start()
         # 固定为「无机器人」配置：登录账号通道才有跳过本人的语义，
         # 不随本机 .env 里的 PDCA_TODO_BOT_APP_ID 变化。
-        from test_todo_owners import FakeSettings
-
+        fake_settings = type(
+            "FakeSettings",
+            (),
+            {
+                "workbench_base_url": "https://example/app/",
+                "todo_remind_grace_hours": 48,
+                "todo_remind_skip_owners": [],
+                "todo_bot_app_id": "",
+                "todo_user_id_overrides": {},
+                "todo_owner_aliases": {},
+            },
+        )()
         self.patch_settings = patch(
-            "app.todos.service.get_settings", return_value=FakeSettings()
+            "app.todos.service.get_settings", return_value=fake_settings
         )
         self.patch_settings.start()
         self.patch_send = patch(
