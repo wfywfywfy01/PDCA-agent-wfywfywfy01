@@ -210,6 +210,13 @@ def ensure_vps_user(session: Session, vps: dict) -> User:
         )
     else:
         user.display_name = name
+        if user.must_change_password:
+            # SSO/VPS 已完成身份验证；保留“首次改密”会让随机本地密码账号
+            # 永久卡在 403。清除标记时同时轮换本地密码并撤销旧 JWT，避免
+            # 已知的初始化密码因 SSO 激活而重新获得访问权。
+            user.hashed_password = hash_password(secrets.token_urlsafe(32))
+            user.pwd_version = (user.pwd_version or 0) + 1
+            user.must_change_password = False
         if _sync_role_enabled():
             user.role = role
         if role == "sales" and not (getattr(user, "sales_name", "") or ""):
