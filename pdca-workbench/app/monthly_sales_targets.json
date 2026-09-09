@@ -1,0 +1,17 @@
+{
+  "2026-09": {
+    "department_target_wan": 1228,
+    "entries": [
+      {"name": "Lina", "target_wan": 400},
+      {"name": "尤文静", "target_wan": 100},
+      {"name": "何海文", "target_wan": 95},
+      {"name": "杨晶晶", "target_wan": 333},
+      {"name": "于冰", "target_wan": 200},
+      {
+        "name": "新部",
+        "target_wan": 100,
+        "members": ["陈鹏飞", "李浩然", "邢哲夫"]
+      }
+    ]
+  }
+}

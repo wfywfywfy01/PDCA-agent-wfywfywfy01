@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import calendar as _calendar
+import json
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -18,15 +20,15 @@ from app.vertu.sales import fetch_dept_monthly_target, fetch_sell_in
 
 # 业务确认的每日必报五件套门店清单（store_id → 名称兜底；展示名以门店主数据为准）
 REQUIRED_FIVE_KIT_STORES: dict[str, str] = {
-    "me003": "Billionaire Collections",
-    "me007": "Luxem Store",
-    "eu001": "Optimizers d.o.o.",
-    "eu002": "Robo Trading Ltd",
-    "eu003": "VERTU LONDON LTD",
-    "sea03": "VST ECS (Thailand) Co., Ltd. · Siam Paragon",
-    "ca004": "LLC TC Azimut",
-    "ca006": "reStore",
+    "me005": "Dar Al Sabaek",
+    "me011": "Safiran Hamrah",
+    "sea02a": "VMG Communication and Technology JSC · Dong Khoi",
+    "sea02b": "VMG Communication and Technology JSC · Caravelle",
+    "sea02c": "VMG Communication and Technology JSC · Majestic",
+    "sea02d": "VMG Communication and Technology JSC · REX",
 }
+
+_SALES_TARGETS_FILE = Path(__file__).with_name("monthly_sales_targets.json")
 
 
 async def _fetch_live_sales_async(yesterday: str, day: str) -> tuple[dict, dict]:
@@ -57,6 +59,27 @@ def _time_progress(day: str) -> float:
     return value.day / total_days
 
 
+def _configured_sales_target(month: str) -> tuple[float, list[str]] | None:
+    """读取已确认月目标；新部保持部门合计，不擅自拆到个人。"""
+    payload = json.loads(_SALES_TARGETS_FILE.read_text(encoding="utf-8"))
+    plan = payload.get(month)
+    if plan is None:
+        return None
+    entries = plan.get("entries")
+    declared_total = float(plan.get("department_target_wan"))
+    if not isinstance(entries, list) or not entries:
+        raise ValueError(f"{month} 月目标明细为空")
+    actual_total = sum(float(row["target_wan"]) for row in entries)
+    if actual_total != declared_total:
+        raise ValueError(f"{month} 月目标合计不一致：{actual_total} != {declared_total}")
+    details = []
+    for row in entries:
+        members = row.get("members") or []
+        suffix = f"（{'、'.join(members)}合计）" if members else ""
+        details.append(f"{row['name']}{suffix} {float(row['target_wan']):g} 万")
+    return declared_total * 10000, details
+
+
 def _as_of(payloads: tuple[dict, dict]) -> str:
     latest = max(
         (str(item.get("as_of") or "") for item in payloads if item.get("as_of")),
@@ -82,10 +105,15 @@ def build_report(day: str) -> str:
 
     # 月度目标：目标查询失败时不阻塞日报（省略目标板块，仅记日志）。
     month_target_yuan: float | None = None
+    target_details: list[str] = []
     try:
-        year, month_number = int(day[:4]), int(day[5:7])
-        month_end = f"{day[:7]}-{_calendar.monthrange(year, month_number)[1]:02d}"
-        month_target_yuan = fetch_dept_monthly_target(f"{day[:7]}-01", month_end)
+        configured = _configured_sales_target(day[:7])
+        if configured:
+            month_target_yuan, target_details = configured
+        else:
+            year, month_number = int(day[:4]), int(day[5:7])
+            month_end = f"{day[:7]}-{_calendar.monthrange(year, month_number)[1]:02d}"
+            month_target_yuan = fetch_dept_monthly_target(f"{day[:7]}-01", month_end)
     except Exception as exc:  # noqa: BLE001 — 目标板块是增强项，失败可降级
         logger.warning("月度目标查询失败，日报省略目标板块: {}", exc)
 
@@ -147,6 +175,8 @@ def build_report(day: str) -> str:
                 f"{'领先' if gap_pp >= 0 else '落后'} {abs(gap_pp):.1f} 个百分点"
             ),
         ]
+        if target_details:
+            target_lines.append(f"· 明细：{'｜'.join(target_details)}")
 
     five_kit_lines = [
         f"【门店五件套回执（{yesterday[5:]}）】",

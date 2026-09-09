@@ -11,9 +11,10 @@ from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.daily_report import build_report
+from app.daily_report import REQUIRED_FIVE_KIT_STORES, _configured_sales_target, build_report
 from app.models.dealer_store import DealerStore
 from app.models.logistics import LogisticsShipment
+from app.models.store_seed import _STORES
 from app.models.walkin_daily_report import WalkinDailyReport
 
 
@@ -68,21 +69,63 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("目标 805.0 万 · 实际 700.80 万 · 完成率 87.1%", text)
         self.assertIn("时间进度 96.8% · 落后 9.7 个百分点", text)
         self.assertIn("系统收到 0 家必报门店填报", text)
-        self.assertIn("应报 8 家", text)
-        self.assertIn("缺报 8 家", text)
-        self.assertIn("Luxem Store", text)
-        self.assertIn("reStore", text)
+        self.assertIn("应报 6 家", text)
+        self.assertIn("缺报 6 家", text)
+        self.assertIn("Dar Al Sabaek", text)
+        self.assertIn("VMG Communication and Technology JSC · REX", text)
         self.assertIn("【物流】近 7 天在途 0 单 · 异常 0 单", text)
         self.assertNotIn("4.41 万", text)
         self.assertNotIn("/44", text)
         self.assertNotIn("会议", text)
         self.assertNotIn("待办", text)
 
+    def test_confirmed_september_targets_total_1228_wan_without_splitting_new_team(self):
+        target_yuan, details = _configured_sales_target("2026-09")
+
+        self.assertEqual(target_yuan, 12_280_000)
+        self.assertEqual(details, [
+            "Lina 400 万",
+            "尤文静 100 万",
+            "何海文 95 万",
+            "杨晶晶 333 万",
+            "于冰 200 万",
+            "新部（陈鹏飞、李浩然、邢哲夫合计） 100 万",
+        ])
+
+    def test_five_kit_t_minus_one_uses_only_confirmed_store_accounts(self):
+        self.assertEqual(set(REQUIRED_FIVE_KIT_STORES), {
+            "me005", "me011", "sea02a", "sea02b", "sea02c", "sea02d",
+        })
+        with Session(self.engine) as session:
+            session.add(WalkinDailyReport(
+                report_date="2026-09-08", dealer_id="me005", dealer_name="Dar Al Sabaek",
+            ))
+            session.add(WalkinDailyReport(
+                report_date="2026-09-09", dealer_id="me011", dealer_name="Safiran Hamrah",
+            ))
+            session.commit()
+
+        text = build_report("2026-09-09")
+
+        self.assertIn("门店五件套回执（09-08）", text)
+        self.assertIn("系统收到 1 家必报门店填报", text)
+        self.assertIn("应报 6 家", text)
+        self.assertIn("目标 1,228.0 万", text)
+        self.assertIn("新部（陈鹏飞、李浩然、邢哲夫合计） 100 万", text)
+
+    def test_required_store_owner_keys_match_production_accounts(self):
+        owner_by_store = {row[0]: row[5] for row in _STORES}
+
+        self.assertEqual(owner_by_store["me005"], "Viki")
+        self.assertEqual(owner_by_store["me011"], "Viki")
+        for store_id in ("sea02a", "sea02b", "sea02c", "sea02d"):
+            self.assertEqual(owner_by_store[store_id], "Ivan")
+
     def test_missing_list_respects_required_stores_and_logistics_transit(self):
         with Session(self.engine) as session:
-            session.add(DealerStore(store_id="me003", name="Billionaire Collections"))
+            session.add(DealerStore(store_id="me005", name="Dar Al Sabaek"))
             session.add(WalkinDailyReport(
-                report_date="2026-08-29", dealer_id="me003", dealer_name="Billionaire Collections",
+                report_date="2026-08-29", dealer_id="me005", dealer_name="Dar Al Sabaek",
             ))
             session.add(LogisticsShipment(
                 record_date="2026-08-28", tracking_number="T1", carrier="DHL",
@@ -97,10 +140,10 @@ class DailyReportTests(unittest.TestCase):
         text = build_report("2026-08-30")
 
         self.assertIn("系统收到 1 家必报门店填报", text)
-        self.assertIn("应报 8 家", text)
-        self.assertIn("缺报 7 家", text)
-        self.assertIn("Luxem Store", text)
-        self.assertNotIn("Billionaire Collections", text)
+        self.assertIn("应报 6 家", text)
+        self.assertIn("缺报 5 家", text)
+        self.assertIn("Safiran Hamrah", text)
+        self.assertNotIn("Dar Al Sabaek", text)
         self.assertIn("【物流】近 7 天在途 1 单 · 异常 0 单", text)
 
     def test_target_query_failure_omits_section(self):
