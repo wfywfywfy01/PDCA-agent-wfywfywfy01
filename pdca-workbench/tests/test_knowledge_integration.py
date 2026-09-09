@@ -355,7 +355,7 @@ class KnowledgeIntegrationTests(unittest.TestCase):
                 select(DealerStore).where(DealerStore.store_id == "sea02b")
             ).one()
             self.assertEqual(custom.sales_owner, "custom-owner")
-            self.assertEqual(blank.sales_owner, "尤文静")
+            self.assertEqual(blank.sales_owner, "Ivan")
 
 
 if __name__ == "__main__":

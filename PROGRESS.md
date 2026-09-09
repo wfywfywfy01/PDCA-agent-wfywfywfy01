@@ -1,5 +1,26 @@
 # Progress
 
+## 2026-09-09: September targets and T-1 five-kit scope
+
+- Set the confirmed September sales targets to Lina 400 万, 尤文静 100 万,
+  何海文 95 万, 杨晶晶 333 万, 于冰 200 万, and a pooled 100 万 for the new
+  department (陈鹏飞、李浩然、邢哲夫), with a validated department total of
+  1,228 万.
+- Restricted daily five-kit completion to Dar Al Sabaek, Safiran Hamrah, and
+  the four VMG Vietnam stores. Reports use the previous Shanghai calendar day.
+- Aligned the required-store owner keys with active production identities:
+  Dar/Safiran use Viki; all four VMG stores use Ivan.
+
+Verification:
+
+- Backend: `372 passed`, `5 skipped`, `31 subtests passed` in `99.55s`.
+- Focused target/store tests: `21 passed`, `2 subtests passed`.
+- Frontend: `6 passed`; Vue typecheck and production build passed.
+- Python compilation, Docker Compose validation, and `git diff --check` passed.
+- Read-only production check: all six required stores and six bound dealer
+  accounts are active; 2026-09-08 has five required submissions, with Safiran
+  Hamrah missing.
+
 ## 2026-09-08: PDCA production hardening
 
 - Corrected five-kit completion and daily-report metrics so only required stores

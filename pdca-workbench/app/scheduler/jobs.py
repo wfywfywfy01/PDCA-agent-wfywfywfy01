@@ -376,13 +376,14 @@ def daily_report_job() -> None:
 
     独立于部署机网络；生成失败时推送失败提示（不静默）。
     """
-    from datetime import date
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     from app.daily_report import build_report
     from app.scheduler.run_ledger import claim_run, finish_run
     from app.vps_im_push import push_vps_message
 
-    day = date.today().isoformat()
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
     if not claim_run("daily_report", day):
         logger.info("日报本日已执行，跳过重复外发 {}", day)
         return
