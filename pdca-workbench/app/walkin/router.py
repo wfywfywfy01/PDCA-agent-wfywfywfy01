@@ -6,7 +6,6 @@ import re
 import math
 import asyncio
 import time
-from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -171,14 +170,6 @@ async def submit_walkin_metrics(
     if allowed is not None and body.dealer_id not in allowed:
         raise HTTPException(status_code=403, detail="该门店不在当前账号的数据权限范围内")
 
-    # 同一门店同一天只保留最新一条（upsert）
-    existing = session.exec(
-        select(WalkinDailyReport).where(
-            WalkinDailyReport.report_date == body.report_date,
-            WalkinDailyReport.dealer_id == body.dealer_id,
-        ).order_by(WalkinDailyReport.created_at.desc().nulls_last(), WalkinDailyReport.id.desc())
-    ).first()
-
     data = dict(
         report_date=body.report_date,
         dealer_id=body.dealer_id,
@@ -198,13 +189,9 @@ async def submit_walkin_metrics(
         submitted_by=user.username,
     )
 
-    if existing:
-        for k, v in data.items():
-            setattr(existing, k, v)
-        existing.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        session.add(existing)
-    else:
-        session.add(WalkinDailyReport(**data))
+    # Append each submission. Readers already select the latest store/day row;
+    # keeping prior rows makes corrections fully reconstructable.
+    session.add(WalkinDailyReport(**data))
 
     session.commit()
     log_action(user.username, "submit_five_kit",
@@ -332,7 +319,11 @@ async def walkin_metrics_summary(
         return {
             "month": month,
             "record_count": 0,
-            "five_kit": {"walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0, "total": 0},
+            "five_kit": {
+                "walkin": 0, "cross": 0, "online": 0, "recruit": 0,
+                "existing": 0, "total": 0,
+                "pct": {"walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0},
+            },
             "funnel": {"total_visits": 0, "touch_count": 0, "use_count": 0, "wechat_add_count": 0, "deal_count": 0, "deal_amount_yuan": 0.0, "deal_amount_usd": 0.0},
             "by_dealer": [],
             "data_quality": {"excluded_record_count": 0, "reason": ""},

@@ -33,7 +33,7 @@ interface SellinSummary {
   trend: TrendRow[]
   source?: string
   as_of?: string | null
-  amount_state?: 'available' | 'suspect' | 'missing'
+  amount_state?: 'available' | 'stale' | 'suspect' | 'missing'
   amount_message?: string
 }
 
@@ -191,6 +191,9 @@ watch(month, load)
     <template v-else-if="data">
       <p v-if="data.amount_state === 'suspect'" class="amount-warning" role="status">
         金额待核验：{{ data.amount_message || '当前快照金额存在疑点，暂不展示金额及排名；已记录销量仍保留。' }}
+      </p>
+      <p v-else-if="data.amount_state === 'stale'" class="amount-warning" role="status">
+        数据已过期：{{ data.amount_message || '最新同步失败，当前展示上一次成功快照。' }}
       </p>
       <section class="kpi-row">
         <div class="card kpi">

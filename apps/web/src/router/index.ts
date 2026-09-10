@@ -33,6 +33,11 @@ export const router = createRouter({
       component: () => import('@/pages/AdminSyncPage.vue'),
     },
     {
+      path: '/admin/permissions',
+      name: 'admin-permissions',
+      component: () => import('@/pages/AdminPermissionsPage.vue'),
+    },
+    {
       path: '/signalseller',
       name: 'signalseller',
       component: () => import('@/pages/SignalsellerPage.vue'),

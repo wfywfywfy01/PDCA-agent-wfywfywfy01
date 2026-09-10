@@ -19,6 +19,8 @@ from app.models.dealer_sales import DealerSales
 from app.models.meeting import MeetingRecord
 from app.models.pdca_task import PdcaTask
 
+SALES_SYNC_FAILED_SOURCE = "vertu-cli:sales-orders:failed"
+
 
 def sync_dealer_sales_from_json(date_text: str) -> int:
     """从 data_raw JSON 同步经销商业绩。【仅限手动使用】
@@ -232,27 +234,36 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
     try:
         result = fetch_dealer_sales_orders_sync(start_date, date_text)
         dealers = result.get("dealers", [])
+        # Validate the whole batch before replacing a valid snapshot.
+        for item in dealers:
+            if not str(item.get("dealer_name") or "").strip():
+                raise RuntimeError("销售数据缺少客户标识，整批未保存")
+            require_sales_number(item.get("sell_out_yuan"), "金额")
+            require_sales_number(item.get("qty"), "数量", integer=True)
     except Exception as exc:
         logger.warning("vertu-cli 经销商同步失败: {}", exc)
+        try:
+            with Session(get_engine()) as failure_session:
+                failure_session.add(DealerSales(
+                    check_date=date_text, dealer_name="", sell_in_wan=0.0,
+                    sell_out_wan=0.0, units=0, phone_qty=0,
+                    source_file=SALES_SYNC_FAILED_SOURCE,
+                ))
+                failure_session.commit()
+        except Exception as record_exc:
+            logger.warning("销售同步失败状态未能入库: {}", record_exc)
         raise
-
-    # Validate the whole batch before opening a write transaction; bad input
-    # must not overwrite a previously valid snapshot with fabricated zeros.
-    for item in dealers:
-        if not str(item.get("dealer_name") or "").strip():
-            raise RuntimeError("销售数据缺少客户标识，整批未保存")
-        require_sales_number(item.get("sell_out_yuan"), "金额")
-        require_sales_number(item.get("qty"), "数量", integer=True)
-    if not dealers:
-        return 0
-
     count = 0
     with Session(get_engine()) as session:
         if session.get_bind().dialect.name == "postgresql":
             # Serialize same-day refreshes even when the first snapshot is empty.
             session.execute(text("SELECT pg_advisory_xact_lock(:namespace, :day)"),
                             {"namespace": 1346650945, "day": int(date_text.replace("-", ""))})
-        vps_sources = {"vertu-cli:sales-orders", "vertu-cli:sales-orders:validated", "sync_from_vertu"}
+        vps_sources = {
+            "vertu-cli:sales-orders", "vertu-cli:sales-orders:validated",
+            "vertu-cli:sales-orders:confirmed-empty", SALES_SYNC_FAILED_SOURCE,
+            "sync_from_vertu",
+        }
         existing_rows = session.exec(
             select(DealerSales).where(DealerSales.check_date == date_text)
         ).all()
@@ -261,6 +272,16 @@ def sync_dealer_sales_from_vps(date_text: str) -> int:
         session.execute(delete(DealerSales).where(
             DealerSales.check_date == date_text, DealerSales.source_file.in_(vps_sources),
         ))
+        if not dealers:
+            session.add(DealerSales(
+                check_date=date_text,
+                dealer_name="",
+                sell_in_wan=0.0,
+                sell_out_wan=0.0,
+                units=0,
+                phone_qty=0,
+                source_file="vertu-cli:sales-orders:confirmed-empty",
+            ))
         for item in dealers:
             name = (item.get("dealer_name") or "").strip()
             if not name:
@@ -291,8 +312,8 @@ def run_full_sync(date_text: str | None = None) -> dict:
     """执行全量文件→数据库同步，单步失败不影响其他步骤。
 
     F2（单一事实源）：dealer_sales 以 vertu-cli 直写库为主写入方；
-    data_raw JSON 仅在该同步失败或返回 0 条时作为回退，防止空文件/旧文件
-    覆盖当日新鲜数据（此前两条路径同时写、后写覆盖先写，口径漂移）。
+    空批次也会保存为已确认的零值快照；data_raw JSON 不参与自动回退，
+    防止空文件/旧文件覆盖当日新鲜数据。
     """
     date_text = date_text or bridge.today_text()
     result: dict = {"date": date_text}
@@ -304,7 +325,7 @@ def run_full_sync(date_text: str | None = None) -> dict:
         result["vps_dealer_sales"] = vps_count
         result["dealer_sales"] = vps_count
         if not vps_count:
-            logger.warning("VPS sell-in 同步 0 条（不回退文件源，保持单一事实源）")
+            logger.info("VPS sell-in 已确认空批次，保存零值快照（不回退文件源）")
     except Exception as exc:
         logger.warning("VPS sell-in 同步失败（不回退文件源）: {}", exc)
         result["vps_dealer_sales"] = f"error: {exc}"

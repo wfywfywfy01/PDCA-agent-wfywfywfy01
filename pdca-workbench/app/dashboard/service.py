@@ -97,6 +97,21 @@ def _utc_iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
+_SALES_EMPTY_SOURCE = "vertu-cli:sales-orders:confirmed-empty"
+_SALES_FAILED_SOURCE = "vertu-cli:sales-orders:failed"
+
+
+def _latest_sales_snapshot(rows: list) -> tuple[list, bool]:
+    """Return latest usable batch and whether a newer/equal refresh failed."""
+    failures = [row for row in rows if row.source_file == _SALES_FAILED_SOURCE]
+    usable = [row for row in rows if row.source_file != _SALES_FAILED_SOURCE]
+    latest_usable_date = max((row.check_date for row in usable), default="")
+    failed = bool(failures) and max(row.check_date for row in failures) >= latest_usable_date
+    if not usable:
+        return [], failed
+    return [row for row in usable if row.check_date == latest_usable_date], failed
+
+
 def db_sellin_summary(month: str, session, user=None) -> dict:
     """P1：从 dealer_sales 表聚合经销商进货汇总（替代 bridge 读 data_raw JSON）。
 
@@ -111,16 +126,22 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
     if user is not None and not resolve_data_scope(user, session).unrestricted:
         names = scoped_active_dealer_names(user, session)
 
-    def _month_rows(mo: str) -> list:
+    def _month_rows(mo: str) -> tuple[list, bool]:
         stmt = select(DealerSales).where(DealerSales.check_date.startswith(mo))
         if names is not None:
-            stmt = stmt.where(DealerSales.dealer_name.in_(names))
-        rows = list(session.exec(stmt).all())
-        latest_date = max((row.check_date for row in rows), default="")
-        return [row for row in rows if row.check_date == latest_date]
+            scoped = list(session.exec(stmt.where(DealerSales.dealer_name.in_(names))).all())
+            markers = list(session.exec(stmt.where(DealerSales.source_file.in_([
+                _SALES_EMPTY_SOURCE, _SALES_FAILED_SOURCE,
+            ]))).all())
+            rows = scoped + markers
+        else:
+            rows = list(session.exec(stmt).all())
+        return _latest_sales_snapshot(rows)
 
-    rows = _month_rows(month)
-    amount_state = snapshot_amount_state(rows)
+    rows, refresh_failed = _month_rows(month)
+    base_state = snapshot_amount_state(rows)
+    amount_state = "stale" if refresh_failed else base_state
+    amount_readable = base_state == "available"
     grouped: dict[str, dict] = {}
     for row in rows:
         item = grouped.setdefault(
@@ -130,13 +151,13 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
         item["wan"] += float(row.sell_in_wan or 0)
         item["quantity"] += int(row.units or 0)
     dealers = [
-        {"name": item["name"], "wan": round(item["wan"], 2) if amount_state == "available" else None, "quantity": item["quantity"]}
+        {"name": item["name"], "wan": round(item["wan"], 2) if amount_readable else None, "quantity": item["quantity"]}
         for item in grouped.values()
         if item["wan"] != 0 or item["quantity"] != 0
     ]
     dealers.sort(key=lambda item: item["wan"] if item["wan"] is not None else item["quantity"], reverse=True)
     for index, dealer in enumerate(dealers):
-        dealer["rank"] = index + 1 if amount_state == "available" else None
+        dealer["rank"] = index + 1 if amount_readable else None
 
     trend = []
     year, number = int(month[:4]), int(month[5:7])
@@ -147,18 +168,23 @@ def db_sellin_summary(month: str, session, user=None) -> dict:
             current += 12
             current_year -= 1
         mo = f"{current_year:04d}-{current:02d}"
-        mo_rows = _month_rows(mo)
+        mo_rows, mo_failed = _month_rows(mo)
         mo_state = snapshot_amount_state(mo_rows)
-        mo_total = round(sum(float(row.sell_in_wan or 0) for row in mo_rows), 2) if mo_state == "available" else None
+        if mo_failed and mo_state == "available":
+            mo_state = "stale"
+        mo_total = round(sum(float(row.sell_in_wan or 0) for row in mo_rows), 2) if mo_rows and mo_state in {"available", "stale"} else None
         trend.append({"month": mo, "wan": mo_total, "has_data": bool(mo_rows),
                       "amount_state": mo_state,
                       "snapshot_date": max((row.check_date for row in mo_rows), default=None)})
 
     return {
         "month": month,
-        "total_wan": round(sum(float(row.sell_in_wan or 0) for row in rows), 2) if amount_state == "available" else None,
+        "total_wan": round(sum(float(row.sell_in_wan or 0) for row in rows), 2) if amount_readable else None,
         "amount_state": amount_state,
-        "amount_message": "旧快照存在销量但金额全部为零，金额待复核；原始数据和销量已保留" if amount_state == "suspect" else "",
+        "amount_message": (
+            ("最新同步失败，当前展示上一次成功快照" if rows else "最新同步失败，尚无成功快照") if amount_state == "stale" else
+            "旧快照存在销量但金额全部为零，金额待复核；原始数据和销量已保留" if amount_state == "suspect" else ""
+        ),
         "dealers": dealers,
         "has_data": bool(rows),
         "snapshot_date": max((row.check_date for row in rows), default=None),
@@ -238,18 +264,34 @@ def merge_db_sales(data: dict, date_text: str, session, user=None, *, period: st
                  if row.store_id in store_ids and not is_demo_store(row.store_id, row.name)]
     # VPS ``sales +orders`` 返回的客户名已脱敏（如 "未知客户"/"H*****"），无法按名称
     # 匹配门店主数据。管理员（unrestricted）直接汇总全量；受限账号仍按名称过滤。
-    if user is not None and resolve_data_scope(user, session).unrestricted:
-        db_rows = list(session.exec(dealer_stmt).all())
+    scope = resolve_data_scope(user, session) if user is not None else None
+    if scope and scope.unrestricted:
+        scoped_rows = list(session.exec(dealer_stmt).all())
+        candidate_rows = scoped_rows
     else:
         names = scoped_active_dealer_names(user, session) if user is not None else []
-        db_rows = (
-            session.exec(dealer_stmt.where(DealerSales.dealer_name.in_(names))).all()
-            if names else []
-        )
+        scoped_rows = list(session.exec(
+            dealer_stmt.where(DealerSales.dealer_name.in_(names))
+        ).all()) if names else []
+        empty_markers = list(session.exec(dealer_stmt.where(
+            DealerSales.source_file.in_([_SALES_EMPTY_SOURCE, _SALES_FAILED_SOURCE])
+        )).all())
+        candidate_rows = scoped_rows + empty_markers
+    db_rows, refresh_failed = _latest_sales_snapshot(candidate_rows)
 
     # Each row is a month-to-date snapshot, never a daily transaction.
     latest_date = max((row.check_date for row in db_rows), default=None)
-    db_rows = [row for row in db_rows if row.check_date == latest_date] if period == "month" else []
+    db_rows = db_rows if period == "month" else []
+    if period == "month" and refresh_failed and not db_rows:
+        data["sellInWan"] = None
+        data["sellInAmount"] = "—"
+        data["sellInSub"] = "最新同步失败，尚无可用成功快照"
+        data.setdefault("dataState", {})["sellIn"] = "stale"
+        data.setdefault("dataSource", {})["sellIn"] = "dealer_sales_db_sync_status"
+        data["dataAsOf"] = max(
+            (_utc_iso(row.synced_at) for row in candidate_rows if row.synced_at),
+            default=None,
+        )
     if snapshot_amount_state(db_rows) == "suspect":
         data["sellInWan"] = None
         data["sellInAmount"] = "—"
@@ -259,7 +301,7 @@ def merge_db_sales(data: dict, date_text: str, session, user=None, *, period: st
         data["dataAsOf"] = max((_utc_iso(row.synced_at) for row in db_rows if row.synced_at), default=None)
     elif db_rows:
         total_in_wan  = sum(r.sell_in_wan  for r in db_rows)
-        dealer_count  = len({r.dealer_name for r in db_rows})
+        dealer_count = len({r.dealer_name for r in db_rows if r.dealer_name})
         batch_date = max((r.check_date for r in db_rows if r.check_date), default=month)
         synced_at = max((r.synced_at for r in db_rows if r.synced_at), default=None)
         if synced_at is not None:
@@ -269,8 +311,11 @@ def merge_db_sales(data: dict, date_text: str, session, user=None, *, period: st
         # missing value.  Always override legacy/derived values when rows exist.
         data["sellInWan"] = round(total_in_wan, 2)
         data["sellInAmount"] = _fmt_cny(total_in_wan * 10000)
-        data["sellInSub"] = f"Odoo同步 · 批次 {batch_date} · {dealer_count}家经销商"
-        data.setdefault("dataState", {}).update({"sellIn": "live"})
+        data["sellInSub"] = (
+            f"最新同步失败，展示上次成功批次 {batch_date} · {dealer_count}家经销商"
+            if refresh_failed else f"Odoo同步 · 批次 {batch_date} · {dealer_count}家经销商"
+        )
+        data.setdefault("dataState", {}).update({"sellIn": "stale" if refresh_failed else "live"})
         data.setdefault("dataSource", {}).update({"sellIn": "dealer_sales_db_latest_snapshot"})
 
     # ── 2. walkin_daily_reports（经销商真实录入，USD 与客流口径）────────────────────

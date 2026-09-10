@@ -19,6 +19,8 @@ from app.models.daily_report import DailyReport
 from app.models.dealer_store import DealerStore
 from app.models.dealer_assignment import DealerAssignment
 from app.models.logistics import LogisticsShipment
+from app.models.pdca_task import PdcaTask
+from app.models.customer_profile import CustomerProfile
 from app.models.walkin_daily_report import WalkinDailyReport
 
 
@@ -57,6 +59,8 @@ class AuthAndWriteFlowTests(unittest.TestCase):
                 / "data_role_pdca_mvp"
                 / "scripts"
             ),
+            mvp_root=Path(self.temp_dir.name) / "mvp",
+            config_dir=Path(self.temp_dir.name) / "config",
         )
         self.patches = ExitStack()
         for target in (
@@ -417,6 +421,66 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             dealer = session.exec(select(User).where(User.username == "dealer")).one()
             self.assertFalse(dealer.is_active)
 
+    def test_admin_can_preview_a_users_effective_permissions(self):
+        self.assertEqual(self._login("admin").status_code, 200)
+        response = self.client.get("/api/admin/users/sales/effective-permissions")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "username": "sales",
+            "role": "sales",
+            "is_active": True,
+            "scope": {
+                "mode": "self",
+                "team_key": "",
+                "store_ids": ["store-a"],
+                "dealer_names": ["Dealer A"],
+                "owner_keys": ["alice-owner", "Alice Sales"],
+            },
+            "modules": {
+                "workbench": "scoped",
+                "customers": "scoped",
+                "logistics": "scoped",
+                "meetings": "scoped",
+                "tasks": "scoped",
+                "walkin": "scoped",
+                "admin": "none",
+            },
+            "warnings": [],
+        })
+        self.assertEqual(self.client.patch("/api/admin/users/sales", json={"sales_name": ""}).status_code, 200)
+        incomplete = self.client.get("/api/admin/users/sales/effective-permissions").json()
+        self.assertIn("销售账号未配置物流来源名称，物流仅可查看", incomplete["warnings"])
+        self.assertEqual(incomplete["modules"]["logistics"], "read-only")
+
+        dealer = self.client.get("/api/admin/users/dealer/effective-permissions")
+        self.assertEqual(dealer.status_code, 200)
+        self.assertEqual(dealer.json()["modules"], {
+            "workbench": "none",
+            "customers": "none",
+            "logistics": "none",
+            "meetings": "none",
+            "tasks": "none",
+            "walkin": "scoped",
+            "admin": "none",
+        })
+        self.assertEqual(self.client.patch("/api/admin/users/dealer", json={"is_active": False}).status_code, 200)
+        inactive = self.client.get("/api/admin/users/dealer/effective-permissions")
+        self.assertEqual(set(inactive.json()["modules"].values()), {"none"})
+
+        self.client.post("/api/auth/logout")
+        self.assertEqual(self._login("sales").status_code, 200)
+        denied = self.client.get("/api/admin/users/sales/effective-permissions")
+        self.assertEqual(denied.status_code, 403)
+
+    def test_admin_cannot_disable_or_demote_the_current_account(self):
+        self.assertEqual(self._login("admin").status_code, 200)
+        disabled = self.client.patch("/api/admin/users/admin", json={"is_active": False})
+        demoted = self.client.patch("/api/admin/users/admin", json={"role": "viewer"})
+        scoped_down = self.client.patch("/api/admin/users/admin", json={"data_scope": "none"})
+        self.assertEqual(disabled.status_code, 400)
+        self.assertEqual(demoted.status_code, 400)
+        self.assertEqual(scoped_down.status_code, 400)
+
     def test_sales_accounts_cannot_read_or_write_each_others_stores(self):
         with Session(self.engine) as session:
             session.add(WalkinDailyReport(
@@ -434,21 +498,292 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         })
         self.assertEqual(denied_write.status_code, 403)
 
-    def test_today_workbench_reports_only_current_scope_and_truth_state(self):
+    def test_sales_cannot_overwrite_same_title_task_owned_by_another_salesperson(self):
+        with Session(self.engine) as session:
+            session.add(PdcaTask(
+                task_date="2024-01-02", title="Call customer",
+                owner="Bob Sales", status="done",
+            ))
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        response = self.client.post("/api/task-center/tasks", json={
+            "task_date": "2024-01-02", "title": "Call customer",
+        })
+        self.assertEqual(response.status_code, 200)
+        with Session(self.engine) as session:
+            rows = session.exec(select(PdcaTask).where(
+                PdcaTask.task_date == "2024-01-02",
+                PdcaTask.title == "Call customer",
+            )).all()
+        self.assertEqual([(row.owner, row.status) for row in rows], [
+            ("Bob Sales", "done"), ("Alice Sales", "pending"),
+        ])
+
+    def test_sales_cannot_patch_unassigned_task_or_clear_owner(self):
+        with Session(self.engine) as session:
+            unassigned = PdcaTask(task_date="2024-01-02", title="Unassigned", owner="")
+            own = PdcaTask(task_date="2024-01-02", title="Own", owner="Alice Sales")
+            session.add_all([unassigned, own])
+            session.commit()
+            session.refresh(unassigned)
+            session.refresh(own)
+            unassigned_id, own_id = unassigned.id, own.id
+        self.assertEqual(self._login("sales").status_code, 200)
+        self.assertEqual(
+            self.client.patch(f"/api/task-center/tasks/{unassigned_id}", json={"status": "done"}).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.patch(f"/api/task-center/tasks/{own_id}", json={"owner": ""}).status_code,
+            403,
+        )
+
+    def test_sales_cannot_overwrite_another_salespersons_tracking_number(self):
+        with Session(self.engine) as session:
+            session.add(LogisticsShipment(
+                record_date="2024-01-01", tracking_number="TRACK-SHARED",
+                salesperson="Bob Sales", customer="Bob customer",
+            ))
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        with patch("app.legacy.bridge.append_logistics"):
+            response = self.client.post("/api/logistics/shipments", json={
+                "tracking_number": "TRACK-SHARED", "customer": "Alice customer",
+                "ship_date": "2024-01-02",
+            })
+        self.assertEqual(response.status_code, 403)
+        with patch("app.legacy.bridge.append_logistics"):
+            legacy = self.client.post("/logistics?date=2024-01-02", data={
+                "tracking_number": "TRACK-SHARED", "customer": "Alice customer",
+                "ship_date": "2024-01-02",
+            })
+        self.assertEqual(legacy.status_code, 403)
+        with Session(self.engine) as session:
+            row = session.exec(select(LogisticsShipment).where(
+                LogisticsShipment.tracking_number == "TRACK-SHARED"
+            )).one()
+        self.assertEqual((row.salesperson, row.customer), ("Bob Sales", "Bob customer"))
+
+    def test_team_manager_cannot_overwrite_shipment_outside_team(self):
         with Session(self.engine) as session:
             session.add_all([
-                WalkinDailyReport(report_date="2024-01-02", dealer_id="store-a", dealer_name="Dealer A", walkin_visits=0),
-                WalkinDailyReport(report_date="2024-01-02", dealer_id="store-b", dealer_name="Dealer B", walkin_visits=12),
+                User(
+                    username="manager", hashed_password=hash_password("Correct-password-123"),
+                    role="manager", display_name="Manager", data_scope="team",
+                    team_key="overseas", must_change_password=False,
+                ),
+                LogisticsShipment(
+                    record_date="2024-01-01", tracking_number="TRACK-OTHER-TEAM",
+                    salesperson="Charlie Sales", customer="Charlie customer",
+                ),
+            ])
+            session.commit()
+        self.assertEqual(self._login("manager").status_code, 200)
+        response = self.client.post("/api/logistics/shipments", json={
+            "tracking_number": "TRACK-OTHER-TEAM", "salesperson": "Charlie Sales",
+            "customer": "Manager overwrite", "ship_date": "2024-01-02",
+        })
+        self.assertEqual(response.status_code, 403)
+        with Session(self.engine) as session:
+            row = session.exec(select(LogisticsShipment).where(
+                LogisticsShipment.tracking_number == "TRACK-OTHER-TEAM"
+            )).one()
+        self.assertEqual(row.customer, "Charlie customer")
+
+    def test_sales_cannot_claim_csv_only_tracking_number(self):
+        csv_dir = self.settings.mvp_root / "inputs" / "logistics"
+        csv_dir.mkdir(parents=True)
+        (csv_dir / "2024-01-01_tracking.csv").write_text(
+            "tracking_number,salesperson,customer\nTRACK-CSV-ONLY,Bob Sales,Bob customer\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self._login("sales").status_code, 200)
+        with patch("app.logistics.service.get_settings", return_value=self.settings):
+            response = self.client.post("/api/logistics/shipments", json={
+                "tracking_number": "TRACK-CSV-ONLY", "customer": "Alice takeover",
+                "ship_date": "2024-01-02",
+            })
+        self.assertEqual(response.status_code, 403)
+        with Session(self.engine) as session:
+            self.assertIsNone(session.exec(select(LogisticsShipment).where(
+                LogisticsShipment.tracking_number == "TRACK-CSV-ONLY"
+            )).first())
+
+    def test_sales_alias_can_update_own_canonicalized_shipment(self):
+        self.settings.config_dir.mkdir(parents=True)
+        (self.settings.config_dir / "sales_aliases.csv").write_text(
+            "raw_sales,canonical_sales\nRAWLINA,Lina\n", encoding="utf-8",
+        )
+        with Session(self.engine) as session:
+            sales_user = session.exec(select(User).where(User.username == "sales")).one()
+            sales_user.sales_name = "RAWLINA"
+            session.add(sales_user)
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        with patch("app.logistics.service.get_settings", return_value=self.settings):
+            first = self.client.post("/api/logistics/shipments", json={
+                "tracking_number": "TRACK-LINA", "customer": "First",
+                "ship_date": "2024-01-02",
+            })
+            second = self.client.post("/api/logistics/shipments", json={
+                "tracking_number": "TRACK-LINA", "customer": "Updated",
+                "ship_date": "2024-01-02",
+            })
+        self.assertEqual((first.status_code, second.status_code), (200, 200))
+        with Session(self.engine) as session:
+            row = session.exec(select(LogisticsShipment).where(
+                LogisticsShipment.tracking_number == "TRACK-LINA"
+            )).one()
+        self.assertEqual((row.salesperson, row.customer), ("Lina", "Updated"))
+
+    def test_sales_cannot_update_same_named_customer_in_another_team(self):
+        with Session(self.engine) as session:
+            session.add_all([
+                CustomerProfile(team="yang-jingjing", dealer_name="Same customer", owner="Alice Sales"),
+                CustomerProfile(team="bob-team", dealer_name="Same customer", owner="Bob Sales", next_action="Bob original"),
+            ])
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        with patch("app.database.get_engine", return_value=self.engine):
+            response = self.client.put("/api/signalseller/customers", json={
+                "team": "bob-team", "dealer_name": "Same customer",
+                "next_action": "Alice overwrite",
+            })
+        self.assertEqual(response.status_code, 403)
+        with Session(self.engine) as session:
+            row = session.exec(select(CustomerProfile).where(CustomerProfile.team == "bob-team")).one()
+        self.assertEqual(row.next_action, "Bob original")
+
+    def test_sales_updates_only_owned_customer_when_same_team_has_duplicate_name(self):
+        with Session(self.engine) as session:
+            session.add_all([
+                CustomerProfile(
+                    team="yang-jingjing", dealer_name="Shared name",
+                    owner="Bob Sales", next_action="Bob original",
+                ),
+                CustomerProfile(
+                    team="yang-jingjing", dealer_name="Shared name",
+                    owner="Alice Sales", next_action="Alice original",
+                ),
+            ])
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        with patch("app.database.get_engine", return_value=self.engine):
+            response = self.client.put("/api/signalseller/customers", json={
+                "team": "yang-jingjing", "dealer_name": "Shared name",
+                "next_action": "Alice updated",
+            })
+        self.assertEqual(response.status_code, 200)
+        with Session(self.engine) as session:
+            rows = session.exec(select(CustomerProfile).where(
+                CustomerProfile.dealer_name == "Shared name"
+            )).all()
+        self.assertEqual(
+            {row.owner: row.next_action for row in rows},
+            {"Bob Sales": "Bob original", "Alice Sales": "Alice updated"},
+        )
+
+    def test_scoped_sellin_rejects_unsupported_non_month_period_without_guessing(self):
+        self.assertEqual(self._login("sales").status_code, 200)
+        response = self.client.get("/api/dashboard/sell-in?date=2024-01-02&period=day")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIsNone(payload["amount"])
+        self.assertEqual(payload["state"], "missing")
+        self.assertIn("仅支持月度", payload["note"])
+
+    def test_task_api_rejects_unknown_status_and_priority(self):
+        with Session(self.engine) as session:
+            row = PdcaTask(task_date="2024-01-02", title="Own", owner="Alice Sales")
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            task_id = row.id
+        self.assertEqual(self._login("sales").status_code, 200)
+        self.assertEqual(
+            self.client.patch(f"/api/task-center/tasks/{task_id}", json={"status": "anything"}).status_code,
+            422,
+        )
+        self.assertEqual(
+            self.client.post("/api/task-center/tasks", json={
+                "task_date": "2024-01-02", "title": "Invalid priority", "priority": "anything",
+            }).status_code,
+            422,
+        )
+
+    def test_retrying_task_create_does_not_reset_completed_task(self):
+        with Session(self.engine) as session:
+            session.add(PdcaTask(
+                task_date="2024-01-02", title="Already complete",
+                owner="Alice Sales", status="done", priority="high",
+            ))
+            session.commit()
+        self.assertEqual(self._login("sales").status_code, 200)
+        response = self.client.post("/api/task-center/tasks", json={
+            "task_date": "2024-01-02", "title": "Already complete",
+            "priority": "normal",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["idempotent"])
+        with Session(self.engine) as session:
+            row = session.exec(select(PdcaTask).where(
+                PdcaTask.title == "Already complete"
+            )).one()
+        self.assertEqual((row.status, row.priority), ("done", "high"))
+
+    def test_legacy_task_create_does_not_reset_completed_task(self):
+        with Session(self.engine) as session:
+            session.add(PdcaTask(
+                task_date="2024-01-02", title="Legacy complete",
+                owner="Alice Sales", status="done", priority="high",
+            ))
+            session.commit()
+        self.assertEqual(self._login("admin").status_code, 200)
+        with patch("app.legacy.bridge.append_todo"):
+            response = self.client.post("/todos?date=2024-01-02", data={
+                "title": "Legacy complete", "owner": "Alice Sales",
+                "status": "pending", "priority": "normal",
+            }, follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        with Session(self.engine) as session:
+            row = session.exec(select(PdcaTask).where(
+                PdcaTask.title == "Legacy complete"
+            )).one()
+        self.assertEqual((row.status, row.priority), ("done", "high"))
+
+    def test_today_workbench_reports_only_current_scope_and_truth_state(self):
+        with Session(self.engine) as session:
+            sales = session.exec(select(User).where(User.username == "sales")).one()
+            session.add(DealerStore(
+                store_id="me005", name="Dar Al Sabaek", sales_owner="alice-owner",
+                team_key="overseas", is_active=True,
+            ))
+            session.add(DealerAssignment(user_id=sales.id, store_id="me005"))
+            session.add_all([
+                WalkinDailyReport(report_date="2024-01-01", dealer_id="me005", dealer_name="Dar Al Sabaek", walkin_visits=0),
+                WalkinDailyReport(report_date="2024-01-02", dealer_id="me005", dealer_name="Dar Al Sabaek", walkin_visits=99),
+                WalkinDailyReport(report_date="2024-01-01", dealer_id="store-b", dealer_name="Dealer B", walkin_visits=12),
             ])
             session.commit()
         self.assertEqual(self._login("sales").status_code, 200)
         response = self.client.get("/api/workbench/today?date=2024-01-02")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["scope"]["store_ids"], ["store-a"])
+        self.assertEqual(payload["scope"]["store_ids"], ["store-a", "me005"])
+        self.assertEqual(payload["closure"]["report_date"], "2024-01-01")
         self.assertEqual(payload["facts"]["walkin_reported"]["value"], 1)
         self.assertEqual(payload["facts"]["walkin_visits"]["value"], 0)
         self.assertTrue(payload["closure"]["complete"])
+
+    def test_admin_today_uses_the_canonical_six_store_roster(self):
+        self.assertEqual(self._login("admin").status_code, 200)
+        with patch("app.logistics.service.load_shipments", return_value=([], "available")):
+            response = self.client.get("/api/workbench/today?date=2024-01-02")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["closure"]["report_date"], "2024-01-01")
+        self.assertEqual(payload["closure"]["expected"], 6)
+        self.assertEqual(payload["facts"]["walkin_missing"]["value"], 6)
 
     def test_inactive_store_history_is_kept_but_excluded_from_current_reporting(self):
         with Session(self.engine) as session:

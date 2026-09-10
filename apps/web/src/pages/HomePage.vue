@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
+import { loadSections, type SectionResult } from '@/api/load-sections'
 import AppNav from '@/components/AppNav.vue'
 
 interface Me {
@@ -39,7 +40,7 @@ interface TodayPayload {
   date: string
   facts: Record<string, Fact>
   actions: ActionItem[]
-  closure: { reported: number; expected: number; complete: boolean }
+  closure: { reported: number; expected: number; complete: boolean; report_date: string }
 }
 
 interface CustomerRow {
@@ -51,7 +52,7 @@ interface CustomerRow {
 
 const router = useRouter()
 const me = ref<Me | null>(null)
-const period = ref('day')
+const period = ref('month')
 const dateText = ref(workDate())
 
 const sellIn = ref<KpiPayload | null>(null)
@@ -66,16 +67,17 @@ let loadId = 0
 const syncing = ref(false)
 const syncMessage = ref('')
 
-const PERIODS = [
+const ALL_PERIODS = [
   { value: 'day', label: '日' },
   { value: 'week', label: '周' },
   { value: 'month', label: '月' },
   { value: 'quarter', label: '季' },
 ]
+const periods = computed(() => me.value?.role === 'admin' ? ALL_PERIODS : ALL_PERIODS.filter((item) => item.value === 'month'))
 
 const FACT_LABELS: Record<string, string> = {
-  walkin_visits: '今日进店',
-  walkin_reported: '今日已填报门店',
+  walkin_visits: 'T-1 进店',
+  walkin_reported: 'T-1 已填报门店',
   logistics_attention: '物流异常/待核查',
 }
 
@@ -103,27 +105,33 @@ async function loadAll() {
   sellOut.value = null
   today.value = null
   customers.value = null
-  const settle = await Promise.allSettled([
-    apiGet<Me>('/api/auth/me'),
-    apiGet<KpiPayload>(`/api/dashboard/sell-in?${qs()}`),
-    apiGet<KpiPayload>(`/api/dashboard/sell-out?${qs()}`),
-    apiGet<TodayPayload>(`/api/workbench/today?${qs()}`),
-    apiGet<CustomerRow[]>('/api/customer-center/summary'),
-  ])
-  if (id !== loadId) return
-  const [meR, sellInR, sellOutR, todayR, customersR] = settle
-
-  if (meR.status === 'fulfilled') me.value = meR.value
-  if (sellInR.status === 'fulfilled') sellIn.value = sellInR.value
-  if (sellOutR.status === 'fulfilled') sellOut.value = sellOutR.value
-  if (todayR.status === 'fulfilled') today.value = todayR.value
-  if (customersR.status === 'fulfilled') customers.value = customersR.value
   const keys = ['账号', 'sellIn', 'sellOut', 'today', 'customers']
-  settle.forEach((result, index) => {
+  const applyResult = (index: number, result: SectionResult<unknown>) => {
+    if (id !== loadId) return
+    if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) {
+      router.replace({ path: '/login', query: { next: '/' } })
+      return
+    }
+    if (result.status === 'fulfilled') {
+      if (index === 0) me.value = result.value as Me
+      if (index === 1) sellIn.value = result.value as KpiPayload
+      if (index === 2) sellOut.value = result.value as KpiPayload
+      if (index === 3) today.value = result.value as TodayPayload
+      if (index === 4) customers.value = result.value as CustomerRow[]
+    }
     if (result.status === 'rejected') {
       sectionErrors.value[keys[index]] = result.reason instanceof HttpError ? result.reason.detail : '加载失败，请重试'
     }
-  })
+  }
+  const settle = await loadSections<unknown>([
+    () => apiGet<Me>('/api/auth/me'),
+    () => apiGet<KpiPayload>(`/api/dashboard/sell-in?${qs()}`),
+    () => apiGet<KpiPayload>(`/api/dashboard/sell-out?${qs()}`),
+    () => apiGet<TodayPayload>(`/api/workbench/today?${qs()}`),
+    () => apiGet<CustomerRow[]>('/api/customer-center/summary'),
+  ], applyResult)
+  if (id !== loadId) return
+  const [meR] = settle
 
   const rejected = settle.find(
     (r): r is PromiseRejectedResult =>
@@ -133,7 +141,7 @@ async function loadAll() {
     router.replace({ path: '/login', query: { next: '/' } })
     return
   }
-  if (meR.status === 'rejected') {
+  if (meR?.status === 'rejected') {
     error.value =
       meR.reason instanceof HttpError ? meR.reason.detail : '工作台数据加载失败，请稍后重试'
   }
@@ -197,13 +205,13 @@ onMounted(loadAll)
         <h1>经营驾驶舱</h1>
         <p class="sub">
           {{ me ? (me.display_name || me.username) : '…' }} · {{ dateText }} ·
-          <span v-if="today">今日已收到 {{ today.closure.reported }} 家门店填报</span>
+          <span v-if="today">T-1（{{ today.closure.report_date }}）已收到 {{ today.closure.reported }} 家门店填报</span>
         </p>
       </div>
       <div class="head-actions">
         <div class="period-switch">
           <button
-            v-for="p in PERIODS"
+            v-for="p in periods"
             :key="p.value"
             type="button"
             :class="['chip', { active: period === p.value }]"
@@ -260,7 +268,7 @@ onMounted(loadAll)
 
     <div class="two-col">
       <section class="card panel">
-        <h2>今日待处理</h2>
+        <h2>当前待处理</h2>
         <p v-if="sectionErrors.today" class="empty" role="alert">待处理事项加载失败：{{ sectionErrors.today }}</p>
         <template v-else-if="today?.actions?.length">
           <a

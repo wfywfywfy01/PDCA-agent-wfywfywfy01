@@ -7,9 +7,12 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlmodel import Session
 
 from app.auth.deps import require_role
 from app.auth.models import User
+from app.auth.scope import normalize_scope_key, resolve_data_scope
+from app.database import get_session
 from app.legacy import bridge
 from app.models import writes as db_writes
 from app.models.sync import sync_daily_reports
@@ -58,15 +61,21 @@ async def post_todos(
 ):
     date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
-    bridge.append_todo(date_text, form)
-    db_writes.insert_pdca_task(
+    status = (form.get("status", ["pending"])[0] or "pending").strip().casefold()
+    priority = (form.get("priority", ["medium"])[0] or "medium").strip().casefold()
+    if status not in {"pending", "done"} or priority not in {"normal", "medium", "high"}:
+        raise HTTPException(status_code=422, detail="非法任务状态或优先级")
+    saved = db_writes.insert_pdca_task(
         task_date=date_text,
         title=(form.get("title", [""])[0] or "").strip(),
         owner=(form.get("owner", [""])[0] or "").strip(),
-        status=(form.get("status", ["pending"])[0] or "pending"),
-        priority=(form.get("priority", ["MEDIUM"])[0] or "normal"),
+        status=status,
+        priority=priority,
         source="workbench",
     )
+    if not saved:
+        raise HTTPException(status_code=503, detail="待办保存失败，请稍后重试")
+    bridge.append_todo(date_text, form)
     return _redirect("/todos", date_text, "代办已保存。")
 
 
@@ -75,11 +84,10 @@ async def post_logistics(
     request: Request,
     date: str | None = None,
     user: Annotated[User, Depends(require_role("sales"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
 ):
     date_text = _date_or_today(date)
     form = form_to_legacy(await request.form())
-    if user.role not in ("sales", "admin"):
-        raise HTTPException(status_code=403, detail="仅销售本人或管理员可录入物流")
     if user.role == "sales":
         sales_label = (getattr(user, "sales_name", "") or "").strip()
         if not sales_label:
@@ -87,11 +95,22 @@ async def post_logistics(
         form["salesperson"] = [sales_label]
     from app.logistics import service
 
-    tracking = service.create_shipment(
-        date_text,
-        form,
-        salesperson=(form.get("salesperson", [""])[0] or "").strip(),
-    )
+    sales_name = (form.get("salesperson", [""])[0] or "").strip()
+    scope = resolve_data_scope(user, session)
+    allowed_salespeople = None
+    if not scope.unrestricted:
+        allowed_salespeople = {normalize_scope_key(value) for value in scope.owner_keys}
+        if not sales_name or normalize_scope_key(sales_name) not in allowed_salespeople:
+            raise HTTPException(status_code=403, detail="销售负责人不在当前账号权限范围内")
+    try:
+        tracking = service.create_shipment(
+            date_text,
+            form,
+            salesperson=sales_name,
+            allowed_salespeople=allowed_salespeople,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     from app.audit import log_action
 
     log_action(
@@ -128,13 +147,18 @@ async def post_pdca_task(
         field="task_date",
     )
     try:
+        status = (form.get("status", [""])[0] or "").strip().casefold()
+        if status not in {"pending", "done"}:
+            raise ValueError("非法任务状态")
         message = bridge.save_pdca_task_update(form)
-        db_writes.update_pdca_task_from_form(
+        saved = db_writes.update_pdca_task_from_form(
             task_date=task_date,
             title=(form.get("title", [""])[0] or "").strip(),
-            status=(form.get("status", [""])[0] or "").strip(),
+            status=status,
             vps_todo_id=(form.get("todo_id", [""])[0] or "").strip(),
         )
+        if not saved:
+            raise RuntimeError("待办数据库更新失败")
     except Exception as exc:
         message = f"保存失败：{exc}"
     return _redirect("/", task_date, message[:300])

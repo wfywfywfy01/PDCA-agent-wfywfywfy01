@@ -228,6 +228,67 @@ async def list_users(
     ]
 
 
+@router.get("/users/{username}/effective-permissions")
+async def effective_permissions(
+    username: str,
+    _user: Annotated[User, Depends(require_role("admin"))],
+    session: Annotated[Session, Depends(get_session)],
+):
+    """Return the authoritative row-level scope used by business APIs."""
+    from app.auth.scope import resolve_data_scope
+
+    target = session.exec(select(User).where(User.username == username)).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    scope = resolve_data_scope(target, session)
+    warnings: list[str] = []
+    if not target.is_active:
+        warnings.append("账号已停用，当前无法登录")
+    if getattr(target, "must_change_password", False):
+        warnings.append("账号必须先修改密码，业务访问暂时锁定")
+    if target.role == "sales" and not (target.owner_key or "").strip():
+        warnings.append("销售账号未绑定负责人")
+    if target.role == "sales" and not (target.sales_name or "").strip():
+        warnings.append("销售账号未配置物流来源名称，物流仅可查看")
+    if target.role == "manager" and not (target.team_key or "").strip():
+        warnings.append("主管账号未绑定团队")
+    if target.role == "dealer" and not (target.dealer_id or "").strip():
+        warnings.append("经销商账号未绑定门店")
+    if scope.mode in {"self", "team"} and not scope.store_ids:
+        warnings.append("当前配置未匹配到任何有效门店")
+
+    access = "all" if scope.unrestricted else "none" if scope.mode == "none" else "scoped"
+    modules = {
+        "workbench": access,
+        "customers": access,
+        "logistics": access,
+        "meetings": access,
+        "tasks": access,
+        "walkin": access,
+        "admin": "all" if target.role == "admin" else "none",
+    }
+    if target.role == "dealer":
+        modules.update({key: "none" for key in ("workbench", "customers", "logistics", "meetings", "tasks")})
+    if target.role == "sales" and not (target.sales_name or "").strip():
+        modules["logistics"] = "read-only"
+    if not target.is_active or getattr(target, "must_change_password", False):
+        modules = {key: "none" for key in modules}
+    return {
+        "username": target.username,
+        "role": target.role,
+        "is_active": target.is_active,
+        "scope": {
+            "mode": scope.mode,
+            "team_key": scope.team_key,
+            "store_ids": list(scope.store_ids),
+            "dealer_names": list(scope.dealer_names),
+            "owner_keys": list(scope.owner_keys),
+        },
+        "modules": modules,
+        "warnings": warnings,
+    }
+
+
 @router.post("/users", status_code=201)
 async def create_user(
     body: UserCreateBody,
@@ -286,6 +347,13 @@ async def update_user(
     target = session.exec(select(User).where(User.username == username)).first()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if target.username == current_user.username:
+        if body.is_active is False:
+            raise HTTPException(status_code=400, detail="不能停用当前登录账号")
+        if body.role is not None and body.role != "admin":
+            raise HTTPException(status_code=400, detail="不能降低当前登录管理员的角色")
+        if body.data_scope is not None and body.data_scope.strip() not in {"", "all"}:
+            raise HTTPException(status_code=400, detail="不能降低当前登录管理员的数据范围")
     next_role = body.role if body.role is not None else target.role
     next_dealer_id = body.dealer_id if body.dealer_id is not None else target.dealer_id
     next_owner_key = body.owner_key if body.owner_key is not None else getattr(target, "owner_key", "")

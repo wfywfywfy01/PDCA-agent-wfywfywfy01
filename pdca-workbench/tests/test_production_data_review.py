@@ -178,17 +178,27 @@ class ProductionDataReviewTests(unittest.TestCase):
         self.assertIsNone(summary["by_dealer"][0]["deal_amount_usd"])
         self.assertIsNone(cockpit["stores"][0]["reportedSellOutUsd"])
 
-    def test_five_kit_resubmit_updates_one_row_and_freshness(self):
+    def test_empty_walkin_summary_keeps_complete_response_schema(self):
+        with Session(self.engine) as session:
+            summary = asyncio.run(walkin.walkin_metrics_summary(
+                self.admin, session, month="2026-09", start="", end="",
+            ))
+        self.assertEqual(summary["five_kit"]["pct"], {
+            "walkin": 0, "cross": 0, "online": 0, "recruit": 0, "existing": 0,
+        })
+
+    def test_five_kit_resubmit_preserves_versions_and_freshness(self):
         with Session(self.engine) as session:
             session.add(WalkinDailyReport(report_date="2026-08-19", dealer_id="real-store", dealer_name="Real Store", created_at=datetime(2026, 8, 19)))
             session.commit()
             with patch.object(walkin, "log_action"), patch.object(walkin.bridge, "today_text", return_value="2026-08-20"):
                 asyncio.run(walkin.submit_walkin_metrics(walkin.WalkinMetricsSubmit(report_date="2026-08-19", dealer_id="real-store", dealer_name="Ignored Name", deal_amount_yuan=42), self.admin, session))
             rows = session.exec(select(WalkinDailyReport)).all()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].dealer_name, "Real Store")
-        self.assertEqual(rows[0].deal_amount_yuan, 42)
-        self.assertGreater(rows[0].created_at, datetime(2026, 8, 19))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1].dealer_name, "Real Store")
+        self.assertEqual(rows[0].deal_amount_yuan, 0)
+        self.assertEqual(rows[1].deal_amount_yuan, 42)
+        self.assertGreater(rows[1].created_at, datetime(2026, 8, 19))
 
     def test_single_day_meetings_do_not_include_following_days(self):
         from app.meeting.router import _db_meetings
@@ -206,7 +216,7 @@ class ProductionDataReviewTests(unittest.TestCase):
         self.assertIsNone(result["meetings"][0]["meeting_date"])
         self.assertEqual(result["meetings"][1]["meeting_date"], "2026-08-19")
 
-    def test_historical_duplicate_reports_use_latest_row_across_readers_and_upsert(self):
+    def test_historical_duplicate_reports_use_latest_row_and_preserve_new_version(self):
         from app.export.router import export_walkin_metrics
         captured = []
         with Session(self.engine) as session:
@@ -226,9 +236,6 @@ class ProductionDataReviewTests(unittest.TestCase):
             self.assertEqual(merged["sellOutUsd"], 40)
             sellout = asyncio.run(dashboard.sell_out("2026-08-19", "day", self.admin, session))
             self.assertEqual(sellout["amount"], 40)
-            with patch.object(logistics, "load_shipments", return_value=([], "available")):
-                today = asyncio.run(dashboard.workbench_today("2026-08-19", self.admin, session))
-            self.assertEqual(today["facts"]["walkin_visits"]["value"], 4)
             with patch("app.export.router._wb_response", side_effect=lambda wb, name: captured.append(wb)):
                 asyncio.run(export_walkin_metrics(self.admin, session, month="2026-08", dealer_id=""))
             self.assertEqual(captured[0].active.max_row, 2)
@@ -236,9 +243,10 @@ class ProductionDataReviewTests(unittest.TestCase):
             with patch.object(walkin, "log_action"), patch.object(walkin.bridge, "today_text", return_value="2026-08-20"):
                 asyncio.run(walkin.submit_walkin_metrics(walkin.WalkinMetricsSubmit(report_date="2026-08-19", dealer_id="real-store", dealer_name="Real Store", deal_amount_yuan=50), self.admin, session))
             rows = session.exec(select(WalkinDailyReport).order_by(WalkinDailyReport.id)).all()
-            self.assertEqual(len(rows), 2)  # Raw history is preserved.
+            self.assertEqual(len(rows), 3)  # Every submitted version is preserved.
             self.assertEqual(rows[0].deal_amount_yuan, 1000)
-            self.assertEqual(rows[1].deal_amount_yuan, 50)
+            self.assertEqual(rows[1].deal_amount_yuan, 40)
+            self.assertEqual(rows[2].deal_amount_yuan, 50)
 
     def test_db_only_task_create_fails_without_false_success_audit(self):
         with Session(self.engine) as session, patch("app.models.writes.get_engine", side_effect=RuntimeError("database offline")), patch("app.audit.log_action") as audit:

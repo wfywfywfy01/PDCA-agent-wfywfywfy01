@@ -5,12 +5,22 @@ from __future__ import annotations
 from datetime import datetime
 
 from loguru import logger
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.database import get_engine
 from app.models.daily_report import DailyReport
 from app.models.logistics import LogisticsShipment
 from app.models.pdca_task import PdcaTask
+
+
+def _lock_business_key(session: Session, key: str) -> None:
+    """Serialize same-key upserts across PostgreSQL workers."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": key},
+        )
 
 
 def upsert_daily_report(
@@ -58,7 +68,7 @@ def insert_pdca_task(
     source: str = "workbench",
     vps_todo_id: str = "",
 ) -> bool:
-    """新增待办记录；同日同名已存在时更新状态/负责人/优先级。
+    """新增待办记录；同日、同负责人、同名任务按业务键幂等更新。
 
     ``post_router.py::post_todos`` 依赖本函数；此前缺失导致 POST /todos
     落库路径抛 AttributeError（待办只写进了 CSV 文件，库内无记录）。
@@ -68,20 +78,18 @@ def insert_pdca_task(
         return False
     try:
         with Session(get_engine()) as session:
+            _lock_business_key(session, f"pdca-task:{task_date}:{owner}:{title.strip()}")
             row = session.exec(
                 select(PdcaTask).where(
                     PdcaTask.task_date == task_date,
                     PdcaTask.title == title.strip(),
+                    PdcaTask.owner == owner,
                 ),
             ).first()
             if row:
-                row.owner = owner or row.owner
-                row.status = status or row.status
-                row.priority = priority or row.priority
-                if vps_todo_id:
-                    row.vps_todo_id = vps_todo_id
-                row.updated_at = datetime.utcnow()
-                session.add(row)
+                # A repeated create is idempotent. State changes use the
+                # explicit update APIs and must not reopen completed work.
+                return True
             else:
                 session.add(
                     PdcaTask(
@@ -133,10 +141,10 @@ def update_pdca_task_from_form(
     title: str,
     status: str,
     vps_todo_id: str = "",
-) -> None:
+) -> bool:
     """根据 PDCA 任务表单更新库内记录。"""
     if not title.strip():
-        return
+        return False
     try:
         with Session(get_engine()) as session:
             row = session.exec(
@@ -162,14 +170,17 @@ def update_pdca_task_from_form(
                     ),
                 )
             session.commit()
+            return True
     except Exception as exc:
         logger.warning("更新 pdca_tasks 失败: {}", exc)
+        return False
 
 
 def upsert_logistics_shipment(
     record_date: str,
     form: dict,
     salesperson: str = "",
+    allowed_salespeople: set[str] | None = None,
 ) -> None:
     """录入物流单号时写入 PostgreSQL。"""
     tracking = (form.get("tracking_number", [""])[0] or "").strip()
@@ -177,11 +188,16 @@ def upsert_logistics_shipment(
         return
     try:
         with Session(get_engine()) as session:
+            _lock_business_key(session, f"logistics:{tracking}")
             row = session.exec(
                 select(LogisticsShipment).where(
                     LogisticsShipment.tracking_number == tracking,
                 ),
             ).first()
+            if row and allowed_salespeople is not None:
+                existing_owner = " ".join(str(row.salesperson or "").strip().casefold().split())
+                if not existing_owner or existing_owner not in allowed_salespeople:
+                    raise PermissionError("该运单不在当前账号权限范围内")
             payload = {
                 "record_date": record_date,
                 "carrier": (form.get("carrier", [""])[0] or "").strip(),
@@ -200,6 +216,8 @@ def upsert_logistics_shipment(
             else:
                 session.add(LogisticsShipment(tracking_number=tracking, **payload))
             session.commit()
+    except PermissionError:
+        raise
     except Exception as exc:
         logger.warning("写入 logistics_shipments 失败: {}", exc)
         raise RuntimeError("物流保存失败，请稍后重试") from exc

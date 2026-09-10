@@ -136,6 +136,7 @@ def _sales_payload(data: dict, prefix: str) -> dict:
     wan = data.get(f"{prefix}Wan")
     amount = round(float(wan) * 10000, 2) if wan is not None else None
     as_of = data.get("dataAsOf")
+    declared_state = (data.get("dataState") or {}).get(prefix)
     return {
         "amount": amount,
         "wan": wan,
@@ -143,7 +144,9 @@ def _sales_payload(data: dict, prefix: str) -> dict:
         "as_of": as_of,
         "source": (data.get("dataSource") or {}).get(prefix),
         "cached": bool(as_of),
-        "state": _freshness_state(as_of) if wan is not None else (data.get("dataState") or {}).get(prefix, "missing"),
+        "state": declared_state if declared_state in {"stale", "suspect"} else (
+            _freshness_state(as_of) if wan is not None else declared_state or "missing"
+        ),
     }
 
 
@@ -155,6 +158,7 @@ async def workbench_today(
 ):
     """Return truthful, scoped facts and next actions for the current account."""
     date_text = _date_or_today(date)
+    report_date = (date_type.fromisoformat(date_text) - timedelta(days=1)).isoformat()
     scope = resolve_data_scope(user, session)
     stores = [
             row for row in session.exec(
@@ -163,9 +167,15 @@ async def workbench_today(
             if not is_demo_store(row.store_id, row.name)
             and (scope.unrestricted or row.store_id in scope.store_ids)
         ]
-    store_ids = {row.store_id for row in stores}
+    from app.daily_report import REQUIRED_FIVE_KIT_STORES
 
-    report_stmt = select(WalkinDailyReport).where(WalkinDailyReport.report_date == date_text)
+    store_ids = (
+        set(REQUIRED_FIVE_KIT_STORES)
+        if scope.unrestricted
+        else set(scope.store_ids).intersection(REQUIRED_FIVE_KIT_STORES)
+    )
+
+    report_stmt = select(WalkinDailyReport).where(WalkinDailyReport.report_date == report_date)
     if store_ids:
         report_stmt = report_stmt.where(WalkinDailyReport.dealer_id.in_(store_ids))
         reports = latest_walkin_reports(session.exec(report_stmt).all())
@@ -194,20 +204,20 @@ async def workbench_today(
     )
 
     facts = {
-        "store_count": _fact(expected, "available", "dealer_store_db", date_text, scope.mode),
-        "walkin_reported": _fact(len(reported_ids), "available", "five_kit_db", date_text, scope.mode),
-        "walkin_missing": _fact(missing, "available", "five_kit_db", date_text, scope.mode),
+        "store_count": _fact(expected, "available", "dealer_store_db", report_date, scope.mode),
+        "walkin_reported": _fact(len(reported_ids), "available", "five_kit_db", report_date, scope.mode),
+        "walkin_missing": _fact(missing, "available", "five_kit_db", report_date, scope.mode),
         "walkin_visits": _fact(
             sum(row.total_visits for row in reports),
             "available",
             "five_kit_db",
-            date_text,
+            report_date,
             scope.mode,
         ),
         "logistics_attention": logistics_fact,
     }
     actions = []
-    if expected == 0 and not scope.unrestricted:
+    if not stores and not scope.unrestricted:
         actions.append({
             "priority": "blocking",
             "title": "账号尚未绑定业务范围",
@@ -217,8 +227,8 @@ async def workbench_today(
     elif missing:
         actions.append({
             "priority": "high",
-            "title": "跟进今日门店五件套填报",
-            "message": f"系统已收到 {len(reported_ids)} 家；应报门店清单尚未确认，不展示虚假完成率。",
+            "title": "跟进 T-1 门店五件套填报",
+            "message": f"{report_date} 已收到 {len(reported_ids)} 家，必报 {expected} 家。",
             "href": "/app/walkin",
         })
     if logistics_fact["state"] in {"available", "mixed"} and logistics_fact["value"]:
@@ -242,7 +252,7 @@ async def workbench_today(
             "mode": scope.mode,
             "team_key": scope.team_key,
             "store_ids": list(scope.store_ids),
-            "store_count": expected,
+            "store_count": len(stores),
         },
         "facts": facts,
         "actions": actions,
@@ -250,7 +260,8 @@ async def workbench_today(
             "reported": len(reported_ids),
             "expected": expected,
             "complete": expected > 0 and missing == 0,
-            "roster_state": "unconfirmed",
+            "roster_state": "confirmed",
+            "report_date": report_date,
         },
     }
 
@@ -335,6 +346,16 @@ async def sell_in(
     from app.vertu.sales import fetch_sell_in
     date_text = _date_or_today(date)
     if not resolve_data_scope(user, session).unrestricted:
+        if period != "month":
+            return {
+                "amount": None,
+                "wan": None,
+                "note": "当前权限账号仅支持月度 Sell-in；日、周、季度缺少可验证的范围明细。",
+                "currency": "CNY",
+                "as_of": None,
+                "source": None,
+                "state": "missing",
+            }
         data = service.workbench_overview(date_text, period, _session_user(user, session))
         data = service.merge_db_sales(data, date_text, session, user, period=period)
         return _sales_payload(data, "sellIn")
@@ -472,7 +493,7 @@ async def dealer_sellin_summary(
     scoped["total_wan"] = round(
         sum(float(row.get("wan") or row.get("sell_in_wan") or 0) for row in scoped["dealers"]),
         2,
-    ) if data.get("amount_state") == "available" else None
+    ) if data.get("has_data") and data.get("amount_state") in {"available", "stale"} else None
     return scoped
 
 
@@ -500,6 +521,10 @@ class TaskPatchBody(BaseModel):
     status: str | None = None
     owner: str | None = None
     priority: str | None = None
+
+
+_TASK_STATUSES = {"pending", "done"}
+_TASK_PRIORITIES = {"normal", "medium", "high"}
 
 
 def _allowed_task_owners(user: User, session: Session) -> set[str] | None:
@@ -564,6 +589,9 @@ async def task_center_create(
     """P4：创建任务。manager/admin 可指派任意负责人；sales 仅可建给自己。"""
     if not body.title.strip():
         raise HTTPException(status_code=422, detail="任务标题不能为空")
+    priority = body.priority.strip() or "normal"
+    if priority not in _TASK_PRIORITIES:
+        raise HTTPException(status_code=422, detail="非法任务优先级")
     date_text = require_iso_date(body.task_date or bridge.today_text(), field="task_date")
     allowed = _allowed_task_owners(user, session)
     owner = body.owner.strip()
@@ -575,6 +603,16 @@ async def task_center_create(
         )
     elif allowed is not None and owner and owner.casefold() not in allowed:
         raise HTTPException(status_code=403, detail="负责人不在当前账号权限范围内")
+    existing = session.exec(select(PdcaTask).where(
+        PdcaTask.task_date == date_text,
+        PdcaTask.title == body.title.strip(),
+        PdcaTask.owner == owner,
+    )).first()
+    if existing is not None:
+        return {
+            "ok": True, "task_date": date_text, "title": existing.title,
+            "owner": existing.owner, "idempotent": True,
+        }
     from app.models import writes as db_writes
 
     saved = db_writes.insert_pdca_task(
@@ -582,7 +620,7 @@ async def task_center_create(
         title=body.title.strip(),
         owner=owner,
         status="pending",
-        priority=body.priority.strip() or "normal",
+        priority=priority,
         source="workbench",
     )
     if not saved:
@@ -593,7 +631,7 @@ async def task_center_create(
         user.username,
         "task_create",
         resource=f"{date_text}:{body.title.strip()}",
-        detail={"owner": owner, "priority": body.priority.strip() or "normal"},
+        detail={"owner": owner, "priority": priority},
     )
     return {"ok": True, "task_date": date_text, "title": body.title.strip(), "owner": owner}
 
@@ -612,16 +650,22 @@ async def task_center_patch(
     allowed = _allowed_task_owners(user, session)
     if allowed is not None:
         current_owner = str(row.owner or "").strip().casefold()
-        if current_owner and current_owner not in allowed:
+        if not current_owner or current_owner not in allowed:
             raise HTTPException(status_code=403, detail="该任务不在当前账号权限范围内")
-        if body.owner and body.owner.strip().casefold() not in allowed:
+        if body.owner is not None and body.owner.strip().casefold() not in allowed:
             raise HTTPException(status_code=403, detail="新负责人不在当前账号权限范围内")
     if body.status is not None:
-        row.status = body.status.strip()
+        status_value = body.status.strip()
+        if status_value not in _TASK_STATUSES:
+            raise HTTPException(status_code=422, detail="非法任务状态")
+        row.status = status_value
     if body.owner is not None:
         row.owner = body.owner.strip()
     if body.priority is not None:
-        row.priority = body.priority.strip()
+        priority_value = body.priority.strip()
+        if priority_value not in _TASK_PRIORITIES:
+            raise HTTPException(status_code=422, detail="非法任务优先级")
+        row.priority = priority_value
     from datetime import datetime as _dt
 
     row.updated_at = _dt.utcnow()

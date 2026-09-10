@@ -57,14 +57,15 @@ def main():
             with get_engine().connect() as connection:
                 count = connection.execute(text("SELECT count(*) FROM walkin_daily_reports WHERE dealer_id=:store AND report_date=:day"),
                                            {"store": body["dealer_id"], "day": body["report_date"]}).scalar()
-            assert count == 1, f"Concurrent upsert produced {count} records"
+            assert count == 6, f"Concurrent append preserved {count} audit versions instead of 6"
             body["walkin_visits"] = 0
             body["touch_count"] = 0
             body["deal_count"] = 0
             body["deal_amount_yuan"] = 0
             sales.post("/api/walkin-metrics", json=body).raise_for_status()
             with get_engine().connect() as connection:
-                values = connection.execute(text("SELECT walkin_visits,deal_amount_yuan FROM walkin_daily_reports WHERE dealer_id=:store"),
+                values = connection.execute(text("SELECT walkin_visits,deal_amount_yuan FROM walkin_daily_reports "
+                                                 "WHERE dealer_id=:store ORDER BY created_at DESC, id DESC LIMIT 1"),
                                             {"store": body["dealer_id"]}).one()
             assert tuple(values) == (0, 0), values
             body["dealer_id"] = f"isolate-b-{suffix}"
@@ -78,7 +79,7 @@ def main():
         for path in assets:
             response = admin.get(path)
             assert response.status_code == 200 and "text/html" not in response.headers["content-type"]
-    print("PASS: PostgreSQL login/change-password, 6-way upsert=1 row, true-zero overwrite, owner isolation, cross-owner/admin denial, SPA assets")
+    print("PASS: PostgreSQL login/change-password, 6-way append audit, latest true-zero, owner isolation, cross-owner/admin denial, SPA assets")
 
 
 if __name__ == "__main__":
