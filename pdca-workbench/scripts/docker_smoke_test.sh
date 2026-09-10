@@ -11,6 +11,7 @@ MVP_ROOT="$REPO_ROOT/data_platform/data_role_pdca_mvp"
 RUNTIME_ROOT="$(mktemp -d)"
 SMOKE_DATE="$(date +%F)"
 SMOKE_MONTH="${SMOKE_DATE:0:7}"
+REPORT_DATE="$(date -d "$SMOKE_DATE -1 day" +%F)"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "找不到 Docker" >&2
@@ -167,6 +168,12 @@ docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
   -H 'Origin: http://127.0.0.1:8767' \
   -H 'Content-Type: application/json' \
   --data "{\"report_date\":\"$SMOKE_DATE\",\"dealer_id\":\"smoke-store\",\"dealer_name\":\"Smoke Store\",\"walkin_visits\":3,\"touch_count\":2,\"wechat_add_count\":1,\"deal_count\":1,\"deal_amount_yuan\":100}" \
+  http://127.0.0.1:8767/api/walkin-metrics >/dev/null
+# 首页按上海时区 T-1 且仅统计正式六店；用正式门店验证同一口径。
+docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
+  -H 'Origin: http://127.0.0.1:8767' \
+  -H 'Content-Type: application/json' \
+  --data "{\"report_date\":\"$REPORT_DATE\",\"dealer_id\":\"me005\",\"dealer_name\":\"Dar Al Sabaek\",\"walkin_visits\":1}" \
   http://127.0.0.1:8767/api/walkin-metrics >/dev/null
 walkin_json="$(docker exec "$CONTAINER_NAME" curl -fsS -b /tmp/pdca-cookie \
   "http://127.0.0.1:8767/api/walkin?month=$SMOKE_MONTH")"
