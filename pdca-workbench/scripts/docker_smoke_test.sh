@@ -117,7 +117,10 @@ import json, os, re, urllib.request
 base = "http://127.0.0.1:8767"
 health = json.load(urllib.request.urlopen(base + "/health"))
 if os.environ["EXPECTED_REVISION"]:
-    assert health["revision"] == os.environ["EXPECTED_REVISION"]
+    assert health["revision"] == os.environ["EXPECTED_REVISION"], (
+        f"runtime revision mismatch: expected={os.environ['EXPECTED_REVISION']} "
+        f"actual={health.get('revision')}"
+    )
 html = urllib.request.urlopen(base + "/app/").read().decode()
 assets = re.findall(r'(?:src|href)="(/app/assets/[^\"]+)"', html)
 assert any(asset.endswith(".js") for asset in assets), "SPA script missing"
