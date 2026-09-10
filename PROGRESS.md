@@ -21,8 +21,12 @@ Verification:
 - Frontend: `8 tests` passed; Vue typecheck and production build passed.
 - Python compilation, migration head/fresh upgrade, PowerShell deploy-script
   parsing, Docker Compose configuration, and `git diff --check` passed.
-- Local image smoke test is pending because Docker Desktop's Linux engine pipe
-  was unavailable; no production deployment was attempted from this worktree.
+- PR and main CI passed the production image, SQLite container, and disposable
+  PostgreSQL concurrency/scope/outage smoke gates. Production cutover deployed
+  exact SHA `d8404663b5b9e15853b38ebb7f71ca06b2593d4d` to both the internal workbench
+  and five-kit portal after PostgreSQL backups. Public health, admin login, 71
+  user rows, authoritative admin scope, and T-1 five-kit reporting (5/6 for
+  2026-09-09) were verified after deployment.
 
 ## 2026-09-09: September targets and T-1 five-kit scope
 
