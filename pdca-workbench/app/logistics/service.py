@@ -10,6 +10,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from app.auth.scope import normalize_scope_key
 from app.config import get_settings
 from app.legacy import bridge
 
@@ -272,7 +273,12 @@ def _enrich_row(
     return enriched
 
 
-def create_shipment(date_text: str, fields: dict, salesperson: str = "") -> str:
+def create_shipment(
+    date_text: str,
+    fields: dict,
+    salesperson: str = "",
+    allowed_salespeople: set[str] | None = None,
+) -> str:
     """P2：物流单号录入统一入口（新 JSON API 与旧表单 POST 共用）。
 
     - 写 DB（logistics_shipments）：读取侧事实源；
@@ -290,8 +296,32 @@ def create_shipment(date_text: str, fields: dict, salesperson: str = "") -> str:
     tracking = (form.get("tracking_number", [""])[0] or "").strip()
     if not tracking:
         raise ValueError("物流单号不能为空")
+    if allowed_salespeople is not None:
+        allowed_salespeople = {
+            normalize_scope_key(canonical_sales_name(value))
+            for value in allowed_salespeople
+            if normalize_scope_key(value)
+        }
     from app.legacy import bridge
     from app.models import writes as db_writes
+
+    if allowed_salespeople is not None:
+        inputs_dir = get_settings().mvp_root / "inputs" / "logistics"
+        if inputs_dir.is_dir():
+            historical = None
+            for csv_path in sorted(inputs_dir.glob("*_tracking.csv"), reverse=True):
+                historical = next((
+                    row for row in _read_csv(csv_path)
+                    if (row.get("tracking_number") or "").strip() == tracking
+                ), None)
+                if historical is not None:
+                    break
+            if historical is not None:
+                historical_owner = normalize_scope_key(
+                    canonical_sales_name(historical.get("salesperson", ""))
+                )
+                if not historical_owner or historical_owner not in allowed_salespeople:
+                    raise PermissionError("该运单不在当前账号权限范围内")
 
     db_writes.upsert_logistics_shipment(
         date_text,
@@ -299,6 +329,7 @@ def create_shipment(date_text: str, fields: dict, salesperson: str = "") -> str:
         canonical_sales_name(
             salesperson or (form.get("salesperson", [""])[0] or "").strip()
         ),
+        allowed_salespeople=allowed_salespeople,
     )
     try:
         bridge.append_logistics(date_text, form)

@@ -56,7 +56,7 @@ class PdcaTaskWriteTests(unittest.TestCase):
         self.assertEqual(row.priority, "high")
         self.assertEqual(row.source, "workbench")
 
-    def test_insert_same_day_title_updates_instead_of_duplicate(self):
+    def test_repeated_insert_is_idempotent_and_does_not_reopen_task(self):
         db_writes.insert_pdca_task(
             task_date="2026-08-18",
             title="回访客户李四",
@@ -71,7 +71,7 @@ class PdcaTaskWriteTests(unittest.TestCase):
         )
         rows = self._rows("2026-08-18")
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0].status, "done")
+        self.assertEqual(rows[0].status, "pending")
 
     def test_blank_title_is_noop(self):
         db_writes.insert_pdca_task(task_date="2026-08-18", title="   ")

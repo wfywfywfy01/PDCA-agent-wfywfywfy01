@@ -339,11 +339,11 @@ onMounted(async () => {
             <div v-for="field in FIVE_KIT_FIELDS" :key="field.key" class="kit-bar">
               <span class="kit-label">{{ field.label }}</span>
               <div class="bar">
-                <i :style="{ width: (summary.five_kit.pct[field.key.replace('_visits', '')] || 0) + '%' }"></i>
+                <i :style="{ width: (summary.five_kit.pct?.[field.key.replace('_visits', '')] || 0) + '%' }"></i>
               </div>
               <span class="kit-num">
                 {{ fiveKitValue(field.key) }}
-                （{{ summary.five_kit.pct[field.key.replace('_visits', '')] || 0 }}%）
+                （{{ summary.five_kit.pct?.[field.key.replace('_visits', '')] || 0 }}%）
               </span>
             </div>
           </div>

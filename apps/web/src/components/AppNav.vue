@@ -66,6 +66,7 @@ async function logout() {
         <router-link v-if="me && (me.role === 'manager' || me.role === 'admin')" to="/admin/sync">
           数据同步
         </router-link>
+        <router-link v-if="me?.role === 'admin'" to="/admin/permissions">权限管理</router-link>
       </nav>
       <div class="user">
         <span v-if="me" class="who">

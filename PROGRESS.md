@@ -1,5 +1,29 @@
 # Progress
 
+## 2026-09-10: Production review remediation
+
+- Closed cross-owner and cross-team writes for tasks, logistics, and
+  SignalSeller customers, including manager scope, legacy forms, CSV-only
+  shipments, aliases, retries, and concurrent PostgreSQL upserts.
+- Unified the workbench to the T-1 six-store five-kit roster; confirmed empty
+  sales batches now replace stale values with real zero, while failed refreshes
+  preserve the last successful snapshot and mark it stale/N/A.
+- Preserved every five-kit resubmission as an audit version, completed the empty
+  response schema, and changed the home page to render each section as it arrives.
+- Added an admin-only visual permission console for role/store/owner/team
+  bindings. Its preview comes from the authoritative row-scope resolver, flags
+  incomplete mappings, distinguishes dealer and read-only logistics access, and
+  prevents the active administrator from locking out their own account.
+
+Verification:
+
+- Backend: `389 tests` passed in `52.255s`; final permission edge tests passed.
+- Frontend: `8 tests` passed; Vue typecheck and production build passed.
+- Python compilation, migration head/fresh upgrade, PowerShell deploy-script
+  parsing, Docker Compose configuration, and `git diff --check` passed.
+- Local image smoke test is pending because Docker Desktop's Linux engine pipe
+  was unavailable; no production deployment was attempted from this worktree.
+
 ## 2026-09-09: September targets and T-1 five-kit scope
 
 - Set the confirmed September sales targets to Lina 400 万, 尤文静 100 万,

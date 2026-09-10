@@ -200,22 +200,37 @@ async def signalseller_update_customer(
     """
     from app.models.customer_profile import CustomerProfile
 
-    allowed, _label = _scoped_customers(body.team, user, session)
+    scope = resolve_data_scope(user, session)
+    target_team = body.team if scope.unrestricted else service.DEFAULT_TEAM
+    if body.team != target_team:
+        raise HTTPException(status_code=403, detail="该团队不在当前账号的数据权限范围内")
+    allowed, _label = _scoped_customers(target_team, user, session)
     requested = body.dealer_name.strip().casefold()
-    if not any(
-        str(row.get("dealer_name") or "").strip().casefold() == requested
+    authorized = next((
+        row
         for row in allowed
-    ):
+        if str(row.get("dealer_name") or "").strip().casefold() == requested
+    ), None)
+    if authorized is None:
         raise HTTPException(status_code=403, detail="该客户不在当前账号的数据权限范围内")
 
-    row = session.exec(
-        select(CustomerProfile).where(
-            CustomerProfile.team == body.team,
-            CustomerProfile.dealer_name == body.dealer_name.strip(),
-        )
-    ).first()
+    customer_id = authorized.get("id")
+    row = session.get(CustomerProfile, customer_id) if customer_id is not None else None
+    authorized_owner = str(authorized.get("owner") or "").strip()
+    if row is None and customer_id is None:
+        row = session.exec(
+            select(CustomerProfile).where(
+                CustomerProfile.team == target_team,
+                CustomerProfile.dealer_name == body.dealer_name.strip(),
+                CustomerProfile.owner == authorized_owner,
+            )
+        ).first()
     if row is None:
-        row = CustomerProfile(team=body.team, dealer_name=body.dealer_name.strip())
+        row = CustomerProfile(
+            team=target_team,
+            dealer_name=body.dealer_name.strip(),
+            owner=authorized_owner,
+        )
         session.add(row)
     if body.next_action is not None:
         row.next_action = body.next_action.strip()

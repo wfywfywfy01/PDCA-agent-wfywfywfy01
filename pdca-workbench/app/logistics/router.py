@@ -210,6 +210,7 @@ async def logistics_salespeople(
 
 class ShipmentCreateBody(BaseModel):
     tracking_number: str
+    salesperson: str = ""
     carrier: str = ""
     customer: str = ""
     ship_date: str = ""
@@ -222,15 +223,22 @@ class ShipmentCreateBody(BaseModel):
 async def create_shipment(
     body: ShipmentCreateBody,
     user: Annotated[User, Depends(require_role("sales"))],
+    session: Annotated[Session, Depends(get_session)],
 ):
-    """P2：物流单号录入（JSON API）。sales 身份由服务器锁定；manager/admin 可自由录入。"""
+    """P2：物流单号录入；非管理员只能写入本人或本团队负责人。"""
     if not body.tracking_number.strip():
         raise HTTPException(status_code=422, detail="物流单号不能为空")
-    sales_label = ""
+    scope = resolve_data_scope(user, session)
+    allowed_salespeople: set[str] | None = None
+    sales_label = body.salesperson.strip()
     if user.role == "sales":
         sales_label = (getattr(user, "sales_name", "") or "").strip()
         if not sales_label:
             raise HTTPException(status_code=403, detail="账号未配置销售数据名称，请联系管理员")
+    if not scope.unrestricted:
+        allowed_salespeople = {normalize_scope_key(value) for value in scope.owner_keys}
+        if not sales_label or normalize_scope_key(sales_label) not in allowed_salespeople:
+            raise HTTPException(status_code=403, detail="销售负责人不在当前账号权限范围内")
     date_text = bridge.today_text()
     ship_date = require_iso_date(body.ship_date or date_text, field="ship_date")
     try:
@@ -247,7 +255,10 @@ async def create_shipment(
                 "salesperson": sales_label,
             },
             salesperson=sales_label,
+            allowed_salespeople=allowed_salespeople,
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     from app.audit import log_action
