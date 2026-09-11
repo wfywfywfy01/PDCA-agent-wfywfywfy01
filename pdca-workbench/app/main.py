@@ -19,7 +19,8 @@ from app.auth.seed import seed_users
 from app.auth.csrf import browser_write_is_trusted
 from app.config import get_settings
 from app.dashboard.router import router as dashboard_router
-from app.database import bootstrap_database, check_db_connection, get_db_mode
+from app.database import bootstrap_database, check_db_connection, get_db_mode, get_engine
+from sqlmodel import Session, select
 from app.logging_setup import setup_logging
 from app.logistics.router import router as logistics_router
 from app.meeting.router import router as meeting_router
@@ -317,6 +318,39 @@ app.include_router(spa_router)
 app.mount("/mcp", knowledge_mcp_app)
 
 
+def _daily_report_status() -> dict:
+    """今日日报外发状态（供 /health 监控，不参与整体 ok 判定）。
+
+    查询失败时返回 error 状态而不是抛出——日报账本故障不应拖垮健康检查。
+    """
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    from app.models.scheduled_job_run import ScheduledJobRun
+
+    today = _dt.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    try:
+        with Session(get_engine()) as session:
+            row = session.exec(
+                select(ScheduledJobRun)
+                .where(ScheduledJobRun.job_name == "daily_report")
+                .order_by(ScheduledJobRun.started_at.desc())
+            ).first()
+    except Exception as exc:  # noqa: BLE001 — 监控信息降级为 error，不抛出
+        logger.warning("日报账本查询失败: {}", exc)
+        return {"ok": False, "bucket": today, "status": "error", "detail": str(exc)[:200]}
+    if row is None:
+        return {"ok": True, "bucket": today, "status": "pending", "note": "今日日报尚未到触发时间"}
+    finished = row.finished_at.isoformat() if row.finished_at else None
+    return {
+        "ok": row.status == "sent",
+        "bucket": row.bucket,
+        "status": row.status,
+        "detail": row.detail,
+        "finished_at": finished,
+    }
+
+
 @app.get("/health")
 async def health():
     """健康检查（含数据库连通性）。"""
@@ -354,6 +388,18 @@ async def health():
             "detail": "该门户不依赖 vertu-cli",
         }
     ok = db_ok and backup["ok"] and vertu["ok"]
+    daily_report_required = getattr(settings, "scheduler_enabled", True) and getattr(
+        settings, "daily_report_enabled", True
+    )
+    daily_report = (
+        await asyncio.to_thread(_daily_report_status)
+        if daily_report_required
+        else {
+            "ok": True,
+            "not_required": True,
+            "note": "日报调度未启用",
+        }
+    )
     payload = {
         "status": "ok" if ok else "degraded",
         "service": "pdca-workbench",
@@ -362,6 +408,7 @@ async def health():
         "database_connected": db_ok,
         "backup": backup,
         "vertu_cli": vertu,
+        "daily_report": daily_report,
     }
     return JSONResponse(payload, status_code=200 if ok else 503)
 

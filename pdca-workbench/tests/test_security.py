@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.auth.models import User
@@ -20,6 +21,7 @@ from app.main import app, health, metrics
 from app.models.dealer_store import DealerStore
 from app.models.dealer_assignment import DealerAssignment
 from app.models.walkin_daily_report import WalkinDailyReport
+from app.models.scheduled_job_run import ScheduledJobRun
 from app.logistics.service import _is_delivered, _is_demo_record, _judge_status
 from app.vertu.sales import fetch_dealer_sales_orders_sync
 from app.pages.router import _serve_module, view_path, walkin_assets, walkin_portal
@@ -289,6 +291,51 @@ class ProductionHardeningTests(unittest.TestCase):
             response = asyncio.run(health())
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'"status":"ok"', response.body)
+
+    def test_walkin_portal_health_daily_report_not_required(self):
+        settings = SimpleNamespace(environment="production", require_vertu=False, scheduler_enabled=False)
+        with (
+            patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.check_db_connection", return_value=True),
+            patch("app.main.backup_status", return_value={"ok": False}),
+            patch("app.main.get_settings", return_value=settings),
+            patch("app.main.vertu_health", new=AsyncMock(return_value={"ok": False})),
+        ):
+            response = asyncio.run(health())
+        payload = json.loads(response.body)
+        self.assertTrue(payload["daily_report"]["not_required"])
+
+    def test_health_exposes_daily_report_status(self):
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(ScheduledJobRun(
+                run_key="daily_report:2026-09-11",
+                job_name="daily_report",
+                bucket="2026-09-11",
+                status="sent",
+            ))
+            session.commit()
+        settings = SimpleNamespace(
+            environment="production", require_vertu=True,
+            scheduler_enabled=True, daily_report_enabled=True,
+        )
+        with (
+            patch("app.main.get_db_mode", return_value="postgresql"),
+            patch("app.main.check_db_connection", return_value=True),
+            patch("app.main.backup_status", return_value={"ok": True}),
+            patch("app.main.get_settings", return_value=settings),
+            patch("app.main.vertu_health", new=AsyncMock(return_value={"ok": True})),
+            patch("app.main.get_engine", return_value=engine),
+        ):
+            response = asyncio.run(health())
+        payload = json.loads(response.body)
+        self.assertEqual(payload["daily_report"]["status"], "sent")
+        self.assertTrue(payload["daily_report"]["ok"])
 
     def test_walkin_portal_health_delegates_backup_and_vertu(self):
         """walkin 门户不负责备份/不依赖 vertu-cli：health 应如实标注 not_required 且不跑 vertu 子进程。"""
