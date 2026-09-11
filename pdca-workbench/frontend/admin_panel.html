@@ -268,7 +268,7 @@
     </div>
     <div style="overflow-x:auto">
     <table><thead><tr>
-      <th>项目</th><th>状态</th><th>协调人</th><th>成员</th><th>未完成</th><th>已完成</th><th>逾期</th><th>进度</th><th>操作</th>
+      <th>项目</th><th>OKR 归属</th><th>状态</th><th>协调人</th><th>成员</th><th>未完成</th><th>已完成</th><th>逾期</th><th>进度</th><th>操作</th>
     </tr></thead><tbody id="projectsTbody"><tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:2rem">加载中…</td></tr></tbody></table>
     </div>
     <div id="unassignedBox" style="margin-top:1rem"></div>
@@ -773,8 +773,8 @@ function loadProjects(){
     .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
     .then(function(res){
       var d=res.d;
-      if(!res.ok){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="9" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
-      if(!Array.isArray(d)){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="9" style="color:#e11d48;text-align:center;padding:2rem">加载失败</td></tr>';return;}
+      if(!res.ok){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="10" style="color:#e11d48;text-align:center;padding:2rem">'+esc(d.detail||'无权限')+'</td></tr>';return;}
+      if(!Array.isArray(d)){document.getElementById('projectsTbody').innerHTML='<tr><td colspan="10" style="color:#e11d48;text-align:center;padding:2rem">加载失败</td></tr>';return;}
       window._projects=d;
       var html='';
       d.forEach(function(p){
@@ -788,6 +788,7 @@ function loadProjects(){
         var closedCls=p.status==='已闭环'?'style="opacity:.45"':'';
         html+='<tr id="prow_'+p.id+'" '+closedCls+'>'
           +'<td><strong>'+esc(p.name)+'</strong> <span class="badge badge-info">'+kind+'</span></td>'
+          +'<td style="font-size:.7rem;color:#94a3b8" title="'+esc(p.okr_title||'')+'">'+esc((p.okr_title||'—').slice(0,26)+(p.okr_title&&p.okr_title.length>26?'…':''))+'</td>'
           +'<td><select id="ps_'+p.id+'" style="padding:.3rem .5rem;border:1.5px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:#e2e8f0" onchange="saveProjectStatus('+p.id+')">'+opts+'</select></td>'
           +'<td style="color:#94a3b8">'+esc(p.coordinator||'—')+'</td>'
           +'<td style="font-size:.72rem;color:#94a3b8">'+esc((p.executors||[]).join('、')||'—')+'</td>'
@@ -803,7 +804,7 @@ function loadProjects(){
           +'<div style="color:#64748b;margin-top:3px">已催 '+p.remind_count+' 次</div>'
           +'</td></tr>';
       });
-      if(!html){html='<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:2rem">暂无项目</td></tr>';}
+      if(!html){html='<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:2rem">暂无项目</td></tr>';}
       document.getElementById('projectsTbody').innerHTML=html;
       loadUnassigned();
       loadKpis();
