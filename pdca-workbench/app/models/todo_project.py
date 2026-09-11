@@ -34,5 +34,7 @@ class TodoProject(SQLModel, table=True):
     # IM 回复采集：最近一次回复原文与时间
     reply_text: str = Field(default="", max_length=1024)
     replied_at: Optional[datetime] = Field(default=None)
+    # OKR 归属：项目对应的个人月度 OKR 条目标题（sync_todo_okr 收敛时写入）
+    okr_title: str = Field(default="", max_length=256)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

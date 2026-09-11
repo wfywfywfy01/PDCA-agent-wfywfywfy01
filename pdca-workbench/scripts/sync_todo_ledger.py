@@ -37,7 +37,7 @@ from app.todos.reply_signals import classify_reply  # noqa: E402
 from app.vertu.client import run_vertu_sync, run_vertu_sync_json  # noqa: E402
 
 HEADERS = [
-    "事项", "板块项目", "负责人", "最近催办", "是否领取",
+    "事项", "板块项目", "OKR", "负责人", "最近催办", "是否领取",
     "领取时间", "结束时间", "进度(回复)", "得分",
 ]
 
@@ -136,10 +136,12 @@ def build_rows(today: str) -> list[list[str]]:
     with Session(get_engine()) as session:
         rows = list(session.exec(select(PdcaTask)).all())
         project_names = {}
+        project_okrs = {}
         from app.models.todo_project import TodoProject
 
         for proj in session.exec(select(TodoProject)).all():
             project_names[proj.id] = proj.name
+            project_okrs[proj.id] = proj.okr_title or ""
     cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=7)).strftime(
         "%Y-%m-%d"
     )
@@ -154,6 +156,7 @@ def build_rows(today: str) -> list[list[str]]:
         if not active_parts:
             continue  # 负责人全部在催办排除名单里 → 不进台账
         project = project_names.get(row.project_id, "") if row.project_id else ""
+        okr = row.okr_title or (project_okrs.get(row.project_id, "") if row.project_id else "")
         done = _is_done(row.status)
         reply_signal = classify_reply(row.reply_text) if row.replied_at else None
         progress = ""
@@ -169,6 +172,7 @@ def build_rows(today: str) -> list[list[str]]:
             [
                 row.title,
                 project,
+                okr,
                 row.owner,
                 row.last_reminded_at.strftime("%m-%d %H:%M") if row.last_reminded_at else "",
                 "是" if row.claimed_at else "否",
@@ -178,7 +182,7 @@ def build_rows(today: str) -> list[list[str]]:
                 str(row.score) if row.score is not None else "",
             ]
         )
-    out.sort(key=lambda cells: (int(cells[8]) if cells[8].isdigit() else 999, cells[1], cells[2]))
+    out.sort(key=lambda cells: (int(cells[9]) if cells[9].isdigit() else 999, cells[1], cells[2]))
     return out
 
 

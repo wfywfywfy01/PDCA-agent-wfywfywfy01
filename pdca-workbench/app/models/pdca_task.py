@@ -39,6 +39,8 @@ class PdcaTask(SQLModel, table=True):
     origin_owner: str = Field(default="", max_length=128)
     # 项目（事项）收敛：挂到 todo_projects.id；空=未入项目
     project_id: Optional[int] = Field(default=None, index=True)
+    # OKR 归属：该待办对应的个人月度 OKR 条目标题（sync_todo_okr 收敛时写入）
+    okr_title: str = Field(default="", max_length=256)
     # IM 回复采集：最近一次回复原文与时间（"已完成"类回复标记 done 时记录）
     reply_text: str = Field(default="", max_length=1024)
     replied_at: Optional[datetime] = Field(default=None)

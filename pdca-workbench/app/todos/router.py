@@ -211,6 +211,7 @@ async def list_projects(
             "name": row.name,
             "kind": row.kind or "keyword",
             "status": row.status,
+            "okr_title": row.okr_title or "",
             "executors": _json.loads(row.executors or "[]"),
             "coordinator": row.coordinator,
             "open_tasks": stats.get(row.id, {}).get("open", 0),

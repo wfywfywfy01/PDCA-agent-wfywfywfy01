@@ -385,6 +385,18 @@ def todo_weekly_review_job() -> None:
         notify("周五验收汇总失败", str(exc)[:300])
 
 
+def todo_okr_link_job() -> None:
+    """17:50 — 待办/项目挂接个人月度 OKR（收敛，供 18:00 打分与台账使用）。"""
+    from app.todos.okr_link import link_tasks_and_projects
+
+    try:
+        result = link_tasks_and_projects()
+        logger.info("OKR 挂接: {}", result)
+    except Exception as exc:
+        logger.exception("OKR 挂接异常: {}", exc)
+        notify("OKR 挂接失败", str(exc)[:300])
+
+
 def vemory_todo_sync_job() -> None:
     """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
 
@@ -656,6 +668,18 @@ def start_scheduler() -> BackgroundScheduler | None:
             hour=18,
             minute=30,
             id="todo_weekly_review",
+            max_instances=1,
+            coalesce=True,
+        )
+
+    # 17:50 — 待办/项目 ↔ 个人 OKR 挂接（打分/台账的前置收敛）
+    if getattr(settings, "todo_okr_link_enabled", False):
+        _scheduler.add_job(
+            todo_okr_link_job,
+            trigger="cron",
+            hour=17,
+            minute=50,
+            id="todo_okr_link",
             max_instances=1,
             coalesce=True,
         )

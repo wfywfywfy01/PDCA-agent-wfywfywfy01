@@ -140,6 +140,8 @@ class Settings:
         )
         # 每日催收简报开关（显式启用，默认关，与打分/台账一致）。
         self.todo_brief_enabled = os.environ.get("PDCA_TODO_BRIEF_ENABLED", "0") == "1"
+        # 待办/项目 ↔ 个人 OKR 挂接（显式启用，默认关）。
+        self.todo_okr_link_enabled = os.environ.get("PDCA_TODO_OKR_LINK_ENABLED", "0") == "1"
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
