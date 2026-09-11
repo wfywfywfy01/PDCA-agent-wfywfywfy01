@@ -154,10 +154,17 @@ def collect_group_claims(today: str, dry_run: bool = False) -> dict:
             session.rollback()
         else:
             session.commit()
+    # 群聊隐式任务抽取（管理者随口布置 → 待办），与认领共用同一批新消息
+    implicit = {}
+    if new_messages:
+        from app.todos.implicit import extract_implicit_tasks
+
+        implicit = extract_implicit_tasks(new_messages, dry_run=dry_run)
     return {
         "ok": True,
         "channel_id": channel_id,
         "scanned": len(new_messages),
         "claimed_people": claimed_people,
+        "implicit": implicit,
         "dry_run": dry_run,
     }

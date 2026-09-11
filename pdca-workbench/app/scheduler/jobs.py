@@ -363,6 +363,28 @@ def todo_daily_brief_job() -> None:
         notify("待办简报失败", str(exc)[:300])
 
 
+def todo_weekly_review_job() -> None:
+    """周五 18:30 — 周验收汇总：本周完成/待复核/升级名单，发管理者。"""
+    from app.config import get_settings
+    from app.todos.brief import build_weekly_brief
+    from app.todos.service import send_direct_message, today_text
+
+    target = get_settings().todo_report_user_id
+    if not target:
+        return
+    try:
+        body = build_weekly_brief(today_text())
+        if not body:
+            return  # 非周五不发送
+        ok, err, _ = send_direct_message(
+            target, body, "pdca-weekly-review-" + today_text()
+        )
+        logger.info("周五验收汇总发送: ok={} err={}", ok, err)
+    except Exception as exc:
+        logger.exception("周五验收汇总异常: {}", exc)
+        notify("周五验收汇总失败", str(exc)[:300])
+
+
 def vemory_todo_sync_job() -> None:
     """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
 
@@ -624,6 +646,16 @@ def start_scheduler() -> BackgroundScheduler | None:
             hour=18,
             minute=20,
             id="todo_daily_brief",
+            max_instances=1,
+            coalesce=True,
+        )
+        _scheduler.add_job(
+            todo_weekly_review_job,
+            trigger="cron",
+            day_of_week="fri",
+            hour=18,
+            minute=30,
+            id="todo_weekly_review",
             max_instances=1,
             coalesce=True,
         )

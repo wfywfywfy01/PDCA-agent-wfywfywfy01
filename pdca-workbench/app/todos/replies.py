@@ -37,6 +37,17 @@ _SEQ_RE = re.compile(r"([1-9][0-9]?)\s*[和、，,]\s*([1-9][0-9]?)")
 _ALL_RE = re.compile(r"(全部|所有|都|all)")
 
 
+def _append_progress(existing: str, text: str, now: datetime) -> str:
+    """进度逐日累积：带日期追加，只保留最近 5 条（对齐研发侧「追加不覆盖」）。"""
+    stamp = now.strftime("%m-%d")
+    line = f"{stamp}：{(text or '').strip()[:180]}"
+    combined = "\n".join(((existing or "").strip() + "\n" + line).strip().splitlines())
+    lines = combined.splitlines()
+    if len(lines) > 5:
+        combined = "\n".join(lines[-5:])
+    return combined[:1024]
+
+
 def parse_reply(text: str) -> dict:
     """解析回复 → {signal, items, explicit}。
 
@@ -106,7 +117,7 @@ def _apply_done(session: Session, send: ImRemindSend, items: list, reply: TodoRe
     rows = list(session.exec(select(PdcaTask).where(PdcaTask.id.in_(targets))).all())
     for row in rows:
         row.status = "done"
-        row.reply_text = text[:1024]
+        row.reply_text = _append_progress(row.reply_text, text, now)
         row.replied_at = now
         session.add(row)
     reply.status = "applied"
@@ -124,7 +135,7 @@ def _apply_done(session: Session, send: ImRemindSend, items: list, reply: TodoRe
                 ).all()
                 if not remaining and project.status != "已闭环":
                     project.status = "待验收"
-                    project.reply_text = text[:1024]
+                    project.reply_text = _append_progress(project.reply_text, text, now)
                     project.replied_at = now
                     session.add(project)
                     reply.target_project_id = project.id
@@ -214,7 +225,7 @@ def poll_replies(hours_back: int = 48) -> dict:
                         project = session.get(TodoProject, target_send.project_id)
                         if project and project.status not in ("已闭环", "待验收"):
                             project.status = "跟进中"
-                            project.reply_text = body[:1024]
+                            project.reply_text = _append_progress(project.reply_text, body, now)
                             project.replied_at = now
                             session.add(project)
                     reply.status = "applied"
@@ -226,7 +237,7 @@ def poll_replies(hours_back: int = 48) -> dict:
                         project = session.get(TodoProject, target_send.project_id)
                         if project and project.status not in ("已闭环",):
                             project.status = "阻塞"
-                            project.reply_text = body[:1024]
+                            project.reply_text = _append_progress(project.reply_text, body, now)
                             project.replied_at = now
                             session.add(project)
                             _notify_coordinator(project, person, body)
