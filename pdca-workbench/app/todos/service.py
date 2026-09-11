@@ -775,6 +775,10 @@ def run_todo_reminders(
         else:
             kept_tasks.append(task)
     tasks = kept_tasks
+    # 差异化催办（对齐研发侧催收员口径）：早轮只催「当天截止」，
+    # 逾期与远期任务走下午轮催全部；手动/强制轮不受限。
+    if round_label == "morning" and not force:
+        tasks = [task for task in tasks if task.task_date == today]
 
     entry_url = get_settings().workbench_base_url
     sent: list[dict] = []

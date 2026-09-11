@@ -342,6 +342,26 @@ def todo_ledger_sync_job() -> None:
         notify("台账同步异常", str(exc)[:200])
 
 
+def todo_daily_brief_job() -> None:
+    """18:20 — 每日催收简报：按人分类 + 升级链，机器人发管理者。"""
+    from app.config import get_settings
+    from app.todos.brief import build_daily_brief
+    from app.todos.service import send_direct_message, today_text
+
+    target = get_settings().todo_report_user_id
+    if not target:
+        return
+    try:
+        body = build_daily_brief(today_text())
+        ok, err, _ = send_direct_message(
+            target, body, "pdca-daily-brief-" + today_text()
+        )
+        logger.info("待办简报发送: ok={} err={}", ok, err)
+    except Exception as exc:
+        logger.exception("待办简报异常: {}", exc)
+        notify("待办简报失败", str(exc)[:300])
+
+
 def vemory_todo_sync_job() -> None:
     """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
 
@@ -573,6 +593,17 @@ def start_scheduler() -> BackgroundScheduler | None:
             hour=18,
             minute=10,
             id="todo_ledger_sync",
+            max_instances=1,
+            coalesce=True,
+        )
+    # 18:20 每日催收简报（机器人发管理者），同样显式启用。
+    if getattr(settings, "todo_brief_enabled", False):
+        _scheduler.add_job(
+            todo_daily_brief_job,
+            trigger="cron",
+            hour=18,
+            minute=20,
+            id="todo_daily_brief",
             max_instances=1,
             coalesce=True,
         )
