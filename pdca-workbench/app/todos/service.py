@@ -612,7 +612,12 @@ def build_group_notice(today: str) -> dict:
 
 
 def send_group_notice(today: str, dry_run: bool = False) -> dict:
-    """把群知会发到工作大群（专家智能体/账号通道），不落库不改状态。"""
+    """把群知会发到工作大群（机器人身份，回退账号通道），不落库不改状态。
+
+    机器人通道：+agent-notify 以「待办催办」机器人（todo_bot_app_id）身份
+    写入群会话，slug 取 user-robot-<app_id>；多行正文走 --body-file。
+    机器人不在目标群时服务端拒绝，此时回退账号通道。
+    """
     settings = get_settings()
     channel_id = settings.todo_group_channel_id
     notice = build_group_notice(today)
@@ -621,21 +626,40 @@ def send_group_notice(today: str, dry_run: bool = False) -> dict:
     if dry_run:
         return {**notice, "sent": False, "dry_run": True, "channel_id": channel_id}
     client_id = "pdca-group-notice-" + today
-    agent_slug = os.environ.get("VERTU_AGENT_SLUG", "").strip()
+    bot_key = ""
+    if settings.todo_bot_app_id:
+        bot_key = "user-robot-" + settings.todo_bot_app_id
+    agent_slug = os.environ.get("VERTU_AGENT_SLUG", "").strip() or bot_key
+    via = "account"
     if agent_slug:
-        # 专家智能体通道暂不支持 --body-file，多行正文存在截断风险；
-        # 待接入 slug 后实测，必要时改走单行格式或通道升级。
-        code, stdout, stderr = run_vertu_sync(
+        # 机器人/专家智能体身份发群（多行正文走 --body-file）
+        code, stdout, stderr = _send_with_body_file(
             [
                 "im", "+agent-notify",
                 "--agent-slug", agent_slug,
                 "--channel-id", channel_id,
-                "--body", notice["body"],
-                "--bot-name", "PDCA待办助手",
+                "--bot-key", bot_key or agent_slug,
+                "--bot-name", "待办催办",
+                "--target", "im",
                 "--event-id", client_id,
             ],
+            notice["body"],
             timeout=30.0,
         )
+        if code != 0:
+            # 机器人不在目标群/通道不可用 → 回退账号通道
+            logger.warning("机器人发群失败，回退账号通道: {}", (stderr or "")[:160])
+            code, stdout, stderr = _send_with_body_file(
+                [
+                    "im", "+send",
+                    "--channel-id", channel_id,
+                    "--client-message-id", client_id,
+                ],
+                notice["body"],
+                timeout=30.0,
+            )
+        else:
+            via = "bot"
     else:
         code, stdout, stderr = _send_with_body_file(
             [
@@ -648,7 +672,7 @@ def send_group_notice(today: str, dry_run: bool = False) -> dict:
         )
     if code != 0:
         return {**notice, "sent": False, "reason": (stderr or stdout or "发送失败")[:200]}
-    return {**notice, "sent": True, "channel_id": channel_id, "via": "agent" if agent_slug else "account"}
+    return {**notice, "sent": True, "channel_id": channel_id, "via": via}
 
 
 def _record_sends(
