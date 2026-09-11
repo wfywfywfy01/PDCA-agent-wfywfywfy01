@@ -80,3 +80,59 @@ def build_daily_brief(today: Optional[str] = None) -> str:
     else:
         lines.append("升级提醒：无")
     return "\n".join(lines)
+
+
+def build_weekly_brief(today: Optional[str] = None) -> str:
+    """周五验收汇总：本周完成 / 待复核（回复完成未闭环）/ 升级名单。非周五返回空串。"""
+    today = today or datetime.now().strftime("%Y-%m-%d")
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    if today_dt.weekday() != 4:
+        return ""
+    start = (today_dt - timedelta(days=6)).strftime("%Y-%m-%d")
+    grouped = _group_by_person()
+    lines = [f"【PDCA 周五验收】{today}（本周 {start} ~ {today}）"]
+    done_total = 0
+    review_total = 0
+    escalate: list[str] = []
+    for person in sorted(grouped, key=str.casefold):
+        rows = grouped[person]
+        done_week = [
+            r for r in rows
+            if _is_done(r.status) and (r.task_date or "") >= start
+        ]
+        review = [
+            r for r in rows
+            if not _is_done(r.status)
+            and r.replied_at
+            and any(
+                w in (r.reply_text or "").casefold()
+                for w in ("完成", "搞定", "done")
+            )
+        ]
+        open_rows = [r for r in rows if not _is_done(r.status)]
+        stalled = [
+            r for r in open_rows
+            if not r.replied_at
+            and (r.remind_count or 0) >= ESCALATE_THRESHOLD
+            and (r.task_date or "") < today
+        ]
+        if not done_week and not review:
+            continue
+        done_total += len(done_week)
+        review_total += len(review)
+        lines.append(
+            f"{person}：本周完成 {len(done_week)}，待复核 {len(review)}"
+            f"（未完成 {len(open_rows)}）"
+        )
+        if len(stalled) >= MIN_STALLED_TASKS:
+            escalate.append(person)
+    lines.append("")
+    lines.append(f"合计：本周完成 {done_total} 项 / 待复核 {review_total} 项")
+    if escalate:
+        lines.append(
+            f"⚠ 升级提醒（催办≥{ESCALATE_THRESHOLD}次仍无回复，建议线下约谈）："
+            + "、".join(escalate)
+        )
+    else:
+        lines.append("升级提醒：无")
+    return "\n".join(lines)

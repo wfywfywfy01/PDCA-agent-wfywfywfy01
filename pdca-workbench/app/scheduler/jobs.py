@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -362,6 +363,28 @@ def todo_daily_brief_job() -> None:
         notify("待办简报失败", str(exc)[:300])
 
 
+def todo_weekly_review_job() -> None:
+    """周五 18:30 — 周验收汇总：本周完成/待复核/升级名单，发管理者。"""
+    from app.config import get_settings
+    from app.todos.brief import build_weekly_brief
+    from app.todos.service import send_direct_message, today_text
+
+    target = get_settings().todo_report_user_id
+    if not target:
+        return
+    try:
+        body = build_weekly_brief(today_text())
+        if not body:
+            return  # 非周五不发送
+        ok, err, _ = send_direct_message(
+            target, body, "pdca-weekly-review-" + today_text()
+        )
+        logger.info("周五验收汇总发送: ok={} err={}", ok, err)
+    except Exception as exc:
+        logger.exception("周五验收汇总异常: {}", exc)
+        notify("周五验收汇总失败", str(exc)[:300])
+
+
 def vemory_todo_sync_job() -> None:
     """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
 
@@ -396,26 +419,37 @@ def daily_report_job() -> None:
 
     独立于部署机网络；生成失败时推送失败提示（不静默）。
     """
-    from datetime import date
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     from app.daily_report import build_report
+    from app.scheduler.run_ledger import claim_run, finish_run
     from app.vps_im_push import push_vps_message
 
-    day = date.today().isoformat()
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    if not claim_run("daily_report", day):
+        logger.info("日报本日已执行，跳过重复外发 {}", day)
+        return
     try:
         message = build_report(day)
     except Exception as exc:
         logger.exception("日报生成失败: {}", exc)
-        push_vps_message(
-            f"⚠️ PDCA 经营日报 {day} 生成失败\n"
-            f"{type(exc).__name__}: {str(exc)[:150]}"
-        )
+        finish_run("daily_report", day, "failed", f"{type(exc).__name__}: {exc}")
         notify("每日经营日报生成失败", str(exc)[:200])
         return
-    if push_vps_message(message):
+    pushed = push_vps_message(message)
+    if not pushed:
+        # 瞬时网络/服务抖动重试一次；仍失败再告警（不静默）。
+        logger.warning("日报首次推送失败，60 秒后重试 {}", day)
+        time.sleep(60)
+        pushed = push_vps_message(message)
+    if pushed:
+        finish_run("daily_report", day, "sent")
         logger.info("日报已推送 {}", day)
     else:
+        finish_run("daily_report", day, "failed", "VPS 机器人未配置或推送异常")
         logger.warning("日报推送失败（VPS 机器人未配置或推送异常）{}", day)
+        notify("每日经营日报推送失败", day)
 
 
 def start_scheduler() -> BackgroundScheduler | None:
@@ -489,6 +523,8 @@ def start_scheduler() -> BackgroundScheduler | None:
         )
 
     # 08:30 — 每日经营日报推送（服务器自跑，不依赖部署机网络）
+    # misfire_grace_time=3600：容器在 08:30 前后重启时仍补发；
+    # 09:30 兜底轮：claim_run 去重，08:30 崩溃/漏发时二次机会。
     if getattr(settings, "daily_report_enabled", True):
         _scheduler.add_job(
             daily_report_job,
@@ -498,6 +534,17 @@ def start_scheduler() -> BackgroundScheduler | None:
             id="daily_report_push",
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=3600,
+        )
+        _scheduler.add_job(
+            daily_report_job,
+            trigger="cron",
+            hour=9,
+            minute=30,
+            id="daily_report_push_backup",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
         )
 
     # 待办催办（VPS IM 私聊本人）：PDCA_TODO_REMIND_TIMES 每轮一个任务，
@@ -570,34 +617,48 @@ def start_scheduler() -> BackgroundScheduler | None:
             coalesce=True,
         )
 
-    # 18:00 三源打分 + 18:10 台账同步 + 18:20 每日简报
-    _scheduler.add_job(
-        todo_scoring_job,
-        trigger="cron",
-        hour=18,
-        minute=0,
-        id="todo_scoring",
-        max_instances=1,
-        coalesce=True,
-    )
-    _scheduler.add_job(
-        todo_ledger_sync_job,
-        trigger="cron",
-        hour=18,
-        minute=10,
-        id="todo_ledger_sync",
-        max_instances=1,
-        coalesce=True,
-    )
-    _scheduler.add_job(
-        todo_daily_brief_job,
-        trigger="cron",
-        hour=18,
-        minute=20,
-        id="todo_daily_brief",
-        max_instances=1,
-        coalesce=True,
-    )
+    # 派生写任务必须分别显式启用，避免部署即写分数/外部台账。
+    if getattr(settings, "todo_scoring_enabled", False):
+        _scheduler.add_job(
+            todo_scoring_job,
+            trigger="cron",
+            hour=18,
+            minute=0,
+            id="todo_scoring",
+            max_instances=1,
+            coalesce=True,
+        )
+    if getattr(settings, "todo_ledger_sync_enabled", False):
+        _scheduler.add_job(
+            todo_ledger_sync_job,
+            trigger="cron",
+            hour=18,
+            minute=10,
+            id="todo_ledger_sync",
+            max_instances=1,
+            coalesce=True,
+        )
+    # 18:20 每日催收简报（机器人发管理者），同样显式启用。
+    if getattr(settings, "todo_brief_enabled", False):
+        _scheduler.add_job(
+            todo_daily_brief_job,
+            trigger="cron",
+            hour=18,
+            minute=20,
+            id="todo_daily_brief",
+            max_instances=1,
+            coalesce=True,
+        )
+        _scheduler.add_job(
+            todo_weekly_review_job,
+            trigger="cron",
+            day_of_week="fri",
+            hour=18,
+            minute=30,
+            id="todo_weekly_review",
+            max_instances=1,
+            coalesce=True,
+        )
 
     # 工作时段每 30 分钟 — IM 回复采集（完成/推进/阻塞 → 状态变更）
     _scheduler.add_job(

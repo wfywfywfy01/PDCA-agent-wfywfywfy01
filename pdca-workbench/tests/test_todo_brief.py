@@ -11,7 +11,7 @@ from unittest.mock import patch
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.models.pdca_task import PdcaTask
-from app.todos.brief import build_daily_brief
+from app.todos.brief import build_daily_brief, build_weekly_brief
 
 
 class FakeSettings:
@@ -83,6 +83,18 @@ class BriefTests(unittest.TestCase):
         self.assertIn("建议线下约谈", body)
         self.assertIn("张三", body.split("升级提醒")[-1])
         self.assertNotIn("李四", body.split("升级提醒")[-1])
+
+    def test_weekly_brief_friday_only(self):
+        # 2026-09-11 是周五：生成周验收；周四返回空
+        self._seed(title="本周办完的", owner="张三", status="done",
+                   task_date="2026-09-09")
+        self._seed(title="回复完成待复核", owner="张三",
+                   replied_at=datetime.utcnow(), reply_text="第1条完成")
+        friday = build_weekly_brief("2026-09-11")
+        self.assertIn("【PDCA 周五验收】", friday)
+        self.assertIn("本周完成 1", friday)
+        self.assertIn("待复核 1", friday)
+        self.assertEqual(build_weekly_brief("2026-09-10"), "")  # 周四
 
 
 if __name__ == "__main__":

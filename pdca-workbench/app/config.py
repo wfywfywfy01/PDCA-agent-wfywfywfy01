@@ -62,6 +62,11 @@ class Settings:
         # 待办催办（提醒跟进）：VPS IM 私聊本人。
         # PDCA_TODO_REMIND_TIMES 为逗号分隔的 HH:MM 列表，默认上午/下午各一轮。
         self.todo_remind_enabled = os.environ.get("PDCA_TODO_REMIND_ENABLED", "1") == "1"
+        # 派生写任务独立关闭：生产首次启用前必须完成 dry-run 与目标核验。
+        self.todo_scoring_enabled = os.environ.get("PDCA_TODO_SCORING_ENABLED", "0") == "1"
+        self.todo_ledger_sync_enabled = (
+            os.environ.get("PDCA_TODO_LEDGER_SYNC_ENABLED", "0") == "1"
+        )
         self.todo_remind_times = [
             item.strip()
             for item in os.environ.get("PDCA_TODO_REMIND_TIMES", "09:30,16:30").split(",")
@@ -133,6 +138,8 @@ class Settings:
         self.todo_report_user_id = int(
             os.environ.get("PDCA_TODO_REPORT_USER_ID", "13365")
         )
+        # 每日催收简报开关（显式启用，默认关，与打分/台账一致）。
+        self.todo_brief_enabled = os.environ.get("PDCA_TODO_BRIEF_ENABLED", "0") == "1"
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
