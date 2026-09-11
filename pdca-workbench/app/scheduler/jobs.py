@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -394,7 +395,13 @@ def daily_report_job() -> None:
         finish_run("daily_report", day, "failed", f"{type(exc).__name__}: {exc}")
         notify("每日经营日报生成失败", str(exc)[:200])
         return
-    if push_vps_message(message):
+    pushed = push_vps_message(message)
+    if not pushed:
+        # 瞬时网络/服务抖动重试一次；仍失败再告警（不静默）。
+        logger.warning("日报首次推送失败，60 秒后重试 {}", day)
+        time.sleep(60)
+        pushed = push_vps_message(message)
+    if pushed:
         finish_run("daily_report", day, "sent")
         logger.info("日报已推送 {}", day)
     else:
@@ -474,6 +481,8 @@ def start_scheduler() -> BackgroundScheduler | None:
         )
 
     # 08:30 — 每日经营日报推送（服务器自跑，不依赖部署机网络）
+    # misfire_grace_time=3600：容器在 08:30 前后重启时仍补发；
+    # 09:30 兜底轮：claim_run 去重，08:30 崩溃/漏发时二次机会。
     if getattr(settings, "daily_report_enabled", True):
         _scheduler.add_job(
             daily_report_job,
@@ -483,6 +492,17 @@ def start_scheduler() -> BackgroundScheduler | None:
             id="daily_report_push",
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=3600,
+        )
+        _scheduler.add_job(
+            daily_report_job,
+            trigger="cron",
+            hour=9,
+            minute=30,
+            id="daily_report_push_backup",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
         )
 
     # 待办催办（VPS IM 私聊本人）：PDCA_TODO_REMIND_TIMES 每轮一个任务，
