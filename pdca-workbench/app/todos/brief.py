@@ -18,7 +18,8 @@ from app.models.pdca_task import PdcaTask
 from app.statuses import is_done as _is_done
 from app.todos.owners import apply_alias, split_owners
 
-ESCALATE_THRESHOLD = 3
+ESCALATE_THRESHOLD = 6  # 催办轮次（每天 2 轮 ≈ 3 天）
+MIN_STALLED_TASKS = 3    # 至少 3 条停滞任务才进入升级名单
 
 
 def _group_by_person() -> dict[str, list[PdcaTask]]:
@@ -57,8 +58,14 @@ def build_daily_brief(today: Optional[str] = None) -> str:
         open_rows = [r for r in rows if not _is_done(r.status)]
         replied = sum(1 for r in open_rows if r.replied_at)
         noreply = len(open_rows) - replied
-        worst = max((r.remind_count or 0) for r in open_rows) if open_rows else 0
-        if noreply > 0 and worst >= ESCALATE_THRESHOLD:
+        # 停滞任务：已逾期、催办 >= 阈值次、仍无回复
+        stalled = [
+            r for r in open_rows
+            if not r.replied_at
+            and (r.remind_count or 0) >= ESCALATE_THRESHOLD
+            and (r.task_date or "") < today
+        ]
+        if len(stalled) >= MIN_STALLED_TASKS:
             escalate.append(person)
         lines.append(
             f"{person}：未完成 {len(open_rows)}（有进度 {replied} / 无回复 {noreply}）"
