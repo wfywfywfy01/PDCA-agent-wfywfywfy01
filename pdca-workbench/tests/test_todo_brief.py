@@ -57,26 +57,28 @@ class BriefTests(unittest.TestCase):
 
     def test_classified_brief_and_escalation(self):
         today = datetime.now().strftime("%Y-%m-%d")
-        # 张三：1 有回复 + 1 无回复且催过 3 次 → 升级
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        # 张三：1 有回复 + 3 条逾期停滞（催办>=6 无回复）→ 升级
         self._seed(title="在做的", owner="张三",
                    replied_at=datetime.utcnow(), reply_text="推进中")
-        no_reply = self._seed(title="没动静", owner="张三")
-        no_reply.remind_count = 3
-        with Session(self.engine) as session:
-            session.add(no_reply)
-            session.commit()
+        for i in range(3):
+            row = self._seed(title=f"停滞{i}", owner="张三", task_date=yesterday)
+            row.remind_count = 6
+            with Session(self.engine) as session:
+                session.add(row)
+                session.commit()
         # 张三：近 7 天完成 1 条
         self._seed(title="已办完", owner="张三", status="done")
-        # 李四：1 无回复但只催过 1 次 → 不升级
-        li = self._seed(title="刚开始", owner="李四")
-        li.remind_count = 1
+        # 李四：1 条停滞但不足 3 条 → 不升级
+        li = self._seed(title="刚开始", owner="李四", task_date=yesterday)
+        li.remind_count = 6
         with Session(self.engine) as session:
             session.add(li)
             session.commit()
 
         body = build_daily_brief(today)
         self.assertIn("张三", body)
-        self.assertIn("有进度 1 / 无回复 1", body)
+        self.assertIn("有进度 1 / 无回复 3", body)
         self.assertIn("近7天完成 1", body)
         self.assertIn("建议线下约谈", body)
         self.assertIn("张三", body.split("升级提醒")[-1])
