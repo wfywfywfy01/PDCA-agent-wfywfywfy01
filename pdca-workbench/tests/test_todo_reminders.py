@@ -181,6 +181,26 @@ class TodoReminderTests(unittest.TestCase):
         self.assertIn("昨天催过的", all_titles)
         self.assertIn("测试待办", all_titles)  # 下午轮催过的，上午轮仍可催（每日两轮）
 
+    def test_morning_round_only_due_today(self):
+        # 差异化催办：早轮只催当天截止，逾期与远期走下午轮
+        today = datetime.now().strftime("%Y-%m-%d")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        with Session(self.engine) as session:
+            _seed(session, task_date=today, title="今日截止")
+            _seed(session, task_date=yesterday, title="已逾期")
+        morning = run_todo_reminders(
+            today=today, round_label="morning", force=False, dry_run=True
+        )
+        titles = [t for s in morning["sent"] for t in s["titles"]]
+        self.assertIn("今日截止", titles)
+        self.assertNotIn("已逾期", titles)
+        afternoon = run_todo_reminders(
+            today=today, round_label="afternoon", force=False, dry_run=True
+        )
+        titles2 = [t for s in afternoon["sent"] for t in s["titles"]]
+        self.assertIn("已逾期", titles2)
+        self.assertIn("今日截止", titles2)
+
     def test_manual_force_bypasses_frequency(self):
         today = datetime.now().strftime("%Y-%m-%d")
         with Session(self.engine) as session:

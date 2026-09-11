@@ -128,6 +128,11 @@ class Settings:
         # 台账（VPS 智能表格）：待办闭环状态同步目标文档 ID；留空则首次同步时
         # 自动创建「PDCA 待办台账」并写回 todo_group_state。
         self.todo_ledger_doc_id = os.environ.get("PDCA_TODO_LEDGER_DOC_ID", "").strip()
+        # 每日催收简报接收人（user_id，默认付汪阳 13365）：18:20 机器人发送
+        # 已完成/有进度/无回复 分类 + 升级链名单。
+        self.todo_report_user_id = int(
+            os.environ.get("PDCA_TODO_REPORT_USER_ID", "13365")
+        )
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
