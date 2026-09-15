@@ -9,7 +9,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const API = 'https://online-sales-pdca.vertu.cn/api/public/reference';
-const HISTORY = path.join(path.dirname(fileURLToPath(import.meta.url)), '.push_history.log');
+const DATA_DIR = process.env.REFERENCE_DATA_DIR || path.dirname(fileURLToPath(import.meta.url));
+const HISTORY = path.join(DATA_DIR, '.push_history.log');
 
 const GROUPS = {
   carino:  { id: '466f3f12-5b05-4d7a-9369-ba56b57b5d17', name: 'Carino Jewellery &Vertu', tz: 5.5, hour: 10 },
@@ -19,6 +20,7 @@ const GROUPS = {
   restore: { id: 'f73f8d63-bb42-49ea-997b-cff01d298d89', name: 'VERTU& reStore', tz: 3, hour: 10 },
   bizcon:  { id: 'c2c26953-83ea-4bd9-985c-15bc8c741391', name: 'Vertu& Bizcon', tz: 5, hour: 10 },
   internal: { id: 'a6be6cb6-2abf-4ece-a2c3-f81c01d99771', name: '经销商内部沟通群(测试)' },
+  'bot-test': { id: '67e07684-237e-484c-be25-877145c66670', name: '素材推送测试(机器人)' },
 };
 
 // 时区分组：每个市场在当地 hour 点推，换算成北京时间执行
@@ -145,6 +147,22 @@ function compressVideo(ffmpeg, src, out, maxMb) {
   return false;
 }
 
+const BOT_MODE = has('transport-bot') || Boolean(process.env.REFERENCE_BOT_APP_ID);
+const BOT_PUSH_URL = 'https://vps-service.vertu.cn/v1/im/user-robots/push';
+async function botSend(channelId, body, attachments) {
+  const appId = process.env.REFERENCE_BOT_APP_ID;
+  const secret = process.env.REFERENCE_BOT_APP_SECRET;
+  if (!appId || !secret) throw new Error('bot 模式缺少 REFERENCE_BOT_APP_ID / REFERENCE_BOT_APP_SECRET');
+  const r = await fetch(BOT_PUSH_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-vertu-bot-app-id': appId, 'x-vertu-bot-app-secret': secret },
+    body: JSON.stringify({ channel_id: channelId, body, ...(attachments && attachments.length ? { attachments } : {}) }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error('bot push 失败: ' + r.status + ' ' + (j.error || ''));
+  return j;
+}
+
 const PREP = new Map();
 async function prepareMaterial(mat) {
   if (PREP.has(mat.id)) return PREP.get(mat.id);
@@ -152,6 +170,11 @@ async function prepareMaterial(mat) {
   const title = content.title || mat.assetName;
   const intro = content.intro || '';
   const bodyText = intro ? title + '\n' + intro : title;
+  if (BOT_MODE) {
+    const p = { mediaType: mat.mediaType, file: null, body: bodyText, urlOnly: false, botUrl: mat.materialUrl, botName: mat.assetName };
+    PREP.set(mat.id, p);
+    return p;
+  }
   const p = { mediaType: mat.mediaType, file: null, body: bodyText, urlOnly: false };
   const maxMb = Number(arg('max-mb', '24'));
   if (mat.mediaType === 'image') {
@@ -192,6 +215,14 @@ async function prepareMaterial(mat) {
 async function pushOne(mat, group, dryRun) {
   const p = await prepareMaterial(mat);
   const cmid = 'ref-' + mat.id + '-' + group.id;
+  if (p.botUrl) {
+    const attType = p.mediaType === 'image' ? 'image' : 'video';
+    if (dryRun) { console.log('[dry-run] bot-' + attType + '-url -> ' + group.name + ': ' + p.body.split('\n')[0]); return; }
+    const r = await botSend(group.id, p.body, [{ attachment_type: attType, name: p.botName, url: p.botUrl }]);
+    log('ok ' + group.name + ' bot-' + attType + ' id=' + mat.id);
+    console.log('sent bot-' + attType + ' #' + mat.id + ' -> ' + group.name + ' (' + r.message?.id + ')');
+    return;
+  }
   if (dryRun) {
     const mode = p.urlOnly ? 'url-text' : (p.compressed ? 'video-compressed' : 'attach-original');
     console.log('[dry-run] ' + mode + ' -> ' + group.name + ': ' + p.body.split('\n')[0]);
