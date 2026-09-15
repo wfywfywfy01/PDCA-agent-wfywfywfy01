@@ -43,6 +43,8 @@ function arg(name, def = null) {
 }
 function has(name) { return process.argv.includes('--' + name); }
 
+const BOT_MODE = has('transport-bot') || Boolean(process.env.REFERENCE_BOT_APP_ID);
+
 function resolveCli() {
   // 定位 vertu-cli.cmd shim，提取 VPS.exe 与 cjs 入口，避免 shell 引号问题
   const w = spawnSync('where', ['vertu-cli'], { encoding: 'utf8' });
@@ -54,7 +56,12 @@ function resolveCli() {
   return { exe: m[0], cli: m[1] };
 }
 
-const { exe: EXE, cli: CLI } = resolveCli();
+let EXE = null, CLI = null;
+if (!BOT_MODE) {
+  const resolved = resolveCli();
+  EXE = resolved.exe;
+  CLI = resolved.cli;
+}
 const ENV = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
 
 function cli(args) {
@@ -71,6 +78,14 @@ function readHistoryIds() {
   try {
     const t = fs.readFileSync(HISTORY, 'utf8');
     return new Set([...t.matchAll(/id=(\d+)/g)].map(m => Number(m[1])));
+  } catch { return new Set(); }
+}
+
+const BLOCKLIST_FILE = process.env.REFERENCE_BLOCKLIST_FILE || path.join(DATA_DIR, 'reference_blocklist.json');
+function readBlocklist() {
+  try {
+    const j = JSON.parse(fs.readFileSync(BLOCKLIST_FILE, 'utf8'));
+    return new Set((j.ids || []).map(Number));
   } catch { return new Set(); }
 }
 
@@ -147,7 +162,6 @@ function compressVideo(ffmpeg, src, out, maxMb) {
   return false;
 }
 
-const BOT_MODE = has('transport-bot') || Boolean(process.env.REFERENCE_BOT_APP_ID);
 const BOT_PUSH_URL = 'https://vps-service.vertu.cn/v1/im/user-robots/push';
 async function botSend(channelId, body, attachments) {
   const appId = process.env.REFERENCE_BOT_APP_ID;
@@ -278,8 +292,10 @@ async function fetchWindowVideos() {
 async function cmdWeekly() {
   const { all, start, end } = await fetchWindowVideos();
   const pushed = readHistoryIds();
+  const blocked = readBlocklist();
   const scored = all.map(m => ({ m, s: m.qualityScore?.overallScore ?? 0 }))
     .filter(x => !pushed.has(x.m.id))
+    .filter(x => !blocked.has(x.m.id))
     .sort((a, b) => b.s - a.s || b.m.id - a.m.id);
   const topN = Number(arg('top', '20'));
   const top = scored.slice(0, topN);
