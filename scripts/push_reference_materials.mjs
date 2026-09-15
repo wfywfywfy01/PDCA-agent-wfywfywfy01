@@ -317,10 +317,12 @@ async function cmdWeekly() {
   if (batch) {
     const tg = arg('tz-group');
     if (!TZ_GROUPS[tg]) throw new Error('--tz-group 需要 india / uzbek / russia');
-    const groups = TZ_GROUPS[tg].map(k => GROUPS[k]);
+    const testGroup = arg('test-group');
+    const groups = testGroup ? [GROUPS[testGroup]].filter(Boolean) : TZ_GROUPS[tg].map(k => GROUPS[k]);
+    if (!groups.length) throw new Error('--test-group 无效: ' + testGroup);
     const dryRun = has('dry-run');
     for (const x of batches[batch] || []) for (const g of groups) await pushOne(x.m, g, dryRun);
-    console.log('完成：' + (batches[batch] || []).length + ' 条 x ' + groups.length + ' 群（batch=' + batch + ', tz-group=' + tg + (dryRun ? ', dry-run' : '') + '）');
+    console.log('完成：' + (batches[batch] || []).length + ' 条 x ' + groups.length + ' 群（batch=' + batch + ', tz-group=' + tg + (testGroup ? ', test-group=' + testGroup : '') + (dryRun ? ', dry-run' : '') + '）');
   }
 }
 
