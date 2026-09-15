@@ -48,6 +48,24 @@ class Settings:
             "PDCA_REQUIRE_VERTU",
             "1" if os.environ.get("PDCA_ENV", "development").strip().lower() == "production" else "0",
         ) == "1"
+        # Vemory 全量拉取（经销商部门会议列表/详情/音频直链 API）
+        self.vemory_dept_ids = os.environ.get(
+            "PDCA_VEMORY_DEPT_IDS", "2231,2227,2223,2230"
+        ).strip()
+        try:
+            self.vemory_page_size = int(os.environ.get("PDCA_VEMORY_PAGE_SIZE", "50"))
+        except ValueError:
+            self.vemory_page_size = 50
+        try:
+            self.vemory_max_pages = int(os.environ.get("PDCA_VEMORY_MAX_PAGES", "20"))
+        except ValueError:
+            self.vemory_max_pages = 20
+        try:
+            self.vemory_audio_cache_ttl = int(
+                os.environ.get("PDCA_VEMORY_AUDIO_CACHE_TTL", "1800")
+            )
+        except ValueError:
+            self.vemory_audio_cache_ttl = 1800
         self.include_demo_data = os.environ.get("PDCA_INCLUDE_DEMO_DATA", "0") == "1"
         self.max_reported_revenue_usd = float(
             os.environ.get("PDCA_MAX_REPORTED_REVENUE_USD", "5000000")
