@@ -5,7 +5,7 @@
 领取时间 | 结束时间 | 进度(回复) | 得分
 - 文档 ID：PDCA_TODO_LEDGER_DOC_ID 环境变量；首次创建时写回
   todo_group_state.ledger_doc_id / ledger_sheet_id。
-- 幂等：每次全量重写数据区（表头 + 行），行数上限 500。
+- 幂等：每次全量重写数据区（表头 + 行），行数上限 2000，分批写入。
 用法：python scripts/sync_todo_ledger.py [--dry-run] [--create]
 """
 from __future__ import annotations
@@ -41,7 +41,8 @@ HEADERS = [
     "领取时间", "结束时间", "进度(回复)", "得分",
 ]
 
-MAX_DATA_ROWS = 500
+MAX_DATA_ROWS = 2000
+CELLS_PER_BATCH = 4000  # 每批单元格数（约 400 行），分批写入避免单次载荷过大
 
 
 def get_existing_doc() -> tuple[str, str]:
@@ -213,29 +214,37 @@ def main(argv: list[str] | None = None) -> int:
     doc_id, sheet_id = get_or_create_doc(create=args.create)
     previous_row_count = _state_int("ledger_row_count")
     updates = build_updates(rows, previous_row_count)
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix="pdca-ledger-", encoding="utf-8",
-        delete=False,
-    ) as handle:
-        json.dump(updates, handle, ensure_ascii=False)
-        tmp = Path(handle.name)
-    try:
-        code, stdout, stderr = run_vertu_sync(
-            [
-                "docs", "+sheet-set-cells",
-                "--doc-id", doc_id,
-                "--sheet", sheet_id,
-                "--updates-file", str(tmp),
-            ],
-            timeout=120.0,
-        )
-    finally:
-        tmp.unlink(missing_ok=True)
-    if code != 0:
-        print("台账写入失败:", (stderr or stdout)[:200])
-        return 1
+    # 分批写入（每批约 CELLS_PER_BATCH 个单元格），单次载荷过大时服务端易超时
+    per_batch_rows = max(CELLS_PER_BATCH // len(HEADERS), 1)
+    per_batch_cells = per_batch_rows * len(HEADERS)
+    batches = [
+        updates[i : i + per_batch_cells]
+        for i in range(0, len(updates), per_batch_cells)
+    ]
+    for batch_index, batch in enumerate(batches, 1):
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", prefix="pdca-ledger-", encoding="utf-8",
+            delete=False,
+        ) as handle:
+            json.dump(batch, handle, ensure_ascii=False)
+            tmp = Path(handle.name)
+        try:
+            code, stdout, stderr = run_vertu_sync(
+                [
+                    "docs", "+sheet-set-cells",
+                    "--doc-id", doc_id,
+                    "--sheet", sheet_id,
+                    "--updates-file", str(tmp),
+                ],
+                timeout=180.0,
+            )
+        finally:
+            tmp.unlink(missing_ok=True)
+        if code != 0:
+            print(f"台账写入失败（第 {batch_index}/{len(batches)} 批）:", (stderr or stdout)[:200])
+            return 1
     _set_state_value("ledger_row_count", str(len(rows)))
-    print(f"台账已同步：doc={doc_id} 行={len(rows)}")
+    print(f"台账已同步：doc={doc_id} 行={len(rows)}（{len(batches)} 批写入）")
     return 0
 
 
