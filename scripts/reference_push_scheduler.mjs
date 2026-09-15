@@ -19,10 +19,10 @@ const SLOTS = {
 };
 const BATCH_BY_WEEKDAY = { 1: 'mon', 3: 'wed', 5: 'fri' };
 
-// 上线前试跑：周二/周三 19:30 分别推 mon/wed 批次到测试群（正式上线后删除本块）
+// 上线前试跑：周三 10:30 推 wed 批、周四 10:30 推 fri 批到测试群（正式上线后删除本块）
 const TEST_SLOTS = {
-  2: { '19:30': 'mon' },
-  3: { '19:30': 'wed' },
+  3: { '10:30': 'wed' },
+  4: { '10:30': 'fri' },
 };
 
 function loadState() {
