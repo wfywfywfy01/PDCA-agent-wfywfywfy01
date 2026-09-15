@@ -32,6 +32,7 @@ import httpx
 
 SOCK = "/var/run/docker.sock"
 BACKUPS = Path(os.environ.get("PDCA_BACKUPS_DIR", "/backups"))
+HOST_ROOT = Path(os.environ.get("PDCA_HOST_ROOT", "/host"))
 INTERVAL = int(os.environ.get("PDCA_CLEANUP_INTERVAL_SECONDS", "86400"))
 KEEP = 7
 HEARTBEAT = Path("/tmp/pdca-cleanup-ok")
@@ -40,12 +41,23 @@ DEEP_EVERY = int(os.environ.get("PDCA_CLEANUP_DEEP_EVERY", "7"))
 STATE_FILE = Path(os.environ.get("PDCA_CLEANUP_STATE_FILE", "/tmp/pdca-cleanup-runs"))
 
 
+def host_free_pct() -> float:
+    """宿主机根目录可用占比；读不到按 1.0（不触发水位升级）。"""
+    try:
+        stat = os.statvfs(HOST_ROOT)
+        total = stat.f_blocks * stat.f_frsize
+        free = stat.f_bavail * stat.f_frsize
+        return free / total if total else 1.0
+    except OSError:
+        return 1.0
+
+
 def _client() -> httpx.Client:
     transport = httpx.HTTPTransport(uds=SOCK)
     return httpx.Client(transport=transport, base_url="http://docker", timeout=60.0)
 
 
-def cleanup_images(client: httpx.Client) -> int:
+def cleanup_images(client: httpx.Client, max_age_hours: int = 168) -> int:
     images = client.get("/images/json", params={"all": "true"}).raise_for_status().json()
     containers = client.get("/containers/json", params={"all": "true"}).raise_for_status().json()
     used = {container["ImageID"] for container in containers}
@@ -56,7 +68,7 @@ def cleanup_images(client: httpx.Client) -> int:
         key=lambda item: item.get("Created", 0), reverse=True,
     )
     protected = used | {item["Id"] for item in own[:2]}
-    cutoff = time.time() - 7 * 86400
+    cutoff = time.time() - max_age_hours * 3600
     deleted = 0
     for item in own:
         if item["Id"] in protected or item.get("Created", 0) >= cutoff:
@@ -69,10 +81,10 @@ def cleanup_images(client: httpx.Client) -> int:
     return deleted
 
 
-def cleanup_stale_containers(client: httpx.Client) -> int:
-    """只清停止超过 24h 的 pdca-* 容器（历史回滚容器）；其他项目不碰。"""
+def cleanup_stale_containers(client: httpx.Client, max_age_hours: int = 24) -> int:
+    """只清停止超过阈值的 pdca-* 容器（历史回滚容器）；其他项目不碰。"""
     containers = client.get("/containers/json", params={"all": "true"}).raise_for_status().json()
-    cutoff = time.time() - 24 * 3600
+    cutoff = time.time() - max_age_hours * 3600
     removed = 0
     for container in containers:
         name = (container.get("Names") or [""])[0].lstrip("/")
@@ -122,14 +134,30 @@ def _bump_counter() -> None:
 
 
 def run_once(deep: bool = False) -> None:
+    free_pct = host_free_pct()
+    # 水位升级：低于 20% 立即深清构建缓存；低于 12% 收紧镜像/容器年龄
+    if free_pct < 0.12:
+        deep = True
+        image_age_hours = 24
+        container_age_hours = 1
+        print(f"[cleanup] 磁盘紧急水位 {free_pct * 100:.0f}%：升级清理力度", flush=True)
+    elif free_pct < 0.20:
+        deep = True
+        image_age_hours = 168
+        container_age_hours = 24
+        print(f"[cleanup] 磁盘低水位 {free_pct * 100:.0f}%：立即深清构建缓存", flush=True)
+    else:
+        image_age_hours = 168
+        container_age_hours = 24
     with _client() as client:
-        removed_images = cleanup_images(client)
-        removed_containers = cleanup_stale_containers(client)
+        removed_images = cleanup_images(client, max_age_hours=image_age_hours)
+        removed_containers = cleanup_stale_containers(client, max_age_hours=container_age_hours)
         reclaimed_cache = cleanup_build_cache(client) if deep else 0
     removed_files = _cleanup_backups()
     HEARTBEAT.touch()
     print(
-        f"[cleanup] pdca_images_removed={removed_images} containers_removed={removed_containers} "
+        f"[cleanup] free={free_pct * 100:.0f}% pdca_images_removed={removed_images} "
+        f"containers_removed={removed_containers} "
         f"cache_reclaimed_mb={reclaimed_cache / 1e6:.1f} deep={deep} backups_removed={removed_files}",
         flush=True,
     )
