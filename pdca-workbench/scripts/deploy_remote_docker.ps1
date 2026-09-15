@@ -337,6 +337,7 @@ function Start-PdcaContainer {
         "-v", "${RuntimeDataRoot}/outbox:/mvp/outbox",
         "-v", "${ReleasePath}:/repo:ro",
         "-v", "/opt/PDCA-agent/pdca-workbench/vertu/vps-service.json:/root/.vertu/vps-service.json:ro",
+        "-v", "/:/host:ro",
         "--env-file", $secretEnvFile,
 
         "-e", "PDCA_ENV=production",
