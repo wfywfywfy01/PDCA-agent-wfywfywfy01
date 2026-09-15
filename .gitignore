@@ -41,3 +41,6 @@ __pycache__/
 *.pyc
 .playwright-cli/
 artifacts/
+
+# ffmpeg 工具与临时验证产物（不提交）
+.st/
