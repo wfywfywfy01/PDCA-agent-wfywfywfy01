@@ -13,6 +13,7 @@ from app.auth.models import User
 from app.auth.scope import normalize_scope_key, resolve_data_scope
 from app.database import get_session
 from app.legacy import bridge
+from app.meeting import vemory as vemory_api
 from app.validation import require_iso_date
 from sqlmodel import Session, select
 
@@ -264,3 +265,90 @@ async def dispatch(
     except Exception as exc:
         logger.warning("sync_meetings 失败: {}", exc)
     return result
+
+
+@router.get("/api/meeting-center/vemory/dealer-meetings")
+async def vemory_dealer_meetings(
+    start: str | None = None,
+    end: str | None = None,
+    dept_ids: str = Query(""),
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+):
+    """经销商部门 Vemory 会议全量列表（服务器端按部门拉取，含子部门）。"""
+    start_d = require_iso_date(start or bridge.today_text())
+    end_d = require_iso_date(end, field="end") if end else start_d
+    if end_d < start_d:
+        raise HTTPException(status_code=422, detail="end 不能早于 start")
+    rows, error = await vemory_api.list_dealer_meetings(start_d, end_d, dept_ids)
+    if error and not rows:
+        raise HTTPException(status_code=502, detail=error)
+    scope = resolve_data_scope(user, session)
+    if not scope.unrestricted:
+        allowed = {normalize_scope_key(value) for value in scope.owner_keys if normalize_scope_key(value)}
+        rows = [
+            row for row in rows
+            if allowed and normalize_scope_key(row.get("owner_name") or "") in allowed
+        ]
+    return {
+        "ok": True,
+        "window": {"from": start_d, "to": end_d},
+        "total": len(rows),
+        "meetings": rows,
+        "scope": scope.mode,
+        "warning": error or None,
+    }
+
+
+@router.get("/api/meeting-center/vemory/detail")
+async def vemory_detail(
+    meeting_id: str = Query(...),
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+):
+    """单场会议详情：纪要全文、音频链接、章节、待办、逐字稿。"""
+    meeting, error = await vemory_api.meeting_detail(meeting_id)
+    if error:
+        raise HTTPException(status_code=404, detail=error)
+    scope = resolve_data_scope(user, session)
+    if not scope.unrestricted:
+        allowed = {normalize_scope_key(value) for value in scope.owner_keys if normalize_scope_key(value)}
+        payload = dict(meeting or {})
+        owner_ok = normalize_scope_key(payload.get("owner_name") or "") in allowed
+        match_ok = bool(allowed) and _meeting_matches(payload, allowed)
+        if not (owner_ok or match_ok):
+            raise HTTPException(status_code=403, detail="该会议不在当前账号的数据权限范围内")
+    return {"ok": True, "meeting": meeting}
+
+
+@router.get("/api/meeting-center/vemory/audio-links")
+async def vemory_audio_links(
+    start: str | None = None,
+    end: str | None = None,
+    dept_ids: str = Query(""),
+    force: bool = False,
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+):
+    """经销商部门会议音频直链清单（纪要+音频口径，服务器端 TTL 缓存）。"""
+    start_d = require_iso_date(start or bridge.today_text())
+    end_d = require_iso_date(end, field="end") if end else start_d
+    if end_d < start_d:
+        raise HTTPException(status_code=422, detail="end 不能早于 start")
+    links, error = await vemory_api.audio_links(start_d, end_d, dept_ids, force=force)
+    if error:
+        raise HTTPException(status_code=502, detail=error)
+    scope = resolve_data_scope(user, session)
+    if not scope.unrestricted:
+        allowed = {normalize_scope_key(value) for value in scope.owner_keys if normalize_scope_key(value)}
+        links = [
+            item for item in links
+            if allowed and normalize_scope_key(item.get("owner") or "") in allowed
+        ]
+    return {
+        "ok": True,
+        "window": {"from": start_d, "to": end_d},
+        "total": len(links),
+        "links": links,
+        "scope": scope.mode,
+    }
