@@ -178,6 +178,30 @@ class Settings:
         )
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
+        # 独立 logistics-track 运营台的私网地址。留空时不启用同源挂载；
+        # 地址只能来自部署环境，用户请求不会参与拼接，避免形成 SSRF 代理。
+        raw_logistics_admin = os.environ.get("PDCA_LOGISTICS_ADMIN_UPSTREAM", "").strip().rstrip("/")
+        parsed_logistics_admin = urlparse(raw_logistics_admin)
+        valid_logistics_admin = bool(
+            parsed_logistics_admin.scheme in {"http", "https"}
+            and parsed_logistics_admin.netloc
+            and not parsed_logistics_admin.username
+            and not parsed_logistics_admin.password
+            and parsed_logistics_admin.query == ""
+            and parsed_logistics_admin.fragment == ""
+            and parsed_logistics_admin.path in {"", "/"}
+        )
+        self.logistics_admin_upstream = (
+            raw_logistics_admin if valid_logistics_admin else ""
+        )
+        try:
+            self.logistics_admin_timeout_seconds = float(
+                os.environ.get("PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS", "15")
+            )
+        except ValueError:
+            self.logistics_admin_timeout_seconds = 15.0
+        if self.logistics_admin_timeout_seconds <= 0:
+            self.logistics_admin_timeout_seconds = 15.0
         self.knowledge_hub_enabled = os.environ.get("PDCA_KNOWLEDGE_HUB_ENABLED", "0") == "1"
         raw_knowledge_url = os.environ.get(
             "PDCA_KNOWLEDGE_HUB_URL", "http://127.0.0.1:8080"

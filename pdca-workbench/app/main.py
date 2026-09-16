@@ -23,6 +23,7 @@ from app.database import bootstrap_database, check_db_connection, get_db_mode, g
 from sqlmodel import Session, select
 from app.logging_setup import setup_logging
 from app.logistics.router import router as logistics_router
+from app.logistics.admin_proxy import router as logistics_admin_router
 from app.meeting.router import router as meeting_router
 from app.metrics import export_prometheus, mark_sync, record_request
 from app.onboarding.router import router as onboarding_router
@@ -304,6 +305,7 @@ app.include_router(knowledge_router)
 app.include_router(dashboard_router)
 app.include_router(walkin_router)
 app.include_router(logistics_router)
+app.include_router(logistics_admin_router)
 app.include_router(meeting_router)
 app.include_router(onboarding_router)
 app.include_router(signalseller_router)
