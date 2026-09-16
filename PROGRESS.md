@@ -1,5 +1,26 @@
 # Progress
 
+## 2026-09-16: Logistics operations console same-origin mount
+
+- Added `/logistics-admin/...` as a server-side proxy to the independent
+  `logistics-track` operations console.
+- PDCA authentication and role gates run before forwarding; dealer accounts are
+  blocked, manager/admin writes are allowed, and only logistics session cookies
+  are sent upstream. Upstream sessions, CSRF and audit records remain owned by
+  `logistics-track`.
+- Added an embedded operations panel and new-window link to `/app/logistics`.
+- Added `PDCA_LOGISTICS_ADMIN_UPSTREAM` and timeout configuration to Compose and
+  the remote deployment script. Empty configuration keeps the original board
+  available and returns a clear `503` for the optional console.
+
+Verification:
+
+- Backend: full PDCA suite `329 passed`; proxy-focused suite `9 passed`.
+- Frontend: `npm test` (6 passed), `npm run typecheck`, and `npm run build` passed.
+- Docker Compose configuration and `git diff --check` passed with disposable
+  validation values. Live upstream/server acceptance is pending production
+  network configuration.
+
 ## 2026-09-10: Production review remediation
 
 - Closed cross-owner and cross-team writes for tasks, logistics, and
