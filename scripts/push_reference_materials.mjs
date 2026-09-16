@@ -289,18 +289,43 @@ async function fetchWindowVideos() {
   return { all, start, end };
 }
 
+const PLAN_FILE = path.join(DATA_DIR, 'week_plan.json');
+
 async function cmdWeekly() {
   const { all, start, end } = await fetchWindowVideos();
   const pushed = readHistoryIds();
   const blocked = readBlocklist();
-  const scored = all.map(m => ({ m, s: m.qualityScore?.overallScore ?? 0 }))
-    .filter(x => !pushed.has(x.m.id))
-    .filter(x => !blocked.has(x.m.id))
-    .sort((a, b) => b.s - a.s || b.m.id - a.m.id);
-  const topN = Number(arg('top', '20'));
-  const top = scored.slice(0, topN);
-  const batches = { mon: top.slice(0, 7), wed: top.slice(7, 14), fri: top.slice(14, 20) };
-  console.log('上周窗口: ' + start + ' ~ ' + end + ' | 海外视频 ' + all.length + ' 条 | 去重后候选 ' + scored.length + ' 条');
+  // 周计划冻结：同一周窗口内，三个时区分组共用同一份选榜，避免后跑的组因去重拿到不同内容
+  let plan = null;
+  try {
+    const j = JSON.parse(fs.readFileSync(PLAN_FILE, 'utf8'));
+    if (j.start === start) plan = j;
+  } catch {}
+  if (!plan) {
+    const scored = all.map(m => ({ m, s: m.qualityScore?.overallScore ?? 0 }))
+      .filter(x => !pushed.has(x.m.id))
+      .filter(x => !blocked.has(x.m.id))
+      .sort((a, b) => b.s - a.s || b.m.id - a.m.id);
+    const topN = Number(arg('top', '20'));
+    const top = scored.slice(0, topN).map(x => x.m.id);
+    plan = {
+      start,
+      end,
+      mon: top.slice(0, 7),
+      wed: top.slice(7, 14),
+      fri: top.slice(14, 20),
+      candidateTotal: all.length,
+      scoredTotal: scored.length,
+    };
+    fs.writeFileSync(PLAN_FILE, JSON.stringify(plan, null, 2));
+  }
+  const byId = new Map(all.map(m => [m.id, m]));
+  const batches = {};
+  for (const day of ['mon', 'wed', 'fri']) {
+    batches[day] = (plan[day] || []).map(id => byId.get(id)).filter(Boolean)
+      .map(m => ({ m, s: m.qualityScore?.overallScore ?? 0 }));
+  }
+  console.log('上周窗口: ' + start + ' ~ ' + end + ' | 海外视频 ' + all.length + ' 条 | 计划候选 ' + (plan.scoredTotal ?? '-') + ' 条' + (plan.frozen ? '' : '（本周计划已冻结）'));
   for (const [day, list] of Object.entries(batches)) {
     console.log('--- ' + day + ' (' + list.length + ' 条) ---');
     for (const x of list) {
