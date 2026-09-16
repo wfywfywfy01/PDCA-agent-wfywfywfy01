@@ -19,11 +19,8 @@ const SLOTS = {
 };
 const BATCH_BY_WEEKDAY = { 1: 'mon', 3: 'wed', 5: 'fri' };
 
-// 上线前试跑：周三 10:30 推 wed 批、周四 10:30 推 fri 批到测试群（正式上线后删除本块）
-const TEST_SLOTS = {
-  3: { '10:30': 'wed' },
-  4: { '10:30': 'fri' },
-};
+// 试跑已结束：仅正式档运行（周一/三/五 12:30/13:00/15:00 北京时间）
+const TEST_SLOTS = {};
 
 function loadState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; }
