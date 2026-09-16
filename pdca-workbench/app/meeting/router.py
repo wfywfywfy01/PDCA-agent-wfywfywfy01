@@ -2,6 +2,7 @@
 """会议中心 API 路由。"""
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -47,7 +48,10 @@ def _meeting_counts(rows: list[dict]) -> dict:
 
 
 def _meeting_matches(row: dict, allowed: set[str]) -> bool:
-    values: list[str] = []
+    values: list[str] = [
+        str(row.get(key) or "")
+        for key in ("owner_name", "owner", "created_by_name")
+    ]
     for participant in row.get("participants") or []:
         if isinstance(participant, dict):
             values.extend(str(participant.get(key) or "") for key in ("name", "display_name", "login", "email"))
@@ -77,9 +81,9 @@ def _apply_meeting_scope(payload: dict, user: User, session: Session) -> dict:
 
 
 def _db_meetings(start: str, finish: str, name: str, session: Session) -> dict | None:
-    """P2：优先从 meeting_records 表读会议（DB 唯一事实源）。
+    """从 meeting_records 读取最近成功同步的快照。
 
-    库内区间无数据时返回 None，调用方回退 bridge（Vemory 实时拉取）。
+    库内区间无数据时返回 None；主读取链路由 Vemory 实时列表负责。
     显式 name 过滤（仅 unrestricted 可传）在 DB 层按参与人归一化匹配。
     """
     import json as _json
@@ -122,6 +126,7 @@ def _db_meetings(start: str, finish: str, name: str, session: Session) -> dict |
                 "source": "meeting_records_db",
             }
         )
+    snapshot_at = max((row.synced_at for row in db_rows if row.synced_at), default=None)
     return {
         "ok": True,
         "date": start,
@@ -129,10 +134,38 @@ def _db_meetings(start: str, finish: str, name: str, session: Session) -> dict |
         "meetings": meetings,
         "summary": _meeting_summary(meetings),
         "counts": _meeting_counts(meetings),
+        "snapshot_at": snapshot_at.isoformat() if snapshot_at else None,
     }
 
 
-def _load_meetings(
+async def _live_meetings(start: str, finish: str, name: str) -> tuple[dict | None, str | None]:
+    """Vemory 是唯一实时读取源；错误时绝不返回部分数据。"""
+    try:
+        rows, error = await vemory_api.list_dealer_meetings(start, finish)
+    except Exception as exc:
+        logger.warning("Vemory 实时会议读取异常: {}", exc)
+        return None, "Vemory 实时数据服务暂时不可用"
+    if error:
+        logger.warning("Vemory 实时会议读取失败: {}", error)
+        return None, "Vemory 实时数据服务暂时不可用"
+    wanted = normalize_scope_key(name) if name.strip() else ""
+    meetings = [vemory_api.normalize_meeting(row) for row in rows if isinstance(row, dict)]
+    meetings = [row for row in meetings if row["id"]]
+    if wanted:
+        meetings = [row for row in meetings if _meeting_matches(row, {wanted})]
+    return {
+        "ok": True,
+        "date": start,
+        "date_end": finish or "",
+        "meetings": meetings,
+        "summary": _meeting_summary(meetings),
+        "counts": _meeting_counts(meetings),
+        "state": "live",
+        "source": "vemory_live",
+    }, None
+
+
+async def _load_meetings(
     start: str,
     finish: str,
     phone: str,
@@ -144,33 +177,35 @@ def _load_meetings(
         raise HTTPException(status_code=422, detail="end_date 不能早于 date")
     scope = resolve_data_scope(user, session)
     if not scope.unrestricted and not scope.owner_keys:
-        return {"ok": True, "date": start, "date_end": finish, "meetings": [], "summary": _meeting_summary([]), "counts": _meeting_counts([]), "scope": scope.mode}
-    # P2：DB 优先；区间无数据时回退 Vemory（bridge → vertu 子进程）。
-    payload = _db_meetings(start, finish, name if scope.unrestricted else "", session)
+        return {
+            "ok": True, "date": start, "date_end": finish, "meetings": [],
+            "summary": _meeting_summary([]), "counts": _meeting_counts([]),
+            "state": "restricted", "scope": scope.mode,
+        }
+    requested_name = name if scope.unrestricted else ""
+    payload, error = await _live_meetings(start, finish, requested_name)
     if payload is not None:
         return _apply_meeting_scope(payload, user, session)
-    # Restricted callers may not choose another person.  Prefer the explicitly
-    # configured source name used by Vemory; the result is filtered again after
-    # normalization to prevent provider-side filter failures from leaking rows.
-    requested_name = name if scope.unrestricted else str(getattr(user, "sales_name", "") or "")
-    requested_phone = phone if scope.unrestricted else ""
-    payload = _safe_bridge(
-        bridge.api_meeting_center_meetings,
-        start,
-        requested_phone,
-        requested_name,
-        finish,
-        default={"ok": False, "error": "会议数据服务不可用", "meetings": []},
-    )
-    for row in payload.get("meetings", []) or []:
-        source_date = str(row.get("meeting_date") or row.get("started_at") or "")[:10]
-        if not source_date and (not finish or finish == start):
-            source_date = start
-        try:
-            row["meeting_date"] = require_iso_date(source_date, field="meeting_date")
-        except HTTPException:
-            row["meeting_date"] = None
-    return _apply_meeting_scope(payload, user, session)
+    snapshot = _db_meetings(start, finish, requested_name, session)
+    if snapshot is not None:
+        snapshot.update({
+            "state": "stale",
+            "source": "meeting_records_snapshot",
+            "warning": "Vemory 实时数据暂时不可用，当前显示最近成功同步快照",
+        })
+        return _apply_meeting_scope(snapshot, user, session)
+    return _apply_meeting_scope({
+        "ok": False,
+        "error": "Vemory 实时数据暂时不可用，且没有可用快照",
+        "date": start,
+        "date_end": finish or "",
+        "meetings": [],
+        "summary": _meeting_summary([]),
+        "counts": _meeting_counts([]),
+        "state": "missing",
+        "source": "vemory_live",
+        "warning": error,
+    }, user, session)
 
 
 def _safe_bridge(fn, *args, default=None, **kwargs):
@@ -192,9 +227,16 @@ async def summary(
 ):
     start = require_iso_date(date or bridge.today_text())
     finish = require_iso_date(end_date, field="end_date") if end_date else ""
-    payload = _load_meetings(start, finish, "", "", user, session)
+    payload = await _load_meetings(start, finish, "", "", user, session)
+    if not payload.get("ok"):
+        raise HTTPException(
+            status_code=503,
+            detail=payload.get("error") or "会议数据服务暂时不可用",
+        )
     summary_row = dict(payload.get("summary") or {})
-    summary_row["scope"] = payload.get("scope")
+    for key in ("scope", "state", "source", "warning", "snapshot_at"):
+        if key in payload:
+            summary_row[key] = payload[key]
     return summary_row
 
 
@@ -209,7 +251,7 @@ async def meetings(
 ):
     start = require_iso_date(date or bridge.today_text())
     finish = require_iso_date(end_date, field="end_date") if end_date else ""
-    return _load_meetings(start, finish, phone, name, user, session)
+    return await _load_meetings(start, finish, phone, name, user, session)
 
 
 @router.get("/api/meeting-center/people")
@@ -248,7 +290,9 @@ async def dispatch(
     date_text = require_iso_date(body.date or bridge.today_text())
     scope = resolve_data_scope(user, session)
     if not scope.unrestricted:
-        scoped = _load_meetings(date_text, date_text, "", "", user, session)
+        scoped = await _load_meetings(date_text, date_text, "", "", user, session)
+        if not scoped.get("ok"):
+            raise HTTPException(status_code=503, detail=scoped.get("error") or "会议数据服务暂时不可用")
         meeting_id = str(body.meeting_id or "")
         if not meeting_id or not any(str(row.get("id") or "") == meeting_id for row in scoped.get("meetings", [])):
             raise HTTPException(status_code=403, detail="该会议不在当前账号的数据权限范围内")
@@ -259,9 +303,20 @@ async def dispatch(
             owner = normalize_scope_key(item.get("owner") or item.get("assignee") or item.get("owner_name"))
             if not owner or owner not in allowed:
                 raise HTTPException(status_code=403, detail="待办负责人不在当前团队权限范围内")
-    result = _safe_bridge(bridge.api_meeting_center_dispatch, body.model_dump(), date_text)
+    dispatch_body = body.model_dump()
+    dispatch_body["assignments"] = [
+        {
+            "todo": {"text": str(item.get("title") or "").strip()},
+            "assignee": str(item.get("owner") or item.get("assignee") or "").strip(),
+        }
+        for item in body.assignments or []
+        if isinstance(item, dict)
+    ]
+    result = await asyncio.to_thread(
+        _safe_bridge, bridge.api_meeting_center_dispatch, dispatch_body, date_text,
+    )
     try:
-        sync_meetings(date_text)
+        await asyncio.to_thread(sync_meetings, date_text)
     except Exception as exc:
         logger.warning("sync_meetings 失败: {}", exc)
     return result
@@ -281,7 +336,7 @@ async def vemory_dealer_meetings(
     if end_d < start_d:
         raise HTTPException(status_code=422, detail="end 不能早于 start")
     rows, error = await vemory_api.list_dealer_meetings(start_d, end_d, dept_ids)
-    if error and not rows:
+    if error:
         raise HTTPException(status_code=502, detail=error)
     scope = resolve_data_scope(user, session)
     if not scope.unrestricted:

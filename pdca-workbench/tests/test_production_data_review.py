@@ -7,7 +7,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -209,12 +209,25 @@ class ProductionDataReviewTests(unittest.TestCase):
         self.assertEqual(len(result["meetings"]), 1)
         self.assertEqual(result["meetings"][0]["meeting_date"], "2026-08-18")
 
-    def test_bridge_meeting_date_is_not_invented_for_multiday_range(self):
+    def test_live_meeting_date_is_not_invented_for_multiday_range(self):
         from app.meeting import router as meeting
-        with Session(self.engine) as session, patch.object(meeting.bridge, "api_meeting_center_meetings", return_value={"meetings": [{"id": "M1"}, {"id": "M2", "started_at": "2026-08-19T10:00:00+08:00"}]}):
-            result = meeting._load_meetings("2026-08-18", "2026-08-20", "", "", self.admin, session)
+        with Session(self.engine) as session, patch.object(meeting.vemory_api, "list_dealer_meetings", new=AsyncMock(return_value=([{"id": "M1"}, {"id": "M2", "start_time": "2026-08-19T10:00:00+08:00"}], None))):
+            result = asyncio.run(meeting._load_meetings("2026-08-18", "2026-08-20", "", "", self.admin, session))
         self.assertIsNone(result["meetings"][0]["meeting_date"])
         self.assertEqual(result["meetings"][1]["meeting_date"], "2026-08-19")
+
+    def test_vemory_failure_returns_labeled_snapshot_not_fake_live_data(self):
+        from app.meeting import router as meeting
+
+        with Session(self.engine) as session:
+            session.add(MeetingRecord(meeting_date="2026-08-18", external_id="M18", title="快照会议"))
+            session.commit()
+            with patch.object(meeting.vemory_api, "list_dealer_meetings", new=AsyncMock(return_value=([], "offline"))):
+                result = asyncio.run(meeting._load_meetings("2026-08-18", "", "", "", self.admin, session))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state"], "stale")
+        self.assertEqual(result["source"], "meeting_records_snapshot")
+        self.assertIn("快照", result["warning"])
 
     def test_historical_duplicate_reports_use_latest_row_and_preserve_new_version(self):
         from app.export.router import export_walkin_metrics

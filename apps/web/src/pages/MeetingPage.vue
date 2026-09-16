@@ -27,6 +27,10 @@ interface MeetingsPayload {
   counts: Record<string, number>
   scope?: string
   scope_message?: string
+  state?: 'live' | 'stale' | 'missing' | 'restricted'
+  source?: string
+  warning?: string
+  snapshot_at?: string
 }
 
 interface Me {
@@ -90,18 +94,27 @@ async function load() {
 }
 
 function typeLabel(type: string): string {
-  return type === 'external' ? '外部' : '内部'
+  if (type === 'external') return '外部'
+  if (type === 'internal') return '内部'
+  return '未分类'
 }
 
 const BUCKET_LABELS: Record<string, string> = {
   interview: '面试',
   report: '例会',
   customer: '客户',
+  unknown: '未分类',
 }
 
 function personText(person: string | { name?: string; display_name?: string; login?: string }): string {
   if (typeof person === 'string') return person
   return person.name || person.display_name || person.login || ''
+}
+
+function snapshotAtText(value?: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
 }
 
 function openDispatch(meeting: MeetingItem) {
@@ -184,6 +197,10 @@ watch([startDate, endDate], load)
     </header>
 
     <p v-if="payload?.scope_message" class="scope-note">🔒 {{ payload.scope_message }}</p>
+    <p v-if="payload?.state === 'live'" class="source-note">数据源：Vemory 实时会议列表</p>
+    <p v-else-if="payload?.warning" class="entry-msg warn source-note" role="status">
+      {{ payload.warning }}<template v-if="payload.snapshot_at">（最近同步：{{ snapshotAtText(payload.snapshot_at) }}）</template>
+    </p>
     <p v-if="dispatchSuccess" class="entry-msg ok" role="status">{{ dispatchSuccess }}</p>
 
     <div v-if="loading" class="card state">正在读取会议数据…</div>
@@ -321,6 +338,12 @@ h2 {
 .scope-note {
   font-size: 12px;
   color: var(--amber);
+  margin: 0 0 10px;
+}
+
+.source-note {
+  font-size: 12px;
+  color: var(--muted);
   margin: 0 0 10px;
 }
 
@@ -518,6 +541,12 @@ h2 {
   color: var(--red);
   background: rgba(244, 63, 94, 0.08);
   border: 1px solid rgba(244, 63, 94, 0.25);
+}
+
+.entry-msg.warn {
+  color: var(--amber);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
 }
 
 .modal-actions {

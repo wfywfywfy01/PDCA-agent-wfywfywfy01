@@ -108,7 +108,9 @@ async def trigger_sync(
     date: str | None = None,
     _user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    return run_full_sync(require_iso_date(date or bridge.today_text()))
+    return await asyncio.to_thread(
+        run_full_sync, require_iso_date(date or bridge.today_text())
+    )
 
 
 @router.post("/sync-vps-sellout")
@@ -136,7 +138,7 @@ async def trigger_backup(_user: Annotated[User, Depends(require_role("admin"))] 
 
 @router.post("/run-daily-job")
 async def run_daily(_user: Annotated[User, Depends(require_role("admin"))] = None):
-    daily_sync_job()
+    await asyncio.to_thread(daily_sync_job)
     return {"ok": True}
 
 
