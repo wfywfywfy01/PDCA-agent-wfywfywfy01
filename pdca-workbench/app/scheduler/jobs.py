@@ -15,7 +15,7 @@ from loguru import logger
 from app.config import get_settings
 from app.database import get_active_database_url
 from app.legacy import bridge
-from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
+from app.models.sync import run_full_sync, sync_dealer_sales_from_vps, sync_meetings
 from app.alerting import notify
 from app.metrics import mark_sync
 
@@ -475,6 +475,19 @@ def vemory_todo_sync_job() -> None:
         notify("Vemory 待办同步失败", str(exc)[:300])
 
 
+def meeting_snapshot_sync_job() -> None:
+    """每 30 分钟同步 Vemory 会议快照，供实时源故障时安全回退。"""
+    from zoneinfo import ZoneInfo
+
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    try:
+        count = sync_meetings(day)
+        logger.info("Vemory 会议快照同步完成: {} 场 ({})", count, day)
+    except Exception as exc:
+        logger.exception("Vemory 会议快照同步失败: {}", exc)
+        notify("Vemory 会议快照同步失败", str(exc)[:300])
+
+
 def kpi_refresh_job() -> None:
     """【已停用 F1】旧 KPI 刷新：子进程重建 chart_data.json + dashboard.html。
 
@@ -567,6 +580,17 @@ def start_scheduler() -> BackgroundScheduler | None:
         hour=20,
         minute=0,
         id="vps_dealer_sync_20",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # 07:00-22:59 每 30 分钟 — Vemory 实时源的数据库快照。
+    _scheduler.add_job(
+        meeting_snapshot_sync_job,
+        trigger="cron",
+        hour="7-22",
+        minute="*/30",
+        id="meeting_snapshot_sync",
         max_instances=1,
         coalesce=True,
     )

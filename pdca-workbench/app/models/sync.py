@@ -2,6 +2,7 @@
 """文件数据同步到 SQLite。"""
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 from datetime import datetime
@@ -9,6 +10,8 @@ from pathlib import Path
 
 from loguru import logger
 from sqlalchemy import delete, text
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import Session, select
 
 from app.config import get_settings
@@ -18,6 +21,7 @@ from app.models.daily_report import DailyReport
 from app.models.dealer_sales import DealerSales
 from app.models.meeting import MeetingRecord
 from app.models.pdca_task import PdcaTask
+from app.meeting import vemory as vemory_api
 
 SALES_SYNC_FAILED_SOURCE = "vertu-cli:sales-orders:failed"
 
@@ -177,47 +181,75 @@ def sync_daily_reports(date_text: str) -> int:
 
 
 def sync_meetings(date_text: str) -> int:
-    """从 Vemory API 同步会议到数据库。"""
-    payload = bridge.api_meeting_center_meetings(date_text)
-    meetings = payload.get("meetings") or []
-    count = 0
+    """同步当天完整 Vemory 列表为可安全回退的快照。
+
+    只有完整拉取成功时才会写入和清理旧快照；主键冲突由数据库原子 upsert
+    解决，避免定时、手动和派发后的同步并发插入重复会议。
+    """
+    rows, error = asyncio.run(vemory_api.list_dealer_meetings(date_text, date_text))
+    if error:
+        raise RuntimeError("Vemory 会议同步失败")
+
+    now = datetime.utcnow()
+    records_by_id: dict[str, dict] = {}
+    for raw in rows:
+        if not isinstance(raw, dict):
+            raise RuntimeError("Vemory 会议同步包含非结构化记录，未更新快照")
+        meeting = vemory_api.normalize_meeting(raw)
+        external_id = str(meeting.get("id") or "")
+        meeting_date = str(meeting.get("meeting_date") or "")
+        if not external_id or meeting_date != date_text:
+            raise RuntimeError("Vemory 会议缺少可核验日期或标识，未更新快照")
+        records_by_id[external_id] = {
+            "meeting_date": date_text,
+            "external_id": external_id,
+            "title": str(meeting.get("title") or ""),
+            "meeting_type": str(meeting.get("meeting_type") or "unknown"),
+            "bucket": str(meeting.get("bucket") or "unknown"),
+            "duration_minutes": int(meeting.get("duration_minutes") or 0),
+            "brief": str(meeting.get("brief") or ""),
+            "todos_json": json.dumps(meeting.get("todos") or [], ensure_ascii=False),
+            "participants_json": json.dumps(meeting.get("participants") or [], ensure_ascii=False),
+            "source": "vemory",
+            "synced_at": now,
+        }
+    records = list(records_by_id.values())
+
     with Session(get_engine()) as session:
-        # 一次性拉取当日已有会议，避免逐条 SELECT（N+1 → 1）
-        existing_rows = session.exec(
-            select(MeetingRecord).where(MeetingRecord.meeting_date == date_text)
-        ).all()
-        existing_map: dict[str, MeetingRecord] = {r.external_id: r for r in existing_rows}
-        for m in meetings:
-            ext_id = str(m.get("id") or "")
-            if not ext_id:
-                continue
-            existing = existing_map.get(ext_id)
-            todos_json = json.dumps(m.get("todos") or [], ensure_ascii=False)
-            participants_json = json.dumps(m.get("participants") or [], ensure_ascii=False)
-            if existing:
-                existing.title = str(m.get("title") or "")
-                existing.brief = str(m.get("brief") or "")
-                existing.todos_json = todos_json
-                existing.synced_at = datetime.utcnow()
-                session.add(existing)
-            else:
-                new_meeting = MeetingRecord(
-                    meeting_date=date_text,
-                    external_id=ext_id,
-                    title=str(m.get("title") or ""),
-                    meeting_type=str(m.get("meeting_type") or "internal"),
-                    bucket=str(m.get("bucket") or "report"),
-                    duration_minutes=int(m.get("duration_minutes") or 0),
-                    brief=str(m.get("brief") or ""),
-                    todos_json=todos_json,
-                    participants_json=participants_json,
-                )
-                session.add(new_meeting)
-                existing_map[ext_id] = new_meeting
-            count += 1
+        dialect = session.get_bind().dialect.name
+        if dialect == "postgresql":
+            # Serialize same-day writers on production. SQLite obtains the unique
+            # index guarantee below; both paths use an atomic conflict update.
+            session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                {"lock_key": f"vemory-meeting-sync:{date_text}"},
+            )
+        if records:
+            table = MeetingRecord.__table__
+            insert = postgresql_insert if dialect == "postgresql" else sqlite_insert if dialect == "sqlite" else None
+            if insert is None:
+                raise RuntimeError(f"不支持安全会议快照同步的数据库：{dialect}")
+            statement = insert(table).values(records)
+            update_fields = (
+                "meeting_date", "title", "meeting_type", "bucket", "duration_minutes",
+                "brief", "todos_json", "participants_json", "source", "synced_at",
+            )
+            statement = statement.on_conflict_do_update(
+                index_elements=[table.c.external_id],
+                set_={field: getattr(statement.excluded, field) for field in update_fields},
+            )
+            session.execute(statement)
+
+        stale = delete(MeetingRecord).where(
+            MeetingRecord.meeting_date == date_text,
+            MeetingRecord.source == "vemory",
+        )
+        if records_by_id:
+            stale = stale.where(MeetingRecord.external_id.not_in(records_by_id))
+        session.execute(stale)
         session.commit()
-    logger.info("同步会议 {} 场 ({})", count, date_text)
-    return count
+    logger.info("同步会议 {} 场 ({})", len(records), date_text)
+    return len(records)
 
 
 def sync_dealer_sales_from_vps(date_text: str) -> int:

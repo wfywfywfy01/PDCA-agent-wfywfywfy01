@@ -184,6 +184,7 @@ def _migrate_schema() -> None:
         "ALTER TABLE walkin_daily_reports ADD COLUMN IF NOT EXISTS existing_visits INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN IF NOT EXISTS phone_qty INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN IF NOT EXISTS activation_rate FLOAT DEFAULT 0",
+        "ALTER TABLE meeting_records ADD COLUMN IF NOT EXISTS source VARCHAR(32) DEFAULT 'legacy'",
         # 待办催办（提醒跟进）字段
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS last_reminded_at TIMESTAMP",
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS last_reminded_round VARCHAR(32) DEFAULT ''",
@@ -240,6 +241,7 @@ def _migrate_schema() -> None:
         "ALTER TABLE walkin_daily_reports ADD COLUMN existing_visits INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN phone_qty INTEGER DEFAULT 0",
         "ALTER TABLE dealer_sales ADD COLUMN activation_rate FLOAT DEFAULT 0",
+        "ALTER TABLE meeting_records ADD COLUMN source VARCHAR(32) DEFAULT 'legacy'",
         # 待办催办（提醒跟进）字段
         "ALTER TABLE pdca_tasks ADD COLUMN last_reminded_at TIMESTAMP",
         "ALTER TABLE pdca_tasks ADD COLUMN last_reminded_round VARCHAR(32) DEFAULT ''",
