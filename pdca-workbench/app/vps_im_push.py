@@ -55,20 +55,59 @@ def push_vps_alert(message: str) -> bool:
     return _push(message, channel_id)
 
 
-def _push(message: str, channel_id: str) -> bool:
+def push_duzhan_message(
+    message: str,
+    channel_id: str,
+    *,
+    parent_message_id: str = "",
+    idempotency_key: str = "",
+) -> bool:
+    """推督战官消息到指定群；只用 PDCA_DUZHAN_*，不回退日报机器人。"""
+    app_id = os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip()
+    app_secret = os.environ.get("PDCA_DUZHAN_BOT_APP_SECRET", "").strip()
+    return _push(
+        message,
+        channel_id,
+        app_id=app_id,
+        app_secret=app_secret,
+        parent_message_id=parent_message_id,
+        idempotency_key=idempotency_key,
+    )
+
+
+def _push(
+    message: str,
+    channel_id: str,
+    *,
+    app_id: str | None = None,
+    app_secret: str | None = None,
+    parent_message_id: str = "",
+    idempotency_key: str = "",
+) -> bool:
     """推一条文本消息到指定群；成功返回 True，未配置/失败返回 False。"""
-    app_id = os.environ.get("PDCA_VPS_BOT_APP_ID", "").strip()
-    app_secret = os.environ.get("PDCA_VPS_BOT_APP_SECRET", "").strip()
+    if app_id is None:
+        app_id = os.environ.get("PDCA_VPS_BOT_APP_ID", "").strip()
+    if app_secret is None:
+        app_secret = os.environ.get("PDCA_VPS_BOT_APP_SECRET", "").strip()
     if not (app_id and app_secret and channel_id):
         return False
+    payload: dict = {"channel_id": channel_id, "body": message}
+    if parent_message_id:
+        payload["parent_message_id"] = parent_message_id
+    if idempotency_key:
+        payload["idempotency_key"] = idempotency_key
+        payload["client_message_id"] = idempotency_key
+    headers = {
+        "x-vertu-bot-app-id": app_id,
+        "x-vertu-bot-app-secret": app_secret,
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     try:
         resp = httpx.post(
             VPS_PUSH_URL,
-            json={"channel_id": channel_id, "body": message},
-            headers={
-                "x-vertu-bot-app-id": app_id,
-                "x-vertu-bot-app-secret": app_secret,
-            },
+            json=payload,
+            headers=headers,
             timeout=15.0,
         )
         if resp.status_code != 200:
