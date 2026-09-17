@@ -30,12 +30,12 @@ def _polish_draft(draft: str, config: GroupConfig) -> str:
     """
     try:
         from app.agents.llm_client import QwenUnavailable, supervisor_client
-        from app.agents.prompts import group as group_prompt
+        from app.agents.prompts import load_group
 
         client = supervisor_client()
         reply = client.chat(
             [
-                {"role": "system", "content": group_prompt.load()},
+                {"role": "system", "content": load_group()},
                 {
                     "role": "user",
                     "content": "请润色以下群催办草稿，保持事实与语气一致，不改动数字：\n" + draft[:4000],
