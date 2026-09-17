@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """多智能体督战运行时：运行/事件/外发审批/ASR 产物 + pdca_tasks 扩展。
 
-Revision ID: 011
-Revises: 010
+Revision ID: 012
+Revises: 011（011 为 main 的 vemory_meeting_snapshot；本迁移与规格中 011 编号对应，因分支合入碰撞顺延为 012）
 Create Date: 2026-09-17
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "011"
-down_revision: Union[str, None] = "010"
+revision: str = "012"
+down_revision: Union[str, None] = "011"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
