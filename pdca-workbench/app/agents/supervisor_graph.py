@@ -75,7 +75,7 @@ def decision_with_llm(text: str, context: dict | None = None) -> SupervisorDecis
                     ),
                 },
             ],
-            max_tokens=1500,
+            max_tokens=2500,  # deepseek-flash 带 reasoning，预留 token 防 JSON 截断
             temperature=0.1,
         )
         raw = (reply.get("content") or "").strip()
