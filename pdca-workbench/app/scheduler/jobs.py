@@ -595,7 +595,7 @@ def agent_slot_health_job() -> None:
     from app.agents.flow_controller import run_health_checks_for
 
     settings = get_settings()
-    if not (settings.agent_healthcheck_enabled and settings.duzhan_enabled):
+    if not (getattr(settings, "agent_healthcheck_enabled", False) and getattr(settings, "duzhan_enabled", False)):
         return
     try:
         reports = run_health_checks_for()
@@ -612,7 +612,7 @@ def group_agent_shadow_job(tz_name: str, hour: int) -> None:
     from app.duzhan import is_duzhan_workday
 
     settings = get_settings()
-    if not (settings.agent_enabled and settings.duzhan_enabled):
+    if not (getattr(settings, "agent_enabled", False) and getattr(settings, "duzhan_enabled", False)):
         return
     try:
         now = datetime.now(ZoneInfo(tz_name))
@@ -916,16 +916,16 @@ def start_scheduler() -> BackgroundScheduler | None:
     # kpi_refresh（09:00/12:00/21:00 重建静态 chart_data.json）已停用（F1）：
     # 看板数据由 /api/dashboard/* 实时查库，不再运行子进程生成静态文件。
 
-    if settings.duzhan_enabled:
+    if getattr(settings, "duzhan_enabled", False):
         from zoneinfo import ZoneInfo
 
         from app.duzhan import collect_clock, cron_timezones, parse_hours
 
-        lead = settings.duzhan_lead_minutes
+        lead = getattr(settings, "duzhan_lead_minutes", 15)
         for tz_name in cron_timezones():
             zone = ZoneInfo(tz_name)
             tz_slug = tz_name.lower().replace("/", "_")
-            for hour in parse_hours(settings.duzhan_times):
+            for hour in parse_hours(getattr(settings, "duzhan_times", ["10:00", "15:00", "20:00"])):
                 collect_hour, collect_minute = collect_clock(hour, lead)
                 _scheduler.add_job(
                     duzhan_collect_job,
@@ -953,7 +953,7 @@ def start_scheduler() -> BackgroundScheduler | None:
                     coalesce=True,
                     misfire_grace_time=3600,
                 )
-        if settings.duzhan_reply_enabled:
+        if getattr(settings, "duzhan_reply_enabled", False):
             _scheduler.add_job(
                 duzhan_at_poll_job,
                 trigger="interval",
@@ -963,7 +963,7 @@ def start_scheduler() -> BackgroundScheduler | None:
                 coalesce=True,
             )
 
-    if settings.ctob_enabled:
+    if getattr(settings, "ctob_enabled", False):
         from zoneinfo import ZoneInfo
 
         _scheduler.add_job(
@@ -981,7 +981,7 @@ def start_scheduler() -> BackgroundScheduler | None:
 
     # ── 多智能体督战运行时调度（全部默认关闭/影子，模型故障不阻断确定性任务）──
     # P0：档位健康检查，每 5 分钟扫窗口（各时区本地整点后 5 分钟内检查）。
-    if settings.agent_healthcheck_enabled and settings.duzhan_enabled:
+    if getattr(settings, "agent_healthcheck_enabled", False) and getattr(settings, "duzhan_enabled", False):
         _scheduler.add_job(
             agent_slot_health_job,
             trigger="cron",
@@ -992,7 +992,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         )
 
     # P3/P4：群 Agent 影子草稿（采集后 5 分钟，即整点前 10 分钟），不推群。
-    if settings.agent_enabled and settings.duzhan_enabled:
+    if getattr(settings, "agent_enabled", False) and getattr(settings, "duzhan_enabled", False):
         from zoneinfo import ZoneInfo as _ZoneInfo
 
         from app.duzhan import collect_clock, cron_timezones, parse_hours
@@ -1000,7 +1000,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         for tz_name in cron_timezones():
             zone = _ZoneInfo(tz_name)
             tz_slug = tz_name.lower().replace("/", "_")
-            for hour in parse_hours(settings.duzhan_times):
+            for hour in parse_hours(getattr(settings, "duzhan_times", ["10:00", "15:00", "20:00"])):
                 draft_hour, draft_minute = collect_clock(hour, 10)
                 _scheduler.add_job(
                     group_agent_shadow_job,
@@ -1017,7 +1017,7 @@ def start_scheduler() -> BackgroundScheduler | None:
                 )
 
     # P1：Outbox 发送轮（只发已批准消息）。
-    if settings.agent_outbox_enabled:
+    if getattr(settings, "agent_outbox_enabled", False):
         _scheduler.add_job(
             outbox_send_job,
             trigger="interval",
@@ -1035,14 +1035,14 @@ def start_scheduler() -> BackgroundScheduler | None:
         "agent={} shadow={} health={} outbox={}",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
-        settings.duzhan_times if settings.duzhan_enabled else "停用",
-        settings.duzhan_lead_minutes if settings.duzhan_enabled else 0,
-        "1m" if settings.duzhan_enabled and settings.duzhan_reply_enabled else "停用",
-        "开" if settings.ctob_enabled else "停用",
-        "开" if settings.agent_enabled else "停用",
-        "开" if settings.agent_shadow_mode else "关",
-        "开" if settings.agent_healthcheck_enabled else "停用",
-        "开" if settings.agent_outbox_enabled else "停用",
+        getattr(settings, "duzhan_times", []) if getattr(settings, "duzhan_enabled", False) else "停用",
+        getattr(settings, "duzhan_lead_minutes", 0) if getattr(settings, "duzhan_enabled", False) else 0,
+        "1m" if getattr(settings, "duzhan_enabled", False) and getattr(settings, "duzhan_reply_enabled", False) else "停用",
+        "开" if getattr(settings, "ctob_enabled", False) else "停用",
+        "开" if getattr(settings, "agent_enabled", False) else "停用",
+        "开" if getattr(settings, "agent_shadow_mode", False) else "关",
+        "开" if getattr(settings, "agent_healthcheck_enabled", False) else "停用",
+        "开" if getattr(settings, "agent_outbox_enabled", False) else "停用",
     )
     return _scheduler
 

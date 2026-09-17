@@ -55,8 +55,10 @@ class FlowControllerTests(unittest.TestCase):
                 now=datetime(2026, 9, 17, 9, 45, tzinfo=ZoneInfo("Asia/Shanghai")),
             )
         self.assertEqual(result["status"], "ok")
+        from sqlmodel import select as _select
+
         with Session(self.engine) as session:
-            events = session.query(AgentEvent).all()
+            events = session.exec(_select(AgentEvent)).all()
         types = {item.event_type for item in events}
         self.assertIn("slot.collect_started", types)
         self.assertIn("slot.collect_completed", types)
@@ -116,8 +118,12 @@ class FlowControllerTests(unittest.TestCase):
     def test_event_idempotency(self):
         self.assertTrue(write_event("task.received", event_key="k1", producer="t"))
         self.assertFalse(write_event("task.received", event_key="k1", producer="t"))
+        from sqlmodel import select as _select2
+
         with Session(self.engine) as session:
-            rows = session.query(AgentEvent).filter(AgentEvent.event_key == "k1").all()
+            rows = session.exec(
+                _select2(AgentEvent).where(AgentEvent.event_key == "k1")
+            ).all()
         self.assertEqual(len(rows), 1)
 
 
