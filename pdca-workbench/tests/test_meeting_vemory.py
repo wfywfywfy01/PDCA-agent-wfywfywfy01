@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.meeting import vemory as v
+from app.meeting import router
 
 
 def _list_payload(rows, total, ok=True):
@@ -68,6 +69,30 @@ class VemoryListTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows, [])
         self.assertIsNotNone(error)
 
+    async def test_list_rejects_response_without_total(self):
+        with patch(
+            "app.meeting.vemory.run_vertu_json",
+            new=AsyncMock(return_value={"ok": True, "meetings": [_row(1)]}),
+        ):
+            rows, error = await v.list_dealer_meetings("2026-09-01", "2026-09-30")
+        self.assertEqual(rows, [])
+        self.assertIn("总数", error)
+
+    async def test_list_rejects_partial_result_at_page_safety_cap(self):
+        settings = SimpleNamespace(
+            vemory_dept_ids="14344",
+            vemory_page_size=50,
+            vemory_max_pages=1,
+            vemory_audio_cache_ttl=1800,
+        )
+        with patch("app.meeting.vemory.get_settings", return_value=settings), patch(
+            "app.meeting.vemory.run_vertu_json",
+            new=AsyncMock(return_value=_list_payload([_row(i) for i in range(50)], 51)),
+        ):
+            rows, error = await v.list_dealer_meetings("2026-09-01", "2026-09-30")
+        self.assertEqual(len(rows), 50)
+        self.assertIn("分页上限", error)
+
     async def test_list_without_dept_ids_errors(self):
         stub = SimpleNamespace(
             vemory_dept_ids="  ",
@@ -79,6 +104,30 @@ class VemoryListTests(unittest.IsolatedAsyncioTestCase):
             rows, error = await v.list_dealer_meetings("2026-09-01", "2026-09-30")
         self.assertEqual(rows, [])
         self.assertIn("PDCA_VEMORY_DEPT_IDS", error)
+
+    async def test_live_payload_normalizes_vemory_rows(self):
+        raw = {
+            "id": "meeting-1",
+            "name": "客户会议",
+            "start_time": "2026-09-16T01:00:00Z",
+            "duration_seconds": 600,
+            "owner_name": "于冰",
+            "source": "vemory",
+        }
+        with patch(
+            "app.meeting.router.vemory_api.list_dealer_meetings",
+            new=AsyncMock(return_value=([raw], None)),
+        ):
+            payload, error = await router._live_meetings(
+                "2026-09-16", "2026-09-16", ""
+            )
+        self.assertIsNone(error)
+        self.assertEqual(payload["state"], "live")
+        self.assertEqual(payload["source"], "vemory_live")
+        self.assertEqual(payload["meetings"][0]["title"], "客户会议")
+        self.assertEqual(payload["meetings"][0]["meeting_date"], "2026-09-16")
+        self.assertEqual(payload["meetings"][0]["duration_minutes"], 10)
+        self.assertEqual(payload["meetings"][0]["participants"][0]["name"], "于冰")
 
 
 class VemoryDetailTests(unittest.IsolatedAsyncioTestCase):

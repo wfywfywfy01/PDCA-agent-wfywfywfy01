@@ -1,5 +1,63 @@
 # Progress
 
+## 2026-09-16: Logistics operations console same-origin mount
+
+- Added `/logistics-admin/...` as a server-side proxy to the independent
+  `logistics-track` operations console.
+- PDCA authentication and role gates run before forwarding; dealer accounts are
+  blocked, manager/admin writes are allowed, and only logistics session cookies
+  are sent upstream. Upstream sessions, CSRF and audit records remain owned by
+  `logistics-track`.
+- Added an embedded operations panel and new-window link to `/app/logistics`.
+- Added `PDCA_LOGISTICS_ADMIN_UPSTREAM` and timeout configuration to Compose and
+  the remote deployment script. Empty configuration keeps the original board
+  available and returns a clear `503` for the optional console.
+
+Verification:
+
+- Backend: full PDCA suite `329 passed`; proxy-focused suite `9 passed`.
+- Frontend: `npm test` (6 passed), `npm run typecheck`, and `npm run build` passed.
+- Docker Compose configuration and `git diff --check` passed with disposable
+  validation values. Live upstream/server acceptance is pending production
+  network configuration.
+
+## 2026-09-16: Vemory real-time meeting center
+
+- Changed the meeting-center primary read path to the authenticated server-side
+  Vemory list. Browser clients still use the existing protected PDCA endpoint;
+  Vemory credentials are never exposed to the browser.
+- Normalized live Vemory records into the page model, including source date,
+  owner participation, duration, and stable external ID. Unprovided
+  internal/external or meeting categories display as `unknown`, never as an
+  invented internal meeting or routine report.
+- Added a 07:00-22:59 Shanghai-time 30-minute Vemory snapshot job. Snapshot
+  upserts are keyed by a database-enforced Vemory external ID; a failed or
+  incomplete source read preserves the previous database snapshot. A complete
+  sync removes only cancelled Vemory snapshots, never legacy records.
+- Made the page state explicit: live Vemory data, labeled stale snapshot, or a
+  visible unavailable error. Removed the old bridge from the primary list path.
+- Corrected meeting task dispatch payload translation so page `owner` and
+  `title` fields become the legacy writer's assignee and task text.
+- A missing source and missing snapshot now returns HTTP 503 from both the
+  list and summary APIs; neither can publish a fictitious all-zero meeting
+  summary. Stale notices display their latest snapshot time.
+
+Verification:
+
+- Focused backend: `59 tests` passed in `12.740s` for Vemory list, pagination
+  completeness, atomic snapshots, cancellation cleanup, source-date,
+  stale-fallback, scheduler registration, and async request boundaries.
+- Full backend discovery after rebase to the latest `main`: `438 tests` passed
+  in `60.809s` with
+  `python -m unittest discover -s tests -p 'test_*.py' -q -b`.
+- Frontend: `8 tests` passed; Vue typecheck and production build passed.
+- Docker Compose configuration passed with disposable non-secret validation
+  values. Final Docker image `sha256:0eb6b00278850cdc3939a089ec9a9a832faf5fa339e539b0048227b6716a6b8f`
+  passed in-container frontend tests, typecheck and production build; its
+  fresh SQLite Alembic migration created the Vemory source column and unique
+  external-ID protection. Isolated smoke returned `/health` 200 and
+  `/app/meetings` 200. No production deployment was created.
+
 ## 2026-09-10: Production review remediation
 
 - Closed cross-owner and cross-team writes for tasks, logistics, and

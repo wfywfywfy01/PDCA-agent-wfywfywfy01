@@ -48,6 +48,61 @@ def _dept_ids(dept_ids: str) -> str:
     return (ids or get_settings().vemory_dept_ids).strip()
 
 
+def normalize_meeting(row: dict) -> dict:
+    """把 Vemory 轻量记录收敛为会议中心的稳定读取模型。
+
+    Vemory 列表没有可靠的内部/外部和会议分类字段，因此未知值必须明确
+    标为 ``unknown``，不能把它们伪装成内部例会。
+    """
+    start_time = str(row.get("start_time") or "")
+    date_text = str(row.get("date") or start_time)[:10]
+    meeting_date = date_text if len(date_text) == 10 else None
+    owner_name = str(row.get("owner_name") or "").strip()
+    participants = row.get("participants")
+    participants = list(participants) if isinstance(participants, list) else []
+    participant_names = {
+        str(item.get("name") or item.get("display_name") or "").strip()
+        for item in participants
+        if isinstance(item, dict)
+    }
+    if owner_name and owner_name not in participant_names:
+        participants.append({"name": owner_name})
+    todos = row.get("todos")
+    todos = list(todos) if isinstance(todos, list) else []
+
+    duration = row.get("duration_minutes")
+    if duration in (None, ""):
+        try:
+            duration = float(row.get("duration_seconds") or 0) / 60
+        except (TypeError, ValueError):
+            duration = 0
+    try:
+        duration_minutes = max(0, round(float(duration)))
+    except (TypeError, ValueError):
+        duration_minutes = 0
+
+    meeting_type = str(row.get("meeting_type") or "").strip().lower()
+    if meeting_type not in {"internal", "external"}:
+        meeting_type = "unknown"
+    bucket = str(row.get("bucket") or "").strip().lower()
+    if bucket not in {"interview", "report", "customer"}:
+        bucket = "unknown"
+    brief = row.get("brief") or row.get("summary") or row.get("todo_summary") or ""
+    return {
+        "id": str(row.get("id") or row.get("meeting_id") or "").strip(),
+        "meeting_date": meeting_date,
+        "title": str(row.get("title") or row.get("name") or "未命名会议").strip() or "未命名会议",
+        "meeting_type": meeting_type,
+        "bucket": bucket,
+        "duration_minutes": duration_minutes,
+        "brief": str(brief) if isinstance(brief, str) else "",
+        "todos": todos,
+        "participants": participants,
+        "owner_name": owner_name,
+        "source": "vemory_live",
+    }
+
+
 async def list_dealer_meetings(
     start: str,
     end: str,
@@ -63,6 +118,7 @@ async def list_dealer_meetings(
         return [], "未配置经销商部门 ID（PDCA_VEMORY_DEPT_IDS）"
     rows: list[dict] = []
     error: str | None = None
+    expected_total: int | None = None
     for page in range(1, settings.vemory_max_pages + 1):
         payload = await run_vertu_json(
             [
@@ -80,12 +136,33 @@ async def list_dealer_meetings(
             error = "会议列表接口调用失败（vertu-cli meeting +list）"
             logger.warning("vemory list failed page={} ids={}", page, ids)
             break
+        try:
+            total = int(payload.get("total"))
+        except (TypeError, ValueError):
+            total = None
+        if total is None or total < 0:
+            error = "会议列表缺少有效总数，无法确认数据完整性"
+            logger.warning("vemory list missing total page={} ids={}", page, ids)
+            break
+        expected_total = total
         batch = payload.get("meetings") or []
+        if not isinstance(batch, list) or not all(isinstance(row, dict) for row in batch):
+            error = "会议列表返回格式异常"
+            logger.warning("vemory list malformed page={} ids={}", page, ids)
+            break
         if not batch:
+            if expected_total is not None and len(rows) < expected_total:
+                error = "会议列表未完整返回（分页提前结束）"
             break
         rows.extend(batch)
-        if len(rows) >= int(payload.get("total") or 0):
+        if expected_total is not None and len(rows) >= expected_total:
             break
+    if error is None and expected_total is not None and len(rows) < expected_total:
+        error = "会议列表超出安全分页上限，未使用不完整数据"
+        logger.warning(
+            "vemory list truncated expected_total={} received={} max_pages={}",
+            expected_total, len(rows), settings.vemory_max_pages,
+        )
     for row in rows:
         row["date"] = (row.get("start_time") or "")[:10]
     return rows, error

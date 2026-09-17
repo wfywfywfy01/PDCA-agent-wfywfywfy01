@@ -156,6 +156,7 @@ const freightMsg = ref('')
 const confirmSf = ref('')
 const confirmReason = ref('')
 const confirmBusy = ref(false)
+const showOperations = ref(false)
 
 /**
  * 当前账号能否复核跨境货代。
@@ -163,6 +164,10 @@ const confirmBusy = ref(false)
  */
 function canReviewFreight(): boolean {
   return !!me.value && ['sales', 'manager', 'admin'].includes(me.value.role)
+}
+
+function canOpenOperations(): boolean {
+  return !!me.value && ['manager', 'admin'].includes(me.value.role)
 }
 
 /**
@@ -357,14 +362,24 @@ watch(me, (value) => {
         <h1>物流中心</h1>
         <p class="sub">{{ board === 'freight' ? '日升货代预报 · 面单匹配 · 异常复核' : '经销商运单进度 · 异常核查 · 实时追踪' }}</p>
       </div>
-      <button
-        v-if="board === 'dealer' && me && (me.role === 'sales' || me.role === 'manager' || me.role === 'admin')"
-        class="btn btn-primary"
-        type="button"
-        @click="showEntry = true"
-      >
-        录入物流单号
-      </button>
+      <div class="head-actions">
+        <button
+          v-if="board === 'dealer' && me && (me.role === 'sales' || me.role === 'manager' || me.role === 'admin')"
+          class="btn btn-primary"
+          type="button"
+          @click="showEntry = true"
+        >
+          录入物流单号
+        </button>
+        <button
+          v-if="canOpenOperations()"
+          class="btn"
+          type="button"
+          @click="showOperations = !showOperations"
+        >
+          {{ showOperations ? '收起运营后台' : '打开运营后台' }}
+        </button>
+      </div>
     </header>
 
     <div class="tabs board-tabs">
@@ -378,6 +393,25 @@ watch(me, (value) => {
         跨境货代
       </button>
     </div>
+
+    <section v-if="showOperations" class="card operations-panel">
+      <div class="operations-head">
+        <div>
+          <h2>物流运营后台</h2>
+          <p class="sub">订单、异常待办、通知、运营日报和权限管理</p>
+        </div>
+        <div class="operations-actions">
+          <a class="btn" href="/logistics-admin/orders" target="_blank" rel="noopener">新窗口打开</a>
+          <button class="btn" type="button" @click="showOperations = false">收起</button>
+        </div>
+      </div>
+      <iframe
+        class="operations-frame"
+        src="/logistics-admin/orders"
+        title="物流运营后台"
+        loading="lazy"
+      ></iframe>
+    </section>
 
     <p v-if="entrySuccess" class="entry-msg ok">{{ entrySuccess }}</p>
 
@@ -619,6 +653,49 @@ watch(me, (value) => {
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 14px;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.operations-panel {
+  margin: 16px 0 20px;
+  overflow: hidden;
+}
+
+.operations-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.operations-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.operations-head .sub {
+  margin: 4px 0 0;
+}
+
+.operations-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.operations-frame {
+  display: block;
+  width: 100%;
+  min-height: 820px;
+  border: 0;
+  background: #f6f8fa;
 }
 
 h1 {

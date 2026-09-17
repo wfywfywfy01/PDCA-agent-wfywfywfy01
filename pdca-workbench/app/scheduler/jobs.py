@@ -15,7 +15,7 @@ from loguru import logger
 from app.config import get_settings
 from app.database import get_active_database_url
 from app.legacy import bridge
-from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
+from app.models.sync import run_full_sync, sync_dealer_sales_from_vps, sync_meetings
 from app.alerting import notify
 from app.metrics import mark_sync
 
@@ -397,6 +397,66 @@ def todo_okr_link_job() -> None:
         notify("OKR 挂接失败", str(exc)[:300])
 
 
+def todo_disk_alert_job() -> None:
+    """每 30 分钟 — 宿主机磁盘水位告警（低水位机器人发管理者，防磁盘满重演）。"""
+    import os
+    import time
+    from datetime import datetime
+
+    from sqlmodel import Session, select
+
+    from app.config import get_settings
+    from app.database import get_engine
+    from app.models.todo_group_state import TodoGroupState
+    from app.todos.disk_watch import disk_usage, levels_for
+    from app.todos.service import send_direct_message
+
+    if not os.path.exists("/host"):
+        logger.warning("磁盘监测挂载 /host 不可用，跳过")
+        return
+    total, free, free_pct = disk_usage("/host")
+    levels = levels_for(free_pct)
+    if not levels:
+        return
+    target = get_settings().todo_report_user_id
+    now = time.time()
+    for level, min_interval in levels:
+        key = f"disk_alert_{level}"
+        with Session(get_engine()) as session:
+            row = session.exec(
+                select(TodoGroupState).where(TodoGroupState.key == key)
+            ).first()
+            last = 0.0
+            if row is not None:
+                try:
+                    last = float(row.value or "0")
+                except ValueError:
+                    last = 0.0
+            if last and now - last < min_interval:
+                continue  # 间隔内不重复告警
+            if target:
+                body = (
+                    f"⚠ 磁盘告警[{level}]：宿主机磁盘剩余 {free_pct * 100:.0f}%"
+                    f"（可用 {free / 1e9:.1f}G / 共 {total / 1e9:.0f}G）。\n"
+                    "清理容器已自动升级清理；若持续下降请联系运维扩容数据盘。"
+                )
+                send_direct_message(
+                    target, body,
+                    f"pdca-disk-alert-{level}-{int(now // min_interval)}",
+                )
+            if row is None:
+                session.add(TodoGroupState(key=key, value=str(now)))
+            else:
+                row.value = str(now)
+                row.updated_at = datetime.utcnow()
+                session.add(row)
+            session.commit()
+        logger.warning(
+            "磁盘告警[{}]: 剩余 {:.0f}%（可用 {:.1f}G）",
+            level, free_pct * 100, free / 1e9,
+        )
+
+
 def vemory_todo_sync_job() -> None:
     """16:00 — Vemory 会议待办同步（OpenAPI → pdca_tasks），供 16:30 催办轮取数。
 
@@ -413,6 +473,19 @@ def vemory_todo_sync_job() -> None:
     except Exception as exc:
         logger.exception("Vemory 待办同步异常: {}", exc)
         notify("Vemory 待办同步失败", str(exc)[:300])
+
+
+def meeting_snapshot_sync_job() -> None:
+    """每 30 分钟同步 Vemory 会议快照，供实时源故障时安全回退。"""
+    from zoneinfo import ZoneInfo
+
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    try:
+        count = sync_meetings(day)
+        logger.info("Vemory 会议快照同步完成: {} 场 ({})", count, day)
+    except Exception as exc:
+        logger.exception("Vemory 会议快照同步失败: {}", exc)
+        notify("Vemory 会议快照同步失败", str(exc)[:300])
 
 
 def kpi_refresh_job() -> None:
@@ -635,6 +708,17 @@ def start_scheduler() -> BackgroundScheduler | None:
         coalesce=True,
     )
 
+    # 07:00-22:59 每 30 分钟 — Vemory 实时源的数据库快照。
+    _scheduler.add_job(
+        meeting_snapshot_sync_job,
+        trigger="cron",
+        hour="7-22",
+        minute="*/30",
+        id="meeting_snapshot_sync",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # 07:30 — 经销商运单官网刷新（UPS/FedEx/DHL）
     _scheduler.add_job(
         logistics_tracking_refresh_job,
@@ -815,6 +899,16 @@ def start_scheduler() -> BackgroundScheduler | None:
         minute="*/30",
         hour="9-18",
         id="im_reply_poll",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # 全天每 30 分钟 — 宿主机磁盘水位监测（低水位 IM 告警；只读，无条件启用）
+    _scheduler.add_job(
+        todo_disk_alert_job,
+        trigger="cron",
+        minute="*/30",
+        id="todo_disk_alert",
         max_instances=1,
         coalesce=True,
     )
