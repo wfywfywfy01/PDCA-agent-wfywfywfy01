@@ -231,6 +231,10 @@ def execute_run(run_id: int) -> dict:
     try:
         decision = classify_intent(run.input_text) or decision_with_llm(run.input_text)
         _set_run(run_id, current_node="validate_plan")
+        # 意图收敛到规范值（模型自由文本意图 → 规范枚举），便于状态与审计。
+        from app.agents.supervisor_graph import normalize_intent
+
+        decision.intent = normalize_intent(decision.intent, run.input_text)
         actions = [
             action for action in decision.actions
             if action.action_type in _ALLOWED_ACTIONS
@@ -266,6 +270,24 @@ def execute_run(run_id: int) -> dict:
                 else:
                     results["fact_check"] = []
                     results["fact_check_passed"] = True
+        # LLM 路径默认只读工具：查询类意图即使没给出白名单动作，也返回真实数据；
+        # 部门总结意图兜底生成总结 + 事实校验。两者均只读，不产生任何外发。
+        if decision.intent == "known_readonly_query" and not actions:
+            for tool_name in ("task_stats", "group_state", "slot_health"):
+                try:
+                    results[tool_name] = _TOOLS[tool_name]("all")
+                except Exception as exc:  # noqa: BLE001
+                    results[tool_name] = {"error": str(exc)[:200], "status": "待确认"}
+        if decision.intent == "department_summary" and "draft_summary" not in results:
+            from datetime import datetime as _dt
+            from zoneinfo import ZoneInfo
+
+            day = _dt.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+            summary = build_department_summary(day)
+            results["draft_summary"] = summary
+            problems = fact_check_summary(summary["summary_draft"])
+            results["fact_check"] = problems
+            results["fact_check_passed"] = not problems
         _set_run(run_id, current_node="aggregate")
         if decision.intent in ("risky_action",) and decision.approval_required:
             status = "waiting_approval"

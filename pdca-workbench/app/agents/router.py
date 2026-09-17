@@ -14,13 +14,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from sqlmodel import Session
 
-from app.agents.flow_controller import all_slot_health_today
+from app.agents.flow_controller import all_slot_health_today, run_health_checks_for
 from app.agents.group_context import (
     ctob_group_configs,
     daily_report_group_config,
     group_state_summary,
     performance_group_configs,
 )
+from app.agents.group_service import list_drafts, run_group_instance
 from app.agents.outbox import (
     approve_outbox,
     list_outbox,
@@ -272,6 +273,100 @@ async def agent_health(
         "pending_outbox_count": len(list_outbox(approval_status="pending", limit=200)),
         "ok": not problems,
     }
+
+
+@router.get("/drafts")
+async def drafts_list(
+    day: str = Query("", max_length=10),
+    channel_id: str = Query("", max_length=64),
+    limit: int = Query(100, ge=1, le=300),
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """群 Agent 草稿列表（影子与正式都可见）。"""
+    if day:
+        day = require_iso_date(day)
+    return {"items": list_drafts(day=day, channel_id=channel_id, limit=limit)}
+
+
+@router.post("/groups/{channel_id}/run")
+async def group_shadow_run(
+    channel_id: str,
+    payload: dict,
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """手动试跑单群影子草稿（只生成草稿，绝不推群、不写任务）。"""
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    day = str(payload.get("day") or "")
+    if day:
+        day = require_iso_date(day)
+    try:
+        hour = int(payload.get("hour") or 20)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="hour 必须是整数")
+    if hour not in (10, 15, 20):
+        raise HTTPException(status_code=422, detail="hour 只支持 10/15/20")
+    configs = performance_group_configs(day or _today()) + ctob_group_configs(day or _today())
+    report = daily_report_group_config(day or _today())
+    if report:
+        configs.append(report)
+    config = next((item for item in configs if item.channel_id == channel_id), None)
+    if config is None:
+        raise HTTPException(status_code=404, detail="群不在注册表中")
+    if not day:
+        day = _dt.now(ZoneInfo(config.timezone)).strftime("%Y-%m-%d")
+    result = run_group_instance(config, hour=hour, day=day, shadow=True)
+    log_action(user.username, "agent_group.shadow_run", channel_id, {"day": day, "hour": hour})
+    return {"ok": True, **result}
+
+
+@router.post("/groups/all-run")
+async def all_groups_shadow_run(
+    payload: dict,
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """手动试跑全部群影子草稿（最近档；只出草稿，绝不推群、不写任务）。"""
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    try:
+        hour = int(payload.get("hour") or 20)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="hour 必须是整数")
+    if hour not in (10, 15, 20):
+        raise HTTPException(status_code=422, detail="hour 只支持 10/15/20")
+    day = str(payload.get("day") or "")
+    if day:
+        day = require_iso_date(day)
+    configs = performance_group_configs(day or _today()) + ctob_group_configs(day or _today())
+    report = daily_report_group_config(day or _today())
+    if report:
+        configs.append(report)
+    generated = 0
+    failures: list[dict] = []
+    for config in configs:
+        try:
+            group_day = day or _dt.now(ZoneInfo(config.timezone)).strftime("%Y-%m-%d")
+            run_group_instance(config, hour=hour, day=group_day, shadow=True)
+            generated += 1
+        except Exception as exc:  # noqa: BLE001 — 单群失败不阻断其他群
+            failures.append({"channel_id": config.channel_id, "error": str(exc)[:200]})
+    log_action(user.username, "agent_group.shadow_run_all", "", {"hour": hour, "generated": generated})
+    return {"ok": True, "generated": generated, "failed": len(failures), "failures": failures}
+
+
+@router.post("/health-check")
+async def trigger_health_check(
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """手动触发一次档位健康检查（补扫当天已过档位；只读，不补发）。"""
+    try:
+        reports = run_health_checks_for()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"健康检查执行失败: {exc}") from exc
+    log_action(user.username, "agent_slot.health_check", "", {"reports": len(reports)})
+    return {"ok": True, "reports": reports}
 
 
 

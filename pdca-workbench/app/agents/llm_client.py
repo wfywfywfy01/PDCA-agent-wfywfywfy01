@@ -60,6 +60,7 @@ class QwenClient:
         url = self.base_url + "/v1/chat/completions"
         started = time.monotonic()
         last_error: Exception | None = None
+        steered = False
         # 网络抖动重试 2 次（间隔 2s/4s）；业务失败不重试。
         for attempt in range(3):
             try:
@@ -71,18 +72,36 @@ class QwenClient:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
+                    choice = (data.get("choices") or [{}])[0]
                     content = ""
                     try:
-                        content = data["choices"][0]["message"]["content"] or ""
+                        content = choice["message"]["content"] or ""
                     except (KeyError, IndexError, TypeError):
                         raise QwenUnavailable("Qwen 响应缺少 choices[0].message.content")
+                    finish_reason = choice.get("finish_reason") or ""
                     usage = data.get("usage") or {}
                     logger.info(
-                        "Qwen 调用成功 model={} elapsed={:.1f}s tokens={}",
+                        "Qwen 调用成功 model={} elapsed={:.1f}s tokens={} finish={}",
                         self.model,
                         time.monotonic() - started,
                         usage,
+                        finish_reason,
                     )
+                    # 推理模型（deepseek-flash）reasoning 会吃满预算导致 content 为空：
+                    # 追加“直接输出”引导重试一次，仍为空则明确报错（不回退成空结果）。
+                    if not content.strip() and attempt < 2 and not steered:
+                        payload["messages"] = messages + [{
+                            "role": "user",
+                            "content": "请直接输出最终答案，不要再进行任何推理或说明。",
+                        }]
+                        payload["max_tokens"] = min(max(max_tokens, 4096), 8192)
+                        steered = True
+                        last_error = RuntimeError(f"content 为空 finish={finish_reason}")
+                        continue
+                    if not content.strip():
+                        raise QwenUnavailable(
+                            f"模型返回空内容（finish_reason={finish_reason}）"
+                        )
                     return {"content": content, "usage": usage}
                 if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
                     last_error = RuntimeError(f"HTTP {resp.status_code}")

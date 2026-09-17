@@ -61,11 +61,21 @@ footer{padding:20px;text-align:center;color:#94a3b8;font-size:12px}
   <section class="cards" id="cards"></section>
   <h2>每人待办统计与闭环率</h2>
   <div id="taskStats"></div>
+  <h2>影子草稿（群 Agent）<button id="runAllDrafts" class="ghost" style="margin-left:10px">试跑全部群影子草稿(最近档)</button></h2>
+  <div id="drafts"></div>
   <h2>待审批外发（Outbox）</h2>
+  <div class="row" style="margin-bottom:8px">
+    <button class="ghost" onclick="setOutboxFilter('pending')">待审批</button>
+    <button class="ghost" onclick="setOutboxFilter('approved')">已批准</button>
+    <button class="ghost" onclick="setOutboxFilter('rejected')">已拒绝</button>
+    <button class="ghost" onclick="setOutboxFilter('')">全部</button>
+  </div>
   <div id="outbox"></div>
+  <h2>部门总结 <button id="runSummary" class="ghost">生成今日部门总结</button></h2>
+  <div id="summary"></div>
   <div class="grid2">
     <div><h2>最近 Agent 运行</h2><div id="runs"></div></div>
-    <div><h2>档位健康检查</h2><div id="health"></div></div>
+    <div><h2>档位健康检查 <button id="runHealth" class="ghost">立即检查</button></h2><div id="health"></div></div>
   </div>
   <h2>群 Agent 状态</h2>
   <div id="groups"></div>
@@ -141,9 +151,34 @@ function renderTaskStats(stats) {
     "<th>有证据核验</th><th>未核验</th><th>闭环率</th></tr></thead><tbody>" + rows + "</tbody></table>";
 }
 
+var outboxFilter = "pending";
+
+function setOutboxFilter(filter) {
+  outboxFilter = filter;
+  load();
+}
+
+function renderDrafts(items) {
+  if (!items.length) {
+    document.getElementById("drafts").innerHTML = '<p class="muted">暂无草稿。可点击「试跑全部群影子草稿」生成。</p>';
+    return;
+  }
+  const rows = items.map(function (item) {
+    return "<tr><td>" + esc(item.group_name || item.channel_id) + "</td><td class='muted'>" +
+      esc(item.day) + " " + esc(item.slot) + "</td><td>" +
+      pill(item.shadow ? "影子" : "正式", item.shadow ? "pending" : "approved") + "</td><td>" +
+      pill(item.approval_policy, item.approval_policy) + "</td><td><pre style='max-height:140px'>" +
+      esc(item.body) + "</pre></td><td class='muted'>" + esc((item.created_at || "").slice(0, 16)) +
+      "</td></tr>";
+  }).join("");
+  document.getElementById("drafts").innerHTML =
+    "<table><thead><tr><th>群</th><th>日期/档位</th><th>模式</th><th>审批策略</th><th>草稿内容</th><th>生成时间</th></tr></thead><tbody>" +
+    rows + "</tbody></table>";
+}
+
 function renderOutbox(items) {
   if (!items.length) {
-    document.getElementById("outbox").innerHTML = '<p class="muted">暂无待审批外发。</p>';
+    document.getElementById("outbox").innerHTML = '<p class="muted">当前筛选无外发记录。</p>';
     return;
   }
   const rows = items.map(function (item) {
@@ -215,11 +250,75 @@ function renderGroups(groups) {
       esc((g.channel_id || "").slice(0, 8)) + "…</td><td>" + (g.open_tasks || 0) + "</td><td>" +
       (g.blocked_tasks || 0) + "</td><td>" + (g.overdue_tasks || 0) + "</td><td>" +
       esc((g.latest_slot && g.latest_slot.hour) ? String(g.latest_slot.hour) + ":00" : "无快照") +
-      "</td><td>" + err + "</td></tr>";
+      "</td><td><button class='ghost' onclick='runShadow(&quot;" + esc(g.channel_id) + "&quot;)'>影子试跑</button></td><td>" +
+      err + "</td></tr>";
   }).join("");
   document.getElementById("groups").innerHTML =
     "<table><thead><tr><th>群</th><th>类型</th><th>频道</th><th>未闭环</th><th>阻塞</th><th>逾期</th>" +
-    "<th>最近档位</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+    "<th>最近档位</th><th>操作</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+async function runShadow(channelId) {
+  try {
+    const result = await api("/api/agents/groups/" + encodeURIComponent(channelId) + "/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hour: 20 }),
+    });
+    alert("影子草稿已生成（" + result.group_name + " " + result.slot + "）");
+    load();
+  } catch (error) {
+    alert("试跑失败：" + error.message);
+  }
+}
+
+async function runAllShadows() {
+  try {
+    const result = await api("/api/agents/groups/all-run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hour: 20 }),
+    });
+    alert("完成：" + result.generated + " 群草稿，失败 " + result.failed);
+    load();
+  } catch (error) {
+    alert("试跑失败：" + error.message);
+  }
+}
+
+async function runSummaryNow() {
+  const box = document.getElementById("summary");
+  box.innerHTML = '<p class="muted">生成中…</p>';
+  try {
+    const result = await api("/api/agents/department-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const problems = result.problems || [];
+    box.innerHTML = "<pre>" + esc(result.summary_draft || JSON.stringify(result)) + "</pre>" +
+      (problems.length
+        ? "<p><b>事实校验问题（需人工复核）：</b><ul>" + problems.map(function (p) {
+            return "<li>" + esc(p.rule) + "：" + esc(p.detail || "");
+          }).join("") + "</ul></p>"
+        : "<p class='pill approved'>事实校验通过</p>");
+  } catch (error) {
+    box.innerHTML = '<p class="muted">生成失败：' + esc(error.message) + "</p>";
+  }
+}
+
+async function runHealthNow() {
+  try {
+    const result = await api("/api/agents/health-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    alert("检查完成：" + result.reports.length + " 档");
+    load();
+  } catch (error) {
+    alert("检查失败：" + error.message);
+  }
 }
 
 async function act(id, action) {
@@ -242,16 +341,18 @@ async function load() {
   const meta = document.getElementById("meta");
   meta.textContent = "刷新中…";
   try {
-    const [stats, health, outbox, runs, groups] = await Promise.all([
+    const [stats, health, outbox, runs, groups, drafts] = await Promise.all([
       api("/api/agents/stats"),
       api("/api/agents/health"),
-      api("/api/agents/outbox?approval_status=pending&limit=100"),
+      api("/api/agents/outbox?approval_status=" + outboxFilter + "&limit=100"),
       api("/api/agents/runs?limit=20"),
       api("/api/agents/groups"),
+      api("/api/agents/drafts?limit=30"),
     ]);
     renderCards(stats, health);
     renderTaskStats(stats);
     renderOutbox(outbox.items || []);
+    renderDrafts(drafts.items || []);
     renderRuns(runs.runs || []);
     renderHealth(health);
     renderGroups(groups.groups || []);
@@ -262,6 +363,9 @@ async function load() {
 }
 
 document.getElementById("refresh").addEventListener("click", load);
+document.getElementById("runAllDrafts").addEventListener("click", runAllShadows);
+document.getElementById("runSummary").addEventListener("click", runSummaryNow);
+document.getElementById("runHealth").addEventListener("click", runHealthNow);
 load();
 setInterval(load, AUTO_REFRESH_MS);
 </script>

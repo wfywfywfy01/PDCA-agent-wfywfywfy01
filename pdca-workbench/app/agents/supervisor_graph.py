@@ -47,6 +47,37 @@ def classify_intent(text: str) -> SupervisorDecision | None:
     return None
 
 
+# 意图规范值（规格 6.1 / 7.3 分支）。
+_CANONICAL_INTENTS = {
+    "known_readonly_query",
+    "department_summary",
+    "group_followup",
+    "scheduled_event",
+    "risky_action",
+    "ask_user",
+}
+
+# 模型可能输出自由文本意图：按关键词收敛到规范值（收敛不到保留原样，由调用方保守处理）。
+_INTENT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("risky_action", ("扣罚", "罚款", "合同", "折扣", "返点", "权益", "规则", "变更", "撤回")),
+    ("department_summary", ("总结", "汇总", "早会", "简报", "摘要", "复盘")),
+    ("group_followup", ("催办", "催报", "跟进", "推送", "推群", "外发", "发送到群")),
+    ("known_readonly_query", ("查询", "统计", "待办", "多少", "列表", "状态", "健康", "查一下", "排查")),
+)
+
+
+def normalize_intent(intent: str, text: str = "") -> str:
+    """把（模型输出或路由产出的）意图收敛到规范值。"""
+    normalized = (intent or "").strip().casefold()
+    if normalized in _CANONICAL_INTENTS:
+        return normalized
+    blob = (intent + " " + (text or "")).casefold()
+    for canonical, hints in _INTENT_HINTS:
+        if any(hint in blob for hint in hints):
+            return canonical
+    return (intent or "ask_user").strip()
+
+
 def decision_with_llm(text: str, context: dict | None = None) -> SupervisorDecision:
     """用本地 Qwen 输出结构化决策；失败回退保守分类（不吞任务）。"""
     fallback = SupervisorDecision(
