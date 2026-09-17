@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Sha = "",
     [string]$DockerHost = "",
@@ -393,6 +393,10 @@ function Start-PdcaContainer {
         "PDCA_ALERT_BOT_CHANNEL_ID",
         "PDCA_REPORT_WEBHOOK_URL",
         "PDCA_VPS_BOT_APP_ID", "PDCA_VPS_BOT_APP_SECRET", "PDCA_VPS_BOT_CHANNEL_ID",
+        "PDCA_DUZHAN_ENABLED", "PDCA_DUZHAN_BOT_APP_ID", "PDCA_DUZHAN_BOT_APP_SECRET",
+        "PDCA_DUZHAN_TIMES",
+        "PDCA_DUZHAN_LEAD_MINUTES",
+        "PDCA_DUZHAN_REPLY_ENABLED",
         "LOGIBOT_ENABLED", "LOGIBOT_ROOT", "LOGIBOT_DATA_DIR",
         "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_APP_TOKEN", "FEISHU_TABLE_ID",
         "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
@@ -413,7 +417,19 @@ function Start-PdcaContainer {
         "PDCA_ACQUISITION_ENABLED", "PDCA_ACQUISITION_URL",
         "PDCA_KNOWLEDGE_HUB_TEAM_MAP", "PDCA_KNOWLEDGE_HUB_ENABLED", "PDCA_KNOWLEDGE_HUB_TIMEOUT_SECONDS",
         "PDCA_FRAME_ANCESTORS", "PDCA_TOKEN_EXPIRE_MINUTES",
-        "PDCA_LOGISTICS_ADMIN_UPSTREAM", "PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS"
+        "PDCA_LOGISTICS_ADMIN_UPSTREAM", "PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS",
+        # 多智能体督战运行时（部署默认全部关闭/影子；密钥只在日志中自动脱敏）
+        "PDCA_AGENT_ENABLED", "PDCA_AGENT_SHADOW_MODE", "PDCA_AGENT_OUTBOX_ENABLED",
+        "PDCA_AGENT_AUTO_TEMPLATE_PUSH", "PDCA_AGENT_TASK_WRITE", "PDCA_AGENT_LLM_DRAFT",
+        "PDCA_AGENT_HEALTHCHECK_ENABLED", "PDCA_AGENT_HEALTHCHECK_DELAY_MINUTES",
+        "PDCA_SUPERVISOR_ENABLED", "PDCA_SUPERVISOR_PROVIDER", "PDCA_SUPERVISOR_MODEL",
+        "PDCA_SUPERVISOR_API_KEY", "PDCA_SUPERVISOR_TIMEOUT_SECONDS",
+        "PDCA_SUPERVISOR_MAX_TOOL_CALLS",
+        "PDCA_QWEN_BASE_URL", "PDCA_QWEN_API_KEY", "PDCA_QWEN_MODEL",
+        "PDCA_ASR_ENABLED", "PDCA_ASR_PROVIDER", "PDCA_DOUBAO_ASR_URL",
+        "PDCA_DOUBAO_ASR_APP_KEY", "PDCA_DOUBAO_ASR_ACCESS_KEY", "PDCA_DOUBAO_ASR_API_KEY",
+        "PDCA_DOUBAO_ASR_RESOURCE_ID", "PDCA_DOUBAO_ASR_TIMEOUT_SECONDS",
+        "PDCA_DOUBAO_ASR_MODE", "PDCA_MTO_VISION_ENABLED"
     )) {
         $envValue = Read-OptionalDotEnvValue $envName
         if ($null -ne $envValue) {
@@ -520,7 +536,9 @@ $currentInspectResult = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-work
 $currentInspect = $currentInspectResult.StdOut
 $currentRevision = ""
 if ($currentInspectResult.ExitCode -eq 0 -and $currentInspect) {
-    $currentObject = ($currentInspect | ConvertFrom-Json)[0]
+    $inspectJson = $currentInspect
+    if ($inspectJson -notmatch '^\s*\[') { $inspectJson = [regex]::Match($inspectJson, '\[[\s\S]*\]').Value }
+    $currentObject = @($inspectJson | ConvertFrom-Json)[0]
     $currentRevision = $currentObject.Config.Labels.'com.vertu.pdca.revision'
 }
 if ($currentRevision -eq $Sha -and -not $Force) {
@@ -544,7 +562,9 @@ if ($SkipImagePull) {
     if ($imageInspectResult.ExitCode -ne 0 -or -not $imageInspectResult.StdOut) {
         throw "Preloaded image is missing: $image"
     }
-    $imageObject = ($imageInspectResult.StdOut | ConvertFrom-Json)[0]
+    $imageJson = $imageInspectResult.StdOut
+    if ($imageJson -notmatch '^\s*\[') { $imageJson = [regex]::Match($imageJson, '\[[\s\S]*\]').Value }
+    $imageObject = @($imageJson | ConvertFrom-Json)[0]
     $sourceRevision = $imageObject.Config.Labels.'com.vertu.pdca.source_revision'
     if ($sourceRevision -ne $Sha) {
         throw "Preloaded image revision mismatch: expected $Sha"

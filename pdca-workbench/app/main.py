@@ -41,6 +41,7 @@ from app.walkin.router import router as walkin_router
 from app.acquisition.router import router as acquisition_router
 from app.knowledge.router import router as knowledge_router
 from app.knowledge.mcp import knowledge_mcp, knowledge_mcp_app
+from app.agents.router import router as agents_router
 
 PUBLIC_PATHS = {
     "/login",
@@ -315,6 +316,7 @@ app.include_router(pdca_post_router)
 app.include_router(files_router)
 app.include_router(admin_router)
 app.include_router(export_router)
+app.include_router(agents_router)
 app.include_router(pages_router)
 app.include_router(spa_router)
 app.mount("/mcp", knowledge_mcp_app)

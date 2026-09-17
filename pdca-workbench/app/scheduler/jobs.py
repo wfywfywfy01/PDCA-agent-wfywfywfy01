@@ -537,6 +537,130 @@ def daily_report_job() -> None:
         notify("每日经营日报推送失败", day)
 
 
+def duzhan_collect_job(tz_name: str, hour: int) -> None:
+    """每轮提前 15 分钟踩点采集（群/MCP/Vemory/VPS/WhatsApp），不发群。
+
+    P2：Cron 与 Agent 共用 flow_controller 业务入口；行为与原实现一致
+    （claim/幂等/失败告警），并额外落 slot.* 事件。
+    """
+    from app.agents.flow_controller import prepare_performance_slot
+
+    result = prepare_performance_slot(tz_name, hour)
+    if result.get("skipped"):
+        logger.info("督战官本档跳过组表 {} {} {}", tz_name, hour, result["skipped"])
+    elif result.get("status") == "failed":
+        logger.error("督战官组表失败 {} {}: {}", tz_name, hour, result.get("error"))
+    else:
+        logger.info("督战官组表完成 {} {}", tz_name, hour)
+
+
+def duzhan_job(tz_name: str, hour: int) -> None:
+    """督战官按群时区推送：北京群 10/15/20，Lina 群巴黎 10/15/20。
+
+    P2：走 flow_controller 封装；单群失败不阻断其他群，文案不变。
+    """
+    from app.agents.flow_controller import push_performance_slot
+
+    result = push_performance_slot(tz_name, hour)
+    if result.get("skipped"):
+        logger.info("督战官本档跳过推送 {} {} {}", tz_name, hour, result["skipped"])
+    elif result.get("status") == "failed":
+        logger.error("督战官推送失败 {} {}: {}", tz_name, hour, result.get("error"))
+    elif result.get("status") == "partial":
+        logger.error("督战官部分群失败 {} {}: {}", tz_name, hour, result.get("failed"))
+    else:
+        logger.info("督战官已推送 {} {}", tz_name, hour)
+
+
+def ctob_job() -> None:
+    """工作日北京 20:00：16 个 C转B 群 WhatsApp 晚追（P2 封装）。"""
+    from app.agents.flow_controller import run_ctob_evening
+
+    result = run_ctob_evening()
+    if result.get("skipped"):
+        logger.info("C转B 晚追跳过 {}", result["skipped"])
+    elif result.get("status") == "failed":
+        logger.error("C转B 晚追失败: {}", result.get("error"))
+    elif result.get("status") == "partial":
+        logger.error("C转B 晚追部分失败: {}", result.get("failed"))
+    else:
+        logger.info("C转B 晚追已推送 {}", result.get("sent"))
+
+
+def agent_slot_health_job() -> None:
+    """P0 档位健康检查：每 5 分钟扫一次，各时区本地整点后 5 分钟内检查。
+
+    只读检查，绝不补发；缺失/失败时调用现有 notify（10 分钟去重）。
+    """
+    from app.agents.flow_controller import run_health_checks_for
+
+    settings = get_settings()
+    if not (getattr(settings, "agent_healthcheck_enabled", False) and getattr(settings, "duzhan_enabled", False)):
+        return
+    try:
+        reports = run_health_checks_for()
+        if reports:
+            logger.info("档位健康检查执行 {} 档", len(reports))
+    except Exception as exc:  # noqa: BLE001 — 健康检查自身失败也要告警
+        logger.exception("档位健康检查异常: {}", exc)
+        notify("档位健康检查异常", str(exc)[:200])
+
+
+def group_agent_shadow_job(tz_name: str, hour: int) -> None:
+    """群 Agent 影子档位：采集后 5 分钟生成草稿与结论（绝不推群）。"""
+    from app.agents.group_service import run_group_slot
+    from app.duzhan import is_duzhan_workday
+
+    settings = get_settings()
+    if not (getattr(settings, "agent_enabled", False) and getattr(settings, "duzhan_enabled", False)):
+        return
+    try:
+        now = datetime.now(ZoneInfo(tz_name))
+        if not is_duzhan_workday(tz_name, now):
+            return
+        day = now.date().isoformat()
+        results = run_group_slot(group_type="performance", hour=hour, day=day)
+        failures = [item for item in results if item.get("status") == "failed"]
+        if failures:
+            logger.error("群 Agent 影子档部分失败 {} {}", tz_name, hour)
+            notify("群 Agent 影子档部分失败", f"{tz_name} {hour:02d}:00 {failures[:3]}")
+        else:
+            logger.info("群 Agent 影子档完成 {} {} {} 群", tz_name, hour, len(results))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("群 Agent 影子档异常: {}", exc)
+        notify("群 Agent 影子档异常", str(exc)[:200])
+
+
+def outbox_send_job() -> None:
+    """Outbox 发送：只发已批准（含自动模板）的消息，失败保留审计。"""
+    from app.agents.outbox import send_due
+
+    if not get_settings().agent_outbox_enabled:
+        return
+    try:
+        result = send_due()
+        if result.get("sent") or result.get("failed"):
+            logger.info("Outbox 发送轮 sent={} failed={}", result["sent"], result["failed"])
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Outbox 发送异常: {}", exc)
+        notify("Outbox 发送异常", str(exc)[:200])
+
+
+def duzhan_at_poll_job() -> None:
+    """每分钟扫达标群：只有 @海外渠道督战官 才回复。"""
+    from app.duzhan import poll_at_mentions
+
+    try:
+        result = poll_at_mentions()
+    except Exception as exc:
+        logger.exception("督战官 @轮询失败: {}", exc)
+        notify("督战官@轮询失败", str(exc)[:200])
+        return
+    replied = result.get("replied") or []
+    if replied:
+        logger.info("督战官已回 @ {}", replied)
+
+
 def start_scheduler() -> BackgroundScheduler | None:
     """启动后台调度器。"""
     global _scheduler
@@ -792,13 +916,133 @@ def start_scheduler() -> BackgroundScheduler | None:
     # kpi_refresh（09:00/12:00/21:00 重建静态 chart_data.json）已停用（F1）：
     # 看板数据由 /api/dashboard/* 实时查库，不再运行子进程生成静态文件。
 
+    if getattr(settings, "duzhan_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        from app.duzhan import collect_clock, cron_timezones, parse_hours
+
+        lead = getattr(settings, "duzhan_lead_minutes", 15)
+        for tz_name in cron_timezones():
+            zone = ZoneInfo(tz_name)
+            tz_slug = tz_name.lower().replace("/", "_")
+            for hour in parse_hours(getattr(settings, "duzhan_times", ["10:00", "15:00", "20:00"])):
+                collect_hour, collect_minute = collect_clock(hour, lead)
+                _scheduler.add_job(
+                    duzhan_collect_job,
+                    args=[tz_name, hour],
+                    trigger="cron",
+                    hour=collect_hour,
+                    minute=collect_minute,
+                    day_of_week="mon-fri",
+                    timezone=zone,
+                    id=f"duzhan_collect_{tz_slug}_{hour:02d}",
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+                _scheduler.add_job(
+                    duzhan_job,
+                    args=[tz_name, hour],
+                    trigger="cron",
+                    hour=hour,
+                    minute=0,
+                    day_of_week="mon-fri",
+                    timezone=zone,
+                    id=f"duzhan_{tz_slug}_{hour:02d}",
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+        if getattr(settings, "duzhan_reply_enabled", False):
+            _scheduler.add_job(
+                duzhan_at_poll_job,
+                trigger="interval",
+                minutes=1,
+                id="duzhan_at_poll",
+                max_instances=1,
+                coalesce=True,
+            )
+
+    if getattr(settings, "ctob_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        _scheduler.add_job(
+            ctob_job,
+            trigger="cron",
+            hour=20,
+            minute=0,
+            day_of_week="mon-fri",
+            timezone=ZoneInfo("Asia/Shanghai"),
+            id="ctob_2000",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+
+    # ── 多智能体督战运行时调度（全部默认关闭/影子，模型故障不阻断确定性任务）──
+    # P0：档位健康检查，每 5 分钟扫窗口（各时区本地整点后 5 分钟内检查）。
+    if getattr(settings, "agent_healthcheck_enabled", False) and getattr(settings, "duzhan_enabled", False):
+        _scheduler.add_job(
+            agent_slot_health_job,
+            trigger="cron",
+            minute="*/5",
+            id="agent_slot_health",
+            max_instances=1,
+            coalesce=True,
+        )
+
+    # P3/P4：群 Agent 影子草稿（采集后 5 分钟，即整点前 10 分钟），不推群。
+    if getattr(settings, "agent_enabled", False) and getattr(settings, "duzhan_enabled", False):
+        from zoneinfo import ZoneInfo as _ZoneInfo
+
+        from app.duzhan import collect_clock, cron_timezones, parse_hours
+
+        for tz_name in cron_timezones():
+            zone = _ZoneInfo(tz_name)
+            tz_slug = tz_name.lower().replace("/", "_")
+            for hour in parse_hours(getattr(settings, "duzhan_times", ["10:00", "15:00", "20:00"])):
+                draft_hour, draft_minute = collect_clock(hour, 10)
+                _scheduler.add_job(
+                    group_agent_shadow_job,
+                    args=[tz_name, hour],
+                    trigger="cron",
+                    hour=draft_hour,
+                    minute=draft_minute,
+                    day_of_week="mon-fri",
+                    timezone=zone,
+                    id=f"agent_group_shadow_{tz_slug}_{hour:02d}",
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+
+    # P1：Outbox 发送轮（只发已批准消息）。
+    if getattr(settings, "agent_outbox_enabled", False):
+        _scheduler.add_job(
+            outbox_send_job,
+            trigger="interval",
+            minutes=2,
+            id="agent_outbox_send",
+            max_instances=1,
+            coalesce=True,
+        )
+
     _scheduler.start()
     logger.info(
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
         "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00 "
-        "im_reply_poll=*/30 9-18",
+        "im_reply_poll=*/30 9-18 duzhan={} collect=-{}m at_poll={} ctob20={} "
+        "agent={} shadow={} health={} outbox={}",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
+        getattr(settings, "duzhan_times", []) if getattr(settings, "duzhan_enabled", False) else "停用",
+        getattr(settings, "duzhan_lead_minutes", 0) if getattr(settings, "duzhan_enabled", False) else 0,
+        "1m" if getattr(settings, "duzhan_enabled", False) and getattr(settings, "duzhan_reply_enabled", False) else "停用",
+        "开" if getattr(settings, "ctob_enabled", False) else "停用",
+        "开" if getattr(settings, "agent_enabled", False) else "停用",
+        "开" if getattr(settings, "agent_shadow_mode", False) else "关",
+        "开" if getattr(settings, "agent_healthcheck_enabled", False) else "停用",
+        "开" if getattr(settings, "agent_outbox_enabled", False) else "停用",
     )
     return _scheduler
 

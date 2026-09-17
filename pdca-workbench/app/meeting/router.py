@@ -336,7 +336,7 @@ async def vemory_dealer_meetings(
     if end_d < start_d:
         raise HTTPException(status_code=422, detail="end 不能早于 start")
     rows, error = await vemory_api.list_dealer_meetings(start_d, end_d, dept_ids)
-    if error:
+    if error and not rows:
         raise HTTPException(status_code=502, detail=error)
     scope = resolve_data_scope(user, session)
     if not scope.unrestricted:

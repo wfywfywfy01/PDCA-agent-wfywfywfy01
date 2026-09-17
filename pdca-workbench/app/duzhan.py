@@ -1,0 +1,916 @@
+# -*- coding: utf-8 -*-
+"""海外渠道督战官：按群时区在 10:00 / 15:00 / 20:00 推送达标战报。
+
+Lina 群用欧洲/巴黎时间与英文；其余群用北京时间与中文。
+"""
+
+from __future__ import annotations
+
+import json
+import operator
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from loguru import logger
+
+from app.config import get_settings
+from app.duzhan_ledger import (
+    TODAY_SLOGAN,
+    collect_ledger,
+    count_text,
+    diff_tasks,
+    empty_ledger,
+    hours_text,
+    people_for,
+    wan_text,
+)
+from app.vps_im_push import push_duzhan_message
+
+TZ_SHANGHAI = "Asia/Shanghai"
+TZ_PARIS = "Europe/Paris"
+
+
+@dataclass(frozen=True)
+class DuzhanGroup:
+    """一个达标督战群。"""
+
+    name: str
+    channel_id: str
+    lang: str
+    tz: str
+
+
+GROUPS: tuple[DuzhanGroup, ...] = (
+    DuzhanGroup(
+        "新人小组业绩达标群",
+        "850d06d0-5dd8-4a43-ad35-1cb3fcf6d484",
+        "zh",
+        TZ_SHANGHAI,
+    ),
+    DuzhanGroup(
+        "于冰业绩达标群",
+        "df41ad35-0e26-4431-ac36-10789ff51a1c",
+        "zh",
+        TZ_SHANGHAI,
+    ),
+    DuzhanGroup(
+        "杨晶晶业绩达标群",
+        "c9df1ada-79f0-47c5-9ed0-0e64f84ab961",
+        "zh",
+        TZ_SHANGHAI,
+    ),
+    DuzhanGroup(
+        "viki业绩达标群",
+        "8fe593f2-05db-4b0f-8777-414fa49e05c9",
+        "zh",
+        TZ_SHANGHAI,
+    ),
+    DuzhanGroup(
+        "Lina业绩达标群",
+        "e435ab5d-d425-4ccd-a247-c7207efbb4f6",
+        "en",
+        TZ_PARIS,
+    ),
+)
+
+# 10:00 定任务 / 15:00 追变化 / 20:00 验兑现。
+_SLOT_ZH = {
+    10: (
+        "早追·定任务",
+        "每人提交今日 3–5 项工作（对象、交付物、截止时间）；未报则点名催报。",
+    ),
+    15: (
+        "中追·追变化",
+        "只报相对 10:00 的变化：完成、推进、停滞、未回复；卡点写清协同人和时限。",
+    ),
+    20: (
+        "晚追·验兑现",
+        "核验交付物与证据；未完成写原因并结转明早第一动作。",
+    ),
+}
+_SLOT_EN = {
+    10: (
+        "Morning chase · lock today's work",
+        "Post 3–5 must-do items (owner, deliverable, deadline); missing plan will be name-checked.",
+    ),
+    15: (
+        "Midday chase · chase changes",
+        "Only changes vs 10:00: done, progressed, stalled, no reply; blockers need owner and ETA.",
+    ),
+    20: (
+        "Evening chase · verify delivery",
+        "Verify deliverables and evidence; unfinished items roll to tomorrow's first action.",
+    ),
+}
+_REPORTER = {
+    "新人小组业绩达标群": "邓琳莹 / Safae / 王宇彤 / 张月馨",
+    "于冰业绩达标群": "于冰",
+    "杨晶晶业绩达标群": "杨晶晶 / 何海文",
+    "viki业绩达标群": "Viki",
+    "Lina业绩达标群": "Lina",
+}
+
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_EN_PAIRS = (
+    ("土耳其合同与伊斯坦布尔市场保护", "Turkey contract and Istanbul market protection"),
+    ("今天与迪拜经销商讨论了土耳其合同。", "Discussed the Turkey contract with the Dubai distributor today. "),
+    ("他看了合同后反馈，认为目前版本和之前的版本还是太相似，对他在伊斯坦布尔店铺的投资保护不够。", "He said this draft is still too similar to the last one and does not protect his Istanbul store investment enough. "),
+    ("他希望公司在合同中加强市场保护，尤其是关于其他合作伙伴或经销商进入同一市场的问题。", "He wants stronger market protection in the contract, especially against other partners entering the same market."),
+    ("他特别提出，如果有客户联系 VERTU 询问在伊斯坦布尔哪里可以购买产品，希望公司可以把客户引流到他的店铺。", "He asked that if a customer contacts VERTU about where to buy in Istanbul, we refer them to his store. "),
+    ("我已告知他，这一点可以加入到协议中。", "I told him this can be added to the agreement."),
+    ("再次跟进了迪拜当前订单的待付款情况，并推动他尽快确认付款状态。", "Followed up Dubai outstanding payment and pushed him to confirm status. "),
+    ("我也向他说明 Gary 正在催促付款进展，所以我们需要尽快得到明确反馈。", "Told him Gary is chasing payment, so we need a clear answer soon. "),
+    ("该付款目前仍在等待中，但预计会尽快安排。", "Payment is still pending but expected soon."),
+    ("讨论了定制高端手机的报价，包括一款 Signature S+ 白金、全钻、深蓝色鳄鱼皮版本，零售价约 98,500 美金，付款后生产周期约 40–45 天。", "Discussed custom high-end quotes, including Signature S+ platinum / full diamond / dark-blue alligator, about USD 98,500, 40-45 days after payment."),
+    ("讨论了迪拜下一步采购计划，包括后续订单以及经销商正在考虑的定制机型。", "Discussed Dubai next purchase plan, follow-on orders, and custom models under review."),
+    ("讨论了英国市场的销售表现、年度目标，以及 VERTU London 需要公司提供哪些支持来提升销售。", "Discussed UK sales, annual targets, and support VERTU London needs."),
+    ("讨论了本周预计完成的新订单，金额约 65,000 美金。", "Discussed a new order expected this week, about USD 65,000."),
+    ("讨论了 BRABUS × VERTU 的合作机会，包括为限量版汽车项目定制手机。", "Discussed BRABUS x VERTU, including phones for a limited car project."),
+    ("跟进了 Harrods 家具问题，以及英国零售展示所需的相关支持。", "Followed up the Harrods furniture issue and UK retail display support."),
+    ("讨论了老款机型的价格和促销方案，包括 Meta 1、Meta 2 和 Quantum Flip 的折扣方案。", "Discussed legacy pricing/promos for Meta 1, Meta 2 and Quantum Flip."),
+    ("讨论了 Harrods 专属/定制版 Agent Q 和 AlphaFold，包括 MOQ 要求。", "Discussed Harrods exclusive/custom Agent Q and AlphaFold, including MOQ."),
+    ("讨论了为 Harrods VIP 客户直接发货到乌兹别克斯坦的安排，以及私人航空领域合作和 VERTU 汽车生态项目机会。", "Discussed direct ship to Uzbekistan for a Harrods VIP, plus private aviation and VERTU auto ecosystem opportunities."),
+    ("由于迪拜接下来会同时为迪拜和土耳其进行较大数量的采购，他希望根据整体采购量，给予 40%的折扣。", "Because Dubai will buy in volume for both Dubai and Turkey, he wants a 40% discount on total volume. "),
+    ("他并不是要求公司停止线上团队或线上销售。他只是希望合同中明确，在土耳其门店正式运营后，如果有客户联系公司询问在土耳其哪里可以购买 VERTU，我们可以向客户提供土耳其门店的地址，并引导客户到该门店购买。", "He is not asking to stop online sales. He wants the contract to say that after the Turkey store opens, inbound Turkey buyers can be directed to that store."),
+    ("他们让我先向你确认并获得你对以下两点的批准，然后再加入合同：", "They asked me to get your approval on two points before adding them to the contract: "),
+    ("他并不是要求公司停", "He is not asking the company to stop"),
+    ("他看了合同后反馈", "He reviewed the contract and said"),
+    ("认为目前版本和之前的版本还是太相似", "this draft is still too similar to the last one"),
+    ("对他在伊斯坦布尔店铺的", "for his Istanbul store"),
+    ("今日WhatsApp触达0", "WhatsApp reach 0 today"),
+    ("WhatsApp未覆盖", "WhatsApp not covered"),
+    ("今日明确意向0", "no clear intent today"),
+    ("累计回款未出", "MTD collection pending"),
+    ("本月回款0", "MTD collection 0"),
+    ("意向未出数", "intent pending"),
+    ("未报今日任务", "no plan posted today"),
+    ("证据不足", "evidence missing"),
+    ("未报计划，点名催报", "No plan posted; name-check"),
+    ("相对上一档无变化", "no change vs last slot"),
+    ("任务完成", "tasks done "),
+    ("逾期", "overdue "),
+    ("MTO未采到", "MTO not collected"),
+    ("Vemory未出数", "Vemory pending"),
+    ("今日无Vemory", "no Vemory today"),
+    ("目标进度", "target progress "),
+    ("土耳其客户引流", "Turkey customer referral"),
+    ("迪拜待付款跟进", "Dubai outstanding payment"),
+    ("MTO / 定制 Signature 手机", "MTO / custom Signature"),
+    ("下一步采购计划", "Next purchase plan"),
+    ("销售表现与年度目标", "Sales performance and annual target"),
+    ("新订单与付款", "New order and payment"),
+    ("合作机会", "partnership"),
+    ("Harrods 支持与家具问题", "Harrods support and furniture"),
+    ("产品促销与老款机型价格", "Legacy model pricing and promos"),
+    ("Harrods 定制机型", "Harrods custom models"),
+    ("VIP 发货与新合作机会", "VIP shipping and new partnerships"),
+    ("经销商沟通汇报", "Distributor update"),
+    ("关于土耳其合同", " on the Turkey contract"),
+    ("客户转介", "customer referral"),
+    ("折扣", "discount"),
+    ("金额待确认", "amount pending"),
+    ("今天可付款", "payable today"),
+    ("本周内付款", "payment this week"),
+    ("本周付款", "payment this week"),
+    ("无音频直链", "no audio link"),
+    ("群内提及水单", "payment slip mentioned in-group"),
+    ("1300万战役", "RMB 13M campaign"),
+    ("待确认", "pending"),
+    ("英国", "UK"),
+    ("迪拜", "Dubai"),
+)
+_EN_PAIRS = tuple(sorted(_EN_PAIRS, key=lambda item: len(item[0]), reverse=True))
+
+
+def _to_en(text: str) -> str:
+    """中文台账字段翻成英文；人名为专有名词保留。"""
+    out = text or ""
+    for src, dst in _EN_PAIRS:
+        if src in out:
+            out = out.replace(src, dst)
+    out = out.replace("万", " wan")
+    out = (
+        out.replace("，", ", ")
+        .replace("。", ". ")
+        .replace("：", ": ")
+        .replace("；", "; ")
+        .replace("、", ", ")
+        .replace("（", "(")
+        .replace("）", ")")
+        .replace("—", "-")
+        .replace("⸻", "-")
+    )
+    out = re.sub(r"\s+", " ", out).strip()
+    return out
+
+
+def _slogan_text(slogan: str, lang: str) -> str:
+    raw = slogan or TODAY_SLOGAN
+    return _to_en(raw) if lang == "en" else raw
+
+
+def is_duzhan_workday(tz_name: str, now: datetime | None = None) -> bool:
+    """周一到周五才跑；按该时区本地 weekday。"""
+    clock = (now or datetime.now(ZoneInfo(tz_name))).astimezone(ZoneInfo(tz_name))
+    return clock.weekday() < 5
+
+
+def prev_slot_hour(hour: int) -> int | None:
+    """15 对 10，20 对 15；早档没有上一档。"""
+    return {15: 10, 20: 15}.get(hour)
+
+
+def parse_hours(times: list[str]) -> list[int]:
+    """把 `10:00,15:00,20:00` 解析成整点小时。"""
+    hours: list[int] = []
+    for item in times:
+        hour_text, _, minute_text = item.partition(":")
+        try:
+            hour = int(hour_text)
+            minute = int(minute_text or "0")
+        except ValueError:
+            logger.warning("忽略非法督战时刻: {}", item)
+            continue
+        if minute != 0 or hour not in (10, 15, 20):
+            logger.warning("督战官只支持 10:00/15:00/20:00，忽略 {}", item)
+            continue
+        if hour not in hours:
+            hours.append(hour)
+    return hours or [10, 15, 20]
+
+
+def groups_for_tz(tz_name: str) -> list[DuzhanGroup]:
+    """返回指定时区的督战群。"""
+    return [group for group in GROUPS if group.tz == tz_name]
+
+
+def cron_timezones() -> list[str]:
+    """调度需要注册的时区（去重、保序）。"""
+    seen: list[str] = []
+    for group in GROUPS:
+        if group.tz not in seen:
+            seen.append(group.tz)
+    return seen
+
+
+def collect_clock(hour: int, lead_minutes: int) -> tuple[int, int]:
+    """踩点时刻：整点前 lead 分钟开始全源采集，不发群。10:00 档 = 09:45。"""
+    total = hour * 60 - lead_minutes
+    if total < 0:
+        total += 24 * 60
+    return divmod(total, 60)
+
+
+def _idempotency_key(tz_name: str, day: str, hour: int, channel_id: str = "") -> str:
+    """催收同款：脚本名-YYYYMMDD-HHMM，群维度再拼 channel 前 8 位。"""
+    slug = tz_name.lower().replace("/", "")
+    base = f"duzhan-{day.replace('-', '')}-{hour:02d}00-{slug}"
+    if channel_id:
+        return f"{base}-{channel_id[:8]}"
+    return base
+
+
+def _slot_path(tz_name: str, day: str, hour: int) -> Path:
+    slug = tz_name.lower().replace("/", "_")
+    folder = get_settings().data_dir / "runtime" / "duzhan_slots"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"{slug}_{day}_{hour:02d}.json"
+
+
+def prepare_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict:
+    """踩点：拉群消息 + WhatsApp MCP + Vemory + VPS + 日报，写快照，不发群。"""
+    now = now or datetime.now(ZoneInfo(tz_name))
+    if not is_duzhan_workday(tz_name, now):
+        logger.info("周末不组表 {} {}", tz_name, hour)
+        return {"tz": tz_name, "hour": hour, "skipped": "weekend", "messages": {}}
+    day = now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    try:
+        ledger = collect_ledger(day)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("督战官台账采集失败: {}", exc)
+        ledger = empty_ledger(day)
+    prev_hour = prev_slot_hour(hour)
+    prev = load_prepared(tz_name, prev_hour, day) if prev_hour else None
+    prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+    messages = {
+        group.channel_id: render_brief(group, hour, now, ledger, prev_ledger)
+        for group in groups_for_tz(tz_name)
+    }
+    payload = {
+        "tz": tz_name,
+        "hour": hour,
+        "day": day,
+        "prepared_at": now.isoformat(),
+        "idempotency_key": _idempotency_key(tz_name, day, hour),
+        "ledger": ledger,
+        "messages": messages,
+    }
+    _slot_path(tz_name, day, hour).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    logger.info("督战官已组表 {} {} {}", tz_name, day, f"{hour:02d}:00")
+    return payload
+
+
+def load_prepared(tz_name: str, hour: int, day: str) -> dict | None:
+    """读取本档组表快照；没有则返回 None。"""
+    path = _slot_path(tz_name, day, hour)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def render_brief(
+    group: DuzhanGroup,
+    hour: int,
+    now: datetime,
+    ledger: dict | None = None,
+    prev_ledger: dict | None = None,
+) -> str:
+    """按群语言渲染每日三追进度表。15/20 有上一档则只报变化。"""
+    local = now.astimezone(ZoneInfo(group.tz))
+    day = local.strftime("%Y-%m-%d")
+    slot = f"{hour:02d}:00"
+    people = people_for(group.name, ledger)
+    slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
+    prev_people = {
+        str(item.get("display") or ""): item
+        for item in people_for(group.name, prev_ledger)
+    }
+    use_diff = hour in (15, 20) and prev_ledger is not None
+    if people:
+        blocks = [
+            _render_person(
+                group,
+                hour,
+                day,
+                slot,
+                slogan,
+                item,
+                prev_people.get(str(item.get("display") or "")),
+                use_diff,
+            )
+            for item in people
+        ]
+    else:
+        blocks = [_render_person(group, hour, day, slot, slogan, None, None, use_diff)]
+    board = _board_text(ledger, hour, group.lang)
+    return "\n\n".join(blocks) + board
+
+
+def _render_person(
+    group: DuzhanGroup,
+    hour: int,
+    day: str,
+    slot: str,
+    slogan: str,
+    person: dict | None,
+    prev_person: dict | None = None,
+    use_diff: bool = False,
+) -> str:
+    lang = group.lang
+    reporter = (person or {}).get("display") or _REPORTER.get(group.name, group.name)
+    target = wan_text(person.get("target_wan") if person else None, lang)
+    mtd = wan_text(person.get("mtd_wan") if person else None, lang)
+    slogan_text = _slogan_text(slogan, lang)
+    if group.lang == "en":
+        title, focus = _SLOT_EN.get(hour, ("Brief", ""))
+        head = (
+            f"[Overseas Channel Daily Triple Chase] {title} {slot} (Paris time)\n"
+            f"- Owner: {reporter} | Date: {day} | Slot: {slot}\n"
+            f"- Focus: {focus}\n"
+            f"- Monthly target: {target} wan | MTD collection: {mtd} wan | Today target: {slogan_text}\n"
+        )
+    else:
+        title, focus = _SLOT_ZH.get(hour, ("督战", ""))
+        tz_label = "北京时间" if group.tz == TZ_SHANGHAI else group.tz
+        head = (
+            f"【海外渠道业绩达标群 · 每日三追进度表】{title} {slot}（{tz_label}）\n"
+            f"- 汇报人：{reporter} | 日期：{day} | 阶段：{slot}\n"
+            f"- 本档动作：{focus}\n"
+            f"- 月度目标：{target} 万 | 截至当前累计回款：{mtd} 万 | 今日目标：{slogan}\n"
+        )
+    if use_diff:
+        return head + "\n" + _changes_text(person, prev_person, lang)
+    return head + "\n" + _full_person_body(group, hour, person, lang)
+
+
+def _full_person_body(
+    group: DuzhanGroup,
+    hour: int,
+    person: dict | None,
+    lang: str,
+) -> str:
+    wa = count_text(
+        person.get("wa_reached") if person else None,
+        lower_bound=bool(person and person.get("wa_lower_bound")),
+        lang=lang,
+    )
+    intent = count_text(person.get("intent_count") if person else None, lang=lang)
+    mto = _mto_text(person, lang)
+    vps = _vps_text(person, lang)
+    vemory = _vemory_text(person, group.lang)
+    core = _collections_text(person, lang, hour)
+    blockers = _blockers_text(person, lang)
+    evidence = _evidence_text(person, lang)
+    hours = hours_text(person, lang)
+    daily = _daily_report_text(person, lang)
+    if lang == "en":
+        return (
+            "1. Core collection (progress % + expected payment time):\n"
+            f"{core}\n"
+            "2. Daily 4 MTO luxury proposals (≥ CNY 300k):\n"
+            f"   • Submitted: {mto}\n"
+            "   • Reach: WhatsApp screenshot pending unless posted in-group\n"
+            "3. Today's activity and hours:\n"
+            f"   • VPS trace: {vps}\n"
+            "   • VPS opportunities: pending\n"
+            f"   • WhatsApp accounts: {wa} | clear intent: {intent}\n"
+            f"   • Hours vs 8h std: {hours}\n"
+            f"   • Vemory recordings: {vemory}\n"
+            "4. Blockers needing help today:\n"
+            f"{blockers}\n"
+            f"5. Evidence: {evidence}\n"
+            f"6. Daily report check: {daily}"
+        )
+    return (
+        "1. 核心客户催款与回款进展（百分比量化 + 预计打款时间）：\n"
+        f"{core}\n"
+        "2. 每日 4 款 MTO 高奢方案输出（≥30万）：\n"
+        f"   • {mto}\n"
+        "   • 触达记录：WhatsApp 发送截图以群内原图为准，未标截图则待确认\n"
+        "3. 今日过程留痕与工时消耗：\n"
+        f"   • VPS 留痕：{vps}\n"
+        f"   • VPS 录入商机数：待确认\n"
+        f"   • WhatsApp 沟通户数：{wa} 户 | 产生明确意向：{intent} 户\n"
+        f"   • 工时（对照标准8h）：{hours}\n"
+        f"   • Vemory 会议录音：{vemory}\n"
+        "4. 今日卡点与需协同解决项：\n"
+        f"{blockers}\n"
+        f"5. 附件证据：{evidence}\n"
+        f"6. 海外日报群核对：{daily}"
+    )
+
+
+def _daily_report_text(person: dict | None, lang: str) -> str:
+    """日报申报工时与系统证据工时并列，不互相覆盖。"""
+    report = (person or {}).get("daily_report") or {}
+    if not report:
+        return "not submitted today" if lang == "en" else "未见今日正式日报"
+    declared = float(report.get("spent_hours") or 0)
+    evidenced = float((person or {}).get("hours_minutes") or 0) / 60
+    gap = max(declared - evidenced, 0)
+    count = int(report.get("item_count") or 0)
+    done = int(report.get("done_count") or 0)
+    if lang == "en":
+        return (
+            f"submitted: {done}/{count} complete; declared {declared:g}h; "
+            f"system-evidenced {evidenced:.2f}h; {gap:.2f}h pending evidence"
+        )
+    return (
+        f"已交，完成{done}/{count}项；申报{declared:g}h；"
+        f"系统证据{evidenced:.2f}h；{gap:.2f}h待补证"
+    )
+
+
+def _task_line(item: dict, lang: str) -> str:
+    title = str(item.get("title") or "").strip()
+    progress = str(item.get("progress") or "").strip()
+    if lang == "en":
+        title = _to_en(title)
+        progress = _to_en(progress or "待确认")
+        return f"   • {title} | {progress}"
+    return f"   • {title} | {progress or '待确认'}"
+
+
+def _changes_text(person: dict | None, prev_person: dict | None, lang: str) -> str:
+    curr = list((person or {}).get("collections") or [])
+    prev = list((prev_person or {}).get("collections") or [])
+    diff = diff_tasks(curr, prev)
+    labels = (
+        ("Done", "Progressed", "Stalled", "New", "No reply")
+        if lang == "en"
+        else ("完成", "推进", "停滞", "新增", "未回复")
+    )
+    sections = (
+        ("completed", labels[0]),
+        ("progressed", labels[1]),
+        ("stalled", labels[2]),
+        ("new", labels[3]),
+        ("unanswered", labels[4]),
+    )
+    lines: list[str] = []
+    for key, label in sections:
+        items = diff.get(key) or []
+        if not items:
+            continue
+        lines.append(f"{label}:")
+        lines.extend(_task_line(item, lang) for item in items[:8])
+    if not lines:
+        empty = "no change vs last slot" if lang == "en" else "相对上一档无变化"
+        lines.append(f"   • {empty}")
+    blockers = _blockers_text(person, lang)
+    evidence = _evidence_text(person, lang)
+    extra = "Blockers" if lang == "en" else "卡点"
+    proof = "Evidence" if lang == "en" else "证据"
+    lines.append(f"{extra}:\n{blockers}")
+    lines.append(f"{proof}: {evidence}")
+    return "\n".join(lines)
+
+
+def _mto_text(person: dict | None, lang: str) -> str:
+    if not person or person.get("mto_count") is None:
+        return "pending" if lang == "en" else "待确认"
+    count = int(person.get("mto_count") or 0)
+    quotes = [item for item in (person.get("mto_quotes") or []) if isinstance(item, dict)]
+    ocr_on = bool(quotes) and any(item.get("raw_ok") for item in quotes)
+    names = [str(item) for item in (person.get("mto_names") or []) if item]
+    shown = "; ".join(names[:4]) if lang == "en" else "、".join(names[:4])
+    extra = f": {shown}" if lang == "en" and shown else (f"：{shown}" if shown else "")
+    if lang == "en":
+        if ocr_on:
+            tag = "met 4 quotes ≥CNY300k" if count >= 4 else "under 4 qualifying quotes"
+        else:
+            tag = "met 4" if count >= 4 else "under 4"
+        return f"{count}/4 ({tag}){extra}"
+    if ocr_on:
+        tag = "达标" if count >= 4 else "未满4款≥30万"
+    else:
+        tag = "达标" if count >= 4 else "未满4款"
+    return f"已交{count}/4（{tag}）{extra}"
+
+
+def _vps_text(person: dict | None, lang: str) -> str:
+    if not person:
+        return "pending" if lang == "en" else "待确认"
+    im_sent = person.get("vps_im_sent")
+    turns = person.get("vps_turns")
+    agent = person.get("vps_agent_calls")
+    if im_sent is None and turns is None and agent is None:
+        return "pending" if lang == "en" else "待确认"
+    first_at = str(person.get("vps_first") or "")[:16].replace("T", " ")
+    last_at = str(person.get("vps_last") or "")[:16].replace("T", " ")
+    span = ""
+    if first_at and last_at:
+        span = f"; active {first_at}–{last_at}" if lang == "en" else f"；活跃{first_at}–{last_at}"
+    daily = bool(person.get("vps_daily"))
+    if lang == "en":
+        im_text = "pending" if im_sent is None else str(im_sent)
+        turns_text = "pending" if turns is None else str(turns)
+        scope = "today; hours=rounds×6min" if daily else "week total; hours=daily avg×6min"
+        return f"IM sent {im_text} | Agent rounds {turns_text} ({scope}){span}"
+    im_zh = "待确认" if im_sent is None else str(im_sent)
+    turns_zh = "待确认" if turns is None else str(turns)
+    scope = "今日 Standard+OpenCode，工时×6分钟" if daily else "本周累计，工时按日均×6分钟"
+    return f"IM发送{im_zh}条 | Agent轮数{turns_zh}（{scope}）{span}"
+
+
+def _vemory_text(person: dict | None, lang: str) -> str:
+    if person is None or person.get("vemory_ok") is False:
+        return "pending" if lang == "en" else "待确认"
+    meetings = person.get("vemory") or []
+    if not meetings:
+        return "0" if lang == "en" else "0场"
+    parts = []
+    for item in meetings[:5]:
+        name = str(item.get("name") or "").strip()
+        link = str(item.get("link") or "").strip()
+        mid = str(item.get("meeting_id") or item.get("id") or "").strip()
+        if link:
+            shown = _to_en(name) if lang == "en" else name
+            parts.append(f"{shown} {link}".strip())
+        elif mid:
+            tag = "audio pending" if lang == "en" else "无音频直链"
+            shown = _to_en(name) if lang == "en" else name
+            parts.append(f"{shown} ({mid[:8]}… {tag})")
+        else:
+            parts.append(_to_en(name) if lang == "en" else name)
+    prefix = f"{len(meetings)} " if lang == "en" else f"{len(meetings)}场 "
+    joiner = "; " if lang == "en" else "；"
+    return prefix + joiner.join(parts)
+
+
+def _collections_text(person: dict | None, lang: str, hour: int = 10) -> str:
+    items = (person or {}).get("collections") or []
+    if not items:
+        if hour == 10:
+            if lang == "en":
+                return "   • No plan posted; name-check"
+            return "   • 未报计划，点名催报"
+        if lang == "en":
+            return "   • pending: no owner-posted account/amount/% in-group; not invented"
+        return "   • 待确认：群内未见本人报客户清单，不编造"
+    lines = []
+    for item in items[:8]:
+        title = str(item.get("title") or "").strip()
+        amount = str(item.get("amount") or "").strip()
+        progress = str(item.get("progress") or "").strip()
+        if lang == "en":
+            title = _to_en(title)
+            amount = amount or "—"
+            progress = _to_en(progress or "待确认")
+            lines.append(f"   • {title}: {amount} | progress {progress}")
+        else:
+            amount = amount or "金额待确认"
+            progress = progress or "待确认"
+            lines.append(f"   • {title}：{amount} | 进度 {progress}")
+    return "\n".join(lines)
+
+
+def _blockers_text(person: dict | None, lang: str) -> str:
+    items = (person or {}).get("blockers") or []
+    if not items:
+        if lang == "en":
+            return "   • pending blockers in-group"
+        return "   • 群内未见明确卡点原文"
+    if lang == "en":
+        return "\n".join(f"   • {_to_en(item)}" for item in items[:4])
+    return "\n".join(f"   • {item}" for item in items[:4])
+
+
+def _evidence_text(person: dict | None, lang: str) -> str:
+    items = [str(item) for item in ((person or {}).get("evidence") or []) if item]
+    meetings = (person or {}).get("vemory") or []
+    for meeting in meetings[:3]:
+        name = str(meeting.get("name") or "").strip()
+        if name:
+            items.append(name)
+    if not items:
+        return "pending" if lang == "en" else "打款水单待确认 / WhatsApp截图待确认 / Vemory音频直链待确认"
+    if lang == "en":
+        return " / ".join(_to_en(item) for item in items[:8])
+    return " / ".join(items[:8])
+
+
+def _board_text(ledger: dict | None, hour: int, lang: str) -> str:
+    """晚追才出红黑榜；@ 纯文本拼进 body。"""
+    if hour != 20 or not ledger:
+        return ""
+    red = ledger.get("red") or []
+    black = ledger.get("black") or []
+    rewards = ledger.get("rewards") or []
+    penalties = ledger.get("penalties") or []
+    def incentive(item: object) -> str:
+        if isinstance(item, dict):
+            return str(item.get(lang) or item.get("zh") or item.get("en") or "")
+        return str(item)
+
+    if lang == "en":
+        red_line = " / ".join(
+            f"@{item['display']} {wan_text(item.get('mtd_wan'), lang)} wan"
+            for item in red
+        ) or "pending"
+        black_line = " / ".join(
+            f"@{item['display']} {_to_en(str(item.get('reason') or ''))}"
+            for item in black
+        ) or "none"
+        reward = "none verified" if not rewards else "; ".join(incentive(item) for item in rewards)
+        penalty = "none" if not penalties else "; ".join(incentive(item) for item in penalties)
+        return (
+            "\n"
+            f"Red TOP3: {red_line}\n"
+            f"Black (to improve): {black_line}\n"
+            f"Reward ledger: {reward}\n"
+            f"Penalty ledger: {penalty}\n"
+        )
+    red_line = " / ".join(
+        f"@{item['display']} 累计{wan_text(item.get('mtd_wan'), lang)}万"
+        for item in red
+    ) or "待确认"
+    black_line = " / ".join(
+        f"@{item['display']} {item.get('reason')}"
+        for item in black
+    ) or "无"
+    reward = "今日无已核验奖励记录" if not rewards else "；".join(incentive(item) for item in rewards)
+    penalty = "今日无扣罚记录" if not penalties else "；".join(incentive(item) for item in penalties)
+    return (
+        "\n"
+        f"红榜 TOP3：{red_line}\n"
+        f"黑榜 待改进：{black_line}\n"
+        f"奖励台账：{reward}\n"
+        f"扣罚台账：{penalty}\n"
+    )
+
+
+def run_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict:
+    """整点推送：优先用提前组好的快照，没有快照则现场渲染。周末不发。"""
+    now = now or datetime.now(ZoneInfo(tz_name))
+    if not is_duzhan_workday(tz_name, now):
+        logger.info("周末不推送 {} {}", tz_name, hour)
+        return {"tz": tz_name, "hour": hour, "sent": [], "failed": [], "skipped": "weekend"}
+    day = now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    snapshot = load_prepared(tz_name, hour, day)
+    bodies = snapshot.get("messages") if snapshot else None
+    ledger = snapshot.get("ledger") if snapshot else None
+    prev_hour = prev_slot_hour(hour)
+    prev = load_prepared(tz_name, prev_hour, day) if prev_hour else None
+    prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+    sent: list[str] = []
+    failed: list[str] = []
+    for group in groups_for_tz(tz_name):
+        body = ""
+        if isinstance(bodies, dict):
+            body = str(bodies.get(group.channel_id) or "")
+        if not body:
+            body = render_brief(group, hour, now, ledger, prev_ledger)
+        ok = push_duzhan_message(
+            body,
+            group.channel_id,
+            idempotency_key=_idempotency_key(tz_name, day, hour, group.channel_id),
+        )
+        if ok:
+            sent.append(group.name)
+        else:
+            failed.append(group.name)
+            logger.warning("督战官推送失败 {} {}", group.name, group.channel_id)
+    return {"tz": tz_name, "hour": hour, "sent": sent, "failed": failed, "from_snapshot": bool(snapshot)}
+
+
+BOT_NAME = "海外渠道督战官"
+AT_NAMES = (BOT_NAME, "Overseas Channel Battle Commander")
+_OWN_PREFIXES = (
+    "【海外渠道督战官】",
+    "【海外渠道业绩达标群",
+    "[Overseas Channel Battle Commander]",
+    "[Overseas Channel Daily Triple Chase]",
+)
+_AT_RE = re.compile(
+    r"[@＠]\s*(海外渠道督战官|Overseas Channel Battle Commander)",
+    re.IGNORECASE,
+)
+_MATH_RE = re.compile(
+    r"^\s*(\d+)\s*([+\-*/x×])\s*(\d+)\s*[=＝?？]*\s*$"
+)
+_OPS = {
+    "+": operator.add,
+    "-": operator.sub,
+    "*": operator.mul,
+    "x": operator.mul,
+    "×": operator.mul,
+    "/": operator.truediv,
+}
+_CURSOR_FILE = "runtime/duzhan_at_cursor.json"
+
+
+def message_body(message: dict) -> str:
+    """取出 IM 消息正文。"""
+    body = message.get("body") or message.get("content") or ""
+    if isinstance(body, dict):
+        return str(body.get("text") or "")
+    return str(body)
+
+
+def is_own_bot_message(message: dict, body: str) -> bool:
+    """跳过督战官自己发的消息。"""
+    if any(body.startswith(prefix) for prefix in _OWN_PREFIXES):
+        return True
+    bot_id = str(message.get("bot_id") or "")
+    if bot_id == "459fdf45-3882-404c-b5e8-570fe9680ecf":
+        return True
+    sender = str(message.get("bot_name") or message.get("sender_name") or "")
+    return sender in AT_NAMES
+
+
+def is_at_duzhan(body: str) -> bool:
+    """是否 @了海外渠道督战官。未 @ 一律不回。"""
+    return bool(_AT_RE.search(body or ""))
+
+
+def strip_at(body: str) -> str:
+    """去掉 @督战官 后剩下的问题。"""
+    return _AT_RE.sub(" ", body or "").strip()
+
+
+def draft_at_reply(question: str, lang: str) -> str:
+    """被 @ 后的短答：先算式，再身份；其余确认收到。"""
+    text = (question or "").strip()
+    if not text:
+        return "Here." if lang == "en" else "在。"
+    math = _MATH_RE.match(text)
+    if math:
+        left, op_text, right = math.group(1), math.group(2), math.group(3)
+        op = _OPS[op_text]
+        value = op(int(left), int(right))
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return str(value)
+    if lang == "en":
+        return (
+            "Noted. I only reply when @mentioned. "
+            "Ask about today's target, overdue follow-up, or the next action."
+        )
+    return "收到。只回复 @我 的消息。问本群达标进度、逾期跟单或下一步即可。"
+
+
+def _cursor_path() -> Path:
+    path = get_settings().data_dir / _CURSOR_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _load_cursor() -> dict:
+    path = _cursor_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {"channels": {}}
+    channels = payload.get("channels")
+    return {"channels": channels} if isinstance(channels, dict) else {"channels": {}}
+
+
+def _save_cursor(payload: dict) -> None:
+    _cursor_path().write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _fetch_recent(channel_id: str, date_from: str) -> list[dict]:
+    from app.vertu.client import run_vertu_sync_json
+
+    payload = run_vertu_sync_json(
+        [
+            "im",
+            "+history",
+            "--channel-id",
+            channel_id,
+            "--date-from",
+            date_from,
+            "--limit",
+            "30",
+        ],
+        timeout=25.0,
+    )
+    if not isinstance(payload, dict):
+        return []
+    return [item for item in (payload.get("messages") or []) if isinstance(item, dict)]
+
+
+def poll_at_mentions() -> dict:
+    """扫描达标群：仅当正文 @海外渠道督战官 时回复。
+
+    首次运行只记游标、不回历史 @，避免把旧测试题再答一遍。
+    """
+    state = _load_cursor()
+    channels = state["channels"]
+    replied: list[str] = []
+    skipped_init: list[str] = []
+    for group in GROUPS:
+        state_row = channels.get(group.channel_id) or {}
+        last_seen = str(state_row.get("last_created_at") or "")
+        answered = list(state_row.get("answered_ids") or [])
+        answered_set = set(answered)
+        date_from = last_seen or "2026-01-01T00:00:00Z"
+        try:
+            messages = _fetch_recent(group.channel_id, date_from)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("督战官拉历史失败 {}: {}", group.name, exc)
+            continue
+        messages.sort(key=lambda item: str(item.get("created_at") or ""))
+        if not last_seen:
+            newest = str(messages[-1].get("created_at") or "") if messages else ""
+            channels[group.channel_id] = {
+                "last_created_at": newest,
+                "answered_ids": answered[-200:],
+            }
+            skipped_init.append(group.name)
+            continue
+        newest = last_seen
+        for message in messages:
+            created = str(message.get("created_at") or "")
+            if created:
+                newest = max(newest, created)
+            message_id = str(message.get("id") or "")
+            if not message_id or message_id in answered_set:
+                continue
+            if created and created < last_seen:
+                continue
+            body = message_body(message)
+            if is_own_bot_message(message, body) or not is_at_duzhan(body):
+                continue
+            reply = draft_at_reply(strip_at(body), group.lang)
+            ok = push_duzhan_message(
+                reply,
+                group.channel_id,
+                parent_message_id=message_id,
+            )
+            if ok:
+                replied.append(f"{group.name}:{message_id}")
+                answered_set.add(message_id)
+                answered.append(message_id)
+            else:
+                logger.warning("督战官 @回复失败 {} {}", group.name, message_id)
+        channels[group.channel_id] = {
+            "last_created_at": newest,
+            "answered_ids": answered[-200:],
+        }
+    _save_cursor(state)
+    return {"replied": replied, "initialized": skipped_init}

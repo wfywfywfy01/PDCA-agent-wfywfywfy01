@@ -89,7 +89,7 @@ class DailyReportTests(unittest.TestCase):
             "何海文 95 万",
             "杨晶晶 333 万",
             "于冰 200 万",
-            "新部（陈鹏飞、李浩然、邢哲夫合计） 100 万",
+            "新部（邓琳莹、Safae、王宇彤、张月馨合计） 100 万",
         ])
 
     def test_five_kit_t_minus_one_uses_only_confirmed_store_accounts(self):
@@ -111,7 +111,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("系统收到 1 家必报门店填报", text)
         self.assertIn("应报 6 家", text)
         self.assertIn("目标 1,228.0 万", text)
-        self.assertIn("新部（陈鹏飞、李浩然、邢哲夫合计） 100 万", text)
+        self.assertIn("新部（邓琳莹、Safae、王宇彤、张月馨合计） 100 万", text)
 
     def test_required_store_owner_keys_match_production_accounts(self):
         owner_by_store = {row[0]: row[5] for row in _STORES}

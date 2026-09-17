@@ -1,0 +1,1026 @@
+# -*- coding: utf-8 -*-
+"""督战官：Lina 用巴黎时间/英文，其余北京时间/中文。"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
+
+import unittest
+
+from app.duzhan import (
+    TZ_PARIS,
+    TZ_SHANGHAI,
+    collect_clock,
+    cron_timezones,
+    draft_at_reply,
+    groups_for_tz,
+    is_at_duzhan,
+    load_prepared,
+    parse_hours,
+    poll_at_mentions,
+    prepare_duzhan,
+    render_brief,
+    run_duzhan,
+    strip_at,
+)
+
+
+class DuzhanGroupTests(unittest.TestCase):
+    def test_lina_is_paris_english(self):
+        paris = groups_for_tz(TZ_PARIS)
+        self.assertEqual([g.name for g in paris], ["Lina业绩达标群"])
+        self.assertEqual(paris[0].lang, "en")
+
+    def test_other_groups_are_shanghai_chinese(self):
+        shanghai = groups_for_tz(TZ_SHANGHAI)
+        names = [g.name for g in shanghai]
+        self.assertEqual(
+            names,
+            [
+                "新人小组业绩达标群",
+                "于冰业绩达标群",
+                "杨晶晶业绩达标群",
+                "viki业绩达标群",
+            ],
+        )
+        self.assertTrue(all(g.lang == "zh" for g in shanghai))
+
+    def test_cron_registers_both_timezones(self):
+        self.assertEqual(cron_timezones(), [TZ_SHANGHAI, TZ_PARIS])
+
+    def test_parse_hours_default_slots(self):
+        self.assertEqual(parse_hours(["10:00", "15:00", "20:00"]), [10, 15, 20])
+
+    def test_collect_runs_before_push(self):
+        self.assertEqual(collect_clock(10, 15), (9, 45))
+        self.assertEqual(collect_clock(15, 15), (14, 45))
+        self.assertEqual(collect_clock(20, 15), (19, 45))
+        self.assertEqual(collect_clock(10, 10), (9, 50))
+
+    def test_lina_brief_uses_paris_clock(self):
+        group = groups_for_tz(TZ_PARIS)[0]
+        now = datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_PARIS))
+        text = render_brief(group, 10, now)
+        self.assertIn("Paris time", text)
+        self.assertIn("10:00", text)
+        self.assertIn("Morning chase", text)
+        self.assertIn("pending", text)
+        self.assertIn("wan", text)
+        self.assertIn("RMB 13M campaign", text)
+        self.assertIn("No plan posted", text)
+        self.assertNotIn("北京", text)
+        self.assertNotIn("待确认", text)
+        self.assertNotIn("万", text)
+        self.assertNotIn("客户A", text)
+
+    def test_lina_ledger_body_is_english(self):
+        group = groups_for_tz(TZ_PARIS)[0]
+        now = datetime(2026, 9, 15, 20, 0, tzinfo=ZoneInfo(TZ_PARIS))
+        ledger = {
+            "today_target": "1300万战役",
+            "people": [
+                {
+                    "group": "Lina业绩达标群",
+                    "display": "Lina",
+                    "target_wan": 400,
+                    "mtd_wan": 55,
+                    "collections": [
+                        {
+                            "title": "土耳其合同与伊斯坦布尔市场保护 今天与迪拜经销商讨论了土耳其合同。",
+                            "amount": "",
+                            "progress": "待确认",
+                        }
+                    ],
+                    "blockers": ["hi Gary关于土耳其合同，他们让我先向你确认并获得你对以下两点的批准，然后再加入合同： 1. 折扣："],
+                    "evidence": [],
+                    "vemory_ok": False,
+                    "mto_count": 4,
+                    "mto_names": ["a.jpg"],
+                }
+            ],
+            "red": [{"display": "Lina", "mtd_wan": 55, "reason": "WhatsApp未覆盖"}],
+            "black": [{"display": "Safae", "reason": "WhatsApp未覆盖；本月回款0"}],
+            "penalties": [],
+        }
+        text = render_brief(group, 20, now, ledger)
+        self.assertIn("Turkey contract", text)
+        self.assertIn("discount", text)
+        self.assertIn("WhatsApp not covered", text)
+        self.assertIn("MTD collection 0", text)
+        self.assertNotIn("待确认", text)
+        self.assertNotIn("土耳其", text)
+        self.assertNotIn("折扣", text)
+        self.assertNotIn("本月回款", text)
+
+    def test_shanghai_brief_uses_beijing_clock(self):
+        group = groups_for_tz(TZ_SHANGHAI)[0]
+        now = datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        text = render_brief(group, 10, now)
+        self.assertIn("北京时间", text)
+        self.assertIn("早追·定任务", text)
+        self.assertIn("每日三追进度表", text)
+        self.assertIn("待确认", text)
+        self.assertIn("1300万战役", text)
+
+    def test_midday_and_evening_slot_titles(self):
+        group = groups_for_tz(TZ_SHANGHAI)[0]
+        now = datetime(2026, 9, 15, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        self.assertIn("中追·追变化", render_brief(group, 15, now))
+        self.assertIn("晚追·验兑现", render_brief(group, 20, now))
+
+    def test_weekend_skips_push(self):
+        saturday = datetime(2026, 9, 19, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        with patch("app.duzhan.push_duzhan_message") as push:
+            result = run_duzhan(TZ_SHANGHAI, 10, saturday)
+        self.assertEqual(result["sent"], [])
+        self.assertEqual(result["skipped"], "weekend")
+        push.assert_not_called()
+
+    def test_midday_renders_only_changes(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 16, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        prev = {
+            "people": [
+                {
+                    "group": "于冰业绩达标群",
+                    "display": "于冰",
+                    "collections": [
+                        {"title": "柬埔寨", "progress": "待确认", "status": "planned"},
+                        {"title": "越南尾款", "progress": "催收", "status": "progress"},
+                        {"title": "马来Derict", "progress": "已询问", "status": "planned"},
+                    ],
+                }
+            ]
+        }
+        curr = {
+            "people": [
+                {
+                    "group": "于冰业绩达标群",
+                    "display": "于冰",
+                    "target_wan": 200,
+                    "mtd_wan": 170.2,
+                    "collections": [
+                        {"title": "柬埔寨", "progress": "已到账", "status": "done"},
+                        {"title": "越南尾款", "progress": "催收", "status": "progress"},
+                    ],
+                }
+            ]
+        }
+        text = render_brief(group, 15, now, curr, prev)
+        self.assertIn("完成", text)
+        self.assertIn("柬埔寨", text)
+        self.assertIn("停滞", text)
+        self.assertIn("越南尾款", text)
+        self.assertIn("未回复", text)
+        self.assertIn("马来Derict", text)
+        self.assertNotIn("VPS 留痕", text)
+        self.assertIn("VPS 留痕", render_brief(group, 10, now, curr))
+
+    def test_run_duzhan_paris_only_hits_lina(self):
+        with patch("app.duzhan.push_duzhan_message", return_value=True) as push:
+            result = run_duzhan(
+                TZ_PARIS,
+                10,
+                datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_PARIS)),
+            )
+        self.assertEqual(result["sent"], ["Lina业绩达标群"])
+        self.assertEqual(len(push.call_args_list), 1)
+        body = push.call_args.args[0]
+        channel = push.call_args.args[1]
+        self.assertIn("Paris time", body)
+        self.assertIn("Daily Triple Chase", body)
+        self.assertEqual(channel, "e435ab5d-d425-4ccd-a247-c7207efbb4f6")
+
+    def test_prepare_then_push_uses_snapshot(self):
+        import tempfile
+        from pathlib import Path
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        fake_settings = type("S", (), {"data_dir": Path(tmp.name)})()
+        now = datetime(2026, 9, 15, 9, 45, tzinfo=ZoneInfo(TZ_PARIS))
+        with patch("app.duzhan.get_settings", return_value=fake_settings), patch(
+            "app.duzhan.collect_ledger", return_value={"day": "2026-09-15", "people": [], "red": [], "black": [], "today_target": "1300万战役"}
+        ):
+            prepared = prepare_duzhan(TZ_PARIS, 10, now)
+            loaded = load_prepared(TZ_PARIS, 10, "2026-09-15")
+        self.assertEqual(prepared["hour"], 10)
+        self.assertIn("e435ab5d-d425-4ccd-a247-c7207efbb4f6", prepared["messages"])
+        self.assertEqual(loaded["prepared_at"], prepared["prepared_at"])
+        with patch("app.duzhan.get_settings", return_value=fake_settings), patch(
+            "app.duzhan.push_duzhan_message", return_value=True
+        ) as push, patch("app.duzhan.render_brief") as render:
+            result = run_duzhan(
+                TZ_PARIS,
+                10,
+                datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_PARIS)),
+            )
+        render.assert_not_called()
+        self.assertTrue(result["from_snapshot"])
+        self.assertEqual(push.call_args.args[0], prepared["messages"]["e435ab5d-d425-4ccd-a247-c7207efbb4f6"])
+
+
+class DuzhanPushTests(unittest.TestCase):
+    def test_duzhan_push_uses_own_bot_not_daily_report(self):
+        from app import vps_im_push
+
+        with patch("app.vps_im_push.httpx.post") as post:
+            post.return_value.status_code = 200
+            post.return_value.json.return_value = {"ok": True}
+            with patch.dict(
+                "os.environ",
+                {
+                    "PDCA_DUZHAN_BOT_APP_ID": "vbot_duzhan",
+                    "PDCA_DUZHAN_BOT_APP_SECRET": "secret_duzhan",
+                    "PDCA_VPS_BOT_APP_ID": "vbot_daily",
+                    "PDCA_VPS_BOT_APP_SECRET": "secret_daily",
+                },
+            ):
+                ok = vps_im_push.push_duzhan_message("hi", "chan-lina")
+        self.assertTrue(ok)
+        headers = post.call_args.kwargs["headers"]
+        self.assertEqual(headers["x-vertu-bot-app-id"], "vbot_duzhan")
+        self.assertEqual(post.call_args.kwargs["json"]["channel_id"], "chan-lina")
+        self.assertNotIn("idempotency_key", post.call_args.kwargs["json"])
+
+    def test_duzhan_push_sends_idempotency_key(self):
+        from app import vps_im_push
+
+        with patch("app.vps_im_push.httpx.post") as post:
+            post.return_value.status_code = 200
+            post.return_value.json.return_value = {"ok": True}
+            with patch.dict(
+                "os.environ",
+                {
+                    "PDCA_DUZHAN_BOT_APP_ID": "vbot_duzhan",
+                    "PDCA_DUZHAN_BOT_APP_SECRET": "secret_duzhan",
+                },
+            ):
+                ok = vps_im_push.push_duzhan_message(
+                    "hi",
+                    "chan-lina",
+                    idempotency_key="duzhan-20260915-1000-x",
+                )
+        self.assertTrue(ok)
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["idempotency_key"], "duzhan-20260915-1000-x")
+        self.assertEqual(payload["client_message_id"], "duzhan-20260915-1000-x")
+        self.assertEqual(post.call_args.kwargs["headers"]["Idempotency-Key"], "duzhan-20260915-1000-x")
+
+
+class DuzhanAtReplyTests(unittest.TestCase):
+    def test_only_at_bot_triggers(self):
+        self.assertTrue(is_at_duzhan("@海外渠道督战官 who is the president"))
+        self.assertTrue(is_at_duzhan("进度如何 ＠海外渠道督战官"))
+        self.assertFalse(is_at_duzhan("三角形内角和=？"))
+        self.assertFalse(is_at_duzhan("@杨晶晶 同步进度"))
+
+    def test_strip_leaves_the_question(self):
+        self.assertEqual(strip_at("@海外渠道督战官 1+1=？"), "1+1=？")
+
+    def test_math_reply(self):
+        self.assertEqual(draft_at_reply("2+1=？", "zh"), "3")
+        self.assertEqual(draft_at_reply("1+1", "en"), "2")
+
+    def test_empty_at_is_ack(self):
+        self.assertEqual(draft_at_reply("", "zh"), "在。")
+        self.assertEqual(draft_at_reply("", "en"), "Here.")
+
+    def test_first_poll_does_not_answer_history(self):
+        import tempfile
+        from pathlib import Path
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        fake_settings = type("S", (), {"data_dir": Path(tmp.name)})()
+        history = [
+            {
+                "id": "old-at",
+                "created_at": "2026-09-15T07:46:56Z",
+                "body": "@海外渠道督战官 old question",
+            }
+        ]
+        with patch("app.duzhan.get_settings", return_value=fake_settings), patch(
+            "app.duzhan._fetch_recent", return_value=history
+        ), patch("app.duzhan.push_duzhan_message") as push:
+            result = poll_at_mentions()
+        self.assertEqual(len(result["initialized"]), 5)
+        push.assert_not_called()
+
+    def test_later_poll_replies_only_new_at(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        runtime = root / "runtime"
+        runtime.mkdir()
+        (runtime / "duzhan_at_cursor.json").write_text(
+            json.dumps(
+                {
+                    "channels": {
+                        "e435ab5d-d425-4ccd-a247-c7207efbb4f6": {
+                            "last_created_at": "2026-09-15T07:40:00Z",
+                            "answered_ids": [],
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        fake_settings = type("S", (), {"data_dir": root})()
+
+        def fake_fetch(channel_id: str, date_from: str):
+            if channel_id != "e435ab5d-d425-4ccd-a247-c7207efbb4f6":
+                return []
+            return [
+                {
+                    "id": "noise",
+                    "created_at": "2026-09-15T07:50:00Z",
+                    "body": "三角形内角和=？",
+                },
+                {
+                    "id": "hit",
+                    "created_at": "2026-09-15T07:51:00Z",
+                    "body": "@海外渠道督战官 1+1=？",
+                },
+            ]
+
+        with patch("app.duzhan.get_settings", return_value=fake_settings), patch(
+            "app.duzhan._fetch_recent", side_effect=fake_fetch
+        ), patch("app.duzhan.push_duzhan_message", return_value=True) as push:
+            result = poll_at_mentions()
+        self.assertEqual(result["replied"], ["Lina业绩达标群:hit"])
+        self.assertEqual(len(push.call_args_list), 1)
+        self.assertEqual(push.call_args.kwargs["parent_message_id"], "hit")
+        self.assertEqual(push.call_args.args[0], "2")
+
+
+class DuzhanLedgerTests(unittest.TestCase):
+    def test_parse_wa_none_when_not_included(self):
+        from app.duzhan_ledger import parse_wa_reached
+
+        value, lower = parse_wa_reached(
+            {
+                "rows": [
+                    {
+                        "row_type": "summary",
+                        "platform_metrics": {
+                            "whatsapp": {"included": False, "reached_customer_count": 0}
+                        },
+                    }
+                ]
+            }
+        )
+        self.assertIsNone(value)
+        self.assertFalse(lower)
+
+    def test_parse_wa_lower_bound(self):
+        from app.duzhan_ledger import parse_wa_reached
+
+        value, lower = parse_wa_reached(
+            {
+                "is_complete": False,
+                "rows": [
+                    {
+                        "row_type": "summary",
+                        "data_freshness": {"overall_status": "partial"},
+                        "platform_metrics": {
+                            "whatsapp": {"included": True, "reached_customer_count": 5}
+                        },
+                    }
+                ],
+            }
+        )
+        self.assertEqual(value, 5)
+        self.assertTrue(lower)
+
+    def test_red_top3_black_two_to_improve(self):
+        from app.duzhan_ledger import PersonRow, rank_red_black, score_row
+
+        people = [
+            score_row(PersonRow(
+                "于冰业绩达标群",
+                "于冰",
+                collections=[
+                    {"title": "柬埔寨", "status": "done", "amount": "$1"},
+                    {"title": "越南", "status": "done"},
+                    {"title": "马来", "status": "done"},
+                ],
+                evidence=["XSD-1"],
+            )),
+            score_row(PersonRow(
+                "viki业绩达标群",
+                "Viki",
+                collections=[
+                    {"title": "伊朗", "status": "done"},
+                    {"title": "科威特", "status": "done"},
+                ],
+            )),
+            score_row(PersonRow(
+                "杨晶晶业绩达标群",
+                "杨晶晶",
+                collections=[
+                    {"title": "索契", "status": "done"},
+                    {"title": "Naya", "status": "progress"},
+                ],
+            )),
+            score_row(PersonRow("Lina业绩达标群", "Lina", collections=[{"title": "迪拜", "status": "planned"}])),
+            score_row(PersonRow(
+                "新人小组业绩达标群",
+                "邓琳莹",
+                collections=[{"title": "沉睡老客", "progress": "今天可付款", "status": "planned"}],
+            )),
+        ]
+        red, black = rank_red_black(people)
+        self.assertEqual([item["display"] for item in red], ["于冰", "Viki", "杨晶晶"])
+        self.assertEqual([item["display"] for item in black], ["邓琳莹", "Lina"])
+        self.assertEqual(people[0].score, 110.0)
+        self.assertEqual(people[4].score, -10.0)
+        self.assertIn("逾期1项", people[4].gaps)
+        empty = score_row(PersonRow("新人小组业绩达标群", "Safae", collections=[]))
+        self.assertEqual(empty.score, 0.0)
+        self.assertIn("未报今日任务", empty.gaps)
+
+    def test_estimate_hours_caps_per_chat(self):
+        from app.duzhan_ledger import estimate_hours, hours_text, parse_wa_hour_chats
+
+        chats = parse_wa_hour_chats(
+            {
+                "rows": [
+                    {
+                        "row_type": "detail",
+                        "outbound_message_count": 40,
+                        "inbound_message_count": 40,
+                        "last_message_time": "2026-09-16 15:00:00",
+                    }
+                ]
+            }
+        )
+        est = estimate_hours(chats, {"mto_count": 0, "collections": [], "vemory": [], "vemory_ok": True})
+        self.assertEqual(est["minutes"], 25.0)
+        self.assertEqual(est["band"], "证据不足")
+        self.assertEqual(est["parts"]["gap"], 455.0)
+
+    def test_estimate_hours_near_8h_from_evidence(self):
+        from app.duzhan_ledger import estimate_hours, hours_text
+
+        chats = [{"outbound": 10, "inbound": 10, "last": "10:00"}] * 12
+        person = {
+            "mto_count": 4,
+            "mto_quotes": [{"raw_ok": True}] * 4,
+            "collections": [{"title": "a"}] * 8,
+            "vemory": [
+                {"name": "m1", "duration_minutes": 60},
+                {"name": "m2", "duration_minutes": 60},
+            ],
+            "vemory_ok": True,
+        }
+        est = estimate_hours(chats, person)
+        self.assertGreaterEqual(est["hours"], 6.0)
+        self.assertLessEqual(est["hours"], 8.0)
+        self.assertEqual(est["band"], "近满勤")
+        text = hours_text(
+            {
+                "hours_minutes": est["minutes"],
+                "hours_band": est["band"],
+                "hours_window": est["window"],
+                "hours_parts": est["parts"],
+            }
+        )
+        self.assertIn("标准8h", text)
+        self.assertIn("缺口", text)
+
+    def test_mto_hours_cap_half_hour(self):
+        from app.duzhan_ledger import estimate_hours
+
+        est = estimate_hours(
+            [],
+            {
+                "mto_count": 8,
+                "mto_quotes": [{"raw_ok": True}] * 8,
+                "collections": [],
+                "vemory": [],
+                "vemory_ok": True,
+            },
+        )
+        self.assertEqual(est["parts"]["mto"], 30.0)
+
+    def test_vemory_uses_recorded_duration(self):
+        from app.duzhan_ledger import estimate_hours, meeting_minutes
+
+        self.assertEqual(
+            meeting_minutes(
+                {
+                    "start_time": "2026-09-16 10:00:00",
+                    "end_time": "2026-09-16 10:45:00",
+                }
+            ),
+            45.0,
+        )
+        est = estimate_hours(
+            [],
+            {
+                "mto_count": 0,
+                "collections": [],
+                "vemory": [{"name": "call", "duration_minutes": 45}],
+                "vemory_ok": True,
+            },
+        )
+        self.assertEqual(est["parts"]["meeting"], 45.0)
+        est_zero = estimate_hours(
+            [],
+            {
+                "mto_count": 0,
+                "collections": [],
+                "vemory": [{"name": "no-clock"}],
+                "vemory_ok": True,
+            },
+        )
+        self.assertEqual(est_zero["parts"]["meeting"], 0.0)
+        self.assertEqual(meeting_minutes({"duration_seconds": 2700}), 45.0)
+        self.assertEqual(
+            meeting_minutes({"start_time": 1789521917265, "end_time": 1789523717265}),
+            30.0,
+        )
+        self.assertEqual(meeting_minutes({"duration_minutes": 450}), 7.5)
+
+    def test_records_to_vemory_rows_uses_participant_owner(self):
+        from app.duzhan_ledger import records_to_vemory_rows
+
+        rows = records_to_vemory_rows(
+            [
+                {
+                    "title": "回款会",
+                    "external_id": "m1",
+                    "duration_minutes": 61,
+                    "participants_json": '[{"name": "于冰"}]',
+                }
+            ]
+        )
+        self.assertEqual(rows[0]["owner"], "于冰")
+        self.assertEqual(rows[0]["duration_minutes"], 61.0)
+        skipped = records_to_vemory_rows(
+            [
+                {
+                    "title": "办公室秘书2的快速会议",
+                    "external_id": "vps:1dc28dd0-d12c-4f14-8412-6c8186a58f4e",
+                    "duration_minutes": 450,
+                    "participants_json": '[{"name": "于冰"}]',
+                }
+            ]
+        )
+        self.assertEqual(skipped, [])
+
+    def test_estimate_hours_does_not_fill_gap_with_idle_window(self):
+        from app.duzhan_ledger import estimate_hours
+
+        est = estimate_hours(
+            [{"outbound": 1, "inbound": 0, "last": "09:00"}],
+            {"mto_count": 0, "collections": [], "vemory": [], "vemory_ok": True},
+        )
+        self.assertLess(est["hours"], 1)
+        self.assertGreater(est["parts"]["gap"], 400)
+
+    def test_vps_hours_from_weekly_turns(self):
+        from app.duzhan_ledger import estimate_hours, vps_minutes, workdays_this_week
+
+        self.assertEqual(workdays_this_week("2026-09-16"), 3)
+        self.assertEqual(workdays_this_week("2026-09-14"), 1)
+        self.assertEqual(vps_minutes({"vps_turns": 15, "vps_weekdays": 3}), 30.0)
+        self.assertEqual(vps_minutes({"vps_turns": 100, "vps_weekdays": 1}), 150.0)
+        est = estimate_hours(
+            [],
+            {
+                "mto_count": 0,
+                "collections": [],
+                "vemory": [],
+                "vemory_ok": True,
+                "vps_turns": 15,
+                "vps_weekdays": 3,
+            },
+        )
+        self.assertEqual(est["parts"]["vps"], 30.0)
+
+    def test_render_fills_ledger_and_evening_board(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 15, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        ledger = {
+            "today_target": "1300万战役",
+            "people": [
+                {
+                    "group": "于冰业绩达标群",
+                    "display": "于冰",
+                    "target_wan": 200,
+                    "mtd_wan": 170.2,
+                    "wa_reached": 0,
+                    "wa_lower_bound": True,
+                    "intent_count": 0,
+                    "mto_count": 8,
+                    "mto_names": ["share-image.webp", "share-image2.webp"],
+                    "hours_minutes": 396.0,
+                    "hours_band": "近满勤",
+                    "hours_window": "09:01–15:40",
+                    "hours_parts": {
+                        "wa": 180,
+                        "mto": 80,
+                        "collect": 90,
+                        "meeting": 46,
+                        "vps": 0,
+                        "gap": 84,
+                        "std": 480,
+                    },
+                    "vps_im_sent": 56,
+                    "vps_agent_calls": 103,
+                    "vps_turns": 2,
+                    "vemory_ok": True,
+                    "vemory": [
+                        {
+                            "name": "迪拜 Billionaire 0915",
+                            "link": "https://audio/m1.wav",
+                        }
+                    ],
+                    "collections": [
+                        {
+                            "title": "柬埔寨支付订单 38246$ XSD-DL26091502472",
+                            "amount": "$38246",
+                            "progress": "待确认",
+                        }
+                    ],
+                    "blockers": ["马来Derict D 已询问未回复"],
+                    "evidence": ["XSD-DL26091502472"],
+                }
+            ],
+            "red": [
+                {"display": "于冰", "mtd_wan": 170.2, "reason": "过程与回款均有数"},
+                {"display": "Viki", "mtd_wan": 147.4, "reason": "今日WhatsApp触达0"},
+                {"display": "杨晶晶", "mtd_wan": 86.5, "reason": "今日明确意向0"},
+            ],
+            "black": [
+                {"display": "新人小组", "reason": "本月回款0"},
+                {"display": "Lina", "reason": "WhatsApp未覆盖"},
+            ],
+            "penalties": [],
+        }
+        text = render_brief(group, 20, now, ledger)
+        self.assertIn("月度目标：200 万", text)
+        self.assertIn("累计回款：170.2 万", text)
+        self.assertIn("今日目标：1300万战役", text)
+        self.assertIn("已交8/4（达标）：share-image.webp、share-image2.webp", text)
+        self.assertIn("VPS 留痕：IM发送56条 | Agent轮数2（本周累计，工时按日均×6分钟）", text)
+        self.assertIn("WhatsApp 沟通户数：0（已同步下限） 户", text)
+        self.assertIn("工时（对照标准8h）：6.6h / 标准8h｜近满勤｜WA 3.0h + MTO 1.33h + 催收跟进 1.5h + 会议 0.77h + VPS 0.0h｜缺口 1.4h；WA窗口 09:01–15:40（跨度≠工时）", text)
+        self.assertIn("产生明确意向：0 户", text)
+        self.assertIn("Vemory 会议录音：1场 迪拜 Billionaire 0915 https://audio/m1.wav", text)
+        self.assertIn("柬埔寨支付订单", text)
+        self.assertIn("XSD-DL26091502472", text)
+        self.assertIn("红榜 TOP3：@于冰 累计170.2万 / @Viki 累计147.4万 / @杨晶晶 累计86.5万", text)
+        self.assertIn("黑榜 待改进：@新人小组 本月回款0 / @Lina WhatsApp未覆盖", text)
+        self.assertIn("扣罚台账：今日无扣罚记录", text)
+        self.assertNotIn("红榜", render_brief(group, 10, now, ledger))
+
+    def test_parse_mto_skips_bot_and_revoked(self):
+        from app.duzhan_ledger import DUZHAN_BOT_ID, parse_mto_images
+
+        count, names = parse_mto_images(
+            [
+                {
+                    "message_type": "image",
+                    "sender_bot_id": DUZHAN_BOT_ID,
+                    "attachments": [{"attachment_type": "image", "name": "bot.png"}],
+                },
+                {
+                    "message_type": "image",
+                    "revoked_at": "2026-09-15T03:00:00Z",
+                    "attachments": [{"attachment_type": "image", "name": "gone.png"}],
+                },
+                {
+                    "message_type": "image",
+                    "sender_bot_id": None,
+                    "attachments": [{"attachment_type": "image", "name": "0915 Agent Q.webp"}],
+                },
+            ]
+        )
+        self.assertEqual(count, 1)
+        self.assertEqual(names, ["0915 Agent Q.webp"])
+
+    def test_parse_agent_im_current_week(self):
+        from app.duzhan_ledger import _vps_for_owner, parse_agent_im_activity
+        from app.duzhan_ledger import OWNERS
+
+        html = (
+            '<script id="payload" type="application/json">'
+            '{"memberRows":['
+            '{"period":"current_week","name":"于冰","department":"经销商一部",'
+            '"directSent":19,"groupSent":37,"openCodeCalls":101,"harnessCalls":0,"standardTurns":2,'
+            '"firstAt":"2026-09-14T02:00:09.172Z","lastAt":"2026-09-15T09:19:34.181Z"},'
+            '{"period":"complete_week","name":"于冰","department":"经销商一部",'
+            '"directSent":79,"groupSent":219,"openCodeCalls":324,"harnessCalls":0,"standardTurns":0},'
+            '{"period":"current_week","name":"王宇彤","department":"海外渠道中台",'
+            '"directSent":20,"groupSent":8,"openCodeCalls":0,"harnessCalls":0,"standardTurns":0},'
+            '{"period":"current_week","name":"Safae Ben M\'hamed","department":"经销商三部",'
+            '"directSent":11,"groupSent":0,"openCodeCalls":0,"harnessCalls":0,"standardTurns":0}'
+            "]}</script>"
+        )
+        rows = parse_agent_im_activity(html, "current_week")
+        self.assertEqual(rows["于冰"]["im_sent"], 56)
+        self.assertEqual(rows["于冰"]["agent_calls"], 103)
+        self.assertEqual(rows["于冰"]["turns"], 103)
+        yu = next(item for item in OWNERS if item.display == "于冰")
+        wang = next(item for item in OWNERS if item.display == "王宇彤")
+        safae = next(item for item in OWNERS if item.display == "Safae")
+        self.assertEqual(_vps_for_owner(yu, rows)[:2], (56, 103))
+        self.assertEqual(_vps_for_owner(yu, rows)[4], 103)
+        self.assertFalse(_vps_for_owner(yu, rows)[5])
+        self.assertEqual(_vps_for_owner(wang, rows)[:2], (28, 0))
+        self.assertEqual(_vps_for_owner(safae, rows)[:2], (11, 0))
+
+    def test_parse_agent_im_daily_members(self):
+        from app.duzhan_ledger import parse_agent_im_activity, vps_minutes
+
+        html = (
+            '<script id="payload" type="application/json">'
+            '{"members":['
+            '{"name":"王宇彤","directSent":7,"groupSent":2,"standardTurns":22,'
+            '"openCode":0,"harness":0},'
+            '{"name":"于冰","directSent":13,"groupSent":14,"standardTurns":0,'
+            '"openCode":32,"harness":0}'
+            "]}</script>"
+        )
+        rows = parse_agent_im_activity(html)
+        self.assertTrue(rows["王宇彤"]["daily"])
+        self.assertEqual(rows["王宇彤"]["turns"], 22)
+        self.assertEqual(rows["于冰"]["im_sent"], 27)
+        self.assertEqual(rows["于冰"]["turns"], 32)
+        self.assertEqual(vps_minutes({"vps_turns": 22, "vps_weekdays": 1}), 132.0)
+
+    def test_match_vemory_by_owner_aliases(self):
+        from app.duzhan_ledger import OWNERS, match_vemory
+
+        rows = [
+            {
+                "name": "迪拜代理",
+                "owner": "于冰",
+                "link": "https://audio/m1.wav",
+                "id": "m1",
+            },
+            {
+                "name": "科威特跟进",
+                "owner": "尤文静",
+                "link": "https://audio/m2.wav",
+                "id": "m2",
+            },
+            {
+                "name": "新部早会",
+                "owner": "王宇彤",
+                "link": "",
+                "id": "m3",
+            },
+        ]
+        yu = next(item for item in OWNERS if item.display == "于冰")
+        viki = next(item for item in OWNERS if item.display == "Viki")
+        wang = next(item for item in OWNERS if item.display == "王宇彤")
+        lina = next(item for item in OWNERS if item.display == "Lina")
+        hits, ok = match_vemory(yu, rows)
+        self.assertTrue(ok)
+        self.assertEqual([item["name"] for item in hits], ["迪拜代理"])
+        self.assertEqual(match_vemory(viki, rows)[0][0]["name"], "科威特跟进")
+        self.assertEqual(match_vemory(wang, rows)[0][0]["name"], "新部早会")
+        self.assertEqual(match_vemory(lina, rows)[0], [])
+        self.assertFalse(match_vemory(yu, None)[1])
+
+    def test_xinren_owners_exclude_zhangqian(self):
+        from app.duzhan_ledger import OWNERS
+
+        xin = [item.display for item in OWNERS if item.group == "新人小组业绩达标群"]
+        self.assertEqual(xin, ["邓琳莹", "Safae", "王宇彤", "张月馨"])
+        by_target = {item.display: item.target_wan for item in OWNERS}
+        self.assertEqual(by_target["于冰"], 200)
+        self.assertEqual(by_target["杨晶晶"], 333)
+        self.assertEqual(by_target["何海文"], 95)
+        self.assertEqual(by_target["Viki"], 100)
+        self.assertEqual(by_target["Lina"], 400)
+        self.assertIsNone(by_target["邓琳莹"])
+        self.assertNotIn("张倩", xin)
+        self.assertNotIn("李浩然", xin)
+        self.assertNotIn("邢哲夫", xin)
+        self.assertNotIn("陈鹏飞", xin)
+        follow = {item.display: item.follow_channel_id for item in OWNERS}
+        self.assertEqual(follow["邓琳莹"], "8bb5ae97-3ffb-42e7-869d-c5cef358510a")
+        self.assertEqual(follow["Safae"], "8cf4b40b-0e60-4819-9120-a22f3c808a00")
+        self.assertEqual(follow["王宇彤"], "792c8c09-4c4f-4162-b0cb-45f6d009b504")
+        self.assertEqual(follow["张月馨"], "743227fa-07cc-4bfd-be74-9242aaa56e71")
+        ids = {item.display: item.im_user_id for item in OWNERS}
+        self.assertEqual(ids["邓琳莹"], 14247)
+        self.assertEqual(ids["张月馨"], 14660)
+
+    def test_parse_follow_group_outreach_evidence(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        collections, blockers, evidence = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14247,
+                    "created_at": "2026-09-16T11:08:17Z",
+                    "body": "客户名单地区德国，今日触达15人，添加WhatsApp7人，邮箱触达8人其中5封退信，有效触达共计10人，暂无回复",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14247,
+                    "created_at": "2026-09-16T11:57:42Z",
+                    "body": "【金山文档 | WPS云文档】 客户跟进台账 https://www.kdocs.cn/l/cct0uNIdy2iO",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14460,
+                    "created_at": "2026-09-16T10:01:41Z",
+                    "body": "Contacted 15 customers from the provided list. 7 emails were returned/undelivered.",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14344,
+                    "created_at": "2026-09-16T12:23:27Z",
+                    "body": "已填写",
+                },
+                {
+                    "message_type": "link",
+                    "sender_user_id": 14660,
+                    "created_at": "2026-09-16T10:58:43Z",
+                    "body": "https://my.feishu.cn/wiki/TOU3wNUjOiZtzzkmD9ZceBafnPh?table=tblvH9RLYFbLpDiR",
+                },
+            ],
+            14247,
+        )
+        self.assertTrue(any("今日触达15人" in item["title"] for item in collections))
+        self.assertTrue(any("暂无回复" in item or "退信" in item for item in blockers))
+        self.assertTrue(any("kdocs.cn" in item for item in evidence))
+        safae, _, safae_ev = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14460,
+                    "created_at": "2026-09-16T10:01:41Z",
+                    "body": "Contacted 15 customers from the provided list. 7 emails were returned/undelivered.",
+                }
+            ],
+            14460,
+        )
+        self.assertTrue(any("Contacted 15" in item["title"] for item in safae))
+        self.assertTrue(any("Contacted 15" in item for item in safae_ev))
+        _, _, wang_ev = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14344,
+                    "created_at": "2026-09-16T12:23:27Z",
+                    "body": "已填写",
+                }
+            ],
+            14344,
+        )
+        self.assertIn("跟进表已填写", wang_ev)
+        _, _, yue_ev = parse_owner_reports(
+            [
+                {
+                    "message_type": "link",
+                    "sender_user_id": 14660,
+                    "created_at": "2026-09-16T10:58:43Z",
+                    "body": "https://my.feishu.cn/wiki/TOU3wNUjOiZtzzkmD9ZceBafnPh?table=tblvH9RLYFbLpDiR",
+                }
+            ],
+            14660,
+        )
+        self.assertTrue(any("feishu.cn" in item for item in yue_ev))
+
+    def test_messages_on_day_uses_group_timezone(self):
+        from app.duzhan_ledger import messages_on_day
+
+        messages = [
+            {"created_at": "2026-09-15T15:59:59Z", "id": "old"},
+            {"created_at": "2026-09-15T16:00:00Z", "id": "today"},
+        ]
+        rows = messages_on_day(messages, "2026-09-16", "Asia/Shanghai")
+        self.assertEqual([item["id"] for item in rows], ["today"])
+
+    def test_parse_daily_report_card(self):
+        from app.duzhan_ledger import parse_daily_reports
+
+        rows = parse_daily_reports(
+            [
+                {
+                    "created_at": "2026-09-16T12:41:19Z",
+                    "metadata": {
+                        "kind": "daily_report_submission",
+                        "work_date": "2026-09-16",
+                        "submitter_name": "尤文静",
+                        "today": [
+                            {"progress": 100, "spent_hours": 1.5},
+                            {"progress": 50, "spent_hours": 3},
+                        ],
+                    },
+                }
+            ],
+            "2026-09-16",
+        )
+        self.assertEqual(rows["尤文静"]["item_count"], 2)
+        self.assertEqual(rows["尤文静"]["done_count"], 1)
+        self.assertEqual(rows["尤文静"]["spent_hours"], 4.5)
+
+    def test_parse_owner_reports_from_group_text(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        collections, blockers, evidence = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:22:09Z",
+                    "body": "1.柬埔寨新订单30000$ 2.越南9620$补款",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T11:48:14Z",
+                    "body": (
+                        "1. 柬埔寨支付订单  38246$  XSD-DL26091502472\n"
+                        "2. 越南激活 11台手机，催收尾款\n"
+                        "3.马来Derict D 已询问未回复"
+                    ),
+                }
+            ],
+            13063,
+        )
+        titles = [item["title"] for item in collections]
+        self.assertTrue(any("9620" in title for title in titles))
+        paid = next(item for item in collections if "38246" in (item.get("amount") or "") or "38246" in item["title"])
+        self.assertEqual(paid["amount"], "$38246")
+        self.assertIn("XSD-DL26091502472", evidence)
+        self.assertTrue(any("未回复" in item for item in blockers))
+        stalled = next(item for item in collections if "马来" in item["title"])
+        self.assertEqual(stalled["status"], "stalled")
+        self.assertIn("XSD-DL26091502472", paid.get("evidence") or evidence)
+
+    def test_parse_water_slip_and_loose_plan(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        collections, _, evidence = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13122,
+                    "created_at": "2026-09-15T14:31:13Z",
+                    "body": "俄罗斯索契：10台Alpha、10台Meta 2，水单已回传43万RMB。",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14113,
+                    "created_at": "2026-09-15T14:55:53Z",
+                    "body": (
+                        "明日工作安排\n"
+                        "继续寻找印度人托运的运输方式，协助Velocity成单；\n"
+                        "CEO of ULTAVO 二轮会议讨论合作事宜"
+                    ),
+                },
+            ],
+            13122,
+        )
+        sochi = next(item for item in collections if "索契" in item["title"])
+        self.assertEqual(sochi["status"], "done")
+        self.assertIn("水单", "".join(evidence) + sochi["title"])
+        haiwen, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 14113,
+                    "created_at": "2026-09-15T14:55:53Z",
+                    "body": (
+                        "明日工作安排\n"
+                        "继续寻找印度人托运的运输方式，协助Velocity成单；\n"
+                        "CEO of ULTAVO 二轮会议讨论合作事宜"
+                    ),
+                }
+            ],
+            14113,
+        )
+        self.assertTrue(any("Velocity" in item["title"] for item in haiwen))
+        self.assertTrue(any("ULTAVO" in item["title"] for item in haiwen))
+
+    def test_run_duzhan_passes_idempotency_key(self):
+        with patch("app.duzhan.push_duzhan_message", return_value=True) as push:
+            run_duzhan(
+                TZ_PARIS,
+                10,
+                datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_PARIS)),
+            )
+        key = push.call_args.kwargs["idempotency_key"]
+        self.assertTrue(key.startswith("duzhan-20260915-1000-"))
+        self.assertIn("e435ab5d", key)
+
+
+if __name__ == "__main__":
+    unittest.main()
