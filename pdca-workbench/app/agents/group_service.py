@@ -22,13 +22,17 @@ from app.agents.group_context import GroupConfig, load_slot_snapshot
 from app.agents.group_graph import GroupGraph, apply_task_updates
 from app.config import get_settings
 
-def _polish_with_qwen(draft: str, config: GroupConfig) -> str:
-    """用本地 Qwen 润色草稿；失败/未配置返回原文（不阻断确定性链路）。"""
+def _polish_draft(draft: str, config: GroupConfig) -> str:
+    """用文本模型（DeepSeek flash，见 PDCA_SUPERVISOR_*）润色草稿。
+
+    模型路由约定（2026-09-17 拍板）：图像/OCR 走本地 Qwen（mto_ocr），
+    其他文本任务走 DeepSeek flash；失败/未配置返回原文，不阻断确定性链路。
+    """
     try:
-        from app.agents.llm_client import QwenClient, QwenUnavailable
+        from app.agents.llm_client import QwenUnavailable, supervisor_client
         from app.agents.prompts import group as group_prompt
 
-        client = QwenClient()
+        client = supervisor_client()
         reply = client.chat(
             [
                 {"role": "system", "content": group_prompt.load()},
@@ -109,7 +113,7 @@ def run_group_instance(
     state = graph.run(snapshot, prev_snapshot)
     state["draft_message"] = _draft_template(state, run_config)
     if settings.agent_llm_draft:
-        state["draft_message"] = _polish_with_qwen(state["draft_message"], run_config)
+        state["draft_message"] = _polish_draft(state["draft_message"], run_config)
     graph.validate_message(state)
     output = state["output"]
     result = {
