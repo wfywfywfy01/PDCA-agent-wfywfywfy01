@@ -101,7 +101,14 @@ class QwenClient:
 
 
 def supervisor_client() -> QwenClient:
-    """主 Agent 客户端：强模型，参数来自 PDCA_SUPERVISOR_*，缺省回落本地 Qwen。"""
+    """文本任务模型客户端（主 Agent 决策 / 群草稿润色）。
+
+    模型路由约定（2026-09-17 拍板）：
+    - 图像/OCR/视觉任务：本地 Qwen 网关（PDCA_QWEN_*，mto_ocr 专用）；
+    - 其他文本任务：DeepSeek flash（PDCA_SUPERVISOR_PROVIDER/MODEL/API_KEY，
+      默认 https://api.deepseek.com + deepseek-flash）；
+    - PDCA_SUPERVISOR_* 未配置时回落本地 Qwen。
+    """
     import os
 
     base_url = os.environ.get("PDCA_SUPERVISOR_PROVIDER", "").strip()

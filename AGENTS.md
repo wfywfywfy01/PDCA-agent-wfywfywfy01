@@ -54,3 +54,11 @@
 - 日期统一使用 `YYYY-MM-DD`。
 - 客户名必须尽量与 `customers.csv` 保持一致。
 - 具体金额后续可补，第一版允许目标为空，但过程指标必须可检查。
+
+## 模型路由约定（2026-09-17 拍板，长期有效）
+- 图像 / OCR / 视觉任务（MTO 报价图）：只用本地 Qwen 网关（`PDCA_QWEN_*`，
+  `qwen3.8-27b` @ `https://qwen3.vertu.cn:8443`）。
+- 其他文本任务（主 Agent 决策、群草稿润色等）：只用 DeepSeek flash
+  （`PDCA_SUPERVISOR_PROVIDER=https://api.deepseek.com`、
+  `PDCA_SUPERVISOR_MODEL=deepseek-flash`）。
+- 禁止使用 OpenRouter；除上述两个供应商外不得擅自接入其他模型服务。
