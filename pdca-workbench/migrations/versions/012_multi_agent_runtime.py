@@ -23,6 +23,14 @@ def _columns(table: str) -> set[str]:
     return {column["name"] for column in inspector.get_columns(table)}
 
 
+def _index_names(table: str) -> set[str]:
+    """该表已存在的索引名（幂等守卫：半应用状态可重跑）。"""
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table(table):
+        return set()
+    return {index["name"] for index in inspector.get_indexes(table)}
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     if not sa.inspect(bind).has_table("agent_runs"):
@@ -143,8 +151,14 @@ def upgrade() -> None:
         }.items():
             if name not in existing:
                 op.add_column("pdca_tasks", col)
-        op.create_index("ix_pdca_tasks_agent_run_id", "pdca_tasks", ["agent_run_id"])
-        op.create_index("ix_pdca_tasks_verification_status", "pdca_tasks", ["verification_status"])
+        # 索引幂等守卫：DDL 半应用（对象已建、version_num 未记）时可直接重跑。
+        indexes = _index_names("pdca_tasks")
+        if "ix_pdca_tasks_agent_run_id" not in indexes:
+            op.create_index("ix_pdca_tasks_agent_run_id", "pdca_tasks", ["agent_run_id"])
+        if "ix_pdca_tasks_verification_status" not in indexes:
+            op.create_index(
+                "ix_pdca_tasks_verification_status", "pdca_tasks", ["verification_status"]
+            )
 
 
 def downgrade() -> None:
