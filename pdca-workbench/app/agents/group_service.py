@@ -41,7 +41,7 @@ def _polish_draft(draft: str, config: GroupConfig) -> str:
                     "content": "请润色以下群催办草稿，保持事实与语气一致，不改动数字：\n" + draft[:4000],
                 },
             ],
-            max_tokens=2400,  # deepseek-flash 带 reasoning，预留 token 防草稿截断
+            max_tokens=4096,  # deepseek-flash 推理模型：reasoning 占预算，需足够大否则草稿为空
             temperature=0.2,
         )
         polished = (reply.get("content") or "").strip()
