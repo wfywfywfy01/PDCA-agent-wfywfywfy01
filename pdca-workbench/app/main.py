@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from loguru import logger
 
 from app.admin.router import router as admin_router
+from app.agent_admin.router import router as agent_admin_router
 from app.auth.router import router as auth_router
 from app.auth.seed import seed_users
 from app.auth.csrf import browser_write_is_trusted
@@ -314,6 +315,7 @@ app.include_router(pdca_router)
 app.include_router(pdca_post_router)
 app.include_router(files_router)
 app.include_router(admin_router)
+app.include_router(agent_admin_router)
 app.include_router(export_router)
 app.include_router(pages_router)
 app.include_router(spa_router)
