@@ -49,6 +49,7 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 | `/meeting-center/` | 会议中心 |
 | `/app/knowledge` | 经销商资料库（证据检索、AI 回答、图片预览） |
 | `/mcp/` | 经销商资料库 MCP（Streamable HTTP，Bearer 登录令牌） |
+| `/agent-admin` | 多智能体督战管理后台（manager+：待办统计/闭环率/运行/审批/健康） |
 
 ### 表单 POST
 
@@ -83,6 +84,12 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 - `POST /api/knowledge/exports` — 申请 5 分钟、一次性的原件下载授权
 - `POST /api/knowledge/uploads` — 按账号经销商范围流式上传并触发 ETL
 - `GET/POST /api/knowledge/reviews` — 管理员审核隔离的高敏感资料
+- `GET /api/agents/stats` — 督战统计：每人待办/闭环率 + 运行与审批概览（manager+）
+- `GET /api/agents/health` — 督战子系统健康：开关、模型、Outbox 积压、档位健康（manager+）
+- `GET /api/agents/groups` / `/api/agents/groups/{channel_id}/state` — 群实例状态（manager+）
+- `GET /api/agents/outbox` / `POST /api/agents/outbox/{id}/approve|reject|retry` — 外发审批（admin 写）
+- `POST /api/agents/tasks` — 主 Agent 任务（manager+，默认只返回结果不推群）
+- `POST /api/agents/department-summary` — 部门总结 + 事实校验（manager+）
 - `GET /api/todos/remind/candidates` — 待办催办预览（dry-run，按项目分组）
 - `POST /api/todos/remind` — 立即催办（项目卡片私聊 + 散单个人消息）
 - `GET /api/todos/projects` — 项目列表（kind: keyword/meeting/manual）

@@ -153,6 +153,7 @@ def init_db(apply_patches: bool = True) -> None:
     from app.models.todo_group_state import TodoGroupState  # noqa: F401
     from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
     from app.models.scheduled_job_run import ScheduledJobRun  # noqa: F401
+    from app.agents.models import AgentEvent, AgentOutbox, AgentRun, MeetingAsrArtifact  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     if apply_patches:
@@ -214,6 +215,17 @@ def _migrate_schema() -> None:
         # OKR 归属（2026-09-11：待办/项目 ↔ 个人月度 OKR）
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS okr_title VARCHAR(256) DEFAULT ''",
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS okr_title VARCHAR(256) DEFAULT ''",
+        # 多智能体督战运行时扩展（migrations 011 同步）
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS agent_run_id INTEGER",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS group_channel_id VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS source_ref VARCHAR(256) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS due_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS blocked_reason VARCHAR(512) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS evidence_json TEXT DEFAULT '[]'",
+        "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS verification_status VARCHAR(32) DEFAULT 'unverified'",
+        "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_agent_run_id ON pdca_tasks (agent_run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_verification_status ON pdca_tasks (verification_status)",
         # 旧进店来源分类（自然进/预约/潜客/介绍/SA）已废弃，替换为 walkin/cross/online/recruit/existing 五分类；
         # 这几列原来是 NOT NULL，不删掉的话新 taxonomy 的 INSERT 会因为缺列违反约束而失败
         "ALTER TABLE walkin_daily_reports DROP COLUMN IF EXISTS prospect_visits",
@@ -267,6 +279,16 @@ def _migrate_schema() -> None:
         "ALTER TABLE pdca_tasks ADD COLUMN score_at TIMESTAMP",
         "ALTER TABLE pdca_tasks ADD COLUMN okr_title VARCHAR(256) DEFAULT ''",
         "ALTER TABLE todo_projects ADD COLUMN okr_title VARCHAR(256) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN agent_run_id INTEGER",
+        "ALTER TABLE pdca_tasks ADD COLUMN group_channel_id VARCHAR(64) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN source_ref VARCHAR(256) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN due_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN closed_at TIMESTAMP",
+        "ALTER TABLE pdca_tasks ADD COLUMN blocked_reason VARCHAR(512) DEFAULT ''",
+        "ALTER TABLE pdca_tasks ADD COLUMN evidence_json TEXT DEFAULT '[]'",
+        "ALTER TABLE pdca_tasks ADD COLUMN verification_status VARCHAR(32) DEFAULT 'unverified'",
+        "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_agent_run_id ON pdca_tasks (agent_run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_pdca_tasks_verification_status ON pdca_tasks (verification_status)",
         "ALTER TABLE walkin_daily_reports DROP COLUMN prospect_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN appointment_visits",
         "ALTER TABLE walkin_daily_reports DROP COLUMN referral_visits",

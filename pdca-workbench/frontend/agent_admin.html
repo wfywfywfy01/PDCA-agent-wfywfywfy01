@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>多智能体督战后台 · PDCA 工作台</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f1f5f9;color:#172033;font-family:system-ui,"Segoe UI",sans-serif}
+header{background:#0b1220;color:#e2e8f0;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+header h1{font-size:18px;margin:0}
+header .meta{font-size:12px;color:#94a3b8}
+header .actions{display:flex;gap:8px;align-items:center}
+button{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
+button.ghost{background:#334155}
+button.danger{background:#dc2626}
+button.good{background:#059669}
+button:disabled{opacity:.5;cursor:default}
+main{max-width:1240px;margin:0 auto;padding:20px}
+h2{font-size:15px;margin:26px 0 10px;color:#0f172a}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:14px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px}
+.card b{font-size:26px;display:block;margin-top:6px}
+.card span{color:#64748b;font-size:12px}
+.card.warn b{color:#d97706}.card.bad b{color:#dc2626}.card.good b{color:#059669}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;font-size:13px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid #eef2f7;vertical-align:top}
+th{background:#f8fafc;color:#475569;font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.bar{background:#e2e8f0;border-radius:6px;height:8px;min-width:70px;overflow:hidden}
+.bar i{display:block;height:100%;background:#059669}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#e2e8f0;color:#334155}
+.pill.pending{background:#fef3c7;color:#92400e}
+.pill.approved{background:#d1fae5;color:#065f46}
+.pill.rejected{background:#fee2e2;color:#991b1b}
+.pill.failed{background:#fee2e2;color:#991b1b}
+.pill.sent{background:#dbeafe;color:#1e40af}
+.pill.running{background:#dbeafe;color:#1e40af}
+.pill.succeeded{background:#d1fae5;color:#065f46}
+.pill.blocked,.pill.waiting_approval{background:#fef3c7;color:#92400e}
+.muted{color:#94a3b8;font-size:12px}
+pre{background:#0b1220;color:#d1fae5;border-radius:10px;padding:12px;overflow:auto;font-size:12px;max-height:300px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+footer{padding:20px;text-align:center;color:#94a3b8;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>多智能体督战管理后台</h1>
+    <div class="meta" id="meta">加载中…</div>
+  </div>
+  <div class="actions">
+    <a href="/" style="color:#94a3b8;text-decoration:none;font-size:13px">← 工作台</a>
+    <button id="refresh" class="ghost">刷新</button>
+  </div>
+</header>
+<main>
+  <section class="cards" id="cards"></section>
+  <h2>每人待办统计与闭环率</h2>
+  <div id="taskStats"></div>
+  <h2>待审批外发（Outbox）</h2>
+  <div id="outbox"></div>
+  <div class="grid2">
+    <div><h2>最近 Agent 运行</h2><div id="runs"></div></div>
+    <div><h2>档位健康检查</h2><div id="health"></div></div>
+  </div>
+  <h2>群 Agent 状态</h2>
+  <div id="groups"></div>
+</main>
+<footer>数据来自 PostgreSQL 事实库 · 自动刷新 60s · 审批操作全程审计</footer>
+<script>
+var AUTO_REFRESH_MS = 60000;
+
+function esc(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function pill(text, cls) {
+  return '<span class="pill ' + esc(cls || "") + '">' + esc(text) + "</span>";
+}
+
+function pct(rate) {
+  return (Number(rate || 0) * 100).toFixed(1) + "%";
+}
+
+async function api(path, options) {
+  const resp = await fetch(path, options || {});
+  if (!resp.ok) {
+    const body = await resp.text().catch(function () { return ""; });
+    throw new Error("HTTP " + resp.status + " " + body.slice(0, 120));
+  }
+  return resp.json();
+}
+
+function renderCards(stats, health) {
+  const t = stats.task_stats || { owners: [], total_tasks: 0 };
+  const total = t.total_tasks || 0;
+  const done = (t.owners || []).reduce(function (sum, item) { return sum + (item.done || 0); }, 0);
+  const open = (t.owners || []).reduce(function (sum, item) { return sum + (item.open || 0); }, 0);
+  const blocked = (t.owners || []).reduce(function (sum, item) { return sum + (item.blocked || 0); }, 0);
+  const closure = total ? (done / total) : 0;
+  const pendingOutbox = health ? health.pending_outbox_count : (stats.pending_outbox || []).length;
+  const slotProblems = health ? health.slot_problem_count : 0;
+  const runs = stats.recent_runs || [];
+  const failedRuns = runs.filter(function (r) { return r.status === "failed"; }).length;
+  const cards = [
+    { label: "待办总数", value: total, cls: "" },
+    { label: "未闭环", value: open, cls: "warn" },
+    { label: "已闭环", value: done, cls: "good" },
+    { label: "闭环率", value: pct(closure), cls: closure >= 0.8 ? "good" : "warn" },
+    { label: "阻塞中", value: blocked, cls: blocked ? "bad" : "" },
+    { label: "待审批外发", value: pendingOutbox, cls: pendingOutbox ? "warn" : "good" },
+    { label: "失败运行(近10)", value: failedRuns, cls: failedRuns ? "bad" : "" },
+    { label: "档位健康问题", value: slotProblems, cls: slotProblems ? "bad" : "good" },
+  ];
+  document.getElementById("cards").innerHTML = cards.map(function (c) {
+    return '<div class="card ' + c.cls + '"><span>' + esc(c.label) + "</span><b>" + esc(c.value) + "</b></div>";
+  }).join("");
+}
+
+function renderTaskStats(stats) {
+  const owners = (stats.task_stats && stats.task_stats.owners) || [];
+  if (!owners.length) {
+    document.getElementById("taskStats").innerHTML = '<p class="muted">暂无待办数据。</p>';
+    return;
+  }
+  const rows = owners.map(function (item) {
+    const rate = item.total ? (item.done / item.total) : 0;
+    return "<tr><td><b>" + esc(item.owner) + "</b></td><td>" + item.total + "</td><td>" +
+      item.open + "</td><td>" + item.done + "</td><td>" + item.blocked + "</td><td>" +
+      item.verified + "</td><td>" + item.unverified + "</td><td><div class='bar'><i style='width:" +
+      Math.round(rate * 100) + "%'></i></div><span class='muted'>" + pct(rate) + "</span></td></tr>";
+  }).join("");
+  document.getElementById("taskStats").innerHTML =
+    "<table><thead><tr><th>负责人</th><th>总数</th><th>未闭环</th><th>已闭环</th><th>阻塞</th>" +
+    "<th>有证据核验</th><th>未核验</th><th>闭环率</th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+function renderOutbox(items) {
+  if (!items.length) {
+    document.getElementById("outbox").innerHTML = '<p class="muted">暂无待审批外发。</p>';
+    return;
+  }
+  const rows = items.map(function (item) {
+    return "<tr><td>" + item.id + "</td><td>" + esc(item.message_kind) + "</td><td>" +
+      esc(item.channel_id) + "</td><td><pre style='max-height:120px'>" + esc(item.body_preview) +
+      "</pre></td><td>" + pill(item.approval_status, item.approval_status) + "</td><td>" +
+      pill(item.send_status, item.send_status) + "</td><td class='muted'>" + esc(item.created_at || "") +
+      "</td><td><button class='good' onclick='act(" + item.id + ","approve")'>批准</button> " +
+      "<button class='danger' onclick='act(" + item.id + ","reject")'>拒绝</button></td></tr>";
+  }).join("");
+  document.getElementById("outbox").innerHTML =
+    "<table><thead><tr><th>#</th><th>类型</th><th>目标群</th><th>内容</th><th>审批</th><th>发送</th>" +
+    "<th>创建时间</th><th>操作</th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+function renderRuns(runs) {
+  if (!runs.length) {
+    document.getElementById("runs").innerHTML = '<p class="muted">暂无运行记录。</p>';
+    return;
+  }
+  const rows = runs.map(function (r) {
+    return "<tr><td>" + r.id + "</td><td>" + esc(r.run_type) + "</td><td>" +
+      pill(r.status, r.status) + "</td><td class='muted'>" + esc(r.requested_by) +
+      "</td><td class='muted'>" + esc((r.input_text || "").slice(0, 60)) + "</td><td class='muted'>" +
+      esc(r.created_at || "") + "</td></tr>";
+  }).join("");
+  document.getElementById("runs").innerHTML =
+    "<table><thead><tr><th>#</th><th>类型</th><th>状态</th><th>发起人</th><th>输入</th><th>时间</th>" +
+    "</tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+function renderHealth(healthInfo) {
+  if (!healthInfo) {
+    document.getElementById("health").innerHTML = '<p class="muted">健康接口不可用。</p>';
+    return;
+  }
+  const flags = [
+    ["Agent 总开关", healthInfo.enabled],
+    ["影子模式", healthInfo.shadow_mode],
+    ["Outbox 发送", healthInfo.outbox_enabled],
+    ["自动模板外发", healthInfo.auto_template_push],
+    ["任务写回", healthInfo.task_write],
+    ["Qwen 已配置", healthInfo.qwen_configured],
+    ["ASR", healthInfo.asr_enabled],
+  ];
+  const flagHtml = flags.map(function (f) {
+    return "<span class='pill " + (f[1] ? "approved" : "rejected") + "'>" + esc(f[0]) + " " +
+      (f[1] ? "开" : "关") + "</span>";
+  }).join(" ");
+  const problems = healthInfo.slot_problems || [];
+  const problemHtml = problems.length
+    ? "<ul>" + problems.map(function (p) {
+        return "<li>" + esc(p.timezone) + " " + esc(p.hour) + " " + esc(p.date) + "：" +
+          (p.problems || []).map(function (x) { return esc(x.step); }).join("、") + "</li>";
+      }).join("") + "</ul>"
+    : '<p class="muted">今日档位健康正常。</p>';
+  document.getElementById("health").innerHTML =
+    "<p><b>模型：</b>" + esc(healthInfo.qwen_model || "-") + " · <b>库：</b>" + esc(healthInfo.db_mode || "-") +
+    "</p><div class='row'>" + flagHtml + "</div><h2 style='margin-top:18px'>档位问题</h2>" + problemHtml;
+}
+
+function renderGroups(groups) {
+  if (!groups || !groups.length) {
+    document.getElementById("groups").innerHTML = '<p class="muted">无群状态。</p>';
+    return;
+  }
+  const rows = groups.map(function (g) {
+    const err = g.error ? pill("错误: " + g.error, "failed") : "";
+    return "<tr><td>" + esc(g.group_name || "-") + "</td><td>" + esc(g.group_type) + "</td><td class='muted'>" +
+      esc((g.channel_id || "").slice(0, 8)) + "…</td><td>" + (g.open_tasks || 0) + "</td><td>" +
+      (g.blocked_tasks || 0) + "</td><td>" + (g.overdue_tasks || 0) + "</td><td>" +
+      esc((g.latest_slot && g.latest_slot.hour) ? String(g.latest_slot.hour) + ":00" : "无快照") +
+      "</td><td>" + err + "</td></tr>";
+  }).join("");
+  document.getElementById("groups").innerHTML =
+    "<table><thead><tr><th>群</th><th>类型</th><th>频道</th><th>未闭环</th><th>阻塞</th><th>逾期</th>" +
+    "<th>最近档位</th><th></th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+async function act(id, action) {
+  const url = "/api/agents/outbox/" + id + "/" + action;
+  const body = action === "reject" ? JSON.stringify({ reason: "管理后台人工拒绝" }) : "{}";
+  try {
+    const result = await api(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body,
+    });
+    alert("操作成功：" + JSON.stringify(result));
+    load();
+  } catch (error) {
+    alert("操作失败：" + error.message);
+  }
+}
+
+async function load() {
+  const meta = document.getElementById("meta");
+  meta.textContent = "刷新中…";
+  try {
+    const [stats, health, outbox, runs, groups] = await Promise.all([
+      api("/api/agents/stats"),
+      api("/api/agents/health"),
+      api("/api/agents/outbox?approval_status=pending&limit=100"),
+      api("/api/agents/runs?limit=20"),
+      api("/api/agents/groups"),
+    ]);
+    renderCards(stats, health);
+    renderTaskStats(stats);
+    renderOutbox(outbox.items || []);
+    renderRuns(runs.runs || []);
+    renderHealth(health);
+    renderGroups(groups.groups || []);
+    meta.textContent = "上次刷新 " + new Date().toLocaleTimeString("zh-CN");
+  } catch (error) {
+    meta.textContent = "加载失败：" + error.message;
+  }
+}
+
+document.getElementById("refresh").addEventListener("click", load);
+load();
+setInterval(load, AUTO_REFRESH_MS);
+</script>
+</body>
+</html>
+
+

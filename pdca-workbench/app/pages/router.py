@@ -582,6 +582,19 @@ async def admin_panel_page(
     return _html_file(html_path)
 
 
+@router.get("/agent-admin")
+@router.get("/agent-admin/")
+async def agent_admin_page(
+    user: Annotated[User, Depends(require_role("manager"))],
+):
+    """多智能体督战管理后台：待办统计、闭环率、运行、审批与健康。"""
+    settings = get_settings()
+    html_path = settings.frontend_dir / "agent_admin.html"
+    if not html_path.is_file():
+        raise HTTPException(status_code=404, detail="agent_admin.html 缺失")
+    return _html_file(html_path)
+
+
 @router.get("/knowledge")
 @router.get("/knowledge/")
 @router.get("/app/knowledge")

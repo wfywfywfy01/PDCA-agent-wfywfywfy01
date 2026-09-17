@@ -51,5 +51,16 @@ class PdcaTask(SQLModel, table=True):
     # 三源印证规则打分（0-100）：回复/日报/Vemory 证据加权，见 app/todos/scoring.py
     score: Optional[int] = Field(default=None)
     score_at: Optional[datetime] = Field(default=None)
+    # ── 多智能体督战运行时扩展（migrations 011）──
+    # 所属 agent_runs.id；群 Agent 跟踪的群 channel；来源引用（im:/ledger:）。
+    agent_run_id: Optional[int] = Field(default=None, index=True)
+    group_channel_id: str = Field(default="", max_length=64)
+    source_ref: str = Field(default="", max_length=256)
+    # 截止/闭环时间与阻塞原因；证据与核验状态是闭环判定的唯一依据。
+    due_at: Optional[datetime] = Field(default=None)
+    closed_at: Optional[datetime] = Field(default=None)
+    blocked_reason: str = Field(default="", max_length=512)
+    evidence_json: str = Field(default="[]")
+    verification_status: str = Field(default="unverified", index=True, max_length=32)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

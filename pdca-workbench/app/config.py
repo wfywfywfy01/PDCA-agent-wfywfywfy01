@@ -58,6 +58,78 @@ class Settings:
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
         # 每日经营日报推送（08:30，服务器自跑）；走 VPS IM 机器人通道
         self.daily_report_enabled = os.environ.get("PDCA_DAILY_REPORT_ENABLED", "1") == "1"
+        # 海外渠道督战官：独立机器人，按群时区推 10:00/15:00/20:00。
+        self.duzhan_enabled = os.environ.get("PDCA_DUZHAN_ENABLED", "0") == "1"
+        self.duzhan_bot_app_id = os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip()
+        self.duzhan_bot_app_secret = os.environ.get(
+            "PDCA_DUZHAN_BOT_APP_SECRET", ""
+        ).strip()
+        self.duzhan_times = [
+            item.strip()
+            for item in os.environ.get("PDCA_DUZHAN_TIMES", "10:00,15:00,20:00").split(",")
+            if item.strip()
+        ]
+        # 10/15/20 是推送整点；提前这么多分钟跑采集组表。
+        try:
+            lead = int(os.environ.get("PDCA_DUZHAN_LEAD_MINUTES", "15"))
+        except ValueError:
+            lead = 15
+        self.duzhan_lead_minutes = min(60, max(5, lead))
+        # @海外渠道督战官 才回；默认跟督战开关走，1 分钟轮询。
+        self.duzhan_reply_enabled = os.environ.get(
+            "PDCA_DUZHAN_REPLY_ENABLED",
+            "1" if self.duzhan_enabled else "0",
+        ) == "1"
+        # C转B 跟进群：工作日 20:00 追一次 WhatsApp，默认跟督战开关。
+        self.ctob_enabled = os.environ.get(
+            "PDCA_CTOB_ENABLED",
+            "1" if self.duzhan_enabled else "0",
+        ) == "1"
+        self.aisales_mcp_url = os.environ.get(
+            "PDCA_AISALES_MCP_URL",
+            "https://aisales-report.vertu.cn/mcp",
+        ).strip()
+        self.aisales_mcp_token = os.environ.get("PDCA_AISALES_MCP_TOKEN", "").strip()
+        # MTO 报价图：服务器 OCR，读完删文件。密钥只走环境变量。
+        self.qwen_base_url = os.environ.get(
+            "PDCA_QWEN_BASE_URL",
+            "https://qwen3.vertu.cn:8443",
+        ).strip()
+        self.qwen_api_key = os.environ.get("PDCA_QWEN_API_KEY", "").strip()
+        self.qwen_model = os.environ.get("PDCA_QWEN_MODEL", "qwen3.8-27b").strip()
+        self.vemory_api_url = os.environ.get("PDCA_VEMORY_API_URL", "").strip()
+        self.duzhan_agent_im_html = os.environ.get("PDCA_DUZHAN_AGENT_IM_HTML", "").strip()
+        # ── 多智能体督战运行时（migrations 011；规格 docs/多智能体督战系统实施规格.md）──
+        # 部署默认全部关闭/影子：模型故障与 Agent 异常绝不阻断现有三追。
+        self.agent_enabled = os.environ.get("PDCA_AGENT_ENABLED", "0") == "1"
+        self.agent_shadow_mode = os.environ.get("PDCA_AGENT_SHADOW_MODE", "1") == "1"
+        self.agent_outbox_enabled = os.environ.get("PDCA_AGENT_OUTBOX_ENABLED", "0") == "1"
+        self.agent_auto_template_push = (
+            os.environ.get("PDCA_AGENT_AUTO_TEMPLATE_PUSH", "0") == "1"
+        )
+        self.agent_task_write = os.environ.get("PDCA_AGENT_TASK_WRITE", "0") == "1"
+        self.agent_llm_draft = os.environ.get("PDCA_AGENT_LLM_DRAFT", "0") == "1"
+        self.agent_healthcheck_enabled = (
+            os.environ.get("PDCA_AGENT_HEALTHCHECK_ENABLED", "1") == "1"
+        )
+        try:
+            self.agent_healthcheck_delay_minutes = int(
+                os.environ.get("PDCA_AGENT_HEALTHCHECK_DELAY_MINUTES", "5")
+            )
+        except ValueError:
+            self.agent_healthcheck_delay_minutes = 5
+        # 主 Agent（Supervisor）：供应商无关，参数由环境变量配置。
+        self.supervisor_enabled = os.environ.get("PDCA_SUPERVISOR_ENABLED", "0") == "1"
+        # 豆包 ASR：默认关闭；模式 fallback/verify/always 由适配层消费。
+        self.asr_enabled = os.environ.get("PDCA_ASR_ENABLED", "0") == "1"
+        try:
+            self.asr_timeout_seconds = int(
+                os.environ.get("PDCA_DOUBAO_ASR_TIMEOUT_SECONDS", "180")
+            )
+        except ValueError:
+            self.asr_timeout_seconds = 180
+        # MTO 视觉能力：复用现有 Qwen 配置。
+        self.mto_vision_enabled = os.environ.get("PDCA_MTO_VISION_ENABLED", "1") == "1"
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         # 待办催办（提醒跟进）：VPS IM 私聊本人。
         # PDCA_TODO_REMIND_TIMES 为逗号分隔的 HH:MM 列表，默认上午/下午各一轮。
@@ -154,6 +226,24 @@ class Settings:
             "https://vemory-meet.vemory.io",
         ).strip().rstrip("/")
         self.vemory_todo_users_json = os.environ.get("PDCA_VEMORY_TODO_USERS", "").strip()
+        # 督战官/会议中心：经销商一部/二部/三部/新部 hr.department id。
+        self.vemory_dept_ids = os.environ.get(
+            "PDCA_VEMORY_DEPT_IDS", "2231,2227,2223,2230"
+        ).strip()
+        try:
+            self.vemory_page_size = int(os.environ.get("PDCA_VEMORY_PAGE_SIZE", "50"))
+        except ValueError:
+            self.vemory_page_size = 50
+        try:
+            self.vemory_max_pages = int(os.environ.get("PDCA_VEMORY_MAX_PAGES", "20"))
+        except ValueError:
+            self.vemory_max_pages = 20
+        try:
+            self.vemory_audio_cache_ttl = int(
+                os.environ.get("PDCA_VEMORY_AUDIO_CACHE_TTL", "1800")
+            )
+        except ValueError:
+            self.vemory_audio_cache_ttl = 1800
         # Vemory 无截止待办：会议满该小时数后才进入催办（对齐 todo-tracker 语义）。
         self.todo_remind_grace_hours = float(
             os.environ.get("PDCA_TODO_REMIND_GRACE_HOURS", "48")
