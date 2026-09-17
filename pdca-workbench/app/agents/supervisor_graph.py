@@ -56,7 +56,7 @@ def decision_with_llm(text: str, context: dict | None = None) -> SupervisorDecis
     )
     try:
         from app.agents.llm_client import QwenUnavailable, supervisor_client
-        from app.agents.prompts import supervisor as supervisor_prompt
+        from app.agents.prompts import load_supervisor
 
         client = supervisor_client()
         if not client.configured:
@@ -64,7 +64,7 @@ def decision_with_llm(text: str, context: dict | None = None) -> SupervisorDecis
         context_text = json.dumps(context or {}, ensure_ascii=False)[:6000]
         reply = client.chat(
             [
-                {"role": "system", "content": supervisor_prompt.load()},
+                {"role": "system", "content": load_supervisor()},
                 {
                     "role": "user",
                     "content": (

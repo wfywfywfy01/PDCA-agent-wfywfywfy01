@@ -50,6 +50,28 @@ class SupervisorGraphTests(unittest.TestCase):
         self.assertEqual(decision.intent, "ask_user")
         self.assertTrue(decision.unknowns)
 
+    def test_llm_decision_path_uses_client_and_parses_json(self):
+        """回归：配置就绪时必须真正调用模型并解析其 JSON（曾因 prompts 子模块导入失败静默回退）。"""
+        from app.agents.prompts import load_supervisor
+
+        self.assertTrue(load_supervisor(), "supervisor.md 必须可加载")
+
+        class FakeClient:
+            configured = True
+
+            def chat(self, messages, max_tokens=2000, temperature=0.1):
+                return {
+                    "content": '{"intent": "department_summary", "summary": "ok", '
+                    '"actions": [{"action_type": "collect", "target": "all"}], "unknowns": []}',
+                }
+
+        with patch(
+            "app.agents.llm_client.supervisor_client", return_value=FakeClient()
+        ):
+            decision = decision_with_llm("生成部门总结")
+        self.assertEqual(decision.intent, "department_summary")
+        self.assertEqual(decision.actions[0].action_type, "collect")
+
     def test_fact_check_catches_unknown_person(self):
         problems = fact_check_summary("张三今天回款 500 万")
         self.assertTrue(any(item["rule"] == "unknown_person" for item in problems))

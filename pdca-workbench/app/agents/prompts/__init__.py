@@ -7,7 +7,21 @@ from pathlib import Path
 _DIR = Path(__file__).resolve().parent
 
 
-def load() -> str:
-    """group.md 群 Agent 系统提示（与目录同名的加载约定）。"""
-    path = _DIR / "group.md"
+def _load(name: str) -> str:
+    path = _DIR / name
     return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def load_group() -> str:
+    """群 Agent 系统提示（group.md）。"""
+    return _load("group.md")
+
+
+def load_supervisor() -> str:
+    """主 Agent 系统提示（supervisor.md）。"""
+    return _load("supervisor.md")
+
+
+def load() -> str:
+    """兼容旧引用：默认返回群 Agent 提示。"""
+    return load_group()
