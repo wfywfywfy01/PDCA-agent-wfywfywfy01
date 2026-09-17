@@ -67,6 +67,9 @@ class SupervisorGraphTests(unittest.TestCase):
         self.assertTrue(any(item["rule"] == "none_as_zero_suspect" for item in problems))
 
     def test_build_department_summary_shape(self):
+        from app.models.pdca_task import PdcaTask  # noqa: F401 注册元数据，避免依赖其他测试模块导入顺序
+        from app.models.audit_log import AuditLog  # noqa: F401
+
         engine = create_engine("sqlite://")
         SQLModel.metadata.create_all(engine)
         with patch("app.database.get_engine", return_value=engine), patch(

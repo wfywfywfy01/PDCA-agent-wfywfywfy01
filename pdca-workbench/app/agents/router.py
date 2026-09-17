@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from sqlmodel import Session
 
@@ -35,10 +35,9 @@ from app.agents.supervisor_service import (
     list_runs,
     start_run,
 )
-from app.auth.deps import get_current_user, require_role
+from app.auth.deps import require_role
 from app.auth.models import User
 from app.audit import log_action
-from app.database import get_session
 from app.validation import require_iso_date
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
