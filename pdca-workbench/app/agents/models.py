@@ -85,6 +85,29 @@ class AgentOutbox(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class AgentDraft(SQLModel, table=True):
+    """群 Agent 每档草稿（影子与正式都落库）：后台可审、可追溯。
+
+    draft_key = channel_id:day:slot 唯一，同档重跑覆盖（upsert）。
+    """
+
+    __tablename__ = "agent_drafts"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    draft_key: str = Field(index=True, unique=True, max_length=160)
+    run_id: Optional[int] = Field(default=None, index=True)
+    channel_id: str = Field(default="", index=True, max_length=64)
+    group_name: str = Field(default="", max_length=128)
+    group_type: str = Field(default="", max_length=32)
+    day: str = Field(default="", index=True, max_length=10)
+    slot: str = Field(default="", max_length=8)
+    body: str = Field(default="")
+    approval_policy: str = Field(default="manual_required", max_length=32)
+    shadow: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class MeetingAsrArtifact(SQLModel, table=True):
     """会议语音转写产物；音频与客户原件永不落库、永不进 Git。"""
 

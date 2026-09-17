@@ -151,6 +151,75 @@ class SlotHealthTests(unittest.TestCase):
         steps = {item["step"] for item in report["problems"]}
         self.assertIn("push_run", steps)
 
+    def test_alert_false_does_not_notify(self):
+        """后台展示路径（alert=False）不触发告警。"""
+        day = "2026-09-17"
+        report = flow_controller.check_slot_health("Asia/Shanghai", 10, day, alert=False)
+        self.assertFalse(report["ok"])
+        self.assertFalse(self.notify_mock.called)
+
+
+class HealthCatchUpTests(unittest.TestCase):
+    """补扫：重启后当天已过档位也会被检查；每档只告警一次。"""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.slots_dir = Path(self.tmp.name) / "slots"
+        self.slots_dir.mkdir()
+        self.engine = _mk_engine()
+        self.patch_engine = patch("app.database.get_engine", return_value=self.engine)
+        self.patch_engine.start()
+        self.patch_events = patch("app.agents.events.get_engine", return_value=self.engine)
+        self.patch_events.start()
+        self.patch_slot = patch("app.duzhan._slot_path", side_effect=self._fake_slot_path)
+        self.patch_slot.start()
+        self.notify_mock = MagicMock()
+        self.patch_notify = patch("app.agents.flow_controller.notify", self.notify_mock)
+        self.patch_notify.start()
+        settings_stub = MagicMock()
+        settings_stub.duzhan_times = ["10:00", "15:00", "20:00"]
+        self.patch_settings = patch(
+            "app.agents.flow_controller.get_settings", return_value=settings_stub
+        )
+        self.patch_settings.start()
+
+    def tearDown(self):
+        self.patch_settings.stop()
+        self.patch_notify.stop()
+        self.patch_slot.stop()
+        self.patch_events.stop()
+        self.patch_engine.stop()
+        self.engine.dispose()
+        self.tmp.cleanup()
+
+    def _fake_slot_path(self, tz_name, day, hour):
+        slug = tz_name.lower().replace("/", "_")
+        return self.slots_dir / f"{slug}_{day}_{hour:02d}.json"
+
+    def test_catch_up_checks_past_hour_after_restart(self):
+        """11:00 时 10:00 档已过：补扫检查到且告警一次，重复 tick 不再告警。"""
+        now = datetime(2026, 9, 17, 11, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        reports = flow_controller.run_health_checks_for(now=now)
+        checked = {item["hour"] for item in reports}
+        self.assertIn("10:00", checked)
+        self.assertTrue(self.notify_mock.called)
+        # 同一档第二次 tick 被事件去重跳过
+        self.notify_mock.reset_mock()
+        reports2 = flow_controller.run_health_checks_for(now=now)
+        self.assertFalse(self.notify_mock.called)
+        self.assertEqual(reports2, [])
+
+    def test_current_hour_within_first_5_minutes_skipped(self):
+        """10:03 时当前档尚未到检查点（推送可能未完成），只补扫更早档位。"""
+        now = datetime(2026, 9, 17, 10, 3, tzinfo=ZoneInfo("Asia/Shanghai"))
+        reports = flow_controller.run_health_checks_for(now=now)
+        self.assertEqual(reports, [])
+
+    def test_future_hours_not_checked(self):
+        now = datetime(2026, 9, 17, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        reports = flow_controller.run_health_checks_for(now=now)
+        self.assertEqual(reports, [])
+
 
 if __name__ == "__main__":
     unittest.main()

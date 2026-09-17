@@ -14,6 +14,7 @@ from app.agents.supervisor_graph import (
     classify_intent,
     decision_with_llm,
     fact_check_summary,
+    normalize_intent,
 )
 from app.agents import supervisor_service
 
@@ -71,6 +72,21 @@ class SupervisorGraphTests(unittest.TestCase):
             decision = decision_with_llm("生成部门总结")
         self.assertEqual(decision.intent, "department_summary")
         self.assertEqual(decision.actions[0].action_type, "collect")
+
+    def test_normalize_intent_maps_freeform(self):
+        self.assertEqual(
+            normalize_intent("查询全部门未闭环待办", "查一下今天谁还有待办"),
+            "known_readonly_query",
+        )
+        self.assertEqual(normalize_intent("生成部门早会简报"), "department_summary")
+        self.assertEqual(normalize_intent("催办各群"), "group_followup")
+        self.assertEqual(normalize_intent("修改扣罚规则"), "risky_action")
+        # 规范值保持不变
+        self.assertEqual(normalize_intent("known_readonly_query"), "known_readonly_query")
+        # 无法收敛时保留原样（调用方保守处理）
+        self.assertEqual(
+            normalize_intent("完全看不懂的意图", "随便说点什么"), "完全看不懂的意图"
+        )
 
     def test_fact_check_catches_unknown_person(self):
         problems = fact_check_summary("张三今天回款 500 万")
@@ -150,6 +166,25 @@ class SupervisorServiceTests(unittest.TestCase):
         result = supervisor_service.execute_run(999999)
         self.assertFalse(result["ok"])
         self.assertEqual(result["detail"], "运行不存在")
+
+    def test_llm_readonly_query_gets_default_tools(self):
+        """LLM 查询类意图即使没给白名单动作，也返回只读数据。"""
+        with patch(
+            "app.agents.supervisor_service.classify_intent", return_value=None
+        ), patch(
+            "app.agents.supervisor_service.decision_with_llm",
+            return_value=SupervisorDecision(
+                intent="查询全部门未闭环待办", summary="", actions=[]
+            ),
+        ):
+            run = supervisor_service.start_run(
+                run_type="user_task", requested_by="manager", input_text="查一下全部门待办"
+            )
+            result = supervisor_service.execute_run(run.id)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["intent"], "known_readonly_query")
+        for key in ("task_stats", "group_state", "slot_health"):
+            self.assertIn(key, result["results"])
 
     def test_risky_intent_becomes_waiting_approval(self):
         """risky_action 强制进入审批门，不直接成功。"""

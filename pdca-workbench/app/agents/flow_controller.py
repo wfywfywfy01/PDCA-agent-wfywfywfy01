@@ -172,6 +172,7 @@ def check_slot_health(
     *,
     now: datetime | None = None,
     expect_push: bool = True,
+    alert: bool = True,
 ) -> dict:
     """P0 档位健康检查：collect run / slot 快照 / push run 三项凭证。
 
@@ -179,7 +180,7 @@ def check_slot_health(
     1. duzhan_collect:{tz}:{hour}:{day} 是否 sent；
     2. 快照文件是否存在、JSON 可解析、prepared_at 属于当天该档、群数量正确；
     3. duzhan:{tz}:{hour}:{day} 推送凭证是否存在且 sent。
-    缺失/失败时返回问题清单并调用 notify（去重由 alerting 负责）。
+    缺失/失败时返回问题清单；alert=True 才调用 notify（后台展示传 False）。
     只读检查，绝不补发、不推真实群、不修改三追文案。
     """
     problems: list[dict] = []
@@ -235,7 +236,8 @@ def check_slot_health(
     }
     if problems:
         detail = "; ".join(f"{p['step']}:{p['detail']}" for p in problems)[:280]
-        notify("督战档位健康检查失败", f"{tz_name} {hour:02d}:00 {day} → {detail}")
+        if alert:
+            notify("督战档位健康检查失败", f"{tz_name} {hour:02d}:00 {day} → {detail}")
         logger.error("slot health FAILED {} {} {}: {}", tz_name, hour, day, detail)
     else:
         logger.info("slot health OK {} {} {}", tz_name, hour, day)
@@ -243,11 +245,14 @@ def check_slot_health(
 
 
 def run_health_checks_for(now: datetime | None = None) -> list[dict]:
-    """当前时刻应检查的所有（时区, 档位）组合：本地整点后 5 分钟内触发。
+    """每 5 分钟扫描：补扫当天已过档位 + 当前档（整点后 5 分钟起）。
 
-    由调度器每 5 分钟调用一次；对每个时区独立判断其本地时间是否命中
-    某档 +5 分钟窗口，命中才检查。只检查工作日档位。
+    补扫语义：调度器/容器在整点前后重启也不会漏检——当天任何已到点的
+    档位都会在下一个 5 分钟 tick 被检查。每个（时区, 日期, 档位）只告警
+    一次（slot.health_checked 事件幂等去重）。只检查工作日档位。
     """
+    from app.agents.events import write_event
+
     settings = get_settings()
     reports: list[dict] = []
     for tz_name in cron_timezones():
@@ -260,10 +265,16 @@ def run_health_checks_for(now: datetime | None = None) -> list[dict]:
             continue
         day = local.strftime("%Y-%m-%d")
         for hour in parse_hours(settings.duzhan_times):
-            minute = local.minute
-            on_the_hour = local.hour == hour
-            if on_the_hour and 0 <= minute <= 5:
-                reports.append(check_slot_health(tz_name, hour, day, now=local))
+            if hour > local.hour:
+                continue  # 未到点的档位
+            if hour == local.hour and local.minute < 5:
+                continue  # 整点后 5 分钟内推送可能尚未完成，等下一轮
+            event_key = f"flow_controller:health_checked:{tz_name}:{day}:{hour:02d}"
+            if not write_event("slot.health_checked", producer="flow_controller",
+                               event_key=event_key,
+                               payload={"tz": tz_name, "day": day, "hour": hour}):
+                continue  # 本档今天已检查并告警过
+            reports.append(check_slot_health(tz_name, hour, day, now=local, alert=True))
     return reports
 
 
@@ -273,5 +284,5 @@ def all_slot_health_today(day: str) -> list[dict]:
     reports = []
     for tz_name in cron_timezones():
         for hour in parse_hours(settings.duzhan_times):
-            reports.append(check_slot_health(tz_name, hour, day, expect_push=True))
+            reports.append(check_slot_health(tz_name, hour, day, expect_push=True, alert=False))
     return reports

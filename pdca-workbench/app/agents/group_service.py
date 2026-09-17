@@ -11,8 +11,7 @@
 """
 from __future__ import annotations
 
-import json
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -82,6 +81,86 @@ def _draft_template(state: dict, config: GroupConfig) -> str:
     return "\n".join(lines)
 
 
+def persist_draft(
+    *,
+    config: GroupConfig,
+    day: str,
+    slot: str,
+    body: str,
+    approval_policy: str,
+    shadow: bool,
+    run_id: int | None = None,
+) -> int:
+    """把群草稿落库（影子与正式都落）；同 channel/day/slot 重跑覆盖。"""
+    from sqlmodel import Session, select
+
+    from app.agents.models import AgentDraft
+    from app.database import get_engine
+
+    draft_key = f"{config.channel_id}:{day}:{slot}"
+    with Session(get_engine()) as session:
+        row = session.exec(
+            select(AgentDraft).where(AgentDraft.draft_key == draft_key)
+        ).first()
+        if row is None:
+            row = AgentDraft(
+                draft_key=draft_key,
+                run_id=run_id,
+                channel_id=config.channel_id,
+                group_name=config.group_name,
+                group_type=config.group_type,
+                day=day,
+                slot=slot,
+                body=body,
+                approval_policy=approval_policy,
+                shadow=shadow,
+            )
+            session.add(row)
+        else:
+            row.body = body
+            row.approval_policy = approval_policy
+            row.shadow = shadow
+            if run_id is not None:
+                row.run_id = run_id
+            row.updated_at = datetime.now(timezone.utc)
+            session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row.id or 0
+
+
+def list_drafts(*, day: str = "", channel_id: str = "", limit: int = 100) -> list[dict]:
+    """后台草稿列表（倒序）。"""
+    from sqlmodel import Session, select
+
+    from app.agents.models import AgentDraft
+    from app.database import get_engine
+
+    statement = select(AgentDraft).order_by(AgentDraft.id.desc()).limit(min(limit, 300))
+    if day:
+        statement = statement.where(AgentDraft.day == day)
+    if channel_id:
+        statement = statement.where(AgentDraft.channel_id == channel_id)
+    with Session(get_engine()) as session:
+        rows = session.exec(statement).all()
+    return [
+        {
+            "id": row.id,
+            "draft_key": row.draft_key,
+            "channel_id": row.channel_id,
+            "group_name": row.group_name,
+            "group_type": row.group_type,
+            "day": row.day,
+            "slot": row.slot,
+            "body": row.body[:6000],
+            "approval_policy": row.approval_policy,
+            "shadow": row.shadow,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
 def run_group_instance(
     config: GroupConfig,
     *,
@@ -128,6 +207,17 @@ def run_group_instance(
         "next_actions": output.next_actions,
         "has_snapshot": snapshot is not None,
     }
+    try:
+        result["draft_id"] = persist_draft(
+            config=run_config,
+            day=day,
+            slot=slot_text,
+            body=output.draft_message,
+            approval_policy=output.approval_policy,
+            shadow=shadow,
+        )
+    except Exception as exc:  # noqa: BLE001 — 草稿落库失败不阻断主流程
+        logger.warning("草稿落库失败 {}: {}", run_config.channel_id, exc)
     write_event(
         "slot.draft_created",
         producer="group_agent",
