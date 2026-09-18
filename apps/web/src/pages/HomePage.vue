@@ -220,6 +220,13 @@ onMounted(loadAll)
             {{ p.label }}
           </button>
         </div>
+        <router-link
+          v-if="me && (me.role === 'admin' || me.role === 'manager')"
+          class="btn"
+          to="/admin/agents"
+        >
+          Agent 管理
+        </router-link>
         <button
           v-if="me && (me.role === 'admin' || me.role === 'manager')"
           class="btn btn-primary"
