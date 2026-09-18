@@ -259,12 +259,18 @@ def _group_of(person: dict) -> str:
 
 _BLOCKER_HINTS = (
     "卡点", "阻塞", "受阻", "障碍", "风险", "缺口", "延期", "延迟", "暂停",
-    "不同意", "审批", "未收到", "未回", "等回复", "等客户", "迟迟", "放弃",
+    "不同意", "未收到", "未回款", "等回复", "等客户", "迟迟", "放弃",
 )
+# 日常计划/安排类原话即使含“未回复”等字样，也不算卡点（新人组晨夕会模板常见）。
+_PLAN_HINTS = ("今日计划", "明日计划", "工作计划", "工作安排", "今日安排", "晨夕会")
 
 
 def _is_blocker(text: str) -> bool:
     """只有像卡点的原话才进「卡点与需拍板」，避免把今日计划当卡点。"""
+    if not text:
+        return False
+    if any(hint in text for hint in _PLAN_HINTS):
+        return False
     return any(hint in text for hint in _BLOCKER_HINTS)
 
 

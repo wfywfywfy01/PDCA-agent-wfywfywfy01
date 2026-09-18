@@ -183,6 +183,22 @@ class DigestStructureTests(unittest.TestCase):
         self.assertNotIn("今日计划", text)
         self.assertIn("客户迟迟未回复水单", text)
 
+    def test_plan_text_with_reply_wording_is_still_not_a_blocker(self):
+        # 新人组晨夕会模板里“未回复的执行3/7/14方式”是流程说明，不是卡点
+        led = _ledger(
+            [
+                _person(
+                    "邓琳莹",
+                    "新人小组业绩达标群",
+                    blockers=[
+                        "今日计划 1.触达名单30个 4.跟进有回复，未回复的执行3/7/14方式二次触达 5.新人组晨夕会",
+                    ],
+                )
+            ]
+        )
+        text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
+        self.assertIn("未见卡点上报", text)
+
     def test_red_board_does_not_fake_zero_amount(self):
         led = _ledger([_person("于冰", "于冰业绩达标群")])
         led["red"] = [{"display": "邓琳莹", "mtd_wan": 0.0, "score": 12}]
