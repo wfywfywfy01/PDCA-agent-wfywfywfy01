@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
+from app.alerting import notify
 from app.config import get_settings
 from app.duzhan_ledger import (
     TODAY_SLOGAN,
@@ -937,6 +938,16 @@ def _evidence_text(person: dict | None, lang: str) -> str:
     return " / ".join(items[:8])
 
 
+def _collect_for_missing_snapshot(tz_name: str, day: str, hour: int) -> dict | None:
+    """组表快照缺失时的兜底：现场采一次台账；失败返回 None 由上层退上一档。"""
+    logger.warning("督战官无组表快照，现场采集 {} {} {}:00", tz_name, day, f"{hour:02d}")
+    try:
+        return collect_ledger(day)
+    except Exception as exc:  # noqa: BLE001 — 采集失败退上一档台账，不阻断推送
+        logger.exception("督战官现场采集失败: {}", exc)
+        return None
+
+
 def _red_item_text(item: dict, lang: str) -> str:
     """红榜一行：综合分 + 过程分 + 业绩达成（两个口径都给，缺业绩口径就明说）。"""
     display = item.get("display") or "未署名"
@@ -1031,6 +1042,15 @@ def run_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict:
     prev_hour = prev_slot_hour(hour)
     prev = load_prepared(tz_name, prev_hour, day) if prev_hour else None
     prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+    if ledger is None:
+        # 快照缺失（如 2026-09-18 容器重启打断 19:45 组表）时，绝不把空台账推给群：
+        # 先现场采一次，再退回上一档台账，最后才允许空表（并告警）。
+        ledger = _collect_for_missing_snapshot(tz_name, day, hour) or prev_ledger
+        if ledger is None:
+            notify(
+                "督战官无快照且兜底采集失败",
+                f"{tz_name} {day} {hour:02d}:00 将按空表推送（全部待确认）",
+            )
     sent: list[str] = []
     failed: list[str] = []
     for group in groups_for_tz(tz_name):

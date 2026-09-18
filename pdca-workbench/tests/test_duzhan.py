@@ -178,6 +178,45 @@ class DuzhanGroupTests(unittest.TestCase):
         self.assertNotIn("VPS 留痕", text)
         self.assertIn("VPS 留痕", render_brief(group, 10, now, curr))
 
+    def test_missing_snapshot_collects_live_not_empty(self):
+        """快照缺失时必须现场补采，不能把整屏“待确认”推给群（2026-09-18 20:00 事故）。"""
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        ledger = {
+            "day": "2026-09-18",
+            "today_target": "1300万战役",
+            "people": [
+                {
+                    "group": "于冰业绩达标群",
+                    "display": "于冰",
+                    "target_wan": 200,
+                    "mtd_wan": 170.2,
+                    "daily_target_wan": 6.67,
+                    "rolling_target_wan": 120.1,
+                    "target_gap_wan": 50.1,
+                    "target_ahead": True,
+                }
+            ],
+            "red": [],
+            "black": [],
+        }
+        with patch("app.duzhan.load_prepared", return_value=None), patch(
+            "app.duzhan.collect_ledger", return_value=ledger
+        ) as collect, patch("app.duzhan.push_duzhan_message", return_value=True) as push:
+            result = run_duzhan(
+                TZ_SHANGHAI,
+                20,
+                datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI)),
+            )
+        collect.assert_called_once_with("2026-09-18")
+        bodies = {
+            call.args[1]: call.args[0] for call in push.call_args_list
+        }
+        yu_bing = bodies.get("df41ad35-0e26-4431-ac36-10789ff51a1c") or ""
+        self.assertTrue(yu_bing, "必须推到于冰群")
+        self.assertIn("累计回款：170.2 万", yu_bing, "兜底采集后必须是真实数字")
+        self.assertIn("滚动日目标", yu_bing)
+        self.assertFalse(result["from_snapshot"])
+
     def test_run_duzhan_paris_only_hits_lina(self):
         with patch("app.duzhan.push_duzhan_message", return_value=True) as push:
             result = run_duzhan(
