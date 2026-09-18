@@ -38,6 +38,11 @@ export const router = createRouter({
       component: () => import('@/pages/AdminPermissionsPage.vue'),
     },
     {
+      path: '/admin/agents',
+      name: 'admin-agents',
+      component: () => import('@/pages/AgentAdminPage.vue'),
+    },
+    {
       path: '/signalseller',
       name: 'signalseller',
       component: () => import('@/pages/SignalsellerPage.vue'),
