@@ -371,7 +371,12 @@ def render_brief(
         ]
     else:
         blocks = [_render_person(group, hour, day, slot, slogan, None, None, use_diff)]
-    board = _board_text(ledger, hour, group.lang)
+    board = _board_text(
+        ledger,
+        hour,
+        group.lang,
+        compact=bool(getattr(get_settings(), "duzhan_compact", True)),
+    )
     return "\n\n".join(blocks) + board
 
 
@@ -420,6 +425,9 @@ def _render_person(
             f"- 月度目标：{target} 万 | 滚动日目标：{target_progress}\n"
             f"- 累计回款：{mtd} 万 | 战役：{slogan}\n"
         )
+    if getattr(get_settings(), "duzhan_compact", True):
+        # 老板 2026-09-19：三档只出总结性内容，明细放每天 08:00 的证据 HTML。
+        return head + "\n" + _compact_body(hour, person, lang, prev_person)
     if use_diff:
         body = _changes_text(person, prev_person, lang)
         extra = _slot_sections(hour, person, lang, prev_person)
@@ -628,6 +636,132 @@ def _unfinished_titles(
         if len(out) >= limit:
             break
     return out
+
+
+def _compact_body(
+    hour: int,
+    person: dict | None,
+    lang: str,
+    prev_person: dict | None = None,
+) -> str:
+    """三档总结版（10:00 定任务 / 15:00 追变化 / 20:00 验兑现），每人 5–7 行。
+
+    明细（三口径原文、MTO 图与 OCR、工时拆解、群原话）放每天 08:00 的证据 HTML，
+    这里只留「目标 / 变化 / 兑现 / 要你补什么」。
+    """
+    person = person or {}
+    english = lang == "en"
+    lines: list[str] = []
+    daily = person.get("daily_target_wan")
+    rolling = person.get("rolling_target_wan")
+    arrived = person.get("perf_arrived_wan")
+    gap = person.get("target_gap_wan")
+    ahead = bool(person.get("target_ahead"))
+    if hour == 10:
+        if daily is not None:
+            target_line = (
+                f"今日目标：日目标 {daily} 万/天，累计应达 {rolling} 万"
+                if not english
+                else f"Today's target: {daily} wan/day, cumulative due {rolling} wan"
+            )
+        else:
+            target_line = "今日目标：待确认" if not english else "Today's target: pending"
+        if arrived is not None:
+            target_line += (
+                (f"｜累计到账 {arrived} 万（{'领先' if ahead else '落后'} {abs(float(gap)):g} 万）"
+                 if gap is not None else f"｜累计到账 {arrived} 万")
+                if not english
+                else (f" | MTD {arrived} wan ({'ahead' if ahead else 'behind'} {abs(float(gap)):g} wan)"
+                      if gap is not None else f" | MTD {arrived} wan")
+            )
+        lines.append(target_line)
+        carried = _unfinished_titles(prev_person, lang=lang)
+        lines.append(
+            ("昨日未闭环 → 今日第一动作：" if not english else "Carry-over → first action today: ")
+            + ("；".join(carried[:3]) if carried else ("未见未闭环事项" if not english else "none found"))
+        )
+        ping = _amount_ping(person, lang, source=prev_person)
+        if ping:
+            lines.append(ping.strip())
+        lines.append(
+            "请回：今日 3–5 项（对象 / 交付物 / 截止时间）"
+            if not english
+            else "Reply with: 3–5 items (owner / deliverable / deadline)"
+        )
+        return chr(10).join(lines)
+    if hour == 15:
+        delta = None
+        if arrived is not None and (prev_person or {}).get("perf_arrived_wan") is not None:
+            delta = round(float(arrived) - float(prev_person["perf_arrived_wan"]), 1)
+        if delta is None:
+            delta_text = "本档新增：待确认" if not english else "New this slot: pending"
+        elif delta == 0:
+            delta_text = "本档新增：0（与上一档持平）" if not english else "New this slot: none"
+        else:
+            delta_text = (
+                f"本档新增：{('+' if delta > 0 else '')}{delta} 万"
+                if not english
+                else f"New this slot: {('+' if delta > 0 else '')}{delta} wan"
+            )
+        if rolling is not None:
+            delta_text += (
+                f"；累计到账 {arrived} 万｜应达 {rolling} 万"
+                if not english
+                else f"; MTD {arrived} wan | due {rolling} wan"
+            )
+            if gap is not None:
+                delta_text += (
+                    f"（{'领先' if ahead else '落后'} {abs(float(gap)):g} 万）"
+                    if not english
+                    else f" ({'ahead' if ahead else 'behind'} {abs(float(gap)):g} wan)"
+                )
+        lines.append(delta_text)
+        lines.append(
+            ("上午工作：" if not english else "Morning work: ") + _hours_text_short(person, lang)
+        )
+        ping = _amount_ping(person, lang)
+        if ping:
+            lines.append(ping.strip())
+        lines.append(
+            "请回：相对 10:00 的变化（完成 / 推进 / 停滞 / 未回）+ 卡点"
+            if not english
+            else "Reply with: changes vs 10:00 (done / progressed / stalled / no reply) + blockers"
+        )
+        return chr(10).join(lines)
+    slip = person.get("perf_slip") or []
+    intent = person.get("perf_intent") or []
+
+    def _brief(items: list[dict]) -> str:
+        if not items:
+            return "未检索到" if not english else "not found"
+        return "；".join(
+            str(item.get("amount_text") or ("金额待确认" if not english else "amount pending"))
+            for item in items[:2]
+        )
+
+    wa_text = count_text(person.get("wa_reached"), lower_bound=bool(person.get("wa_lower_bound")), lang=lang)
+    intent_text = count_text(person.get("intent_count"), lang=lang)
+    if english:
+        lines.append(f"Arrived {wan_text(arrived, lang)} wan | Slip {_brief(slip)} | Intent {_brief(intent)}")
+        lines.append(
+            f"WhatsApp {wa_text} accounts | intent {intent_text} | Hours {_hours_text_short(person, lang)}"
+        )
+    else:
+        lines.append(f"到账 {wan_text(arrived, lang)} 万｜水单 {_brief(slip)}｜意向 {_brief(intent)}")
+        lines.append(
+            f"WhatsApp {wa_text} 户（明确意向 {intent_text} 户）｜工时：{_hours_text_short(person, lang)}"
+        )
+    nxt = _unfinished_titles(person, lang=lang)
+    lines.append(
+        ("明日第一动作：" if not english else "First action tomorrow: ")
+        + ("；".join(nxt[:3]) if nxt else ("按日目标继续推进" if not english else "keep pushing the daily target"))
+    )
+    lines.append(
+        "请回：交付物 + 证据（截图 / 水单 / 单号）"
+        if not english
+        else "Reply with: deliverable + evidence (screenshot / slip / order no.)"
+    )
+    return chr(10).join(lines)
 
 
 def _amount_ping(person: dict | None, lang: str, source: dict | None = None) -> str:
@@ -985,8 +1119,13 @@ def _red_item_text(item: dict, lang: str) -> str:
     return head
 
 
-def _board_text(ledger: dict | None, hour: int, lang: str) -> str:
-    """晚追才出红黑榜；@ 纯文本拼进 body。"""
+def _board_text(
+    ledger: dict | None,
+    hour: int,
+    lang: str,
+    compact: bool = False,
+) -> str:
+    """晚追才出红黑榜；@ 纯文本拼进 body。compact=只留红榜与黑榜。"""
     if hour != 20 or not ledger:
         return ""
     red = ledger.get("red") or []
@@ -1004,29 +1143,27 @@ def _board_text(ledger: dict | None, hour: int, lang: str) -> str:
             f"@{item['display']} {_to_en(str(item.get('reason') or ''))}"
             for item in black
         ) or "none"
+        head = f"\nRed TOP3: {red_line}\nBlack (to improve): {black_line}\n"
+        if compact:
+            return head
         reward = "none verified" if not rewards else "; ".join(incentive(item) for item in rewards)
         penalty = "none" if not penalties else "; ".join(incentive(item) for item in penalties)
-        return (
-            "\n"
-            f"Red TOP3: {red_line}\n"
-            f"Black (to improve): {black_line}\n"
-            f"Reward ledger: {reward}\n"
-            f"Penalty ledger: {penalty}\n"
-        )
+        return head + f"Reward ledger: {reward}\nPenalty ledger: {penalty}\n"
     red_line = " / ".join(_red_item_text(item, lang) for item in red) or "待确认"
     black_line = " / ".join(
         f"@{item['display']} {item.get('reason')}"
         for item in black
     ) or "无"
-    reward = "今日无已核验奖励记录" if not rewards else "；".join(incentive(item) for item in rewards)
-    penalty = "今日无扣罚记录" if not penalties else "；".join(incentive(item) for item in penalties)
-    return (
+    head = (
         "\n"
         f"红榜 TOP3（综合=过程50%+业绩50%）：{red_line}\n"
         f"黑榜 待改进：{black_line}\n"
-        f"奖励台账：{reward}\n"
-        f"扣罚台账：{penalty}\n"
     )
+    if compact:
+        return head
+    reward = "今日无已核验奖励记录" if not rewards else "；".join(incentive(item) for item in rewards)
+    penalty = "今日无扣罚记录" if not penalties else "；".join(incentive(item) for item in penalties)
+    return head + f"奖励台账：{reward}\n扣罚台账：{penalty}\n"
 
 
 def run_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict:

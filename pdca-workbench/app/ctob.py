@@ -341,6 +341,9 @@ def render_brief(
     """一群一条；10:00 定任务 / 15:00 追变化 / 20:00 验兑现（老文案不变）。"""
     head = _slot_head(day, hour)
     focus = _CTOB_SLOT_FOCUS.get(hour, _CTOB_SLOT_FOCUS[20])
+    if getattr(get_settings(), "ctob_compact", True):
+        # 老板 2026-09-19：C转B 三档同样只出总结性内容（明细走 08:00 证据 HTML）。
+        return head + "\n" + _compact_body(hour, focus, summary, chats, cohort, prev)
     if hour == 10:
         return _render_morning(owner, day, head, focus, summary, chats, cohort, prev)
     if hour == 15:
@@ -389,6 +392,84 @@ def render_brief(
         _CTOB_REPLY_FORMAT,
     ]
     return "\n".join(lines)
+
+
+def _compact_body(
+    hour: int,
+    focus: str,
+    summary: dict,
+    chats: list[dict],
+    cohort: dict,
+    prev: dict | None,
+) -> str:
+    """C转B 三档总结版：重点客户 + 变化 + 要回什么，5 行以内。"""
+    prev = prev or {}
+    prev_summary = prev.get("summary") or {}
+    prev_unreplied = {
+        item.get("name") for item in (prev.get("chats") or []) if not item.get("replied")
+    }
+    lines = [f"- 本档动作：{focus}"]
+    reached = summary.get("reached")
+    replied = summary.get("replied")
+    if hour == 10:
+        if prev_summary.get("reached") is None:
+            lines.append("昨日全天：待确认（缺昨日 20:00 档快照）")
+        else:
+            lines.append(
+                f"昨日全天：WA 触达 {prev_summary.get('reached')} / 回复 {prev_summary.get('replied')}"
+                f" / 汽车 {prev_summary.get('car') if prev_summary.get('car') is not None else '待确认'}"
+                f" / 转B {prev_summary.get('ctob') if prev_summary.get('ctob') is not None else '待确认'}"
+            )
+        unreplied = [item for item in (prev.get("chats") or []) if not item.get("replied")]
+        lines.append(
+            "昨日未回 → 今日第一动作："
+            + (_name_list(unreplied, 3) if unreplied else "未见未回客户（或昨日档未出数）")
+        )
+        new_n = cohort.get("new")
+        focus_new = cohort.get("focus_new")
+        lines.append(
+            f"今日新客队列：全量 {new_n if new_n is not None else '待确认'}"
+            f"，其中汽车/转B {focus_new if focus_new is not None else '待确认'}"
+        )
+        lines.append("请回：今日汽车/转B 3–5 项（客户 / 品类 / 第一动作 / 截止）")
+        return chr(10).join(lines)
+    if hour == 15:
+        if reached is None or prev_summary.get("reached") is None:
+            lines.append("本档新增：待确认（缺 10:00 档口径）")
+        else:
+            d_reached = float(reached) - float(prev_summary.get("reached") or 0)
+            d_replied = float(replied or 0) - float(prev_summary.get("replied") or 0)
+            lines.append(
+                f"本档新增：触达 {_signed(d_reached)} 户 / 回复 {_signed(d_replied)} 户（对照 10:00 档）"
+            )
+        newly = [
+            item for item in chats
+            if item.get("replied") and item.get("name") not in prev_unreplied
+        ]
+        still = [item for item in chats if not item.get("replied")]
+        lines.append("本档新回：" + (_name_list(newly, 3) if newly else "无（或未同步）"))
+        blockers = infer_blockers(chats or (prev.get("chats") or []), cohort)
+        lines.append("卡点：" + ("；".join(blockers[:2]) if blockers else "MCP 未见汽车/转B卡点，待群内确认"))
+        lines.append("请回：相对 10:00 的变化（新回 / 推进 / 停滞）+ 卡点")
+        return chr(10).join(lines)
+    other = summary.get("other")
+    lines.append(
+        f"本档口径：WA 触达 {reached if reached is not None else '待确认'}"
+        f" / 回复 {replied if replied is not None else '待确认'}"
+        f" / 汽车 {summary.get('car') if summary.get('car') is not None else '待确认'}"
+        f" / 转B {summary.get('ctob') if summary.get('ctob') is not None else '待确认'}"
+        f" / 其他 {other if other is not None else '待确认'}"
+    )
+    top = [item for item in chats[:3]]
+    if top:
+        lines.append("重点客户：" + "；".join(
+            f"{item['name']}（{item.get('kind') or '转B'}·{item['rounds']}轮·{'有回' if item['replied'] else '未回'}）"
+            for item in top
+        ))
+    blockers = infer_blockers(chats, cohort)
+    lines.append("卡点：" + ("；".join(blockers[:2]) if blockers else "MCP 未见汽车/转B卡点，待群内确认"))
+    lines.append("请回：交付物 + 证据（对话截图 / 单号）")
+    return chr(10).join(lines)
 
 
 def _render_morning(

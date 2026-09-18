@@ -109,6 +109,8 @@ class Settings:
             lead = 15
         self.duzhan_lead_minutes = min(60, max(5, lead))
         # @海外渠道督战官 才回；默认跟督战开关走，1 分钟轮询。
+        # 三档只出总结性内容（明细走每天 08:00 的证据 HTML）；=0 回到长版
+        self.duzhan_compact = os.environ.get("PDCA_DUZHAN_COMPACT", "1") == "1"
         self.duzhan_reply_enabled = os.environ.get(
             "PDCA_DUZHAN_REPLY_ENABLED",
             "1" if self.duzhan_enabled else "0",
@@ -118,6 +120,8 @@ class Settings:
             "PDCA_CTOB_ENABLED",
             "1" if self.duzhan_enabled else "0",
         ) == "1"
+        # C转B 三档同样只出总结性内容；=0 回到长版
+        self.ctob_compact = os.environ.get("PDCA_CTOB_COMPACT", "1") == "1"
         self.ctob_times = [
             item.strip()
             for item in os.environ.get("PDCA_CTOB_TIMES", "10:00,15:00,20:00").split(",")
