@@ -632,12 +632,36 @@ def send_group_notice(
         return {**notice, "sent": False, "reason": "未配置 PDCA_TODO_GROUP_CHANNEL_ID"}
     if dry_run:
         return {**notice, "sent": False, "dry_run": True, "channel_id": channel_id}
-    client_id = "pdca-group-notice-" + today
+    ok, reason, via = send_group_text(
+        channel_id,
+        notice["body"],
+        "pdca-group-notice-" + today,
+        bot_name="待办催办",
+    )
+    if not ok:
+        return {**notice, "sent": False, "reason": reason}
+    return {**notice, "sent": True, "channel_id": channel_id, "via": via}
+
+
+def send_group_text(
+    channel_id: str,
+    body: str,
+    client_message_id: str,
+    *,
+    bot_name: str = "待办催办",
+) -> tuple[bool, str, str]:
+    """机器人身份发群正文（+agent-notify），失败回退账号通道（im +send）。
+
+    多行正文一律走 --body-file。返回 (成功, 失败原因, 通道 bot/account)；
+    未配置频道直接返回失败，绝不静默成功。
+    """
+    if not channel_id:
+        return False, "未配置群 channel_id", ""
     bot_key = ""
-    if settings.todo_bot_app_id:
-        bot_key = "user-robot-" + settings.todo_bot_app_id
+    bot_app_id = get_settings().todo_bot_app_id
+    if bot_app_id:
+        bot_key = "user-robot-" + bot_app_id
     agent_slug = os.environ.get("VERTU_AGENT_SLUG", "").strip() or bot_key
-    via = "account"
     if agent_slug:
         # 机器人/专家智能体身份发群（多行正文走 --body-file）
         code, stdout, stderr = _send_with_body_file(
@@ -646,40 +670,29 @@ def send_group_notice(
                 "--agent-slug", agent_slug,
                 "--channel-id", channel_id,
                 "--bot-key", bot_key or agent_slug,
-                "--bot-name", "待办催办",
+                "--bot-name", bot_name,
                 "--target", "im",
-                "--event-id", client_id,
+                "--event-id", client_message_id,
             ],
-            notice["body"],
+            body,
             timeout=30.0,
         )
-        if code != 0:
-            # 机器人不在目标群/通道不可用 → 回退账号通道
-            logger.warning("机器人发群失败，回退账号通道: {}", (stderr or "")[:160])
-            code, stdout, stderr = _send_with_body_file(
-                [
-                    "im", "+send",
-                    "--channel-id", channel_id,
-                    "--client-message-id", client_id,
-                ],
-                notice["body"],
-                timeout=30.0,
-            )
-        else:
-            via = "bot"
-    else:
-        code, stdout, stderr = _send_with_body_file(
-            [
-                "im", "+send",
-                "--channel-id", channel_id,
-                "--client-message-id", client_id,
-            ],
-            notice["body"],
-            timeout=30.0,
-        )
+        if code == 0:
+            return True, "", "bot"
+        # 机器人不在目标群/通道不可用 → 回退账号通道
+        logger.warning("机器人发群失败，回退账号通道: {}", (stderr or "")[:160])
+    code, stdout, stderr = _send_with_body_file(
+        [
+            "im", "+send",
+            "--channel-id", channel_id,
+            "--client-message-id", client_message_id,
+        ],
+        body,
+        timeout=30.0,
+    )
     if code != 0:
-        return {**notice, "sent": False, "reason": (stderr or stdout or "发送失败")[:200]}
-    return {**notice, "sent": True, "channel_id": channel_id, "via": via}
+        return False, (stderr or stdout or "发送失败")[:200], "account"
+    return True, "", "account"
 
 
 def _record_sends(

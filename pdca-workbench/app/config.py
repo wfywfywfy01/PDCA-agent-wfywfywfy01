@@ -76,6 +76,11 @@ class Settings:
         self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
         # 每日经营日报推送（08:30，服务器自跑）；走 VPS IM 机器人通道
         self.daily_report_enabled = os.environ.get("PDCA_DAILY_REPORT_ENABLED", "1") == "1"
+        # 海外日报群总结（默认 08:00，前 24 小时总分结构）；文案确认前默认关闭
+        self.daily_digest_enabled = (
+            os.environ.get("PDCA_DAILY_DIGEST_ENABLED", "0") == "1"
+        )
+        self.daily_digest_time = os.environ.get("PDCA_DAILY_DIGEST_TIME", "08:00").strip()
         # 海外渠道督战官：独立机器人，按群时区推 10:00/15:00/20:00。
         self.duzhan_enabled = os.environ.get("PDCA_DUZHAN_ENABLED", "0") == "1"
         self.duzhan_bot_app_id = os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip()

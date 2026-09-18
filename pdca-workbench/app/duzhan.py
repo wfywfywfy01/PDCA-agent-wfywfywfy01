@@ -25,6 +25,7 @@ from app.duzhan_ledger import (
     diff_tasks,
     empty_ledger,
     hours_text,
+    infer_status,
     people_for,
     wan_text,
 )
@@ -295,6 +296,12 @@ def prepare_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict
         ledger = empty_ledger(day)
     prev_hour = prev_slot_hour(hour)
     prev = load_prepared(tz_name, prev_hour, day) if prev_hour else None
+    if hour == 10 and prev is None:
+        # 早追：以昨日 20:00 档为上一档，用于“昨日未闭环结转今日第一动作”
+        from datetime import timedelta
+
+        yday = (now.astimezone(ZoneInfo(tz_name)) - timedelta(days=1)).strftime("%Y-%m-%d")
+        prev = load_prepared(tz_name, 20, yday)
     prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
     messages = {
         group.channel_id: render_brief(group, hour, now, ledger, prev_ledger)
@@ -413,8 +420,18 @@ def _render_person(
             f"- 累计回款：{mtd} 万 | 战役：{slogan}\n"
         )
     if use_diff:
-        return head + "\n" + _changes_text(person, prev_person, lang)
-    return head + "\n" + _full_person_body(group, hour, person, lang)
+        body = _changes_text(person, prev_person, lang)
+        extra = _slot_sections(hour, person, lang, prev_person)
+        if extra:
+            body = body + "\n" + extra
+        return head + "\n" + body
+    body = _full_person_body(group, hour, person, lang)
+    if hour == 10:
+        body = _morning_target_block(person, prev_person, lang) + "\n" + body
+    extra = _slot_sections(hour, person, lang, prev_person)
+    if extra:
+        body = body + "\n" + extra
+    return head + "\n" + body
 
 
 def _full_person_body(
@@ -527,6 +544,161 @@ def _daily_report_text(person: dict | None, lang: str) -> str:
         f"已交，完成{done}/{count}项；申报{declared:g}h；"
         f"系统证据{evidenced:.2f}h；{gap:.2f}h待补证"
     )
+
+
+def _morning_target_block(person: dict | None, prev_person: dict | None, lang: str) -> str:
+    """10:00 定今日目标：滚动日目标 + 昨日未闭环结转今日第一动作。"""
+    person = person or {}
+    daily = person.get("daily_target_wan")
+    rolling = person.get("rolling_target_wan")
+    gap = person.get("target_gap_wan")
+    carried = _unfinished_titles(prev_person, lang=lang)
+    if lang == "en":
+        head = (
+            "0. Today's target (lock it first): "
+            + (f"{daily} wan/day, cumulative due {rolling} wan" if daily is not None else "pending")
+        )
+        if gap is not None:
+            head += f" | {'ahead' if person.get('target_ahead') else 'behind'} {abs(gap)} wan"
+        lines = [head]
+        lines.append(
+            "   • Carry-over from yesterday (first action today): "
+            + ("; ".join(carried[:3]) if carried else "no unfinished items found")
+        )
+        return chr(10).join(lines)
+    head = (
+        "0. 今日目标（本档先定）："
+        + (f"日目标 {daily} 万/天，累计应达 {rolling} 万" if daily is not None else "待确认（缺月度目标）")
+    )
+    if gap is not None:
+        head += f"｜{'领先' if person.get('target_ahead') else '落后'} {abs(gap)} 万"
+    lines = [head]
+    lines.append(
+        "   • 昨日未闭环结转（今日第一动作）："
+        + ("；".join(carried[:3]) if carried else "未见未闭环事项")
+    )
+    return chr(10).join(lines)
+
+
+def _unfinished_titles(
+    person: dict | None,
+    limit: int = 5,
+    lang: str = "zh",
+) -> list[str]:
+    """上一档未完成事项标题（用于结转与明日预告）。英文群翻成英文。"""
+    items = (person or {}).get("collections") or []
+    out: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if infer_status(item) == "done":
+            continue
+        title = re.sub(r"\s+", " ", str(item.get("title") or "")).strip()
+        if lang == "en":
+            title = _to_en(title)
+        if title and title not in out:
+            out.append(title[:80])
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _slot_sections(
+    hour: int,
+    person: dict | None,
+    lang: str,
+    prev_person: dict | None = None,
+) -> str:
+    """15:00 梳理目标+上午总结；20:00 业绩核对+WhatsApp+工时+明日预告。
+
+    口径：到账是月累计（系统），日目标只作参照；本档只报“相对上一档新增”，
+    避免拿月累计去除日目标得出离谱完成率。
+    """
+    person = person or {}
+    english = lang == "en"
+    lines: list[str] = []
+    daily = person.get("daily_target_wan")
+    arrived = person.get("perf_arrived_wan")
+    rolling = person.get("rolling_target_wan")
+    gap = person.get("target_gap_wan")
+    prev_arrived = (prev_person or {}).get("perf_arrived_wan")
+    delta = None
+    if arrived is not None and prev_arrived is not None:
+        delta = round(float(arrived) - float(prev_arrived), 1)
+    ahead = bool(person.get("target_ahead"))
+    if hour == 15:
+        lines.append("【Target review | Morning summary】" if english else "【目标梳理｜上午总结】")
+        if delta is None:
+            delta_text = (
+                "new this slot pending (no previous slot)"
+                if english
+                else "本次新增 待确认（缺上一档口径）"
+            )
+        else:
+            delta_text = f"+{delta} wan this slot" if english else f"本次新增 +{delta} 万"
+        if arrived is None:
+            arrived_text = "pending" if english else "待确认"
+        else:
+            arrived_text = f"{arrived} wan" if english else f"{arrived} 万"
+        progress_text = ("MTD booked " if english else "累计到账 ") + arrived_text
+        if rolling is not None:
+            progress_text += (
+                f" | cumulative due {rolling} wan" if english else f"｜累计应达 {rolling} 万"
+            )
+        if gap is not None:
+            if english:
+                progress_text += f" ({'ahead' if ahead else 'behind'} {abs(gap)} wan)"
+            else:
+                progress_text += f"（{'领先' if ahead else '落后'} {abs(gap)} 万）"
+        if daily is not None:
+            progress_text += (
+                f" | today's target {daily} wan" if english else f"｜今日日目标 {daily} 万"
+            )
+        label = "   • Today's target: " if english else "   • 今日目标进度："
+        lines.append(label + delta_text + ("; " if english else "；") + progress_text)
+        lines.append(
+            ("   • Morning work: " if english else "   • 上午工作：")
+            + _hours_text_short(person, lang)
+        )
+    if hour == 20:
+        lines.append("【Day wrap-up | Performance check】" if english else "【当天总结｜业绩核对】")
+        lines.append(_perf_text(person, lang))
+        wa_text = count_text(
+            person.get("wa_reached"),
+            lower_bound=bool(person.get("wa_lower_bound")),
+            lang=lang,
+        )
+        intent_text = count_text(person.get("intent_count"), lang=lang)
+        if english:
+            lines.append(f"   • WhatsApp: {wa_text} accounts | explicit intent {intent_text} accounts")
+            lines.append(f"   • Hours today: {hours_text(person, lang)}")
+        else:
+            lines.append(f"   • WhatsApp：{wa_text} 户｜明确意向 {intent_text} 户")
+            lines.append(f"   • 当日工时：{hours_text(person, lang)}")
+        nxt = _unfinished_titles(person, lang=lang)
+        if english:
+            lines.append(
+                "【Tomorrow】First action: "
+                + ("; ".join(nxt[:3]) if nxt else "nothing open, keep pushing the daily target")
+            )
+        else:
+            lines.append(
+                "【明日预告】"
+                + ("第一动作：" + "；".join(nxt[:3]) if nxt else "无未完成事项，按日目标继续推进")
+            )
+    return chr(10).join(lines) if lines else ""
+
+
+def _hours_text_short(person: dict, lang: str) -> str:
+    """上午总结用的一句话工时（完整口径见 20:00 段）。"""
+    minutes = person.get("hours_minutes")
+    if minutes is None:
+        return "hours pending" if lang == "en" else "工时待确认"
+    hours = float(minutes) / 60
+    band = person.get("hours_band") or ("pending" if lang == "en" else "待确认")
+    if lang == "en":
+        return f"{hours:.1f}h vs 8h std ({band})"
+    return f"{hours:.1f}h / 标准8h（{band}）"
 
 
 def _task_line(item: dict, lang: str) -> str:

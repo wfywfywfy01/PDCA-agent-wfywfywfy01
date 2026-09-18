@@ -499,6 +499,48 @@ def kpi_refresh_job() -> None:
     return
 
 
+def daily_digest_job() -> None:
+    """海外日报群总结（08:00）：过去 24 小时、总分结构；失败不静默。
+
+    频道与日报群 Agent 实例同源（PDCA_TODO_GROUP_CHANNEL_ID），只用
+    PDCA_DAILY_DIGEST_* 开关控制；claim_run 保证一天最多一次，推送失败
+    原地重试一次（与核心日报同款兜底），仍失败则告警留痕。
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.daily_digest import build_digest, push_digest
+    from app.scheduler.run_ledger import claim_run, finish_run
+
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    if not claim_run("daily_digest", day):
+        logger.info("海外日报群总结本日已发出，跳过重复外发 {}", day)
+        return
+    try:
+        body = build_digest(day)
+    except Exception as exc:  # noqa: BLE001 — 采集/渲染失败必须留痕并告警
+        logger.exception("海外日报群总结生成失败: {}", exc)
+        finish_run("daily_digest", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("海外日报群总结生成失败", str(exc)[:200])
+        return
+    result = push_digest(day, body=body)
+    if not result.get("sent"):
+        # 瞬时网络/机器人抖动：60 秒后重试一次，正文不变。
+        logger.warning(
+            "海外日报群总结首次未发出（{}），60 秒后重试 {}", result.get("reason"), day
+        )
+        time.sleep(60)
+        result = push_digest(day, body=body)
+    if result.get("sent"):
+        finish_run("daily_digest", day, "sent", f"{result.get('chars')} 字")
+        logger.info("海外日报群总结已推送 {}（{} 字）", day, result.get("chars"))
+        return
+    reason = str(result.get("reason") or "未发送")
+    finish_run("daily_digest", day, "failed", reason)
+    logger.warning("海外日报群总结未发出 {}: {}", day, reason)
+    notify("海外日报群总结未发出", f"{day}｜{reason}")
+
+
 def daily_report_job() -> None:
     """每日经营日报（08:30）：容器内直连生产库 → VPS IM 群。
 
@@ -1002,6 +1044,32 @@ def start_scheduler() -> BackgroundScheduler | None:
                 max_instances=1,
                 coalesce=True,
             )
+
+    # 08:00 — 海外日报群总结（前 24 小时总分结构）：PDCA_DAILY_DIGEST_ENABLED=1 才注册。
+    # 08:30 备份触发共享 claim 台账：健康时跳过，漏跑时补上，绝不重复推群。
+    if getattr(settings, "daily_digest_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        digest_time = str(getattr(settings, "daily_digest_time", "08:00") or "08:00")
+        try:
+            digest_hour, digest_minute = (int(part) for part in digest_time.split(":", 1))
+            total_minutes = digest_hour * 60 + digest_minute
+            slots = {"daily_digest": total_minutes, "daily_digest_backup": total_minutes + 30}
+            for job_id, minutes in slots.items():
+                _scheduler.add_job(
+                    daily_digest_job,
+                    trigger="cron",
+                    hour=(minutes // 60) % 24,
+                    minute=minutes % 60,
+                    day_of_week="mon-sun",
+                    timezone=ZoneInfo("Asia/Shanghai"),
+                    id=job_id,
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法日报群总结时间: {}", digest_time)
 
     if getattr(settings, "ctob_enabled", False):
         from zoneinfo import ZoneInfo
