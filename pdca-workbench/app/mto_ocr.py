@@ -19,14 +19,31 @@ THRESHOLD_WAN = 30.0
 PROMPT = (
     "这是 VERTU MTO 报价截图。只根据图上可见文字填 JSON，不要编造。"
     "字段：model, total_usd, delivery, sku, target_customer。"
+    "model 必填且要完整：抄图上的机型/型号原文，连系列名和配置后缀一起抄"
+    "（例：Vertu Signature S+、Vertu Alphafold、Vertu Quantum、Vertu Aster、"
+    "Vertu Metavertu 2、机械表型号等）；中文机型名就原样抄中文。"
+    "只写“VERTU”不算，必须写到具体型号；确实没有型号字样才留空字符串。"
     "total_usd 只填数字（ESTIMATED TOTAL / USD / $）。"
     "target_customer 是图上的客户名/经销商/国家；没有就空字符串。"
     "只输出一个 JSON 对象。"
 )
+# 型号读不出时的定向二次识别：只抄型号，避免被金额/客户名分散注意力。
+MODEL_PROMPT = (
+    "只做一件事：把这张 VERTU 报价图里的机型/型号原文逐字抄出来（含系列与配置后缀，"
+    "如 Vertu Signature S+ / Vertu Alphafold / 机械表型号）。"
+    "只输出 JSON：{\"model\": \"...\"}；看不清就输出 {\"model\": \"\"}，不要猜。"
+)
 _JSON_RE = re.compile(r"\{.*\}", re.S)
 
 
-_MD_MODEL_RE = re.compile(r"机型\*{0,2}[：:]\s*\*{0,2}(Vertu[\w\s\-+]+)")
+_MD_MODEL_RE = re.compile(
+    r"(?:机型|型号|model)\s*\*{0,2}\s*[：:]\s*\*{0,2}([^\n\r]{2,80})",
+    re.I,
+)
+# 没有“机型：”前缀时，抓 Vertu 开头的型号串（含系列与后缀）
+_VERTU_MODEL_RE = re.compile(
+    r"((?:VERTU|Vertu|vertu)\s?[A-Za-z][A-Za-z0-9+\-]*(?:\s+[A-Za-z0-9+\-]{2,}){0,3})"
+)
 _MD_USD_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
 _MD_DELIVERY_RE = re.compile(r"(?:EST\.?\s*DELIVERY\s*DATE|\u4ea4\u4ed8\u65e5\u671f|\u9884\u8ba1\u4ea4\u4ed8)[^\d]{0,20}(\d{4}-\d{2}-\d{2})", re.I)
 
@@ -43,7 +60,7 @@ def parse_quote_text(raw: str) -> dict:
                 payload = loaded
         except json.JSONDecodeError:
             payload = {}
-    model = str(payload.get("model") or "").strip()
+    model = _clean_model(payload.get("model"))
     sku = str(payload.get("sku") or "").strip()
     delivery = str(payload.get("delivery") or "").strip()
     target = str(payload.get("target_customer") or "").strip()
@@ -52,7 +69,11 @@ def parse_quote_text(raw: str) -> dict:
     if not model:
         model_match = _MD_MODEL_RE.search(text)
         if model_match:
-            model = re.sub(r"\s+", " ", model_match.group(1)).strip()
+            model = _clean_model(model_match.group(1))
+    if not model:
+        vertu_match = _VERTU_MODEL_RE.search(text)
+        if vertu_match:
+            model = _clean_model(vertu_match.group(1))
     if usd is None:
         usd_match = _MD_USD_RE.search(text)
         if usd_match:
@@ -72,7 +93,33 @@ def parse_quote_text(raw: str) -> dict:
         "wan": wan,
         "qualifies": qualifies,
         "raw_ok": bool(model or usd is not None),
+        # 型号是硬要求（老板 2026-09-19）：读不出要单独标出来，便于二次追问。
+        "model_missing": not bool(model),
     }
+
+
+_MODEL_CUT_RE = re.compile(
+    r"\s*[-—–]?\s*(?:金额|总价|合计|价格|售价|报价|EST|USD|delivery|交付|客户|customer|sku).*$",
+    re.I | re.S,
+)
+
+
+def _clean_model(value: object) -> str:
+    """型号归一：砍掉字段尾巴与说明，只写“VERTU”视为无效。"""
+    text = str(value or "")
+    text = text.replace("*", " ").replace("\u3000", " ")
+    # 去掉“机型：”后的整行尾巴（金额/交付/客户/分号后面的说明）
+    text = _MODEL_CUT_RE.sub("", text)
+    text = re.split(r"[；;，,。!！?？]", text)[0]
+    text = re.sub(r"^[\s:：\-—•]+", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" \t\"'“”‘’|")
+    # 去掉型号后面的括号说明（含未闭合的情况，如“Vertu AlphaFold（折叠屏”）
+    text = re.split(r"[（(]", text)[0].strip()
+    if len(text) > 80:
+        text = text[:80].strip()
+    if text.upper().replace(" ", "") in ("VERTU", "VERTU5G"):
+        return ""
+    return text
 
 
 def _usd(value: object) -> float | None:
@@ -173,6 +220,9 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
         choice = (data.get("choices") or [{}])[0]
         text = choice["message"]["content"] or ""
         row = parse_quote_text(text)
+        if row.get("model_missing"):
+            # 型号是硬要求：再定向问一次（只抄型号），仍读不出才留空并标记。
+            row = _retry_model_only(payload, url, key, row)
         # 截断重试一次：追加“直接输出 JSON”引导，避免 reasoning 吃满预算。
         if not row["raw_ok"] and choice.get("finish_reason") == "length":
             payload["messages"] = payload["messages"] + [{
@@ -196,6 +246,37 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.warning("MTO OCR 失败: {}", exc)
         return parse_quote_text("")
+
+
+def _retry_model_only(payload: dict, url: str, key: str, row: dict) -> dict:
+    """型号读不出时的定向重试：只让模型抄型号，成功则补进结果。"""
+    retry_payload = dict(payload)
+    retry_payload["messages"] = [
+        payload["messages"][0],
+        {"role": "user", "content": MODEL_PROMPT},
+    ]
+    retry_payload["max_tokens"] = 600
+    try:
+        resp = httpx.post(
+            url,
+            json=retry_payload,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            timeout=120.0,
+            verify=False,
+        )
+        resp.raise_for_status()
+        text = (resp.json().get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        found = parse_quote_text(text)
+        if found.get("model"):
+            logger.info("MTO 型号二次识别成功: {}", found["model"])
+            row["model"] = found["model"]
+            row["model_missing"] = False
+            row["raw_ok"] = True
+        else:
+            logger.warning("MTO 型号二次识别仍失败: {}", (text or "")[:120])
+    except Exception as exc:  # noqa: BLE001 — 二次识别失败不影响其它字段
+        logger.warning("MTO 型号二次识别异常: {}", exc)
+    return row
 
 
 def _vps_auth() -> tuple[str, dict]:
@@ -329,7 +410,9 @@ def review_mto_images(messages: list | None, sender_id: int | None) -> tuple[int
                 name = str(att.get("name") or "image")
                 quotes.append(
                     {
-                        "model": name,
+                        "model": "",
+                        "model_missing": True,
+                        "file": name,
                         "sku": "",
                         "delivery": "",
                         "target_customer": "",
@@ -342,5 +425,4 @@ def review_mto_images(messages: list | None, sender_id: int | None) -> tuple[int
     if settings.qwen_api_key:
         qualify_n, names = summarize_quotes(quotes)
         return qualify_n, names, quotes
-    file_names = [str(item.get("model") or "image") for item in quotes]
-    return len(quotes), file_names[:6], []
+    return len(quotes), [str(item.get("file") or "image") for item in quotes][:6], []

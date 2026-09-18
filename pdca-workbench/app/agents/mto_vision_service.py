@@ -99,9 +99,12 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         wan = quote.get("wan")
         raw_ok = bool(quote.get("raw_ok"))
         qualifies = quote.get("qualifies")
+        model_text = str(quote.get("model") or "").strip()
         row = {
             "file": file_names[index] if index < len(file_names or []) else "",
-            "model": quote.get("model") or "待确认",
+            # 型号是硬要求（老板 2026-09-19）：读不出就显式标红，别写“VERTU”糊弄
+            "model": model_text or "型号读不出",
+            "model_missing": (not model_text) or bool(quote.get("model_missing")),
             "sku": quote.get("sku") or "",
             "usd": usd,
             "wan": wan,
@@ -112,7 +115,8 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
                 "达标"
                 if qualifies
                 else ("未满30万" if (raw_ok and wan is not None) else "未读出报价")
-            ),
+            )
+            + ("（型号读不出，需人工确认）" if not model_text else ""),
         }
         result["rows"].append(row)
         if row["qualifies"]:
