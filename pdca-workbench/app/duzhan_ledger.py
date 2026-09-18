@@ -94,6 +94,8 @@ OWNERS: tuple[Owner, ...] = (
         employee_id=388,
         im_user_id=14549,
         vps_names=("江旭", "Sana"),
+        # Sana客户跟进群（老板 2026-09-18 确认江旭=Sana）
+        follow_channel_id="d038caa8-3bd3-432b-b91a-9bf58180e855",
     ),
     Owner(
         "于冰业绩达标群",

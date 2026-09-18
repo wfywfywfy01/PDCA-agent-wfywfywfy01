@@ -857,6 +857,11 @@ class DuzhanLedgerTests(unittest.TestCase):
         self.assertEqual(jiangxu.employee_id, 388)
         self.assertEqual(jiangxu.im_user_id, 14549)
         self.assertIsNone(jiangxu.target_wan, "新人 100 万是小组目标，不摊到个人")
+        self.assertEqual(
+            jiangxu.follow_channel_id,
+            "d038caa8-3bd3-432b-b91a-9bf58180e855",
+            "江旭（Sana）要带上 Sana客户跟进群",
+        )
         for name in ("吴楠", "杨成凤", "张倩"):
             self.assertNotIn(name, xin, name + " 按老板口径不纳入")
         by_target = {item.display: item.target_wan for item in OWNERS}

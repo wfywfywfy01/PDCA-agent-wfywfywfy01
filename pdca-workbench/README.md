@@ -112,6 +112,23 @@ python scripts/backfill_meeting_projects.py           # 实际回填（幂等）
 python scripts/backfill_meeting_projects.py --dry-run # 只统计不动库
 ```
 
+## 督战证据日报（固定测试流程）
+
+老板 2026-09-18 定的固定测试流程：**先收集他们当天被系统读到的全部证据 →
+生成单文件 HTML 到桌面 → 人工逐人核对「系统读到的 = 群里真实发生的」→ 读错的进问题清单改完再跑**。
+
+```bash
+# 只读，不发任何消息；默认输出到桌面「督战证据_<日期>.html」+ 同名 .json
+python scripts/evidence_report.py --day 2026-09-18
+python scripts/evidence_report.py --day 2026-09-18 --no-images     # 不内嵌原图（更快）
+python scripts/evidence_report.py --day 2026-09-18 --images 40     # 最多内嵌 40 张报价图
+```
+
+报告内容：总览表（目标/日目标/累计到账/领先落后/水单/意向/MTO/WhatsApp/工时/日报/原话条数）；
+逐人卡片含 ① 业绩三关键词原文级证据 ② MTO 图 + 本地 Qwen OCR 明细（型号/USD/是否≥30万/交期/客户）
++ 缩略图 ③ 催款任务条目 ④ 卡点与证据 ⑤ 工时拆解 / VPS / Vemory ⑥ 当天本人群原话（逐条可核）。
+末尾附 7 条复查要点。口径：读不出写「待确认」，一笔都没有写「未检索到」，绝不用 0 冒充。
+
 ## 经销商资料库接入
 
 PDCA 只在服务端签发最长 5 分钟的作用域 JWT，浏览器不会获得共享密钥。生产环境：
