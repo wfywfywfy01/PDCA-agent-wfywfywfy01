@@ -136,6 +136,16 @@ class Settings:
             )
         except ValueError:
             self.agent_healthcheck_delay_minutes = 5
+        # MTO 图片下载残留隔日清理（默认开启；只清理 temp/mto-ocr-* 前缀）。
+        self.mto_temp_cleanup_enabled = (
+            os.environ.get("PDCA_MTO_TEMP_CLEANUP_ENABLED", "1") == "1"
+        )
+        try:
+            self.mto_temp_max_age_hours = float(
+                os.environ.get("PDCA_MTO_TEMP_MAX_AGE_HOURS", "24")
+            )
+        except ValueError:
+            self.mto_temp_max_age_hours = 24.0
         # 主 Agent（Supervisor）：供应商无关，参数由环境变量配置。
         self.supervisor_enabled = os.environ.get("PDCA_SUPERVISOR_ENABLED", "0") == "1"
         # 豆包 ASR：默认关闭；模式 fallback/verify/always 由适配层消费。

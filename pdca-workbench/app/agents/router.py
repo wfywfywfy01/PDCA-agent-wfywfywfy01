@@ -22,6 +22,7 @@ from app.agents.group_context import (
     performance_group_configs,
 )
 from app.agents.group_service import list_drafts, run_group_instance
+from app.agents.mto_vision_service import review_owner_detail
 from app.agents.outbox import (
     approve_outbox,
     list_outbox,
@@ -354,6 +355,38 @@ async def all_groups_shadow_run(
             failures.append({"channel_id": config.channel_id, "error": str(exc)[:200]})
     log_action(user.username, "agent_group.shadow_run_all", "", {"hour": hour, "generated": generated})
     return {"ok": True, "generated": generated, "failed": len(failures), "failures": failures}
+
+
+@router.get("/mto")
+async def mto_detail(
+    owner: str = Query(..., max_length=64, description="负责人姓名，如 于冰"),
+    day: str = Query("", max_length=10),
+    force: bool = Query(False, description="忽略 1 小时缓存，重新下载+OCR"),
+    user: Annotated[User, Depends(require_role("manager"))] = None,
+):
+    """MTO 明细核对：每张图一行（文件/机型/报价/达标/交期/客户）+ 当日汇总。
+
+    口径：单款报价 ≥30 万（汇率 7.1）算达标；读不出写“待确认”，不编造金额。
+    """
+    day = require_iso_date(day or _today())
+    result = review_owner_detail(owner, day, force=force)
+    if result.get("error"):
+        raise HTTPException(status_code=409, detail=result["error"])
+    return result
+
+
+@router.post("/mto/cleanup")
+async def mto_cleanup(
+    user: Annotated[User, Depends(require_role("admin"))],
+):
+    """手动触发 MTO 图片下载残留清理（默认每日 03:30 自动执行）。"""
+    from app.config import get_settings
+    from app.mto_ocr import cleanup_temp_files
+
+    settings = get_settings()
+    result = cleanup_temp_files(getattr(settings, "mto_temp_max_age_hours", 24.0))
+    log_action(user.username, "mto.cleanup", "", result)
+    return {"ok": True, **result}
 
 
 @router.post("/health-check")

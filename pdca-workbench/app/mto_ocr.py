@@ -254,6 +254,52 @@ def download_ocr_delete(url_path: str) -> dict:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def cleanup_temp_files(max_age_hours: float = 24.0) -> dict:
+    """清理 MTO 下载残留（隔日清理）。
+
+    download_ocr_delete 正常路径读完即删；进程崩溃/容器重启可能留下
+    tempdir/mto-ocr-* 目录。本函数只清理该前缀且超过 max_age_hours 的目录，
+    绝不触碰目录外的任何文件。返回 {"removed": n, "freed_bytes": n}。
+    """
+    import time as _time
+
+    removed = 0
+    freed = 0
+    cutoff = _time.time() - max(0.0, max_age_hours) * 3600
+    tmp_root = Path(tempfile.gettempdir())
+    try:
+        candidates = list(tmp_root.glob("mto-ocr-*"))
+    except OSError as exc:  # noqa: BLE001
+        logger.warning("MTO 临时目录扫描失败: {}", exc)
+        return {"removed": 0, "freed_bytes": 0, "error": str(exc)[:200]}
+    for path in candidates:
+        try:
+            if path.is_file():
+                if path.stat().st_mtime < cutoff:
+                    freed += path.stat().st_size
+                    path.unlink()
+                    removed += 1
+                continue
+            if not path.is_dir():
+                continue
+            newest = max(
+                (child.stat().st_mtime for child in path.rglob("*") if child.exists()),
+                default=path.stat().st_mtime,
+            )
+            if newest >= cutoff:
+                continue
+            size = sum(child.stat().st_size for child in path.rglob("*") if child.is_file())
+            shutil.rmtree(path, ignore_errors=True)
+            if not path.exists():
+                freed += size
+                removed += 1
+        except OSError as exc:  # noqa: BLE001
+            logger.warning("MTO 临时文件清理失败 {}: {}", path, exc)
+    if removed:
+        logger.info("MTO 临时文件已清理 {} 个，释放 {} 字节", removed, freed)
+    return {"removed": removed, "freed_bytes": freed}
+
+
 def review_mto_images(messages: list | None, sender_id: int | None) -> tuple[int, list[str], list[dict]]:
     """本人当日图片：OCR 报价与目标客户；磁盘文件不保留。"""
     settings = get_settings()

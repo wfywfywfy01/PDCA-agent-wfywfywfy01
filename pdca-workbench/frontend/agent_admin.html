@@ -59,6 +59,13 @@ footer{padding:20px;text-align:center;color:#94a3b8;font-size:12px}
 </header>
 <main>
   <section class="cards" id="cards"></section>
+  <h2>MTO 报价核对
+    <input id="mtoOwner" placeholder="负责人，如 于冰" style="margin-left:8px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+    <input id="mtoDay" type="date" style="margin-left:6px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+    <button class="ghost" id="runMto">查 MTO</button>
+    <span class="muted" style="margin-left:8px">口径：单款 ≥30 万达标（汇率 7.1）；读不出写待确认</span>
+  </h2>
+  <div id="mto"></div>
   <h2>每人待办统计与闭环率</h2>
   <div id="taskStats"></div>
   <h2>影子草稿（群 Agent）<button id="runAllDrafts" class="ghost" style="margin-left:10px">试跑全部群影子草稿(最近档)</button></h2>
@@ -186,8 +193,8 @@ function renderOutbox(items) {
       esc(item.channel_id) + "</td><td><pre style='max-height:120px'>" + esc(item.body_preview) +
       "</pre></td><td>" + pill(item.approval_status, item.approval_status) + "</td><td>" +
       pill(item.send_status, item.send_status) + "</td><td class='muted'>" + esc(item.created_at || "") +
-      "</td><td><button class='good' onclick='act(" + item.id + ","approve")'>批准</button> " +
-      "<button class='danger' onclick='act(" + item.id + ","reject")'>拒绝</button></td></tr>";
+      "</td><td><button class='good' onclick='act(" + item.id + ",&quot;approve&quot;)'>批准</button> " +
+      "<button class='danger' onclick='act(" + item.id + ",&quot;reject&quot;)'>拒绝</button></td></tr>";
   }).join("");
   document.getElementById("outbox").innerHTML =
     "<table><thead><tr><th>#</th><th>类型</th><th>目标群</th><th>内容</th><th>审批</th><th>发送</th>" +
@@ -286,6 +293,54 @@ async function runAllShadows() {
   }
 }
 
+function renderMto(result) {
+  const box = document.getElementById("mto");
+  if (!result || !result.rows || !result.rows.length) {
+    box.innerHTML = "<p class='muted'>" + esc((result && result.error) || "该负责人当日没有图片或尚未读出") + "</p>";
+    return;
+  }
+  const rows = result.rows.map(function (row, index) {
+    const money = row.usd !== null && row.usd !== undefined
+      ? "$" + row.usd + " ≈ " + row.wan + " 万"
+      : "金额待确认";
+    const verdict = row.qualifies
+      ? "<span class='pill approved'>达标</span>"
+      : (row.verdict === "未满30万"
+          ? "<span class='pill pending'>未满 30 万</span>"
+          : "<span class='pill rejected'>未读出</span>");
+    return "<tr><td>" + (index + 1) + "</td><td>" + esc(row.file) + "</td><td>" +
+      esc(row.model) + "</td><td>" + esc(row.sku) + "</td><td>" + esc(money) + "</td><td>" +
+      verdict + "</td><td>" + esc(row.delivery || "-") + "</td><td>" + esc(row.customer || "-") +
+      "</td></tr>";
+  }).join("");
+  const cards = [
+    { label: "图片张数", value: result.images },
+    { label: "达标款数", value: result.qualified, cls: result.qualified >= result.goal ? "good" : "warn" },
+    { label: "未满 30 万", value: result.under_threshold },
+    { label: "未读出", value: result.unread, cls: result.unread ? "bad" : "" },
+    { label: "4 款目标", value: result.goal_met ? "已达成" : "未达成", cls: result.goal_met ? "good" : "warn" },
+  ];
+  box.innerHTML = "<div class='cards'>" + cards.map(function (c) {
+    return "<div class='card " + (c.cls || "") + "'><span>" + esc(c.label) + "</span><b>" +
+      esc(c.value) + "</b></div>";
+  }).join("") + "</div>" +
+    "<table style='margin-top:12px'><thead><tr><th>#</th><th>文件</th><th>机型</th><th>SKU</th>" +
+    "<th>报价</th><th>判定</th><th>交期</th><th>客户</th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+async function runMtoNow() {
+  const box = document.getElementById("mto");
+  const owner = document.getElementById("mtoOwner").value.trim() || "于冰";
+  const day = document.getElementById("mtoDay").value || "";
+  box.innerHTML = "<p class='muted'>读图中（逐张下载 + OCR，约 10-30 秒）…</p>";
+  try {
+    const url = "/api/agents/mto?owner=" + encodeURIComponent(owner) + (day ? "&day=" + day : "");
+    renderMto(await api(url));
+  } catch (error) {
+    box.innerHTML = "<p class='muted'>查询失败：" + esc(error.message) + "</p>";
+  }
+}
+
 async function runSummaryNow() {
   const box = document.getElementById("summary");
   box.innerHTML = '<p class="muted">生成中…</p>';
@@ -363,6 +418,7 @@ async function load() {
 }
 
 document.getElementById("refresh").addEventListener("click", load);
+document.getElementById("runMto").addEventListener("click", runMtoNow);
 document.getElementById("runAllDrafts").addEventListener("click", runAllShadows);
 document.getElementById("runSummary").addEventListener("click", runSummaryNow);
 document.getElementById("runHealth").addEventListener("click", runHealthNow);
