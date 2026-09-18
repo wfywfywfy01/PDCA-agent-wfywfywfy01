@@ -92,8 +92,26 @@ def summarize_quotes(quotes: list[dict]) -> tuple[int, list[str]]:
 
 
 def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
-    """调本机/内网 Qwen 读图。密钥只从配置读。"""
+    """调本机/内网 Qwen 读图。密钥只从配置读。
+
+    WebP 会先转 PNG：本地 Qwen 网关的视觉编码器对 webp 解码不稳定
+    （实测 webp 直传读不出报价，转 PNG 后正常）。
+    """
     import base64
+
+    if "webp" in (mime or "").lower():
+        try:
+            import io
+
+            from PIL import Image
+
+            image = Image.open(io.BytesIO(content)).convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            content = buffer.getvalue()
+            mime = "image/png"
+        except Exception as exc:  # noqa: BLE001 — 转码失败仍按原格式提交
+            logger.warning("webp→png 转换失败，按原格式提交: {}", exc)
 
     settings = get_settings()
     url = settings.qwen_base_url.rstrip("/") + "/v1/chat/completions"
@@ -139,6 +157,28 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
 
 
 def _vps_auth() -> tuple[str, dict]:
+    """VPS 附件下载凭据。
+
+    优先容器环境变量（部署时注入的最新 Agent 凭据，与拉群消息同一套身份）；
+    缺省回退 ~/.vertu/vps-service.json 会话文件（历史会话可能过期，曾导致附件
+    下载 401、MTO 全部读不出报价）。
+    """
+    import os
+
+    env_key = os.environ.get("VERTU_APP_KEY", "").strip()
+    env_id = os.environ.get("VERTU_APP_ID", "").strip()
+    env_login = os.environ.get("VERTU_USER_LOGIN", "").strip()
+    base = os.environ.get(
+        "VERTU_VPS_SERVICE_URL", "https://vps-service.vertu.cn"
+    ).strip().rstrip("/")
+    if env_key and env_login:
+        return base, {
+            "x-vertu-auth-channel": "vertu-cli",
+            "user-agent": "vertu-cli",
+            "Authorization": f"Bearer {env_key}",
+            "x-vertu-agent-app-id": env_id,
+            "x-vertu-user-login": env_login,
+        }
     cfg_path = Path.home() / ".vertu" / "vps-service.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     base = str(cfg.get("baseUrl") or "https://vps-service.vertu.cn").rstrip("/")
