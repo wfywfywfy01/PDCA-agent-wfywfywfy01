@@ -509,7 +509,13 @@ def _perf_text(person: dict | None, lang: str) -> str:
         parts = []
         for item in items[:3]:
             money = item.get("amount_text") or ("金额待确认" if lang == "zh" else "amount pending")
-            parts.append(f"{money}（{item.get('snippet') or ''}）" if lang == "zh" else f"{money}")
+            snippet = str(item.get("snippet") or "")
+            if lang != "zh":
+                parts.append(f"{money}" + (f" ({snippet})" if snippet else ""))
+            elif money == "金额待确认" and snippet:
+                parts.append(snippet)
+            else:
+                parts.append(f"{money}（{snippet}）" if snippet else money)
         return "；".join(parts)
 
     if lang == "en":
@@ -594,6 +600,9 @@ def _morning_target_block(person: dict | None, prev_person: dict | None, lang: s
         "   • 昨日未闭环结转（今日第一动作）："
         + ("；".join(carried[:3]) if carried else "未见未闭环事项")
     )
+    ping = _amount_ping(person, lang, source=prev_person)
+    if ping:
+        lines.append(ping)
     return chr(10).join(lines)
 
 
@@ -618,6 +627,33 @@ def _unfinished_titles(
         if len(out) >= limit:
             break
     return out
+
+
+def _amount_ping(person: dict | None, lang: str, source: dict | None = None) -> str:
+    """水单/意向金额没写清时点名补一句（10:00 用上一档口径，15:00 用本档）。
+
+    老板 2026-09-18 拍板：10:00/15:00 档自动点名要金额。
+    """
+    data = source or person or {}
+    items = list(data.get("perf_slip") or []) + list(data.get("perf_intent") or [])
+    missing = [item for item in items if item.get("wan") is None]
+    if not missing:
+        return ""
+    names = "；".join(_clip_text(str(item.get("snippet") or ""), 30) for item in missing[:2])
+    if lang == "en":
+        return (
+            f"   • Amount missing on {len(missing)} slip/intent item(s) — reply with "
+            f"customer / amount+currency / expected payment date / category. {names}"
+        )
+    return (
+        f"   • 补一句：水单/意向有 {len(missing)} 条没写金额（{names}），"
+        "按「客户 / 金额+币种 / 预计到账日 / 品类」补一句。"
+    )
+
+
+def _clip_text(text: str, limit: int) -> str:
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
 def _slot_sections(
@@ -684,6 +720,9 @@ def _slot_sections(
             progress_text += group_note
         label = "   • Today's target: " if english else "   • 今日目标进度："
         lines.append(label + delta_text + ("; " if english else "；") + progress_text)
+        ping = _amount_ping(person, lang)
+        if ping:
+            lines.append(ping)
         lines.append(
             ("   • Morning work: " if english else "   • 上午工作：")
             + _hours_text_short(person, lang)
@@ -898,6 +937,43 @@ def _evidence_text(person: dict | None, lang: str) -> str:
     return " / ".join(items[:8])
 
 
+def _red_item_text(item: dict, lang: str) -> str:
+    """红榜一行：综合分 + 过程分 + 业绩达成（两个口径都给，缺业绩口径就明说）。"""
+    display = item.get("display") or "未署名"
+    combined = item.get("combined_score")
+    score = item.get("score")
+    perf = item.get("perf_score")
+    rolling = item.get("rolling_target_wan")
+    mtd = item.get("mtd_wan")
+    if lang == "en":
+        head = f"@{display}"
+        if combined is not None:
+            head += f" overall {round(float(combined))}"
+        if score is not None:
+            head += f" | process {round(float(score))}"
+        if perf is not None:
+            head += f" | performance {perf:g}%"
+        elif item.get("group_scope"):
+            head += " | performance n/a (team target)"
+        else:
+            head += " | performance pending"
+        return head
+    head = f"@{display}"
+    if combined is not None:
+        head += f" 综合{round(float(combined))}"
+    if score is not None:
+        head += f"｜过程{round(float(score))}"
+    if perf is not None:
+        head += f"｜业绩{perf:g}%"
+    elif item.get("group_scope"):
+        head += "｜业绩按小组口径"
+    else:
+        head += "｜业绩待确认"
+    if mtd is not None:
+        head += f"（回款{wan_text(mtd, lang)}万）"
+    return head
+
+
 def _board_text(ledger: dict | None, hour: int, lang: str) -> str:
     """晚追才出红黑榜；@ 纯文本拼进 body。"""
     if hour != 20 or not ledger:
@@ -912,10 +988,7 @@ def _board_text(ledger: dict | None, hour: int, lang: str) -> str:
         return str(item)
 
     if lang == "en":
-        red_line = " / ".join(
-            f"@{item['display']} {wan_text(item.get('mtd_wan'), lang)} wan"
-            for item in red
-        ) or "pending"
+        red_line = " / ".join(_red_item_text(item, lang) for item in red) or "pending"
         black_line = " / ".join(
             f"@{item['display']} {_to_en(str(item.get('reason') or ''))}"
             for item in black
@@ -929,10 +1002,7 @@ def _board_text(ledger: dict | None, hour: int, lang: str) -> str:
             f"Reward ledger: {reward}\n"
             f"Penalty ledger: {penalty}\n"
         )
-    red_line = " / ".join(
-        f"@{item['display']} 累计{wan_text(item.get('mtd_wan'), lang)}万"
-        for item in red
-    ) or "待确认"
+    red_line = " / ".join(_red_item_text(item, lang) for item in red) or "待确认"
     black_line = " / ".join(
         f"@{item['display']} {item.get('reason')}"
         for item in black
@@ -941,7 +1011,7 @@ def _board_text(ledger: dict | None, hour: int, lang: str) -> str:
     penalty = "今日无扣罚记录" if not penalties else "；".join(incentive(item) for item in penalties)
     return (
         "\n"
-        f"红榜 TOP3：{red_line}\n"
+        f"红榜 TOP3（综合=过程50%+业绩50%）：{red_line}\n"
         f"黑榜 待改进：{black_line}\n"
         f"奖励台账：{reward}\n"
         f"扣罚台账：{penalty}\n"

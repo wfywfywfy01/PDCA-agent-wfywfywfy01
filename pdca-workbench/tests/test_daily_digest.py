@@ -231,12 +231,29 @@ class DigestStructureTests(unittest.TestCase):
 
     def test_red_board_does_not_fake_zero_amount(self):
         led = _ledger([_person("于冰", "于冰业绩达标群")])
-        led["red"] = [{"display": "邓琳莹", "mtd_wan": 0.0, "score": 12}]
+        led["red"] = [
+            {
+                "display": "邓琳莹",
+                "mtd_wan": 0.0,
+                "score": 12,
+                "combined_score": 12.0,
+                "perf_score": None,
+                "group_scope": True,
+            },
+            {
+                "display": "于冰",
+                "mtd_wan": 170.2,
+                "score": 119,
+                "combined_score": 118.0,
+                "perf_score": 117.0,
+            },
+        ]
         led["black"] = [{"display": "Lina", "reason": "任务完成0/12；逾期2项"}]
         text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
-        self.assertIn("红榜（过程完成度）", text)
-        self.assertIn("@邓琳莹 12 分｜本月未出单", text)
-        self.assertNotIn("累计0万", text)
+        self.assertIn("红榜（过程+业绩综合）：", text)
+        self.assertIn("@邓琳莹 综合12｜过程12｜业绩按小组口径", text)
+        self.assertIn("@于冰 综合118｜过程119｜业绩117%（回款170.2万）", text)
+        self.assertNotIn("本月未出单", text)
         self.assertIn("黑榜（待改进）", text)
 
 

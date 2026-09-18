@@ -47,6 +47,49 @@ class DailyTargetTests(unittest.TestCase):
         self.assertIn("领先 27.3 万", text)
 
 
+class RedBoardCompositeTests(unittest.TestCase):
+    """红榜双口径：过程完成度 + 业绩达成，两个都得有（老板 2026-09-18）。"""
+
+    def _row(self, **over: object):
+        from app.duzhan_ledger import PersonRow
+
+        row = PersonRow(group="g", display="x", score=100.0)
+        row.perf_arrived_wan = 100.0
+        row.rolling_target_wan = 100.0
+        for key, value in over.items():
+            setattr(row, key, value)
+        return row
+
+    def test_perf_and_combined_math(self):
+        from app.duzhan_ledger import combined_score, perf_score
+
+        row = self._row(score=100.0, perf_arrived_wan=50.0)
+        self.assertAlmostEqual(perf_score(row), 50.0)
+        self.assertAlmostEqual(combined_score(row), 75.0)
+
+    def test_perf_score_capped_at_120(self):
+        from app.duzhan_ledger import perf_score
+
+        self.assertAlmostEqual(perf_score(self._row(perf_arrived_wan=500.0)), 120.0)
+
+    def test_missing_target_falls_back_to_process_score(self):
+        from app.duzhan_ledger import combined_score, perf_score
+
+        row = self._row(rolling_target_wan=None)
+        self.assertIsNone(perf_score(row))
+        self.assertAlmostEqual(combined_score(row), 100.0)
+
+    def test_ranking_prefers_balanced_over_process_only(self):
+        from app.duzhan_ledger import rank_red_black
+
+        process_only = self._row(display="过程满分", score=120.0, perf_arrived_wan=0.0)
+        balanced = self._row(display="双高", score=110.0, perf_arrived_wan=110.0)
+        red, _ = rank_red_black([process_only, balanced])
+        self.assertEqual(red[0]["display"], "双高")
+        self.assertAlmostEqual(red[0]["perf_score"], 110.0)
+        self.assertIsNotNone(red[0]["combined_score"])
+
+
 class PerformanceNoiseTests(unittest.TestCase):
     """机器人模板回显与明确否定不能当成客户水单/意向。"""
 

@@ -34,12 +34,26 @@ def _clip(text: str, limit: int) -> str:
 
 
 def _red_text(item: dict) -> str:
-    """红榜一行：没出单就别写 0 万，写“本月未出单”。"""
-    money = float(item.get("mtd_wan") or 0)
-    money_text = f"累计{money:g}万" if money > 0 else "本月未出单"
+    """红榜一行：综合 + 过程 + 业绩都给；没出单写“本月未出单”，不写 0 万。"""
+    display = item.get("display") or "未署名"
+    combined = item.get("combined_score")
     score = item.get("score")
-    score_text = f"{round(float(score))} 分｜" if score is not None else ""
-    return f"@{item.get('display')} {score_text}{money_text}"
+    perf = item.get("perf_score")
+    money = float(item.get("mtd_wan") or 0)
+    head = f"@{display}"
+    if combined is not None:
+        head += f" 综合{round(float(combined))}"
+    if score is not None:
+        head += f"｜过程{round(float(score))}"
+    if perf is not None:
+        head += f"｜业绩{perf:g}%"
+    elif item.get("group_scope"):
+        head += "｜业绩按小组口径"
+    else:
+        head += "｜业绩待确认"
+    if money > 0:
+        head += f"（回款{money:g}万）"
+    return head
 
 
 def _hours_text(people: list[dict]) -> str:
@@ -172,7 +186,7 @@ def build_digest(
     black = ledger.get("black") or []
     if red:
         lines.append(
-            "   • 红榜（过程完成度）："
+            "   • 红榜（过程+业绩综合）："
             + " / ".join(_red_text(item) for item in red[:3])
         )
     if black:
