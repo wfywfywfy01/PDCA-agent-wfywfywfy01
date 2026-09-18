@@ -681,7 +681,10 @@ class DuzhanLedgerTests(unittest.TestCase):
         self.assertIn("Vemory 会议录音：1场 迪拜 Billionaire 0915 https://audio/m1.wav", text)
         self.assertIn("柬埔寨支付订单", text)
         self.assertIn("XSD-DL26091502472", text)
-        self.assertIn("红榜 TOP3：@于冰 累计170.2万 / @Viki 累计147.4万 / @杨晶晶 累计86.5万", text)
+        # 红榜双口径：综合 = 过程 50% + 业绩 50%（业绩缺口径时写“业绩待确认”）
+        self.assertIn("红榜 TOP3（综合=过程50%+业绩50%）：", text)
+        self.assertIn("@于冰", text)
+        self.assertIn("业绩待确认", text)
         self.assertIn("黑榜 待改进：@新人小组 本月回款0 / @Lina WhatsApp未覆盖", text)
         self.assertIn("扣罚台账：今日无扣罚记录", text)
         self.assertNotIn("红榜", render_brief(group, 10, now, ledger))
@@ -797,10 +800,17 @@ class DuzhanLedgerTests(unittest.TestCase):
         self.assertFalse(match_vemory(yu, None)[1])
 
     def test_xinren_owners_exclude_zhangqian(self):
+        """老板 2026-09-18 拍板：加上江旭（Sana）；吴楠、杨成凤、张倩不加。"""
         from app.duzhan_ledger import OWNERS
 
         xin = [item.display for item in OWNERS if item.group == "新人小组业绩达标群"]
-        self.assertEqual(xin, ["邓琳莹", "Safae", "王宇彤", "张月馨"])
+        self.assertEqual(xin, ["邓琳莹", "Safae", "王宇彤", "张月馨", "江旭"])
+        jiangxu = [item for item in OWNERS if item.display == "江旭"][0]
+        self.assertEqual(jiangxu.employee_id, 388)
+        self.assertEqual(jiangxu.im_user_id, 14549)
+        self.assertIsNone(jiangxu.target_wan, "新人 100 万是小组目标，不摊到个人")
+        for name in ("吴楠", "杨成凤", "张倩"):
+            self.assertNotIn(name, xin, name + " 按老板口径不纳入")
         by_target = {item.display: item.target_wan for item in OWNERS}
         self.assertEqual(by_target["于冰"], 200)
         self.assertEqual(by_target["杨晶晶"], 333)
@@ -1115,6 +1125,40 @@ class DuzhanSlotStructureTests(unittest.TestCase):
         text = render_brief(group, 10, now, self._ledger(person))
         self.assertIn("0. 今日目标（本档先定）：小组口径 新部 100 万/月", text)
         self.assertNotIn("缺月度目标", text)
+
+    def test_morning_pings_missing_amounts_from_prev_slot(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        prev = self._person(
+            perf_slip=[{"amount_text": "", "wan": None, "snippet": "水单已回传，金额在邮件里"}],
+            perf_intent=[],
+        )
+        person = self._person(perf_slip=[], perf_intent=[])
+        text = render_brief(group, 10, now, self._ledger(person), self._ledger(prev))
+        self.assertIn("补一句：水单/意向有 1 条没写金额", text)
+        self.assertIn("按「客户 / 金额+币种 / 预计到账日 / 品类」补一句", text)
+
+    def test_midday_pings_missing_amounts_from_current_slot(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(
+            perf_intent=[{"amount_text": "", "wan": None, "snippet": "客户有明确意向，金额待定"}],
+        )
+        text = render_brief(group, 15, now, self._ledger(person), self._ledger(self._person()))
+        self.assertIn("补一句：水单/意向有 1 条没写金额", text)
+
+    def test_no_ping_when_amounts_are_clear(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        text = render_brief(group, 15, now, self._ledger(self._person()), self._ledger(self._person()))
+        self.assertNotIn("补一句", text)
+
+    def test_evening_slot_has_no_amount_ping(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(perf_intent=[{"amount_text": "", "wan": None, "snippet": "意向待定"}])
+        text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
+        self.assertNotIn("补一句", text)
 
     def test_midday_slot_reports_delta_not_month_over_day(self):
         group = groups_for_tz(TZ_SHANGHAI)[1]

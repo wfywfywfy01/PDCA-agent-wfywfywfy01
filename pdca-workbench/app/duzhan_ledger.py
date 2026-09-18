@@ -49,7 +49,8 @@ class Owner:
     target_wan: float | None = None
 
 
-# 新人小组：邓琳莹/Safae/王宇彤/张月馨。张倩、李浩然、邢哲夫、陈鹏飞不在此名单。
+# 新人小组：邓琳莹/Safae/王宇彤/张月馨/江旭（Sana）。
+# 老板 2026-09-18 拍板：江旭就是 Sana，要加；吴楠、杨成凤、张倩不加。
 OWNERS: tuple[Owner, ...] = (
     Owner(
         "新人小组业绩达标群",
@@ -85,6 +86,14 @@ OWNERS: tuple[Owner, ...] = (
         # ponytail: 月馨群仅 14660 回飞书表；组织搜索无名。错了再改。
         im_user_id=14660,
         follow_channel_id="743227fa-07cc-4bfd-be74-9242aaa56e71",
+    ),
+    Owner(
+        "新人小组业绩达标群",
+        "江旭",
+        cli_name="江旭",
+        employee_id=388,
+        im_user_id=14549,
+        vps_names=("江旭", "Sana"),
     ),
     Owner(
         "于冰业绩达标群",
@@ -1415,12 +1424,34 @@ def score_row(row: PersonRow) -> PersonRow:
     return row
 
 
+def perf_score(row: PersonRow) -> float | None:
+    """业绩达成分（0–120）：累计到账 ÷ 累计应达 ×100；缺口径返回 None。
+
+    老板 2026-09-18 拍板：红榜要过程完成度和业绩综合，两个都得有，
+    所以业绩分只作为红榜的一半权重，不覆盖过程分。
+    """
+    if row.perf_arrived_wan is None or not row.rolling_target_wan:
+        return None
+    return round(min(float(row.perf_arrived_wan) / float(row.rolling_target_wan) * 100, 120.0), 1)
+
+
+def combined_score(row: PersonRow) -> float:
+    """红榜综合分：过程分与业绩分各半；业绩无口径时只按过程分（并标注待确认）。"""
+    perf = perf_score(row)
+    if perf is None:
+        return round(float(row.score), 2)
+    return round(float(row.score) * 0.5 + perf * 0.5, 2)
+
+
 def rank_red_black(people: list[PersonRow]) -> tuple[list[dict], list[dict]]:
-    """红榜 TOP3，其余里待改进 2 个进黑榜。"""
-    ranked = sorted(people, key=lambda item: (-item.score, item.display))
+    """红榜 = 过程 + 业绩综合 TOP3；其余里待改进 2 个进黑榜。"""
+    ranked = sorted(
+        people,
+        key=lambda item: (-combined_score(item), -item.score, item.display),
+    )
     red = [_board_item(item) for item in ranked[:3]]
     rest = ranked[3:]
-    rest.sort(key=lambda item: (item.score, -len(item.gaps), item.display))
+    rest.sort(key=lambda item: (combined_score(item), -len(item.gaps), item.display))
     black = [_board_item(item) for item in rest[:2]]
     return red, black
 
@@ -1435,6 +1466,11 @@ def _board_item(row: PersonRow) -> dict:
         "intent_count": row.intent_count,
         "mto_count": row.mto_count,
         "reason": "；".join(row.gaps[:2]) if row.gaps else "过程与回款均有数",
+        # 红榜双口径：过程完成度 + 业绩达成（老板 2026-09-18 要求两个都得有）
+        "perf_score": perf_score(row),
+        "combined_score": combined_score(row),
+        "rolling_target_wan": row.rolling_target_wan,
+        "group_scope": bool(row.group_target_wan),
     }
 
 
