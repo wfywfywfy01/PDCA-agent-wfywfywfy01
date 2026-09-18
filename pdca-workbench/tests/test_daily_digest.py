@@ -81,6 +81,20 @@ class DigestStructureTests(unittest.TestCase):
         self.assertIn("月目标 1228 万", text)
         self.assertIn("第 18/30 天", text)
 
+    def test_bucket_amounts_pending_when_unreadable(self):
+        led = _ledger(
+            [
+                _person(
+                    "于冰",
+                    "于冰业绩达标群",
+                    perf_slip=[{"amount_text": "", "wan": None, "snippet": "水单已回传，金额在邮件里"}],
+                )
+            ]
+        )
+        text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
+        self.assertIn("水单 1 笔（金额待确认）", text)
+        self.assertNotIn("水单 1 笔（0 万）", text)
+
     def test_three_buckets_kept_apart(self):
         led = _ledger(
             [

@@ -491,6 +491,13 @@ _PERF_KEYWORDS = {
     "slip": ("水单",),
     "intent": ("意向",),
 }
+# 这些是机器人自己的模板回显或明确否定，不能当成客户水单/意向
+_PERF_NOISE_RE = re.compile(
+    r"晚追|早追|中追|无s*VPSs*留痕|无Vemory|Vemorys*录音链接|"
+    r"水单s*[（(]s*无s*[)）]|意向s*[（(]s*无s*[)）]|"
+    r"无s*水单|没有水单|没有s*意向|无意向|暂无意向|无明确意向|"
+    r"请补：|回复格式|本档动作",
+)
 _PERF_AMOUNT_RE = re.compile(
     r"(?:USD|usd|\$|美金|美元)\s*([\d,]+(?:\.\d+)?)|"
     r"([\d,]+(?:\.\d+)?)\s*(?:USD|usd|\$|美金|美元)|"
@@ -534,6 +541,8 @@ def parse_performance_buckets(
         for line in re.split(r"[\n；;]+", body):
             text = line.strip()
             if len(text) < 2:
+                continue
+            if _PERF_NOISE_RE.search(text):
                 continue
             for bucket, keywords in (
                 ("arrived", _PERF_KEYWORDS["arrived"]),

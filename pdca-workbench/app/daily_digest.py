@@ -52,10 +52,12 @@ def _hours_text(people: list[dict]) -> str:
     return f"{sum(float(v) for v in values) / 60:.1f}h"
 
 
-def _bucket_text(count: int, total: float) -> str:
-    """水单/意向笔数：一笔都没有时写“未检索到”，避免当成 0 元结论。"""
+def _bucket_text(count: int, total: float, known: int = 0) -> str:
+    """水单/意向笔数：一笔都没有写“未检索到”；金额全读不出写“金额待确认”。"""
     if count <= 0:
         return "未检索到"
+    if known <= 0:
+        return f"{count} 笔（金额待确认）"
     return f"{count} 笔（{_wan(total)}）"
 
 
@@ -67,7 +69,10 @@ def _amounts(items: list[dict]) -> str:
     for item in items[:3]:
         money = item.get("amount_text") or "金额待确认"
         snippet = (item.get("snippet") or "").strip()
-        parts.append(f"{money}（{snippet[:40]}）" if snippet else str(money))
+        if money == "金额待确认" and snippet:
+            parts.append(_clip(snippet, 40))
+        else:
+            parts.append(f"{money}（{_clip(snippet, 40)}）" if snippet else str(money))
     return "；".join(parts)
 
 
@@ -137,8 +142,12 @@ def build_digest(
         float(item.get("wan") or 0)
         for p in people for item in (p.get("perf_intent") or [])
     )
-    slip_count = sum(len(p.get("perf_slip") or []) for p in people)
-    intent_count = sum(len(p.get("perf_intent") or []) for p in people)
+    slip_items = [item for p in people for item in (p.get("perf_slip") or [])]
+    intent_items = [item for p in people for item in (p.get("perf_intent") or [])]
+    slip_count = len(slip_items)
+    intent_count = len(intent_items)
+    slip_known = sum(1 for item in slip_items if item.get("wan") is not None)
+    intent_known = sum(1 for item in intent_items if item.get("wan") is not None)
     mto_done = sum(1 for p in people if (p.get("mto_count") or 0) >= 4)
     lines: list[str] = []
     missing_text = f"（{missing_arrived} 人未出数）" if missing_arrived else ""
@@ -149,8 +158,8 @@ def build_digest(
     lines.append(f"   • {_target_line(department_target, arrived, ledger_day)}")
     lines.append(
         f"   • 三口径：到账 {_wan(arrived)}{missing_text}"
-        f"｜水单 {_bucket_text(slip_count, slip_total)}"
-        f"｜意向 {_bucket_text(intent_count, intent_total)}"
+        f"｜水单 {_bucket_text(slip_count, slip_total, slip_known)}"
+        f"｜意向 {_bucket_text(intent_count, intent_total, intent_known)}"
     )
     if people:
         lines.append(
