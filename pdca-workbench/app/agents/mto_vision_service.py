@@ -36,6 +36,106 @@ def _sha256_of(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> dict:
+    """按人+日期做 MTO 明细核对（后台/主 Agent 统一口径）。
+
+    每张图一行：文件 / 机型 / SKU / 报价（USD、万元）/ 是否达标 / 交期 / 客户，
+    并给出当日汇总（张数、达标款数、未满 30 万、未读出、4 款目标是否达成）。
+    事实只来自群消息附件 + OCR 结果；读不出写“待确认”，绝不编造金额。
+    """
+    from app.duzhan_ledger import (
+        OWNERS,
+        fetch_channel_history,
+        messages_on_day,
+        parse_mto_images,
+    )
+    from app.mto_ocr import review_mto_images
+
+    owner = next((item for item in OWNERS if item.display == owner_name), None)
+    if owner is None:
+        return {"owner": owner_name, "day": day, "error": "负责人不在班组注册表"}
+    if not owner.im_user_id:
+        return {"owner": owner_name, "day": day, "error": "该负责人缺少 IM user_id，无法定位图片"}
+
+    cache_key = f"detail:{owner_name}:{day}"
+    now_mono = time.monotonic()
+    with _cache_lock:
+        cached = _cache.get(cache_key)
+        if cached and not force and now_mono - cached[0] < 3600:
+            return cached[1]
+
+    result: dict = {
+        "owner": owner_name,
+        "group": owner.group,
+        "day": day,
+        "channel_id": owner.follow_channel_id or "",
+        "rows": [],
+        "images": 0,
+        "qualified": 0,
+        "under_threshold": 0,
+        "unread": 0,
+        "goal": MTO_DAILY_GOAL,
+        "goal_met": False,
+    }
+    try:
+        channel_id = owner.follow_channel_id or owner.group
+        raw_messages = fetch_channel_history(owner.follow_channel_id, day, "300")
+        messages = messages_on_day(raw_messages, day, owner_group_timezone(owner))
+        image_count, file_names = parse_mto_images(messages, owner.im_user_id)
+        quote_count, _names, quotes = review_mto_images(messages, owner.im_user_id)
+    except Exception as exc:  # noqa: BLE001 — 单源失败写待确认，不抛
+        logger.warning("MTO 明细核对失败 owner={} day={}: {}", owner_name, day, exc)
+        result["error"] = f"采集失败: {str(exc)[:200]}"
+        return result
+
+    for index, quote in enumerate(quotes or []):
+        usd = quote.get("usd")
+        wan = quote.get("wan")
+        raw_ok = bool(quote.get("raw_ok"))
+        qualifies = quote.get("qualifies")
+        row = {
+            "file": file_names[index] if index < len(file_names or []) else "",
+            "model": quote.get("model") or "待确认",
+            "sku": quote.get("sku") or "",
+            "usd": usd,
+            "wan": wan,
+            "qualifies": bool(qualifies),
+            "delivery": quote.get("delivery") or "",
+            "customer": quote.get("target_customer") or "",
+            "verdict": (
+                "达标"
+                if qualifies
+                else ("未满30万" if (raw_ok and wan is not None) else "未读出报价")
+            ),
+        }
+        result["rows"].append(row)
+        if row["qualifies"]:
+            result["qualified"] += 1
+        elif raw_ok and wan is not None:
+            result["under_threshold"] += 1
+        else:
+            result["unread"] += 1
+    result["images"] = image_count if image_count is not None else len(result["rows"])
+    result["goal_met"] = result["qualified"] >= MTO_DAILY_GOAL
+    with _cache_lock:
+        _cache[cache_key] = (now_mono, result)
+    return result
+
+
+def owner_group_timezone(owner) -> str:
+    """负责人所在群时区：按达标群注册表取群时区（缺省北京时间）。"""
+    try:
+        from app.duzhan import GROUPS
+
+        group_name = str(getattr(owner, "group", "") or "")
+        for group in GROUPS:
+            if group.name == group_name:
+                return group.tz
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("群时区解析失败 {}: {}", owner, exc)
+    return "Asia/Shanghai"
+
+
 def quote_to_vision(owner: str, source_ref: str, quote: dict) -> VisionResult:
     """把 mto_ocr.parse_quote_text 的结果映射为 VisionResult 契约。"""
     raw_ok = bool(quote.get("raw_ok"))

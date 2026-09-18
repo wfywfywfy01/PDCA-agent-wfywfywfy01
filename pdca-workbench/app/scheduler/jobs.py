@@ -646,6 +646,29 @@ def outbox_send_job() -> None:
         notify("Outbox 发送异常", str(exc)[:200])
 
 
+def mto_temp_cleanup_job() -> None:
+    """每日 03:30 — MTO 图片下载残留隔日清理（只清理 temp/mto-ocr-* 前缀）。
+
+    正常路径 OCR 完即删；本任务兜底容器重启/进程崩溃留下的临时目录。
+    """
+    from app.mto_ocr import cleanup_temp_files
+
+    settings = get_settings()
+    if not getattr(settings, "mto_temp_cleanup_enabled", True):
+        logger.info("MTO 临时文件清理已关闭 (PDCA_MTO_TEMP_CLEANUP_ENABLED=0)")
+        return
+    try:
+        result = cleanup_temp_files(getattr(settings, "mto_temp_max_age_hours", 24.0))
+        logger.info(
+            "MTO 临时文件清理完成 removed={} freed_bytes={}",
+            result.get("removed"),
+            result.get("freed_bytes"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("MTO 临时文件清理异常: {}", exc)
+        notify("MTO 临时文件清理失败", str(exc)[:200])
+
+
 def duzhan_at_poll_job() -> None:
     """每分钟扫达标群：只有 @海外渠道督战官 才回复。"""
     from app.duzhan import poll_at_mentions
@@ -1045,6 +1068,22 @@ def start_scheduler() -> BackgroundScheduler | None:
                     coalesce=True,
                     misfire_grace_time=3600,
                 )
+
+    # MTO 图片下载残留隔日清理：每日 03:30（北京时间）。
+    if getattr(settings, "mto_temp_cleanup_enabled", True):
+        from zoneinfo import ZoneInfo as _TzCleanup
+
+        _scheduler.add_job(
+            mto_temp_cleanup_job,
+            trigger="cron",
+            hour=3,
+            minute=30,
+            timezone=_TzCleanup("Asia/Shanghai"),
+            id="mto_temp_cleanup",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
 
     # P1：Outbox 发送轮（只发已批准消息）。
     if getattr(settings, "agent_outbox_enabled", False):
