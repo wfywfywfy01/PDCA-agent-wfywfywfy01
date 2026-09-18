@@ -1,7 +1,7 @@
 # Agent 管理后台（Agent Admin Console）
 
 管理当前账号创建的 IM 机器人与 PDCA 智能体的只读/运维入口。
-并入 PDCA 工作台：后端 pdca-workbench/app/agent_admin/，前端页面 apps/web/src/pages/AgentAdminPage.vue（路由 /admin/agents，导航「Agent 管理」，仅 admin 可见）。
+并入 PDCA 工作台：后端 pdca-workbench/app/agent_admin/，前端页面 apps/web/src/pages/AgentAdminPage.vue（路由 /admin/agents，导航「Agent 管理」，manager+ 可见）。
 
 ## 页面能力
 
@@ -24,8 +24,8 @@
 |------|------|------|------|
 | GET | /api/agent-admin/bots | manager+ | 我的机器人列表 |
 | GET | /api/agent-admin/bot-channels | manager+ | 机器人已加入的群聊 |
-| POST | /api/agent-admin/bots | admin | 创建机器人（校验名称/key/webhook） |
-| PATCH | /api/agent-admin/bots/{app_id}/visibility | admin | 调整公开范围 |
+| POST | /api/agent-admin/bots | manager+ | 创建机器人（校验名称/key/webhook） |
+| PATCH | /api/agent-admin/bots/{app_id}/visibility | manager+ | 调整公开范围 |
 | GET | /api/agent-admin/pdca-agents | manager+ | 智能体注册表 + Hermes + 模型路由 |
 
 ## 约定

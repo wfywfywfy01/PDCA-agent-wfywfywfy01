@@ -77,7 +77,7 @@ async def list_bot_channels(
 async def create_bot(
     body: BotCreateIn,
     request: Request,
-    current_user: Annotated[User, Depends(require_role("admin"))],
+    current_user: Annotated[User, Depends(require_role("manager"))],
 ):
     """创建 IM 机器人（写操作，记审计日志）。"""
     try:
@@ -107,7 +107,7 @@ async def set_bot_visibility(
     app_id: str,
     body: BotVisibilityIn,
     request: Request,
-    current_user: Annotated[User, Depends(require_role("admin"))],
+    current_user: Annotated[User, Depends(require_role("manager"))],
 ):
     """调整机器人公开范围（写操作，记审计日志）。"""
     try:
