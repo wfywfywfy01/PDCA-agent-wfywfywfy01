@@ -143,7 +143,7 @@ OWNERS: tuple[Owner, ...] = (
         target_name="Lina",
         employee_id=171,
         im_user_id=13050,
-        vps_names=("DEHDAHOUMAIMA",),
+        vps_names=("DEHDAHOUMAIMA", "丽娜"),
         target_wan=400,
     ),
 )
@@ -1167,7 +1167,8 @@ def vemory_aliases(owner: Owner) -> set[str]:
     if owner.display == "Viki":
         names.add("尤文静")
     if owner.display == "Lina":
-        names.update({"DEHDAHOUMAIMA", "Lina"})
+        # 老板 2026-09-18 确认：丽娜就是 Lina（早会里写“冯磊 & 丽娜”）
+        names.update({"DEHDAHOUMAIMA", "Lina", "丽娜"})
     return {item for item in names if item}
 
 
