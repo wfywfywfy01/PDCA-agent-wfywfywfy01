@@ -26,8 +26,13 @@ PROMPT = (
 _JSON_RE = re.compile(r"\{.*\}", re.S)
 
 
+_MD_MODEL_RE = re.compile(r"机型\*{0,2}[：:]\s*\*{0,2}(Vertu[\w\s\-+]+)")
+_MD_USD_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
+_MD_DELIVERY_RE = re.compile(r"(?:EST\.?\s*DELIVERY\s*DATE|\u4ea4\u4ed8\u65e5\u671f|\u9884\u8ba1\u4ea4\u4ed8)[^\d]{0,20}(\d{4}-\d{2}-\d{2})", re.I)
+
+
 def parse_quote_text(raw: str) -> dict:
-    """从模型输出抠报价字段。读不到标待确认。"""
+    """从模型输出抠报价字段；JSON 优先，Markdown 输出做确定性兜底。读不到标待确认。"""
     text = (raw or "").strip()
     match = _JSON_RE.search(text)
     payload: dict = {}
@@ -43,6 +48,19 @@ def parse_quote_text(raw: str) -> dict:
     delivery = str(payload.get("delivery") or "").strip()
     target = str(payload.get("target_customer") or "").strip()
     usd = _usd(payload.get("total_usd"))
+    # Markdown 兜底：推理模型常忽略“只输出 JSON”，输出机型/金额/交付日期的正文。
+    if not model:
+        model_match = _MD_MODEL_RE.search(text)
+        if model_match:
+            model = re.sub(r"\s+", " ", model_match.group(1)).strip()
+    if usd is None:
+        usd_match = _MD_USD_RE.search(text)
+        if usd_match:
+            usd = _usd(usd_match.group(1))
+    if not delivery:
+        delivery_match = _MD_DELIVERY_RE.search(text)
+        if delivery_match:
+            delivery = delivery_match.group(1)
     wan = round(usd * RATE_CNY / 10000, 1) if usd is not None else None
     qualifies = wan is not None and wan >= THRESHOLD_WAN
     return {
@@ -92,8 +110,26 @@ def summarize_quotes(quotes: list[dict]) -> tuple[int, list[str]]:
 
 
 def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
-    """调本机/内网 Qwen 读图。密钥只从配置读。"""
+    """调本机/内网 Qwen 读图。密钥只从配置读。
+
+    WebP 会先转 PNG：本地 Qwen 网关的视觉编码器对 webp 解码不稳定
+    （实测 webp 直传读不出报价，转 PNG 后正常）。
+    """
     import base64
+
+    if "webp" in (mime or "").lower():
+        try:
+            import io
+
+            from PIL import Image
+
+            image = Image.open(io.BytesIO(content)).convert("RGB")
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            content = buffer.getvalue()
+            mime = "image/png"
+        except Exception as exc:  # noqa: BLE001 — 转码失败仍按原格式提交
+            logger.warning("webp→png 转换失败，按原格式提交: {}", exc)
 
     settings = get_settings()
     url = settings.qwen_base_url.rstrip("/") + "/v1/chat/completions"
@@ -116,7 +152,9 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
                 ],
             }
         ],
-        "max_tokens": 400,
+        # 本地 Qwen 网关为推理模型：reasoning+正文会吃预算，400 曾导致末尾
+        # JSON 被截断（finish_reason=length）而读不出报价，给足预算。
+        "max_tokens": 1500,
         "temperature": 0.1,
     }
     try:
@@ -131,14 +169,58 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
             verify=False,
         )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        choice = (data.get("choices") or [{}])[0]
+        text = choice["message"]["content"] or ""
+        row = parse_quote_text(text)
+        # 截断重试一次：追加“直接输出 JSON”引导，避免 reasoning 吃满预算。
+        if not row["raw_ok"] and choice.get("finish_reason") == "length":
+            payload["messages"] = payload["messages"] + [{
+                "role": "user",
+                "content": "请直接输出结果 JSON，不要任何说明。",
+            }]
+            retry_resp = httpx.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=120.0,
+                verify=False,
+            )
+            retry_resp.raise_for_status()
+            text = retry_resp.json()["choices"][0]["message"]["content"]
+            return parse_quote_text(text)
+        return row
     except Exception as exc:  # noqa: BLE001
         logger.warning("MTO OCR 失败: {}", exc)
         return parse_quote_text("")
-    return parse_quote_text(text)
 
 
 def _vps_auth() -> tuple[str, dict]:
+    """VPS 附件下载凭据。
+
+    优先容器环境变量（部署时注入的最新 Agent 凭据，与拉群消息同一套身份）；
+    缺省回退 ~/.vertu/vps-service.json 会话文件（历史会话可能过期，曾导致附件
+    下载 401、MTO 全部读不出报价）。
+    """
+    import os
+
+    env_key = os.environ.get("VERTU_APP_KEY", "").strip()
+    env_id = os.environ.get("VERTU_APP_ID", "").strip()
+    env_login = os.environ.get("VERTU_USER_LOGIN", "").strip()
+    base = os.environ.get(
+        "VERTU_VPS_SERVICE_URL", "https://vps-service.vertu.cn"
+    ).strip().rstrip("/")
+    if env_key and env_login:
+        return base, {
+            "x-vertu-auth-channel": "vertu-cli",
+            "user-agent": "vertu-cli",
+            "Authorization": f"Bearer {env_key}",
+            "x-vertu-agent-app-id": env_id,
+            "x-vertu-user-login": env_login,
+        }
     cfg_path = Path.home() / ".vertu" / "vps-service.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     base = str(cfg.get("baseUrl") or "https://vps-service.vertu.cn").rstrip("/")
