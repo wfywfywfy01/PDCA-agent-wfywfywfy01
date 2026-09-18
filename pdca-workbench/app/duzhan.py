@@ -21,6 +21,7 @@ from app.duzhan_ledger import (
     TODAY_SLOGAN,
     collect_ledger,
     count_text,
+    daily_target_text,
     diff_tasks,
     empty_ledger,
     hours_text,
@@ -381,13 +382,25 @@ def _render_person(
     target = wan_text(person.get("target_wan") if person else None, lang)
     mtd = wan_text(person.get("mtd_wan") if person else None, lang)
     slogan_text = _slogan_text(slogan, lang)
+    target_progress = daily_target_text(
+        {
+            "daily_target": (person or {}).get("daily_target_wan"),
+            "rolling_target": (person or {}).get("rolling_target_wan"),
+            "days_elapsed": (person or {}).get("days_elapsed"),
+            "days_in_month": (person or {}).get("days_in_month"),
+            "gap": (person or {}).get("target_gap_wan"),
+            "ahead": (person or {}).get("target_ahead"),
+        },
+        lang,
+    )
     if group.lang == "en":
         title, focus = _SLOT_EN.get(hour, ("Brief", ""))
         head = (
             f"[Overseas Channel Daily Triple Chase] {title} {slot} (Paris time)\n"
             f"- Owner: {reporter} | Date: {day} | Slot: {slot}\n"
             f"- Focus: {focus}\n"
-            f"- Monthly target: {target} wan | MTD collection: {mtd} wan | Today target: {slogan_text}\n"
+            f"- Monthly target: {target} wan | Rolling daily plan: {target_progress}\n"
+            f"- MTD collection: {mtd} wan | Campaign: {slogan_text}\n"
         )
     else:
         title, focus = _SLOT_ZH.get(hour, ("督战", ""))
@@ -396,7 +409,8 @@ def _render_person(
             f"【海外渠道业绩达标群 · 每日三追进度表】{title} {slot}（{tz_label}）\n"
             f"- 汇报人：{reporter} | 日期：{day} | 阶段：{slot}\n"
             f"- 本档动作：{focus}\n"
-            f"- 月度目标：{target} 万 | 截至当前累计回款：{mtd} 万 | 今日目标：{slogan}\n"
+            f"- 月度目标：{target} 万 | 滚动日目标：{target_progress}\n"
+            f"- 累计回款：{mtd} 万 | 战役：{slogan}\n"
         )
     if use_diff:
         return head + "\n" + _changes_text(person, prev_person, lang)
@@ -423,40 +437,74 @@ def _full_person_body(
     evidence = _evidence_text(person, lang)
     hours = hours_text(person, lang)
     daily = _daily_report_text(person, lang)
+    perf = _perf_text(person, lang)
     if lang == "en":
         return (
-            "1. Core collection (progress % + expected payment time):\n"
+            "1. Performance keywords (arrived / payment slip / intent):\n"
+            f"{perf}\n"
+            "2. Core collection (progress % + expected payment time):\n"
             f"{core}\n"
-            "2. Daily 4 MTO luxury proposals (≥ CNY 300k):\n"
+            "3. Daily 4 MTO luxury proposals (≥ CNY 300k):\n"
             f"   • Submitted: {mto}\n"
             "   • Reach: WhatsApp screenshot pending unless posted in-group\n"
-            "3. Today's activity and hours:\n"
+            "4. Today's activity and hours:\n"
             f"   • VPS trace: {vps}\n"
             "   • VPS opportunities: pending\n"
             f"   • WhatsApp accounts: {wa} | clear intent: {intent}\n"
             f"   • Hours vs 8h std: {hours}\n"
             f"   • Vemory recordings: {vemory}\n"
-            "4. Blockers needing help today:\n"
+            "5. Blockers needing help today:\n"
             f"{blockers}\n"
-            f"5. Evidence: {evidence}\n"
-            f"6. Daily report check: {daily}"
+            f"6. Evidence: {evidence}\n"
+            f"7. Daily report check: {daily}"
         )
     return (
-        "1. 核心客户催款与回款进展（百分比量化 + 预计打款时间）：\n"
+        "1. 业绩三关键词（到账 / 水单 / 意向）：\n"
+        f"{perf}\n"
+        "2. 核心客户催款与回款进展（百分比量化 + 预计打款时间）：\n"
         f"{core}\n"
-        "2. 每日 4 款 MTO 高奢方案输出（≥30万）：\n"
+        "3. 每日 4 款 MTO 高奢方案输出（≥30万）：\n"
         f"   • {mto}\n"
         "   • 触达记录：WhatsApp 发送截图以群内原图为准，未标截图则待确认\n"
-        "3. 今日过程留痕与工时消耗：\n"
+        "4. 今日过程留痕与工时消耗：\n"
         f"   • VPS 留痕：{vps}\n"
         f"   • VPS 录入商机数：待确认\n"
         f"   • WhatsApp 沟通户数：{wa} 户 | 产生明确意向：{intent} 户\n"
         f"   • 工时（对照标准8h）：{hours}\n"
         f"   • Vemory 会议录音：{vemory}\n"
-        "4. 今日卡点与需协同解决项：\n"
+        "5. 今日卡点与需协同解决项：\n"
         f"{blockers}\n"
-        f"5. 附件证据：{evidence}\n"
-        f"6. 海外日报群核对：{daily}"
+        f"6. 附件证据：{evidence}\n"
+        f"7. 海外日报群核对：{daily}"
+    )
+
+
+def _perf_text(person: dict | None, lang: str) -> str:
+    """业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向（明确意向金额）。"""
+    person = person or {}
+    arrived = wan_text(person.get("perf_arrived_wan"), lang)
+    slip = person.get("perf_slip") or []
+    intent = person.get("perf_intent") or []
+
+    def _brief(items: list[dict]) -> str:
+        if not items:
+            return "pending" if lang == "en" else "待确认"
+        parts = []
+        for item in items[:3]:
+            money = item.get("amount_text") or ("金额待确认" if lang == "zh" else "amount pending")
+            parts.append(f"{money}（{item.get('snippet') or ''}）" if lang == "zh" else f"{money}")
+        return "；".join(parts)
+
+    if lang == "en":
+        return (
+            f"   • Arrived (booked, system): {arrived} wan\n"
+            f"   • Payment slip (paid, not yet credited): {_brief(slip)}\n"
+            f"   • Intent (explicit amount): {_brief(intent)}"
+        )
+    return (
+        f"   • 到账（已录单，系统口径）：{arrived} 万\n"
+        f"   • 水单（客户已付款、未到我们账户，一定会到）：{_brief(slip)}\n"
+        f"   • 意向（明确的意向金额）：{_brief(intent)}"
     )
 
 
