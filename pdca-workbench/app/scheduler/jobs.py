@@ -614,19 +614,20 @@ def duzhan_job(tz_name: str, hour: int) -> None:
         logger.info("督战官已推送 {} {}", tz_name, hour)
 
 
-def ctob_job() -> None:
-    """工作日北京 20:00：16 个 C转B 群 WhatsApp 晚追（P2 封装）。"""
-    from app.agents.flow_controller import run_ctob_evening
+def ctob_job(hour: int = 20) -> None:
+    """工作日北京 10:00 / 15:00 / 20:00：16 个 C转B 群按档推送（P2 封装）。"""
+    from app.agents.flow_controller import run_ctob_slot
 
-    result = run_ctob_evening()
+    result = run_ctob_slot(hour)
+    label = f"{hour:02d}:00 C转B"
     if result.get("skipped"):
-        logger.info("C转B 晚追跳过 {}", result["skipped"])
+        logger.info("{}跳过 {}", label, result["skipped"])
     elif result.get("status") == "failed":
-        logger.error("C转B 晚追失败: {}", result.get("error"))
+        logger.error("{}失败: {}", label, result.get("error"))
     elif result.get("status") == "partial":
-        logger.error("C转B 晚追部分失败: {}", result.get("failed"))
+        logger.error("{}部分失败: {}", label, result.get("failed"))
     else:
-        logger.info("C转B 晚追已推送 {}", result.get("sent"))
+        logger.info("{}已推送 {}", label, result.get("sent"))
 
 
 def agent_slot_health_job() -> None:
@@ -1074,31 +1075,43 @@ def start_scheduler() -> BackgroundScheduler | None:
     if getattr(settings, "ctob_enabled", False):
         from zoneinfo import ZoneInfo
 
-        _scheduler.add_job(
-            ctob_job,
-            trigger="cron",
-            hour=20,
-            minute=0,
-            day_of_week="mon-fri",
-            timezone=ZoneInfo("Asia/Shanghai"),
-            id="ctob_2000",
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=3600,
-        )
-        # 补发兜底：20:30 再触发一次，共享 ctob 台账与幂等键，绝不重复推送。
-        _scheduler.add_job(
-            ctob_job,
-            trigger="cron",
-            hour=20,
-            minute=30,
-            day_of_week="mon-fri",
-            timezone=ZoneInfo("Asia/Shanghai"),
-            id="ctob_backup_2030",
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=3600,
-        )
+        # C转B 与达标群同结构：10:00 定任务 / 15:00 追变化 / 20:00 验兑现。
+        raw_times = getattr(settings, "ctob_times", ["10:00", "15:00", "20:00"])
+        for slot in raw_times:
+            try:
+                hour_text, minute_text = str(slot).split(":", 1)
+                hour, minute = int(hour_text), int(minute_text)
+            except (ValueError, AttributeError):
+                logger.warning("忽略非法 C转B 档位时间: {}", slot)
+                continue
+            _scheduler.add_job(
+                ctob_job,
+                args=[hour],
+                trigger="cron",
+                hour=hour,
+                minute=minute,
+                day_of_week="mon-fri",
+                timezone=ZoneInfo("Asia/Shanghai"),
+                id=f"ctob_{hour:02d}{minute:02d}",
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=3600,
+            )
+            # 补发兜底（+30 分钟）：共享同档台账与幂等键，绝不重复推送。
+            backup = hour * 60 + minute + 30
+            _scheduler.add_job(
+                ctob_job,
+                args=[hour],
+                trigger="cron",
+                hour=(backup // 60) % 24,
+                minute=backup % 60,
+                day_of_week="mon-fri",
+                timezone=ZoneInfo("Asia/Shanghai"),
+                id=f"ctob_backup_{(backup // 60) % 24:02d}{backup % 60:02d}",
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=3600,
+            )
 
     # ── 多智能体督战运行时调度（全部默认关闭/影子，模型故障不阻断确定性任务）──
     # P0：档位健康检查，每 5 分钟扫窗口（各时区本地整点后 5 分钟内检查）。
@@ -1169,13 +1182,18 @@ def start_scheduler() -> BackgroundScheduler | None:
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
         "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00 "
         "im_reply_poll=*/30 9-18 duzhan={}(+30m兜底) collect=-{}m at_poll={} "
-        "ctob20={}(+30m兜底) agent={} shadow={} health={} outbox={}",
+        "ctob={}(+30m兜底) digest={} agent={} shadow={} health={} outbox={}",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
         getattr(settings, "duzhan_times", []) if getattr(settings, "duzhan_enabled", False) else "停用",
         getattr(settings, "duzhan_lead_minutes", 0) if getattr(settings, "duzhan_enabled", False) else 0,
         "1m" if getattr(settings, "duzhan_enabled", False) and getattr(settings, "duzhan_reply_enabled", False) else "停用",
-        "开" if getattr(settings, "ctob_enabled", False) else "停用",
+        getattr(settings, "ctob_times", []) if getattr(settings, "ctob_enabled", False) else "停用",
+        (
+            f"{getattr(settings, 'daily_digest_time', '08:00')}(+30m兜底)"
+            if getattr(settings, "daily_digest_enabled", False)
+            else "停用"
+        ),
         "开" if getattr(settings, "agent_enabled", False) else "停用",
         "开" if getattr(settings, "agent_shadow_mode", False) else "关",
         "开" if getattr(settings, "agent_healthcheck_enabled", False) else "停用",

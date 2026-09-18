@@ -177,6 +177,9 @@ class PersonRow:
     days_in_month: int | None = None
     target_gap_wan: float | None = None
     target_ahead: bool | None = None
+    # 新人小组等“只按小组下达目标”的组：个人无月目标时，用组目标（不摊到人头）。
+    group_target_wan: float | None = None
+    group_target_name: str = ""
     # 业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向（明确意向金额）
     perf_arrived_wan: float | None = None
     perf_slip: list[dict] = field(default_factory=list)
@@ -596,6 +599,28 @@ def load_month_targets(day: str) -> dict[str, float]:
         if name:
             out[name] = float(item.get("target_wan") or 0)
     return out
+
+
+def group_target_of(display: str, day: str) -> tuple[float, str] | None:
+    """按人头找不到月目标时，回查目标文件里带 members 的小组目标。
+
+    返回 (组目标万, 小组名)；找不到返回 None。新人小组按“小组总体算”，
+    不把人头摊开，避免编出个人的日目标。
+    """
+    month = day[:7]
+    try:
+        payload = json.loads(TARGETS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    entries = (payload.get(month) or {}).get("entries") or []
+    for item in entries:
+        members = item.get("members") or []
+        if display in members:
+            try:
+                return float(item.get("target_wan") or 0), str(item.get("name") or "")
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def parse_wa_reached(payload: dict | None) -> tuple[int | None, bool]:
@@ -1649,6 +1674,12 @@ def collect_ledger(day: str) -> dict:
         month_target = row.target_wan
         if month_target is None:
             month_target = monthly_targets.get(owner.display)
+        if month_target is None:
+            # 新人小组这类“只对小组下目标”的口径：个人不摊目标，只带组目标给渲染侧。
+            group_target = group_target_of(owner.display, day)
+            if group_target:
+                row.group_target_wan = group_target[0]
+                row.group_target_name = group_target[1]
         progress = daily_target_progress(month_target, row.mtd_wan, day)
         row.target_wan = month_target
         row.daily_target_wan = progress["daily_target"]

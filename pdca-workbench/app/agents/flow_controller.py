@@ -120,42 +120,52 @@ def push_performance_slot(tz_name: str, hour: int, now: datetime | None = None) 
     return {"tz": tz_name, "hour": hour, "status": "ok", "sent": sent}
 
 
-def run_ctob_evening(day: str | None = None, now: datetime | None = None) -> dict:
-    """C转B 晚追（P2 封装）：工作日北京 20:00。"""
-    from app.ctob import TZ_SHANGHAI as _SH, run_ctob
+def run_ctob_slot(
+    hour: int = 20,
+    day: str | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """C转B 按档推送（P2 封装）：工作日北京 10:00 / 15:00 / 20:00，每档独立台账。"""
+    from app.ctob import TZ_SHANGHAI as _SH, run_ctob, slot_title
 
     now = now or datetime.now(ZoneInfo(_SH))
     if not is_duzhan_workday(_SH, now):
         return {"skipped": "weekend"}
     day = day or now.astimezone(ZoneInfo(_SH)).strftime("%Y-%m-%d")
-    if not claim_run("ctob", day):
+    bucket = f"{day}-{hour:02d}"
+    if not claim_run("ctob", bucket):
         return {"skipped": "already_claimed"}
     try:
-        result = run_ctob(day, now)
+        result = run_ctob(day, now, hour=hour)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("C转B 晚追失败: {}", exc)
-        finish_run("ctob", day, "failed", f"{type(exc).__name__}: {exc}")
-        notify("C转B晚追失败", str(exc)[:200])
+        logger.exception("C转B {}失败: {}", slot_title(hour), exc)
+        finish_run("ctob", bucket, "failed", f"{type(exc).__name__}: {exc}")
+        notify(f"C转B{slot_title(hour)}失败", str(exc)[:200])
         return {"status": "failed", "error": str(exc)[:300]}
     failed = result.get("failed") or []
     sent = result.get("sent") or []
     # 对齐核心日报模式：部分失败 60 秒后整档重试一次（幂等键 ctob-* 防重复推送）。
     if failed:
-        logger.warning("C转B 晚追部分失败，60 秒后重试一次: {}", failed)
+        logger.warning("C转B {}部分失败，60 秒后重试一次: {}", slot_title(hour), failed)
         time.sleep(60)
         try:
-            retry = run_ctob(day, now)
+            retry = run_ctob(day, now, hour=hour)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("C转B 晚追重试失败: {}", exc)
+            logger.exception("C转B {}重试失败: {}", slot_title(hour), exc)
             retry = {"sent": [], "failed": failed}
         sent = sorted(set(sent) | set(retry.get("sent") or []))
         failed = retry.get("failed") or []
     if failed:
-        finish_run("ctob", day, "failed", ",".join(failed)[:512])
-        notify("C转B晚追部分失败", str(failed))
+        finish_run("ctob", bucket, "failed", ",".join(failed)[:512])
+        notify(f"C转B{slot_title(hour)}部分失败", str(failed))
         return {"status": "partial", "sent": sent, "failed": failed}
-    finish_run("ctob", day, "sent", ",".join(sent)[:512])
+    finish_run("ctob", bucket, "sent", ",".join(sent)[:512])
     return {"status": "ok", "sent": sent}
+
+
+def run_ctob_evening(day: str | None = None, now: datetime | None = None) -> dict:
+    """C转B 晚追（20:00 档，兼容旧调用）。"""
+    return run_ctob_slot(20, day, now)
 
 
 def build_daily_report(day: str) -> str:

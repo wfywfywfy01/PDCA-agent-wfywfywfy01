@@ -169,6 +169,22 @@ class DigestStructureTests(unittest.TestCase):
         self.assertIn("新人小组业绩达标群（邓琳莹 / Safae / 王宇彤 / 张月馨）", text)
         self.assertIn("月目标 100 万", text)
 
+    def test_individual_line_uses_group_level_target(self):
+        led = _ledger(
+            [
+                _person(
+                    "邓琳莹",
+                    "新人小组业绩达标群",
+                    target_wan=None,
+                    daily_target_wan=None,
+                    group_target_wan=100.0,
+                    group_target_name="新部",
+                )
+            ]
+        )
+        text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
+        self.assertIn("日目标 按新部整体算（100 万/月）", text)
+
     def test_blocker_section_excludes_daily_plan(self):
         led = _ledger(
             [

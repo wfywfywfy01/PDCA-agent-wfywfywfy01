@@ -1099,6 +1099,23 @@ class DuzhanSlotStructureTests(unittest.TestCase):
         text = render_brief(group, 10, now, self._ledger(person))
         self.assertIn("0. 今日目标（本档先定）：待确认（缺月度目标）", text)
 
+    def test_morning_slot_uses_group_level_target_for_newcomers(self):
+        group = groups_for_tz(TZ_SHANGHAI)[0]
+        now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(
+            group="新人小组业绩达标群",
+            display="邓琳莹",
+            target_wan=None,
+            daily_target_wan=None,
+            rolling_target_wan=None,
+            target_gap_wan=None,
+            group_target_wan=100.0,
+            group_target_name="新部",
+        )
+        text = render_brief(group, 10, now, self._ledger(person))
+        self.assertIn("0. 今日目标（本档先定）：小组口径 新部 100 万/月", text)
+        self.assertNotIn("缺月度目标", text)
+
     def test_midday_slot_reports_delta_not_month_over_day(self):
         group = groups_for_tz(TZ_SHANGHAI)[1]
         now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
