@@ -838,6 +838,15 @@ class DuzhanLedgerTests(unittest.TestCase):
         self.assertEqual(match_vemory(lina, rows)[0], [])
         self.assertFalse(match_vemory(yu, None)[1])
 
+    def test_lina_alias_includes_chinese_name(self):
+        """老板 2026-09-18 确认：丽娜 = Lina，会议/日报按别名要能对上。"""
+        from app.duzhan_ledger import OWNERS, match_daily_report, vemory_aliases
+
+        lina = [item for item in OWNERS if item.display == "Lina"][0]
+        self.assertIn("丽娜", vemory_aliases(lina))
+        matched = match_daily_report(lina, {"丽娜": {"item_count": 3, "spent_hours": 8}})
+        self.assertEqual(matched.get("item_count"), 3)
+
     def test_xinren_owners_exclude_zhangqian(self):
         """老板 2026-09-18 拍板：加上江旭（Sana）；吴楠、杨成凤、张倩不加。"""
         from app.duzhan_ledger import OWNERS
