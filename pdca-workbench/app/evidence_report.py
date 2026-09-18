@@ -16,13 +16,14 @@ import html
 import io
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+from loguru import logger
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 if str(APP_ROOT) not in sys.path:
@@ -113,11 +114,13 @@ def download_images(owner_rows: list[dict], raw_by_owner: dict[str, list[dict]],
                 target = workdir / (str(used) + "-" + name.replace("/", "_"))
                 args = ["im", "+attachment-download", "--output", str(target)]
                 args += (["--url", url] if url else ["--storage-key", key])
-                result = subprocess.run(
-                    ["vertu-cli"] + args, capture_output=True, text=True,
-                    encoding="utf-8", errors="replace", shell=True,
-                )
-                if result.returncode != 0 or not target.exists():
+                # 用 app.vertu.client 解析 CLI 路径：容器里 vertu-cli 不在 PATH 上，
+                # 直接 subprocess("vertu-cli") 会静默失败（本地 951 KB、容器 53 KB 就是这个原因）。
+                from app.vertu.client import run_vertu_sync
+
+                code, _out, err = run_vertu_sync(args, timeout=90.0)
+                if code != 0 or not target.exists():
+                    logger.warning("证据日报图片下载失败 {}: {}", name, (err or "")[:120])
                     items.append({"name": name, "b64": None, "note": "下载失败"})
                     used += 1
                     continue
