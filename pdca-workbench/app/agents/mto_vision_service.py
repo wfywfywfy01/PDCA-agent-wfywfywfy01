@@ -45,6 +45,7 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
     """
     from app.duzhan_ledger import (
         OWNERS,
+        _history_ids,
         fetch_channel_history,
         messages_on_day,
         parse_mto_images,
@@ -68,7 +69,7 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         "owner": owner_name,
         "group": owner.group,
         "day": day,
-        "channel_id": owner.follow_channel_id or "",
+        "channel_id": getattr(owner, "follow_channel_id", "") or "",
         "rows": [],
         "images": 0,
         "qualified": 0,
@@ -78,8 +79,13 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         "goal_met": False,
     }
     try:
-        channel_id = owner.follow_channel_id or owner.group
-        raw_messages = fetch_channel_history(owner.follow_channel_id, day, "300")
+        # 与督战采集同源：达标群 + 跟进群（_history_ids）全部拉取后合并，
+        # 之前只用 follow_channel_id（可能为空）导致图片数为 0。
+        channel_ids = list(_history_ids(owner))
+        result["channel_ids"] = channel_ids
+        raw_messages: list = []
+        for channel_id in channel_ids:
+            raw_messages.extend(fetch_channel_history(channel_id, day, "300"))
         messages = messages_on_day(raw_messages, day, owner_group_timezone(owner))
         image_count, file_names = parse_mto_images(messages, owner.im_user_id)
         quote_count, _names, quotes = review_mto_images(messages, owner.im_user_id)
