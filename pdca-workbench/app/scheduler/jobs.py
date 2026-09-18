@@ -499,6 +499,59 @@ def kpi_refresh_job() -> None:
     return
 
 
+def evidence_report_job() -> None:
+    """每天 07:30：把前一日全部证据导成单文件 HTML（数据日=昨天），供人工核对。
+
+    只读采集（台账 + 群原话 + MTO 原图/OCR），写到 data/exports/evidence/，
+    由本机计划任务在 08:00 拉到桌面。失败不静默，只告警不发群。
+    """
+    import shutil
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.evidence_report import save_report
+    from app.scheduler.run_ledger import claim_run, finish_run
+
+    settings = get_settings()
+    day = (
+        datetime.now(ZoneInfo("Asia/Shanghai")) - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+    if not claim_run("evidence_report", day):
+        logger.info("证据日报本日已生成，跳过 {}", day)
+        return
+    out_dir = settings.data_dir / "exports" / "evidence"
+    try:
+        summary = save_report(
+            day, out_dir, int(getattr(settings, "evidence_report_images", 24) or 24)
+        )
+    except Exception as exc:  # noqa: BLE001 — 采集/渲染失败要留痕并告警
+        logger.exception("证据日报生成失败: {}", exc)
+        finish_run("evidence_report", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("督战证据日报生成失败", str(exc)[:200])
+        return
+    finish_run("evidence_report", day, "sent", f"{summary.get('bytes')} bytes")
+    logger.info(
+        "证据日报已生成 {}｜{} KB｜{} 人｜{} 张图｜{} 秒",
+        summary.get("html"),
+        round(int(summary.get("bytes") or 0) / 1024),
+        summary.get("people"),
+        summary.get("images"),
+        summary.get("elapsed_seconds"),
+    )
+    _prune_evidence_reports(out_dir, keep=45)
+
+
+def _prune_evidence_reports(out_dir, keep: int = 45) -> None:
+    """只保留最近 N 天产物，避免磁盘只涨不降（删失败不影响主流程）。"""
+    try:
+        files = sorted(out_dir.glob("督战证据_*.html"), key=lambda item: item.stat().st_mtime)
+        for stale in files[: max(len(files) - keep, 0)]:
+            stale.unlink(missing_ok=True)
+            stale.with_suffix(".json").unlink(missing_ok=True)
+    except OSError as exc:  # noqa: BLE001
+        logger.warning("证据日报清理旧文件失败: {}", exc)
+
+
 def daily_digest_job() -> None:
     """海外日报群总结（08:00）：过去 24 小时、总分结构；失败不静默。
 
@@ -1046,6 +1099,32 @@ def start_scheduler() -> BackgroundScheduler | None:
                 coalesce=True,
             )
 
+    # 07:30 — 督战证据日报（前一日全部证据导 HTML）：PDCA_EVIDENCE_REPORT_ENABLED=1 才注册。
+    # 与本机计划任务配合：容器生成 → 08:00 拉到桌面，固定测试流程每天一份。
+    if getattr(settings, "evidence_report_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        evidence_time = str(getattr(settings, "evidence_report_time", "07:30") or "07:30")
+        try:
+            evidence_hour, evidence_minute = (
+                int(part) for part in evidence_time.split(":", 1)
+            )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法证据日报时间: {}", evidence_time)
+        else:
+            _scheduler.add_job(
+                evidence_report_job,
+                trigger="cron",
+                hour=evidence_hour,
+                minute=evidence_minute,
+                day_of_week="mon-sun",
+                timezone=ZoneInfo("Asia/Shanghai"),
+                id="evidence_report",
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=3600,
+            )
+
     # 08:00 — 海外日报群总结（前 24 小时总分结构）：PDCA_DAILY_DIGEST_ENABLED=1 才注册。
     # 08:30 备份触发共享 claim 台账：健康时跳过，漏跑时补上，绝不重复推群。
     if getattr(settings, "daily_digest_enabled", False):
@@ -1182,7 +1261,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
         "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00 "
         "im_reply_poll=*/30 9-18 duzhan={}(+30m兜底) collect=-{}m at_poll={} "
-        "ctob={}(+30m兜底) digest={} agent={} shadow={} health={} outbox={}",
+        "ctob={}(+30m兜底) digest={} evidence={} agent={} shadow={} health={} outbox={}",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
         getattr(settings, "duzhan_times", []) if getattr(settings, "duzhan_enabled", False) else "停用",
@@ -1192,6 +1271,11 @@ def start_scheduler() -> BackgroundScheduler | None:
         (
             f"{getattr(settings, 'daily_digest_time', '08:00')}(+30m兜底)"
             if getattr(settings, "daily_digest_enabled", False)
+            else "停用"
+        ),
+        (
+            f"{getattr(settings, 'evidence_report_time', '07:30')}"
+            if getattr(settings, "evidence_report_enabled", False)
             else "停用"
         ),
         "开" if getattr(settings, "agent_enabled", False) else "停用",
