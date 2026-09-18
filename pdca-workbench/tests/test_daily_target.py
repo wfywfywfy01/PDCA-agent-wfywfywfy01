@@ -47,6 +47,43 @@ class DailyTargetTests(unittest.TestCase):
         self.assertIn("领先 27.3 万", text)
 
 
+class PerformanceNoiseTests(unittest.TestCase):
+    """机器人模板回显与明确否定不能当成客户水单/意向。"""
+
+    def _msg(self, body: str) -> dict:
+        return {
+            "sender_user_id": 13063,
+            "message_type": "text",
+            "body": body,
+            "created_at": "2026-09-18T03:10:00Z",
+        }
+
+    def test_bot_template_echo_is_ignored(self):
+        msgs = [
+            self._msg("②水单（无）"),
+            self._msg("③意向（无）"),
+            self._msg("20:00 [晚追]：无 VPS 留痕记录、无Vemory 录音链接与无实际订单水单"),
+            self._msg("请补：今天汽车/转B线索有没有聊、几轮、卡点、要什么支持。"),
+        ]
+        buckets = parse_performance_buckets(msgs, 13063)
+        self.assertEqual(buckets["slip"], [])
+        self.assertEqual(buckets["intent"], [])
+
+    def test_real_slip_and_intent_still_captured(self):
+        msgs = [
+            self._msg("客户已回传水单 USD 45,000，等财务确认"),
+            self._msg("迪拜客户明确意向 120万"),
+        ]
+        buckets = parse_performance_buckets(msgs, 13063)
+        self.assertEqual(len(buckets["slip"]), 1)
+        self.assertAlmostEqual(buckets["slip"][0]["wan"], 31.9, places=1)
+        self.assertEqual(len(buckets["intent"]), 1)
+
+    def test_negation_without_amount_is_ignored(self):
+        buckets = parse_performance_buckets([self._msg("没有意向客户")], 13063)
+        self.assertEqual(buckets["intent"], [])
+
+
 class GroupTargetTests(unittest.TestCase):
     """新人小组这类“只对小组下目标”的口径：个人不摊人头，回查组目标。"""
 
