@@ -188,7 +188,7 @@ class PersonRow:
     days_in_month: int | None = None
     target_gap_wan: float | None = None
     target_ahead: bool | None = None
-    # 新人小组等“只按小组下达目标”的组：个人无月目标时，用组目标（不摊到人头）。
+    # 小组目标背景值：新人小组 100 万按人头平均分后，这里留小组总额与组名。
     group_target_wan: float | None = None
     group_target_name: str = ""
     # 业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向（明确意向金额）
@@ -621,11 +621,11 @@ def load_month_targets(day: str) -> dict[str, float]:
     return out
 
 
-def group_target_of(display: str, day: str) -> tuple[float, str] | None:
-    """按人头找不到月目标时，回查目标文件里带 members 的小组目标。
+def _group_entry_of(display: str, day: str) -> tuple[dict, list[str]] | None:
+    """按“达标群”回查目标文件里的小组条目，返回 (条目, 该群实际跟踪的人)。
 
-    返回 (组目标万, 小组名)；找不到返回 None。新人小组按“小组总体算”，
-    不把人头摊开，避免编出个人的日目标。
+    不依赖目标文件成员名单与跟踪名单完全一致：江旭（Sana）后加进来也能算进去，
+    而目标文件本身保持原样（核心日报的成员文案不变）。
     """
     month = day[:7]
     try:
@@ -633,14 +633,47 @@ def group_target_of(display: str, day: str) -> tuple[float, str] | None:
     except (OSError, json.JSONDecodeError):
         return None
     entries = (payload.get(month) or {}).get("entries") or []
+    owner = next((item for item in OWNERS if item.display == display), None)
+    same_group = [item.display for item in OWNERS if owner and item.group == owner.group]
     for item in entries:
-        members = item.get("members") or []
-        if display in members:
-            try:
-                return float(item.get("target_wan") or 0), str(item.get("name") or "")
-            except (TypeError, ValueError):
-                return None
+        members = [str(name) for name in (item.get("members") or []) if name]
+        if set(members) & set(same_group):
+            return item, (same_group or members)
     return None
+
+
+def group_target_of(display: str, day: str) -> tuple[float, str] | None:
+    """按人头找不到月目标时，回查目标文件里带 members 的小组目标。
+
+    返回 (组目标万, 小组名)；找不到返回 None。
+    """
+    found = _group_entry_of(display, day)
+    if not found:
+        return None
+    entry, _members = found
+    try:
+        return float(entry.get("target_wan") or 0), str(entry.get("name") or "")
+    except (TypeError, ValueError):
+        return None
+
+
+def split_group_target_of(display: str, day: str) -> tuple[float, str, int] | None:
+    """小组目标按人头平均分：返回 (每人月目标万, 小组名, 人数)。
+
+    老板 2026-09-18 拍板：新人小组 100 万给新人平均分（分母只算实际
+    纳入跟踪的人，目标文件里列了但没跟踪的人不摊）。
+    """
+    found = _group_entry_of(display, day)
+    if not found:
+        return None
+    entry, counted = found
+    if not counted:
+        return None
+    try:
+        total = float(entry.get("target_wan") or 0)
+    except (TypeError, ValueError):
+        return None
+    return round(total / len(counted), 2), str(entry.get("name") or ""), len(counted)
 
 
 def parse_wa_reached(payload: dict | None) -> tuple[int | None, bool]:
@@ -1723,11 +1756,13 @@ def collect_ledger(day: str) -> dict:
         if month_target is None:
             month_target = monthly_targets.get(owner.display)
         if month_target is None:
-            # 新人小组这类“只对小组下目标”的口径：个人不摊目标，只带组目标给渲染侧。
-            group_target = group_target_of(owner.display, day)
-            if group_target:
-                row.group_target_wan = group_target[0]
-                row.group_target_name = group_target[1]
+            # 新人小组：老板 2026-09-18 拍板 100 万按人头平均分；
+            # 同时保留组口径字段，渲染侧能标出“这是小组目标摊下来的”。
+            split = split_group_target_of(owner.display, day)
+            if split:
+                month_target = split[0]
+                row.group_target_wan = split[0] * split[2]
+                row.group_target_name = split[1]
         progress = daily_target_progress(month_target, row.mtd_wan, day)
         row.target_wan = month_target
         row.daily_target_wan = progress["daily_target"]

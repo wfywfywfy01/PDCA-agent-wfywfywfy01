@@ -143,6 +143,25 @@ class GroupTargetTests(unittest.TestCase):
 
         self.assertIsNone(group_target_of("于冰", "2026-09-18"))
 
+    def test_group_target_split_evenly(self):
+        """老板 2026-09-18：新人 100 万给新人平均分（5 人 → 每人 20 万/月）。"""
+        from app.duzhan_ledger import split_group_target_of
+
+        share, name, count = split_group_target_of("邓琳莹", "2026-09-18")
+        self.assertEqual(name, "新部")
+        self.assertEqual(count, 5)
+        self.assertAlmostEqual(share, 20.0, places=2)
+        self.assertAlmostEqual(split_group_target_of("江旭", "2026-09-18")[0], 20.0, places=2)
+        # 摊下来以后的滚动日目标：20 万 ÷ 30 天 = 0.67 万/天
+        progress = daily_target_progress(share, 0, "2026-09-18")
+        self.assertAlmostEqual(progress["daily_target"], 0.67, places=2)
+
+    def test_split_none_for_person_with_own_target(self):
+        from app.duzhan_ledger import split_group_target_of
+
+        self.assertIsNone(split_group_target_of("于冰", "2026-09-18"))
+        self.assertIsNone(split_group_target_of("查无此人", "2026-09-18"))
+
     def test_unknown_person_and_month(self):
         from app.duzhan_ledger import group_target_of
 
