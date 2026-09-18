@@ -134,7 +134,9 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
                 ],
             }
         ],
-        "max_tokens": 400,
+        # 本地 Qwen 网关为推理模型：reasoning+正文会吃预算，400 曾导致末尾
+        # JSON 被截断（finish_reason=length）而读不出报价，给足预算。
+        "max_tokens": 1500,
         "temperature": 0.1,
     }
     try:
@@ -149,11 +151,33 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
             verify=False,
         )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        choice = (data.get("choices") or [{}])[0]
+        text = choice["message"]["content"] or ""
+        row = parse_quote_text(text)
+        # 截断重试一次：追加“直接输出 JSON”引导，避免 reasoning 吃满预算。
+        if not row["raw_ok"] and choice.get("finish_reason") == "length":
+            payload["messages"] = payload["messages"] + [{
+                "role": "user",
+                "content": "请直接输出结果 JSON，不要任何说明。",
+            }]
+            retry_resp = httpx.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=120.0,
+                verify=False,
+            )
+            retry_resp.raise_for_status()
+            text = retry_resp.json()["choices"][0]["message"]["content"]
+            return parse_quote_text(text)
+        return row
     except Exception as exc:  # noqa: BLE001
         logger.warning("MTO OCR 失败: {}", exc)
         return parse_quote_text("")
-    return parse_quote_text(text)
 
 
 def _vps_auth() -> tuple[str, dict]:

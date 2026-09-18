@@ -89,11 +89,18 @@ class MtoOcrTests(unittest.TestCase):
         self.assertEqual(headers["x-vertu-user-login"], "env@vertu.cn")
 
     def test_webp_converted_to_png_before_ocr(self):
-        """回归：本地 Qwen 网关 webp 直传读不出，须先转 PNG。"""
+        """回归：本地 Qwen 网关 webp 直传读不出，须先转 PNG。
+
+        CI 单元测试环境不装 Pillow（生产镜像内有）；无 Pillow 时跳过，
+        转码行为已在生产容器实测验证。
+        """
         import base64
         import io
 
-        from PIL import Image
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow 未安装（CI 单元测试环境）")
 
         from app.mto_ocr import ocr_image_bytes
 
@@ -124,6 +131,66 @@ class MtoOcrTests(unittest.TestCase):
             bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
             "提交的应是 PNG 魔数",
         )
+
+    def test_length_truncation_retries_with_direct_json(self):
+        """回归：reasoning 吃满预算（finish_reason=length、无 JSON）时重试一次直接输出 JSON。"""
+        import base64
+        import io
+
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow 未安装（CI 单元测试环境）")
+
+        from app.mto_ocr import ocr_image_bytes
+
+        raw = io.BytesIO()
+        Image.new("RGB", (2, 2), (10, 10, 10)).save(raw, format="PNG")
+        png_bytes = raw.getvalue()
+
+        class FakeResp:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        calls = []
+
+        def fake_post(url, json=None, headers=None, timeout=None, verify=None):
+            calls.append(json)
+            if len(calls) == 1:
+                return FakeResp({
+                    "choices": [{
+                        "finish_reason": "length",
+                        "message": {"content": "大量推理文本，但没有 JSON"},
+                    }],
+                })
+            return FakeResp({
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": '{"model":"Quantum","total_usd":45022,"target_customer":""}'
+                    },
+                }],
+            })
+
+        with patch("app.mto_ocr.get_settings") as settings_mock, patch(
+            "app.mto_ocr.httpx.post", side_effect=fake_post
+        ):
+            settings_mock.return_value.qwen_base_url = "https://qwen3.vertu.cn:8443"
+            settings_mock.return_value.qwen_api_key = "k"
+            settings_mock.return_value.qwen_model = "qwen3.8-27b"
+            result = ocr_image_bytes(png_bytes, "image/png")
+        self.assertTrue(result["raw_ok"])
+        self.assertEqual(result["model"], "Quantum")
+        self.assertEqual(len(calls), 2)
+        # 第二次请求带“直接输出 JSON”引导
+        steered = calls[1]["messages"][-1]["content"]
+        self.assertIn("JSON", steered)
 
 
 if __name__ == "__main__":
