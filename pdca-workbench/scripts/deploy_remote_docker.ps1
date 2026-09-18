@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Sha = "",
     [string]$DockerHost = "",
@@ -387,25 +387,60 @@ function Start-PdcaContainer {
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
         "-e", "VERTU_APP_ID=$($script:AgentAppId)"
     )
-    # 动态透传：.env 中全部 PDCA_* / VERTU_* / LOGIBOT_* / FEISHU_* 键直接注入容器。
-    # 历史教训（督战变量三次丢失）：白名单写死会随脚本版本漂移导致生产配置被
-    # 旧工作树的旧脚本冲掉；改为“读取即透传”，任何 .env 新增项都自动生效。
-    # 密钥类键名加入敏感值列表用于日志脱敏。空值不注入（容器内回落默认值）。
-    $envLines = Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
-        Where-Object { $_ -match '^[A-Z][A-Z0-9_]*=' }
-    foreach ($line in $envLines) {
-        $key, $value = $line.Split('=', 2)
-        $key = $key.Trim()
-        if ($key -notmatch '^(PDCA_|VERTU_|LOGIBOT_|FEISHU_)') { continue }
-        if ([string]::IsNullOrWhiteSpace($value)) { continue }
-        $value = $value.Trim()
-        if ($value.Length -ge 2 -and
-            (($value.StartsWith('"') -and $value.EndsWith('"')) -or
-             ($value.StartsWith("'") -and $value.EndsWith("'")))) {
-            $value = $value.Substring(1, $value.Length - 2)
+    # P1/P5：可选业务开关从 .env 透传（未配置则保持默认行为）
+    foreach ($envName in @(
+        "PDCA_HOME_REDIRECT", "PDCA_ALERT_WEBHOOK_URL",
+        "PDCA_ALERT_BOT_CHANNEL_ID",
+        "PDCA_REPORT_WEBHOOK_URL",
+        "PDCA_VPS_BOT_APP_ID", "PDCA_VPS_BOT_APP_SECRET", "PDCA_VPS_BOT_CHANNEL_ID",
+        "PDCA_DUZHAN_ENABLED", "PDCA_DUZHAN_BOT_APP_ID", "PDCA_DUZHAN_BOT_APP_SECRET",
+        "PDCA_DUZHAN_TIMES",
+        "PDCA_DUZHAN_LEAD_MINUTES",
+        "PDCA_DUZHAN_REPLY_ENABLED",
+        "LOGIBOT_ENABLED", "LOGIBOT_ROOT", "LOGIBOT_DATA_DIR",
+        "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_APP_TOKEN", "FEISHU_TABLE_ID",
+        "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
+        "PDCA_TODO_SCORING_ENABLED", "PDCA_TODO_LEDGER_SYNC_ENABLED",
+        "PDCA_TODO_BRIEF_ENABLED", "PDCA_TODO_REPORT_USER_ID",
+        "PDCA_TODO_OKR_LINK_ENABLED",
+        "PDCA_TODO_REMIND_GRACE_HOURS", "PDCA_TODO_REMIND_SKIP_OWNERS",
+        "PDCA_TODO_BOT_APP_ID",
+        "PDCA_TODO_USER_ID_OVERRIDES",
+        "PDCA_TODO_OWNER_ALIASES",
+        "PDCA_TODO_GROUP_NOTICE_ENABLED", "PDCA_TODO_GROUP_CHANNEL_ID",
+        "PDCA_TODO_GROUP_NOTICE_TIME", "PDCA_TODO_GROUP_NOTICE_MIN_DATE",
+        "PDCA_TODO_LEDGER_DOC_ID",
+        "PDCA_VEMORY_OPENAPI_URL", "PDCA_VEMORY_TODO_USERS",
+        "PDCA_DAILY_REPORT_ENABLED",
+        # 海外经销商-日报群 08:00 总结 + C转B 三档（老板 2026-09-18 确认）
+        "PDCA_DAILY_DIGEST_ENABLED", "PDCA_DAILY_DIGEST_TIME",
+        "PDCA_CTOB_ENABLED", "PDCA_CTOB_TIMES",
+        # 督战官 WhatsApp 户数/意向（AINativeSales MCP 个人令牌）
+        "PDCA_AISALES_MCP_URL", "PDCA_AISALES_MCP_TOKEN",
+        "PDCA_ODOO_SSO_SECRET", "PDCA_ODOO_BASE_URL", "PDCA_VPS_LOGIN_URL", "PDCA_VPS_SYNC_ROLE",
+        "PDCA_VERTU_SELLIN_DEPARTMENTS", "PDCA_VERTU_DEPT_L1", "PDCA_SELL_IN_CACHE_SECONDS",
+        "PDCA_ACQUISITION_ENABLED", "PDCA_ACQUISITION_URL",
+        "PDCA_KNOWLEDGE_HUB_TEAM_MAP", "PDCA_KNOWLEDGE_HUB_ENABLED", "PDCA_KNOWLEDGE_HUB_TIMEOUT_SECONDS",
+        "PDCA_FRAME_ANCESTORS", "PDCA_TOKEN_EXPIRE_MINUTES",
+        "PDCA_LOGISTICS_ADMIN_UPSTREAM", "PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS",
+        # 多智能体督战运行时（部署默认全部关闭/影子；密钥只在日志中自动脱敏）
+        "PDCA_AGENT_ENABLED", "PDCA_AGENT_SHADOW_MODE", "PDCA_AGENT_OUTBOX_ENABLED",
+        "PDCA_AGENT_AUTO_TEMPLATE_PUSH", "PDCA_AGENT_TASK_WRITE", "PDCA_AGENT_LLM_DRAFT",
+        "PDCA_AGENT_HEALTHCHECK_ENABLED", "PDCA_AGENT_HEALTHCHECK_DELAY_MINUTES",
+        "PDCA_SUPERVISOR_ENABLED", "PDCA_SUPERVISOR_PROVIDER", "PDCA_SUPERVISOR_MODEL",
+        "PDCA_SUPERVISOR_API_KEY", "PDCA_SUPERVISOR_TIMEOUT_SECONDS",
+        "PDCA_SUPERVISOR_MAX_TOOL_CALLS",
+        "PDCA_QWEN_BASE_URL", "PDCA_QWEN_API_KEY", "PDCA_QWEN_MODEL",
+        "PDCA_ASR_ENABLED", "PDCA_ASR_PROVIDER", "PDCA_DOUBAO_ASR_URL",
+        "PDCA_DOUBAO_ASR_APP_KEY", "PDCA_DOUBAO_ASR_ACCESS_KEY", "PDCA_DOUBAO_ASR_API_KEY",
+        "PDCA_DOUBAO_ASR_RESOURCE_ID", "PDCA_DOUBAO_ASR_TIMEOUT_SECONDS",
+        "PDCA_DOUBAO_ASR_MODE", "PDCA_MTO_VISION_ENABLED"
+    )) {
+        $envValue = Read-OptionalDotEnvValue $envName
+        if ($null -ne $envValue) {
+            if ($envName -match 'SECRET|TOKEN|KEY') { $script:SensitiveValues += $envValue }
+            $dockerArgs += @("-e", "$envName=$envValue")
         }
-        if ($key -match 'SECRET|TOKEN|KEY|PASSWORD') { $script:SensitiveValues += $value }
-        $dockerArgs += @("-e", "$key=$value")
     }
     $dockerArgs += $Image
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
@@ -505,20 +540,11 @@ $image = "${ImageRegistry}:$Sha"
 $currentInspectResult = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-workbench")
 $currentInspect = $currentInspectResult.StdOut
 $currentRevision = ""
-# 当前容器识别只用于“已部署同版本则跳过”与日志脱敏；解析失败（docker 瞬断/
-# PS 5.1 ConvertFrom-Json 对空输入的 12357 报错）时安全降级为未知版本继续部署，
-# 绝不因识别失败中止整条链路。
 if ($currentInspectResult.ExitCode -eq 0 -and $currentInspect) {
-    try {
-        $inspectJson = $currentInspect
-        if ($inspectJson -notmatch '^\s*\[') { $inspectJson = [regex]::Match($inspectJson, '\[[\s\S]*\]').Value }
-        $currentObject = @($inspectJson | ConvertFrom-Json)[0]
-        $currentRevision = $currentObject.Config.Labels.'com.vertu.pdca.revision'
-    } catch {
-        Write-Warning "无法解析当前容器 inspect，按未部署处理继续: $($_.Exception.Message)"
-        $currentObject = $null
-        $currentRevision = ""
-    }
+    $inspectJson = $currentInspect
+    if ($inspectJson -notmatch '^\s*\[') { $inspectJson = [regex]::Match($inspectJson, '\[[\s\S]*\]').Value }
+    $currentObject = @($inspectJson | ConvertFrom-Json)[0]
+    $currentRevision = $currentObject.Config.Labels.'com.vertu.pdca.revision'
 }
 if ($currentRevision -eq $Sha -and -not $Force) {
     $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 20
