@@ -514,14 +514,14 @@ def _perf_text(person: dict | None, lang: str) -> str:
 
     if lang == "en":
         return (
-            f"   • Arrived (booked, system): {arrived} wan\n"
-            f"   • Payment slip (paid, not yet credited): {_brief(slip)}\n"
-            f"   • Intent (explicit amount): {_brief(intent)}"
+            f"   • Arrived: {arrived} wan\n"
+            f"   • Payment slip: {_brief(slip)}\n"
+            f"   • Intent: {_brief(intent)}"
         )
     return (
-        f"   • 到账（已录单，系统口径）：{arrived} 万\n"
-        f"   • 水单（客户已付款、未到我们账户，一定会到）：{_brief(slip)}\n"
-        f"   • 意向（明确的意向金额）：{_brief(intent)}"
+        f"   • 到账：{arrived} 万\n"
+        f"   • 水单：{_brief(slip)}\n"
+        f"   • 意向：{_brief(intent)}"
     )
 
 
@@ -553,11 +553,18 @@ def _morning_target_block(person: dict | None, prev_person: dict | None, lang: s
     rolling = person.get("rolling_target_wan")
     gap = person.get("target_gap_wan")
     carried = _unfinished_titles(prev_person, lang=lang)
+    group_target = person.get("group_target_wan")
+    group_name = person.get("group_target_name") or "小组"
     if lang == "en":
         head = (
             "0. Today's target (lock it first): "
             + (f"{daily} wan/day, cumulative due {rolling} wan" if daily is not None else "pending")
         )
+        if daily is None and group_target:
+            head = (
+                f"0. Today's target (lock it first): group-level {group_name} "
+                f"{group_target:g} wan/month (assessed as a team)"
+            )
         if gap is not None:
             head += f" | {'ahead' if person.get('target_ahead') else 'behind'} {abs(gap)} wan"
         lines = [head]
@@ -566,10 +573,20 @@ def _morning_target_block(person: dict | None, prev_person: dict | None, lang: s
             + ("; ".join(carried[:3]) if carried else "no unfinished items found")
         )
         return chr(10).join(lines)
-    head = (
-        "0. 今日目标（本档先定）："
-        + (f"日目标 {daily} 万/天，累计应达 {rolling} 万" if daily is not None else "待确认（缺月度目标）")
-    )
+    if daily is None and group_target:
+        head = (
+            f"0. 今日目标（本档先定）：小组口径 {group_name} {group_target:g} 万/月"
+            f"（{group_name}整体考核，不摊人头）"
+        )
+    else:
+        head = (
+            "0. 今日目标（本档先定）："
+            + (
+                f"日目标 {daily} 万/天，累计应达 {rolling} 万"
+                if daily is not None
+                else "待确认（缺月度目标）"
+            )
+        )
     if gap is not None:
         head += f"｜{'领先' if person.get('target_ahead') else '落后'} {abs(gap)} 万"
     lines = [head]
@@ -656,6 +673,15 @@ def _slot_sections(
             progress_text += (
                 f" | today's target {daily} wan" if english else f"｜今日日目标 {daily} 万"
             )
+        elif person.get("group_target_wan"):
+            group_note = (
+                f" | group-level {person.get('group_target_name') or 'team'} "
+                f"{person['group_target_wan']:g} wan/month"
+                if english
+                else f"｜小组口径 {person.get('group_target_name') or '小组'} "
+                f"{person['group_target_wan']:g} 万/月"
+            )
+            progress_text += group_note
         label = "   • Today's target: " if english else "   • 今日目标进度："
         lines.append(label + delta_text + ("; " if english else "；") + progress_text)
         lines.append(

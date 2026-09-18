@@ -213,7 +213,13 @@ def build_digest(
         lead = ''
         if gap is not None:
             lead = f"｜{'领先' if person.get('target_ahead') else '落后'} {abs(gap):g} 万"
-        daily_text = f"{daily:g} 万" if daily is not None else "待确认"
+        if daily is not None:
+            daily_text = f"{daily:g} 万"
+        elif person.get("group_target_wan"):
+            group_name = person.get("group_target_name") or "小组"
+            daily_text = f"按{group_name}整体算（{person['group_target_wan']:g} 万/月）"
+        else:
+            daily_text = "待确认"
         lines.append(f"   • {display}：累计到账 {_wan(mtd)}{lead}｜日目标 {daily_text}")
         lines.append(f"     水单 {slip}｜意向 {intent}｜MTO {mto_text}｜WhatsApp {wa_text}｜工时 {hours}｜{report_text}")
     lines.append("")
@@ -248,7 +254,7 @@ def build_digest(
     else:
         lines.append("   • 未见卡点上报（日常计划类内容不计入本节）")
     lines.append("")
-    lines.append("数据口径：到账=系统已录单；水单=客户已付款未到账；意向=明确意向金额；读不出写待确认。")
+    lines.append("口径：到账=已录单｜水单=已付款未到账｜意向=明确意向额；读不出写待确认。")
     return chr(10).join(lines)
 
 

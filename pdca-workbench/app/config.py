@@ -103,11 +103,16 @@ class Settings:
             "PDCA_DUZHAN_REPLY_ENABLED",
             "1" if self.duzhan_enabled else "0",
         ) == "1"
-        # C转B 跟进群：工作日 20:00 追一次 WhatsApp，默认跟督战开关。
+        # C转B 跟进群：与达标群同结构（10:00 定任务 / 15:00 追变化 / 20:00 验兑现）。
         self.ctob_enabled = os.environ.get(
             "PDCA_CTOB_ENABLED",
             "1" if self.duzhan_enabled else "0",
         ) == "1"
+        self.ctob_times = [
+            item.strip()
+            for item in os.environ.get("PDCA_CTOB_TIMES", "10:00,15:00,20:00").split(",")
+            if item.strip()
+        ]
         self.aisales_mcp_url = os.environ.get(
             "PDCA_AISALES_MCP_URL",
             "https://aisales-report.vertu.cn/mcp",

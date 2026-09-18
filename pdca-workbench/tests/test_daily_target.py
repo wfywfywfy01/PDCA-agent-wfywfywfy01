@@ -47,6 +47,29 @@ class DailyTargetTests(unittest.TestCase):
         self.assertIn("领先 27.3 万", text)
 
 
+class GroupTargetTests(unittest.TestCase):
+    """新人小组这类“只对小组下目标”的口径：个人不摊人头，回查组目标。"""
+
+    def test_member_resolves_group_target(self):
+        from app.duzhan_ledger import group_target_of
+
+        target = group_target_of("邓琳莹", "2026-09-18")
+        self.assertIsNotNone(target)
+        self.assertEqual(target[1], "新部")
+        self.assertAlmostEqual(target[0], 100.0, places=1)
+
+    def test_person_with_own_target_has_no_group_target(self):
+        from app.duzhan_ledger import group_target_of
+
+        self.assertIsNone(group_target_of("于冰", "2026-09-18"))
+
+    def test_unknown_person_and_month(self):
+        from app.duzhan_ledger import group_target_of
+
+        self.assertIsNone(group_target_of("查无此人", "2026-09-18"))
+        self.assertIsNone(group_target_of("邓琳莹", "2026-01-05"))
+
+
 class PerformanceBucketTests(unittest.TestCase):
     def _msg(self, body: str) -> dict:
         return {
@@ -114,9 +137,11 @@ class RenderCopyTests(unittest.TestCase):
         self.assertIn("滚动日目标：6.67 万/天", text)
         self.assertNotIn("今日目标：1300万战役", text, "1300万是月目标口号，不能占今日目标位")
         self.assertIn("业绩三关键词", text)
-        self.assertIn("到账（已录单，系统口径）：147.4 万", text)
-        self.assertIn("水单（客户已付款、未到我们账户，一定会到）：$45,000", text)
-        self.assertIn("意向（明确的意向金额）：120万", text)
+        # 老板 2026-09-18 拍板：括号里的解释说明去掉，标题已经说明口径
+        self.assertIn("到账：147.4 万", text)
+        self.assertIn("水单：$45,000", text)
+        self.assertIn("意向：120万", text)
+        self.assertNotIn("已录单，系统口径", text)
 
 
 if __name__ == "__main__":
