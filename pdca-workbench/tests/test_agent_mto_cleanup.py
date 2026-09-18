@@ -100,6 +100,33 @@ class MtoDetailTests(unittest.TestCase):
         self.assertEqual(result["rows"][2]["customer"], "Bai Geng")
         self.assertEqual(result["rows"][0]["file"], "2.webp")
 
+    def test_detail_uses_all_history_channels(self):
+        """回归：之前只用 follow_channel_id（为空）导致图片数 0；须合并全部历史频道。"""
+        from app.agents import mto_vision_service
+
+        calls: list[str] = []
+
+        def fake_fetch(channel_id, day, limit="300"):
+            calls.append(channel_id)
+            return []
+
+        with patch.dict(mto_vision_service._cache, {}, clear=True), patch(
+            "app.duzhan_ledger.OWNERS", (_FakeOwner(),)
+        ), patch(
+            "app.duzhan_ledger._history_ids", return_value=["ch-main", "ch-follow"]
+        ), patch(
+            "app.duzhan_ledger.fetch_channel_history", side_effect=fake_fetch
+        ), patch(
+            "app.duzhan_ledger.messages_on_day", return_value=[]
+        ), patch(
+            "app.duzhan_ledger.parse_mto_images", return_value=(0, [])
+        ), patch(
+            "app.mto_ocr.review_mto_images", return_value=(0, [], [])
+        ):
+            result = mto_vision_service.review_owner_detail("于冰", "2026-09-18")
+        self.assertEqual(calls, ["ch-main", "ch-follow"], "必须把全部历史频道都拉一遍")
+        self.assertEqual(result["channel_ids"], ["ch-main", "ch-follow"])
+
     def test_detail_unknown_owner(self):
         from app.agents import mto_vision_service
 
