@@ -41,6 +41,28 @@ class MtoOcrTests(unittest.TestCase):
         self.assertFalse(row["raw_ok"])
         self.assertIsNone(row["usd"])
 
+    def test_markdown_fallback_extracts_model_and_amount(self):
+        """回归：推理模型忽略“只输出 JSON”，输出 Markdown 正文时确定性兜底提取。"""
+        text = (
+            "- **机型**：Vertu AlphaFold（折叠屏，定制单号 VertuAlphafold-PUZPL637ZF-2026） "
+            "- **金额**：$89,180.00（ESTIMATED TOTAL 预估总价） "
+            "预计交付日期（EST. DELIVERY DATE）为 2026-11-27。"
+        )
+        row = parse_quote_text(text)
+        self.assertEqual(row["model"], "Vertu AlphaFold")
+        self.assertEqual(row["usd"], 89180.0)
+        self.assertAlmostEqual(row["wan"] or 0, 63.3, places=1)
+        self.assertTrue(row["qualifies"])
+        self.assertEqual(row["delivery"], "2026-11-27")
+
+    def test_markdown_no_price_is_unread(self):
+        # 有型号无金额：型号可读，但金额待确认、不达标（qualifies=False）。
+        row = parse_quote_text("**机型**：Vertu Quantum；图中未给出任何具体价格数字。")
+        self.assertEqual(row["model"], "Vertu Quantum")
+        self.assertIsNone(row["usd"])
+        self.assertFalse(row["qualifies"])
+        self.assertTrue(row["raw_ok"])  # 型号已读出
+
     def test_tmp_dir_removed_after_ocr(self):
         from pathlib import Path
 

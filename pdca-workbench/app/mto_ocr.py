@@ -26,8 +26,13 @@ PROMPT = (
 _JSON_RE = re.compile(r"\{.*\}", re.S)
 
 
+_MD_MODEL_RE = re.compile(r"机型\*{0,2}[：:]\s*\*{0,2}(Vertu[\w\s\-+]+)")
+_MD_USD_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
+_MD_DELIVERY_RE = re.compile(r"(?:EST\.?\s*DELIVERY\s*DATE|\u4ea4\u4ed8\u65e5\u671f|\u9884\u8ba1\u4ea4\u4ed8)[^\d]{0,20}(\d{4}-\d{2}-\d{2})", re.I)
+
+
 def parse_quote_text(raw: str) -> dict:
-    """从模型输出抠报价字段。读不到标待确认。"""
+    """从模型输出抠报价字段；JSON 优先，Markdown 输出做确定性兜底。读不到标待确认。"""
     text = (raw or "").strip()
     match = _JSON_RE.search(text)
     payload: dict = {}
@@ -43,6 +48,19 @@ def parse_quote_text(raw: str) -> dict:
     delivery = str(payload.get("delivery") or "").strip()
     target = str(payload.get("target_customer") or "").strip()
     usd = _usd(payload.get("total_usd"))
+    # Markdown 兜底：推理模型常忽略“只输出 JSON”，输出机型/金额/交付日期的正文。
+    if not model:
+        model_match = _MD_MODEL_RE.search(text)
+        if model_match:
+            model = re.sub(r"\s+", " ", model_match.group(1)).strip()
+    if usd is None:
+        usd_match = _MD_USD_RE.search(text)
+        if usd_match:
+            usd = _usd(usd_match.group(1))
+    if not delivery:
+        delivery_match = _MD_DELIVERY_RE.search(text)
+        if delivery_match:
+            delivery = delivery_match.group(1)
     wan = round(usd * RATE_CNY / 10000, 1) if usd is not None else None
     qualifies = wan is not None and wan >= THRESHOLD_WAN
     return {
