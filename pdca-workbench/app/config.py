@@ -81,6 +81,16 @@ class Settings:
             os.environ.get("PDCA_DAILY_DIGEST_ENABLED", "0") == "1"
         )
         self.daily_digest_time = os.environ.get("PDCA_DAILY_DIGEST_TIME", "08:00").strip()
+        # 督战证据日报（每天一份 HTML 落 data/exports/evidence，08:00 前生成）
+        self.evidence_report_enabled = (
+            os.environ.get("PDCA_EVIDENCE_REPORT_ENABLED", "1") == "1"
+        )
+        self.evidence_report_time = os.environ.get(
+            "PDCA_EVIDENCE_REPORT_TIME", "07:30"
+        ).strip()
+        self.evidence_report_images = int(
+            os.environ.get("PDCA_EVIDENCE_REPORT_IMAGES", "24") or 24
+        )
         # 海外渠道督战官：独立机器人，按群时区推 10:00/15:00/20:00。
         self.duzhan_enabled = os.environ.get("PDCA_DUZHAN_ENABLED", "0") == "1"
         self.duzhan_bot_app_id = os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip()

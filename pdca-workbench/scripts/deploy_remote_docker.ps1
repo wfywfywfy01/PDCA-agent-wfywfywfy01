@@ -414,6 +414,8 @@ function Start-PdcaContainer {
         "PDCA_DAILY_REPORT_ENABLED",
         # 海外经销商-日报群 08:00 总结 + C转B 三档（老板 2026-09-18 确认）
         "PDCA_DAILY_DIGEST_ENABLED", "PDCA_DAILY_DIGEST_TIME",
+        "PDCA_EVIDENCE_REPORT_ENABLED", "PDCA_EVIDENCE_REPORT_TIME",
+        "PDCA_EVIDENCE_REPORT_IMAGES",
         "PDCA_CTOB_ENABLED", "PDCA_CTOB_TIMES",
         # 督战官 WhatsApp 户数/意向（AINativeSales MCP 个人令牌）
         "PDCA_AISALES_MCP_URL", "PDCA_AISALES_MCP_TOKEN",
