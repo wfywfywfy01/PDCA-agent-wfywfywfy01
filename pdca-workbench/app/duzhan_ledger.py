@@ -477,19 +477,30 @@ def daily_target_text(progress: dict, lang: str = "zh") -> str:
     """把滚动日目标渲染成一行；缺数据写“待确认”。"""
     if not progress or progress.get("daily_target") is None:
         return "pending" if lang == "en" else "待确认"
+    # 天数缺（手工构造的台账）时不写 None/None，只留累计应达
+    has_days = (
+        progress.get("days_elapsed") is not None
+        and progress.get("days_in_month") is not None
+    )
     if lang == "en":
-        text = (
-            f"{progress['daily_target']} wan/day (day {progress['days_elapsed']}/"
-            f"{progress['days_in_month']}, cumulative due {progress['rolling_target']} wan)"
-        )
+        text = f"{progress['daily_target']} wan/day"
+        if has_days:
+            text += f" (day {progress['days_elapsed']}/{progress['days_in_month']}"
+            text += f", cumulative due {progress['rolling_target']} wan)"
+        elif progress.get("rolling_target") is not None:
+            text += f" (cumulative due {progress['rolling_target']} wan)"
         if progress.get("gap") is not None:
             lead = "ahead" if progress["ahead"] else "behind"
             text += f" | {lead} {abs(progress['gap'])} wan"
         return text
-    text = (
-        f"{progress['daily_target']} 万/天（第 {progress['days_elapsed']}/"
-        f"{progress['days_in_month']} 天，累计应达 {progress['rolling_target']} 万）"
-    )
+    text = f"{progress['daily_target']} 万/天"
+    if has_days:
+        text += (
+            f"（第 {progress['days_elapsed']}/{progress['days_in_month']} 天"
+            f"，累计应达 {progress['rolling_target']} 万）"
+        )
+    elif progress.get("rolling_target") is not None:
+        text += f"（累计应达 {progress['rolling_target']} 万）"
     if progress.get("gap") is not None:
         lead = "领先" if progress["ahead"] else "落后"
         text += f"｜{lead} {abs(progress['gap'])} 万"

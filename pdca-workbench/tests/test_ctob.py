@@ -103,7 +103,66 @@ COHORT = {
 }
 
 
-class CtobTests(unittest.TestCase):
+class CtobLongFormatMixin:
+    """断言老长版 C转B 文案时关掉精简（2026-09-19 起默认精简）。"""
+
+    def setUp(self):
+        super().setUp()
+        from app.config import get_settings
+
+        settings = get_settings()
+        self._compact_backup = getattr(settings, "ctob_compact", True)
+        settings.ctob_compact = False
+        self.addCleanup(self._restore_compact)
+
+    def _restore_compact(self):
+        from app.config import get_settings
+
+        get_settings().ctob_compact = self._compact_backup
+
+
+class CtobCompactTests(unittest.TestCase):
+    """C转B 三档总结版（明细走 08:00 证据 HTML）。"""
+
+    def _chats(self) -> list[dict]:
+        return [
+            {
+                "name": "汽车预售 迪拜线索",
+                "country": "阿联酋",
+                "kind": "汽车",
+                "outbound": 3,
+                "inbound": 1,
+                "rounds": 2,
+                "replied": False,
+                "last": "2026-09-18 10:00",
+            }
+        ]
+
+    def test_compact_morning(self):
+        prev = {"summary": {"reached": 21, "replied": 5, "car": 3, "ctob": 2}, "chats": self._chats()}
+        text = render_brief(
+            OWNER, "2026-09-19", {}, [], parse_cohort(COHORT), hour=10, prev=prev
+        )
+        self.assertIn("【海外渠道督战官｜10:00 C转B早追｜2026-09-19】", text)
+        self.assertIn("昨日全天：WA 触达 21 / 回复 5", text)
+        self.assertIn("请回：今日汽车/转B 3–5 项", text)
+        self.assertLessEqual(len(text.splitlines()), 8)
+
+    def test_compact_midday_and_evening(self):
+        prev = {"summary": {"reached": 21, "replied": 5}, "chats": self._chats()}
+        curr = {"reached": 30, "replied": 8, "car": 4, "ctob": 3, "other": 1}
+        text15 = render_brief(
+            OWNER, "2026-09-19", curr, self._chats(), {}, hour=15, prev=prev
+        )
+        self.assertIn("本档新增：触达 +9 户 / 回复 +3 户（对照 10:00 档）", text15)
+        self.assertIn("请回：相对 10:00 的变化", text15)
+        text20 = render_brief(OWNER, "2026-09-19", curr, self._chats(), {}, hour=20)
+        self.assertIn("本档口径：WA 触达 30 / 回复 8", text20)
+        self.assertIn("重点客户：汽车预售 迪拜线索", text20)
+        self.assertNotIn("回复格式", text20)
+
+
+class CtobTests(CtobLongFormatMixin, unittest.TestCase):
     def test_classify_car_and_ctob_not_headset(self):
         self.assertEqual(classify_lead("汽车预售 迪拜线索"), "汽车")
         self.assertEqual(classify_lead("9.13弃单Asma"), "转B")
@@ -165,7 +224,7 @@ class CtobTests(unittest.TestCase):
         push.assert_not_called()
 
 
-class CtobSlotTests(unittest.TestCase):
+class CtobSlotTests(CtobLongFormatMixin, unittest.TestCase):
     """C转B 与达标群同结构：10:00 定任务 / 15:00 追变化 / 20:00 验兑现。"""
 
     def _prev(self) -> dict:

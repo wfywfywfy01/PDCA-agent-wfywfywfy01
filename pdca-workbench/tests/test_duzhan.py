@@ -27,7 +27,25 @@ from app.duzhan import (
 )
 
 
-class DuzhanGroupTests(unittest.TestCase):
+class LongFormatMixin:
+    """断言老长版文案时，把精简档位关掉（2026-09-19 起默认精简）。"""
+
+    def setUp(self):
+        super().setUp()
+        from app.config import get_settings
+
+        settings = get_settings()
+        self._compact_backup = getattr(settings, "duzhan_compact", True)
+        settings.duzhan_compact = False
+        self.addCleanup(self._restore_compact)
+
+    def _restore_compact(self):
+        from app.config import get_settings
+
+        get_settings().duzhan_compact = self._compact_backup
+
+
+class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
     def test_lina_is_paris_english(self):
         paris = groups_for_tz(TZ_PARIS)
         self.assertEqual([g.name for g in paris], ["Lina业绩达标群"])
@@ -399,7 +417,7 @@ class DuzhanAtReplyTests(unittest.TestCase):
         self.assertEqual(push.call_args.args[0], "2")
 
 
-class DuzhanLedgerTests(unittest.TestCase):
+class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
     def test_parse_wa_none_when_not_included(self):
         from app.duzhan_ledger import parse_wa_reached
 
@@ -1088,7 +1106,91 @@ class DuzhanLedgerTests(unittest.TestCase):
         self.assertIn("e435ab5d", key)
 
 
-class DuzhanSlotStructureTests(unittest.TestCase):
+class DuzhanCompactSlotTests(unittest.TestCase):
+    """2026-09-19 起三档只出总结性内容（明细走每天 08:00 的证据 HTML）。"""
+
+    def _person(self, **over: object) -> dict:
+        row = {
+            "group": "于冰业绩达标群",
+            "display": "于冰",
+            "target_wan": 200,
+            "mtd_wan": 170.2,
+            "daily_target_wan": 6.67,
+            "rolling_target_wan": 123.4,
+            "target_gap_wan": 46.8,
+            "target_ahead": True,
+            "perf_arrived_wan": 170.2,
+            "perf_slip": [{"amount_text": "USD 45,022", "wan": 32.0, "snippet": "水单已回传"}],
+            "perf_intent": [{"amount_text": "120万", "wan": 120.0, "snippet": "明确意向"}],
+            "wa_reached": 15,
+            "wa_lower_bound": False,
+            "intent_count": 2,
+            "hours_minutes": 396.0,
+            "hours_band": "近满勤",
+            "mto_count": 4,
+            "mto_names": ["2.webp"],
+            "collections": [
+                {"title": "迪拜 Billionaire 订单确认", "status": "progress"},
+                {"title": "马来 Derict D 回复", "status": "stalled"},
+            ],
+            "blockers": [],
+            "evidence": ["$38246"],
+        }
+        row.update(over)
+        return row
+
+    def _ledger(self, person: dict) -> dict:
+        return {"day": "2026-09-19", "today_target": "1300万战役", "people": [person], "red": [], "black": []}
+
+    def test_compact_is_default_and_short(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 19, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        text = render_brief(group, 10, now, self._ledger(self._person()))
+        self.assertIn("今日目标：日目标 6.67 万/天，累计应达 123.4 万", text)
+        self.assertIn("请回：今日 3–5 项（对象 / 交付物 / 截止时间）", text)
+        # 明细不该出现在档位里
+        self.assertNotIn("业绩三关键词", text)
+        self.assertNotIn("VPS 留痕", text)
+        self.assertNotIn("Vemory", text)
+        self.assertLessEqual(len(text.splitlines()), 12)
+
+    def test_compact_midday_evening_lines(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now15 = datetime(2026, 9, 19, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        prev = self._person(perf_arrived_wan=150.2)
+        text15 = render_brief(group, 15, now15, self._ledger(self._person()), self._ledger(prev))
+        self.assertIn("本档新增：+20.0 万", text15)
+        self.assertIn("请回：相对 10:00 的变化", text15)
+        now20 = datetime(2026, 9, 19, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        text20 = render_brief(group, 20, now20, self._ledger(self._person()), self._ledger(prev))
+        self.assertIn("到账 170.2 万｜水单 USD 45,022｜意向 120万", text20)
+        self.assertIn("WhatsApp 15 户（明确意向 2 户）", text20)
+        self.assertIn("明日第一动作：迪拜 Billionaire 订单确认", text20)
+        self.assertNotIn("附件证据", text20)
+
+    def test_compact_keeps_amount_ping(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 19, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(perf_intent=[{"amount_text": "", "wan": None, "snippet": "意向金额待定"}])
+        text = render_brief(group, 15, now, self._ledger(person), self._ledger(self._person()))
+        self.assertIn("补一句：水单/意向有 1 条没写金额", text)
+
+    def test_long_format_still_available(self):
+        from app.config import get_settings
+
+        settings = get_settings()
+        backup = getattr(settings, "duzhan_compact", True)
+        settings.duzhan_compact = False
+        try:
+            group = groups_for_tz(TZ_SHANGHAI)[1]
+            now = datetime(2026, 9, 19, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+            text = render_brief(group, 10, now, self._ledger(self._person()))
+            self.assertIn("业绩三关键词", text)
+        finally:
+            settings.duzhan_compact = backup
+
+
+class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
     """A 档位结构增量：10:00 定目标 / 15:00 上午总结 / 20:00 兑现核对。"""
 
     def _person(self, **over: object) -> dict:

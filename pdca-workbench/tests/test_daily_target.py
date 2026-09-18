@@ -205,6 +205,22 @@ class PerformanceBucketTests(unittest.TestCase):
 
 
 class RenderCopyTests(unittest.TestCase):
+    """文案断言基于长版正文（2026-09-19 起档位默认精简，这里显式关掉）。"""
+
+    def setUp(self):
+        super().setUp()
+        from app.config import get_settings
+
+        settings = get_settings()
+        self._compact_backup = getattr(settings, "duzhan_compact", True)
+        settings.duzhan_compact = False
+        self.addCleanup(self._restore_compact)
+
+    def _restore_compact(self):
+        from app.config import get_settings
+
+        get_settings().duzhan_compact = self._compact_backup
+
     """文案回归：今日目标不得再显示部门口号；业绩三关键词必须出现。"""
 
     def _ledger(self) -> dict:
