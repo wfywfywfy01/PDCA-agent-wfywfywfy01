@@ -15,7 +15,7 @@
 [CmdletBinding()]
 param(
     [string]$Day = "",
-    [string]$Desktop = [Environment]::GetFolderPath("Desktop"),
+    [string]$Desktop = "",   # 留空则自动探测（非交互/服务上下文下 GetFolderPath 可能返回空）
     [string]$DockerHost = "",
     [int]$Images = 24
 )
@@ -34,6 +34,13 @@ function Write-Log([string]$Message) {
 }
 
 if (-not $Day) { $Day = (Get-Date).AddDays(-1).ToString("yyyy-MM-dd") }
+if (-not $Desktop) {
+    $Desktop = [Environment]::GetFolderPath("Desktop")
+}
+if (-not $Desktop) { $Desktop = Join-Path $env:USERPROFILE "Desktop" }
+if (-not (Test-Path $Desktop)) { $Desktop = Join-Path ("C:\Users\" + $env:USERNAME) "Desktop" }
+if (-not (Test-Path $Desktop)) { $Desktop = "C:\Users\frank\Desktop" }
+if (-not (Test-Path $Desktop)) { $Desktop = $env:TEMP }
 if (-not $DockerHost) {
     $DockerHost = $env:PDCA_DOCKER_HOST
     if (-not $DockerHost) { $DockerHost = "tcp://10.100.0.176:2375" }
