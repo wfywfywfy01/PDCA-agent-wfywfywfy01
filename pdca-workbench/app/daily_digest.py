@@ -217,7 +217,7 @@ def build_digest(
         lines.append(f"   • {display}：累计到账 {_wan(mtd)}{lead}｜日目标 {daily_text}")
         lines.append(f"     水单 {slip}｜意向 {intent}｜MTO {mto_text}｜WhatsApp {wa_text}｜工时 {hours}｜{report_text}")
     lines.append("")
-    lines.append("四、明日预告（未闭环 → 第一动作）")
+    lines.append("四、明日预告（昨日未闭环 → 今天第一动作）")
     carried = 0
     for person in people:
         titles = [

@@ -634,6 +634,8 @@ def _slot_sections(
                 if english
                 else "本次新增 待确认（缺上一档口径）"
             )
+        elif delta == 0:
+            delta_text = "no change this slot" if english else "本次新增 0（与上一档持平）"
         else:
             delta_text = f"+{delta} wan this slot" if english else f"本次新增 +{delta} 万"
         if arrived is None:

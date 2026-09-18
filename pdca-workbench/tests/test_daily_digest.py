@@ -66,7 +66,7 @@ class DigestStructureTests(unittest.TestCase):
             "一、大部门",
             "二、小部门",
             "三、个人明细",
-            "四、明日预告",
+            "四、明日预告（昨日未闭环 → 今天第一动作）",
             "五、卡点与需拍板",
         ]
         positions = [text.index(item) for item in order]
