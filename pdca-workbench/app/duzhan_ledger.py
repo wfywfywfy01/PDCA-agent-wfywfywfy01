@@ -20,7 +20,8 @@ from loguru import logger
 
 from app.config import get_settings
 
-TODAY_SLOGAN = "1300万战役"
+TODAY_SLOGAN = "1300万战役"  # 部门月目标口号（1228 万 ≈ 1300 万），只作口号展示
+RATE_CNY = 7.1  # USD→CNY 折算（与 mto_ocr 一致）
 TARGETS_FILE = Path(__file__).with_name("monthly_sales_targets.json")
 DUZHAN_BOT_ID = "459fdf45-3882-404c-b5e8-570fe9680ecf"
 _PAYLOAD_RE = re.compile(
@@ -169,6 +170,17 @@ class PersonRow:
     collections: list[dict] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
+    # 滚动日目标（月目标 ÷ 当月天数 × 已过天数）；Nove 为 None 时渲染“待确认”。
+    daily_target_wan: float | None = None
+    rolling_target_wan: float | None = None
+    days_elapsed: int | None = None
+    days_in_month: int | None = None
+    target_gap_wan: float | None = None
+    target_ahead: bool | None = None
+    # 业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向（明确意向金额）
+    perf_arrived_wan: float | None = None
+    perf_slip: list[dict] = field(default_factory=list)
+    perf_intent: list[dict] = field(default_factory=list)
     score: float = 0.0
     gaps: list[str] = field(default_factory=list)
 
@@ -402,6 +414,172 @@ def hours_text(person: dict | None, lang: str = "zh") -> str:
         f"{hours}h / 标准8h｜{band}｜WA {wa_h}h + MTO {mto_h}h + "
         f"催收跟进 {col_h}h + 会议 {meet_h}h + VPS {vps_h}h｜缺口 {gap_h}h{extra}"
     )
+
+
+def daily_target_progress(
+    month_target_wan: float | None,
+    mtd_wan: float | None,
+    day: str,
+) -> dict:
+    """滚动日目标：日目标 = 月目标 ÷ 当月天数；累计应达 = 日目标 × 当月已过天数。
+
+    返回（单位：万，None 表示该口径缺数据，绝不拿 0 冒充）：
+      month_target / days_in_month / days_elapsed / daily_target /
+      rolling_target（累计应达）/ mtd（累计回款）/ gap（正=领先，负=落后）/ ahead
+    规范：TODAY_SLOGAN（如“1300万战役”）是部门月目标口号，不能当“今日目标”展示。
+    """
+    import calendar
+
+    out: dict = {
+        "month_target": month_target_wan,
+        "days_in_month": None,
+        "days_elapsed": None,
+        "daily_target": None,
+        "rolling_target": None,
+        "mtd": mtd_wan,
+        "gap": None,
+        "ahead": None,
+    }
+    try:
+        year, month, day_of_month = (int(part) for part in day.split("-")[:3])
+        days_in_month = calendar.monthrange(year, month)[1]
+        days_elapsed = min(max(day_of_month, 1), days_in_month)
+    except (ValueError, TypeError):
+        return out
+    out["days_in_month"] = days_in_month
+    out["days_elapsed"] = days_elapsed
+    if month_target_wan is not None and days_in_month:
+        daily = round(float(month_target_wan) / days_in_month, 2)
+        out["daily_target"] = daily
+        out["rolling_target"] = round(daily * days_elapsed, 1)
+    if out["rolling_target"] is not None and mtd_wan is not None:
+        gap = round(float(mtd_wan) - out["rolling_target"], 1)
+        out["gap"] = gap
+        out["ahead"] = gap >= 0
+    return out
+
+
+def daily_target_text(progress: dict, lang: str = "zh") -> str:
+    """把滚动日目标渲染成一行；缺数据写“待确认”。"""
+    if not progress or progress.get("daily_target") is None:
+        return "pending" if lang == "en" else "待确认"
+    if lang == "en":
+        text = (
+            f"{progress['daily_target']} wan/day (day {progress['days_elapsed']}/"
+            f"{progress['days_in_month']}, cumulative due {progress['rolling_target']} wan)"
+        )
+        if progress.get("gap") is not None:
+            lead = "ahead" if progress["ahead"] else "behind"
+            text += f" | {lead} {abs(progress['gap'])} wan"
+        return text
+    text = (
+        f"{progress['daily_target']} 万/天（第 {progress['days_elapsed']}/"
+        f"{progress['days_in_month']} 天，累计应达 {progress['rolling_target']} 万）"
+    )
+    if progress.get("gap") is not None:
+        lead = "领先" if progress["ahead"] else "落后"
+        text += f"｜{lead} {abs(progress['gap'])} 万"
+    return text
+
+
+# 业绩三关键词：到账（已录单）/ 水单（已付款未到账）/ 意向（明确意向金额）
+_PERF_KEYWORDS = {
+    "arrived": ("到账", "已录单", "已回款", "货款已到"),
+    "slip": ("水单",),
+    "intent": ("意向",),
+}
+_PERF_AMOUNT_RE = re.compile(
+    r"(?:USD|usd|\$|美金|美元)\s*([\d,]+(?:\.\d+)?)|"
+    r"([\d,]+(?:\.\d+)?)\s*(?:USD|usd|\$|美金|美元)|"
+    r"([\d]+(?:\.\d+)?)\s*([Ww万])|"
+    r"([\d]+(?:\.\d+)?)\s*(?:万?RMB|人民币|元)"
+)
+
+
+def parse_performance_buckets(
+    messages: list | None,
+    sender_id: int | None,
+    *,
+    arrived_wan: float | None = None,
+) -> dict:
+    """按关键词把当天业绩拆成三桶，金额只在原文可解析时给出。
+
+    - arrived（到账）：以系统已录单回款为准（arrived_wan，来自 OKR/vertu-cli）；
+      群内“到账/已录单”原文作为佐证列在 mentions；
+    - slip（水单）：客户已付款、尚未到账，一定会到 —— 群消息含“水单”的行；
+    - intent（意向）：明确的意向金额 —— 群消息含“意向”的行。
+    每条 {amount_text, wan, usd, snippet, source}；解析不出的金额写空、不编造。
+    """
+    buckets: dict = {
+        "arrived": {"wan": arrived_wan, "source": "系统已录单回款", "mentions": []},
+        "slip": [],
+        "intent": [],
+    }
+    if not sender_id:
+        return buckets
+    for msg in messages or []:
+        if not isinstance(msg, dict) or msg.get("revoked_at"):
+            continue
+        if msg.get("sender_user_id") != sender_id:
+            continue
+        if str(msg.get("message_type") or "") not in {"text", "", "link"}:
+            continue
+        body = _msg_body(msg).strip()
+        if len(body) < 3:
+            continue
+        created = str(msg.get("created_at") or "")[:10]
+        for line in re.split(r"[\n；;]+", body):
+            text = line.strip()
+            if len(text) < 2:
+                continue
+            for bucket, keywords in (
+                ("arrived", _PERF_KEYWORDS["arrived"]),
+                ("slip", _PERF_KEYWORDS["slip"]),
+                ("intent", _PERF_KEYWORDS["intent"]),
+            ):
+                if not any(keyword in text for keyword in keywords):
+                    continue
+                amount = _perf_amount(text)
+                item = {
+                    "amount_text": amount["text"],
+                    "wan": amount["wan"],
+                    "usd": amount["usd"],
+                    "snippet": re.sub(r"\s+", " ", text)[:160],
+                    "source": ("im:" + created) if created else "im",
+                }
+                if bucket == "arrived":
+                    buckets["arrived"]["mentions"].append(item)
+                elif len(buckets[bucket]) < 10:
+                    buckets[bucket].append(item)
+                break
+    return buckets
+
+
+def _perf_amount(text: str) -> dict:
+    """从一行文字抠金额：USD 优先，其次 x万 / x元 / xRMB；读不出留空。"""
+    match = _PERF_AMOUNT_RE.search(text or "")
+    if not match:
+        return {"text": "", "wan": None, "usd": None}
+    if match.group(1) or match.group(2):
+        raw = (match.group(1) or match.group(2) or "").replace(",", "")
+        try:
+            usd = float(raw)
+        except ValueError:
+            return {"text": "", "wan": None, "usd": None}
+        return {"text": "$" + format(usd, "g"), "wan": round(usd * RATE_CNY / 10000, 1), "usd": usd}
+    if match.group(3):
+        try:
+            wan = float(match.group(3).replace(",", ""))
+        except ValueError:
+            return {"text": "", "wan": None, "usd": None}
+        return {"text": format(wan, "g") + "万", "wan": wan, "usd": None}
+    if match.group(5):
+        try:
+            yuan = float(match.group(5).replace(",", ""))
+        except ValueError:
+            return {"text": "", "wan": None, "usd": None}
+        return {"text": format(yuan, "g") + "元", "wan": round(yuan / 10000, 2), "usd": None}
+    return {"text": "", "wan": None, "usd": None}
 
 
 def load_month_targets(day: str) -> dict[str, float]:
@@ -1338,6 +1516,7 @@ def _subject(owner: Owner) -> dict | None:
 def collect_ledger(day: str) -> dict:
     """踩点采集：达标群+跟进群+日报群、WhatsApp MCP、Vemory、VPS、回款。失败字段留空。"""
     ledger = empty_ledger(day)
+    monthly_targets = load_month_targets(day)
     period = {"start_date": day, "end_date": day}
     try:
         okr_rows = fetch_personal_okr()
@@ -1401,6 +1580,16 @@ def collect_ledger(day: str) -> dict:
                 row.collections, row.blockers, row.evidence = parse_owner_reports(
                     msgs, owner.im_user_id
                 )
+                # 业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向
+                row.perf_arrived_wan = row.mtd_wan
+                buckets = parse_performance_buckets(
+                    msgs, owner.im_user_id, arrived_wan=row.mtd_wan
+                )
+                row.perf_slip = buckets.get("slip") or []
+                row.perf_intent = buckets.get("intent") or []
+                for item in (row.perf_slip + row.perf_intent)[:4]:
+                    if item.get("amount_text"):
+                        _push_evidence(row.evidence, item["amount_text"])
                 for name in row.mto_names[:4]:
                     _push_evidence(row.evidence, f"MTO图 {name}")
                 if row.daily_report:
@@ -1456,6 +1645,18 @@ def collect_ledger(day: str) -> dict:
                 row.hours_band = est["band"]
                 row.hours_window = est["window"]
                 row.hours_parts = est["parts"]
+        # 滚动日目标：月目标 ÷ 当月天数 × 已过天数（缺月目标写待确认）
+        month_target = row.target_wan
+        if month_target is None:
+            month_target = monthly_targets.get(owner.display)
+        progress = daily_target_progress(month_target, row.mtd_wan, day)
+        row.target_wan = month_target
+        row.daily_target_wan = progress["daily_target"]
+        row.rolling_target_wan = progress["rolling_target"]
+        row.days_elapsed = progress["days_elapsed"]
+        row.days_in_month = progress["days_in_month"]
+        row.target_gap_wan = progress["gap"]
+        row.target_ahead = progress["ahead"]
         people.append(score_row(row))
     ledger["people"] = [asdict(item) for item in people]
     red, black = rank_red_black(people)

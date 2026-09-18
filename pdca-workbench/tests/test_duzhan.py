@@ -669,7 +669,10 @@ class DuzhanLedgerTests(unittest.TestCase):
         text = render_brief(group, 20, now, ledger)
         self.assertIn("月度目标：200 万", text)
         self.assertIn("累计回款：170.2 万", text)
-        self.assertIn("今日目标：1300万战役", text)
+        # 1300万是部门月目标口号，只作“战役”展示；今日目标位改为滚动日目标
+        self.assertIn("战役：1300万战役", text)
+        self.assertIn("滚动日目标：", text)
+        self.assertNotIn("今日目标：1300万战役", text)
         self.assertIn("已交8/4（达标）：share-image.webp、share-image2.webp", text)
         self.assertIn("VPS 留痕：IM发送56条 | Agent轮数2（本周累计，工时按日均×6分钟）", text)
         self.assertIn("WhatsApp 沟通户数：0（已同步下限） 户", text)
