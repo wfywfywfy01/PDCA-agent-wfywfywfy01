@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from app.mto_ocr import parse_quote_text, summarize_quotes
+from app.mto_ocr import ocr_image_bytes, parse_quote_text, summarize_quotes
 
 
 class MtoOcrTests(unittest.TestCase):
@@ -35,6 +35,66 @@ class MtoOcrTests(unittest.TestCase):
         self.assertEqual(qualify_n, 1)
         self.assertIn("目标客户待确认", names[0])
         self.assertIn("达标", names[0])
+
+    def test_bare_vertu_is_not_a_model(self):
+        """只写品牌不算型号（老板 2026-09-19：型号必须读出来）。"""
+        row = parse_quote_text('{"model": "VERTU", "total_usd": 45022}')
+        self.assertEqual(row["model"], "")
+        self.assertTrue(row["model_missing"])
+
+    def test_model_field_tail_is_trimmed(self):
+        row = parse_quote_text(
+            "机型：Vertu AlphaFold  - 金额 ：$89,180.00（ESTIMATED TOTAL）"
+        )
+        self.assertEqual(row["model"], "Vertu AlphaFold")
+        self.assertFalse(row["model_missing"])
+
+    def test_model_from_plain_line(self):
+        row = parse_quote_text("报价单\nVertu Signature S+ 黑色 5G\n$20,010")
+        self.assertEqual(row["model"], "Vertu Signature S+")
+
+    def test_model_retry_when_first_pass_misses_it(self):
+        """型号为空时定向二次识别，补上型号。"""
+        payloads: list[dict] = []
+
+        class FakeResponse:
+            def __init__(self, body: str) -> None:
+                self._body = body
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "choices": [
+                        {"message": {"content": self._body}, "finish_reason": "stop"}
+                    ]
+                }
+
+        def fake_post(url, json=None, headers=None, timeout=None, verify=None):
+            payloads.append(json)
+            if len(payloads) == 1:
+                return FakeResponse('{"model": "", "total_usd": 45022}')
+            return FakeResponse('{"model": "Vertu Signature S+"}')
+
+        # CI 无 Qwen key：显式给假配置，否则 ocr_image_bytes 直接返回空、不会发请求
+        fake_settings = type(
+            "S",
+            (),
+            {
+                "qwen_base_url": "https://qwen.example/v1",
+                "qwen_api_key": "test-key",
+                "qwen_model": "qwen3.8-27b",
+            },
+        )()
+        with patch("app.mto_ocr.get_settings", return_value=fake_settings), patch(
+            "app.mto_ocr.httpx.post", side_effect=fake_post
+        ):
+            row = ocr_image_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32, "image/png")
+        self.assertEqual(row["model"], "Vertu Signature S+")
+        self.assertFalse(row["model_missing"])
+        self.assertEqual(len(payloads), 2, "型号为空必须再问一次")
+        self.assertIn("只做一件事", payloads[1]["messages"][1]["content"])
 
     def test_garbage_is_unread(self):
         row = parse_quote_text("not json")
