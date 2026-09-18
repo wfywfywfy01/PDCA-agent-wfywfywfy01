@@ -221,5 +221,75 @@ class HealthCatchUpTests(unittest.TestCase):
         self.assertEqual(reports, [])
 
 
+class BackupSlotRegistrationTests(unittest.TestCase):
+    """补发兜底档（对齐核心日报 08:30/09:30 双触发模式）必须随督战开启而注册。"""
+
+    def test_backup_jobs_registered_per_slot(self):
+        from types import SimpleNamespace
+
+        from app.scheduler import jobs as scheduler_jobs
+
+        class RecordingScheduler:
+            def __init__(self):
+                self.jobs = []
+
+            def add_job(self, func, *args, **kwargs):
+                self.jobs.append((func, args, kwargs))
+
+            def start(self):
+                return None
+
+        settings = SimpleNamespace(
+            scheduler_enabled=True,
+            sync_cron="0 6 * * *",
+            daily_report_enabled=False,
+            todo_remind_enabled=False,
+            todo_remind_times=[],
+            todo_group_notice_enabled=False,
+            todo_group_channel_id="",
+            todo_scoring_enabled=False,
+            todo_ledger_sync_enabled=False,
+            todo_brief_enabled=False,
+            todo_okr_link_enabled=False,
+            duzhan_enabled=True,
+            duzhan_times=["10:00", "15:00", "20:00"],
+            duzhan_lead_minutes=15,
+            duzhan_reply_enabled=False,
+            ctob_enabled=True,
+        )
+        original = scheduler_jobs._scheduler
+        scheduler_jobs._scheduler = None
+        try:
+            with patch.object(scheduler_jobs, "get_settings", return_value=settings), patch.object(
+                scheduler_jobs, "BackgroundScheduler", RecordingScheduler,
+            ):
+                scheduler = scheduler_jobs.start_scheduler()
+        finally:
+            scheduler_jobs._scheduler = original
+        backup_ids = {
+            kwargs["id"] for _, _, kwargs in scheduler.jobs
+            if kwargs["id"].startswith("duzhan_backup_")
+        }
+        self.assertEqual(len(backup_ids), 6, f"两时区×三档应有 6 个兜底任务，实际 {sorted(backup_ids)}")
+        self.assertIn("duzhan_backup_asia_shanghai_10", backup_ids)
+        self.assertIn("duzhan_backup_europe_paris_20", backup_ids)
+        ctob_backup = [
+            kwargs for _, _, kwargs in scheduler.jobs if kwargs["id"] == "ctob_backup_2030"
+        ]
+        self.assertEqual(len(ctob_backup), 1)
+        self.assertEqual(ctob_backup[0]["hour"], 20)
+        self.assertEqual(ctob_backup[0]["minute"], 30)
+        # 兜底任务与主任务共享同一函数与参数（claim_run 台账去重）
+        shanghai_10_backup = next(
+            kwargs for _, _, kwargs in scheduler.jobs
+            if kwargs["id"] == "duzhan_backup_asia_shanghai_10"
+        )
+        shanghai_10_main = next(
+            kwargs for _, _, kwargs in scheduler.jobs
+            if kwargs["id"] == "duzhan_asia_shanghai_10"
+        )
+        self.assertEqual(shanghai_10_backup["args"], shanghai_10_main["args"])
+
+
 if __name__ == "__main__":
     unittest.main()

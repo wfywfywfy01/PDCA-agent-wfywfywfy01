@@ -76,7 +76,40 @@ class FlowControllerTests(unittest.TestCase):
         with patch(
             "app.agents.flow_controller.run_duzhan",
             return_value={"sent": ["g1"], "failed": ["g2"]},
-        ):
+        ), patch("app.agents.flow_controller.time.sleep", MagicMock()):
+            result = flow_controller.push_performance_slot(
+                "Asia/Shanghai", 10,
+                now=datetime(2026, 9, 17, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+        self.assertEqual(result["status"], "partial")
+        self.assertTrue(self.notify_mock.called)
+
+    def test_push_slot_retries_once_then_succeeds(self):
+        """对齐核心日报模式：部分失败 60 秒后重试一次，成功则不再告警。"""
+        with patch(
+            "app.agents.flow_controller.run_duzhan",
+            side_effect=[
+                {"sent": ["g1"], "failed": ["g2"]},
+                {"sent": ["g2"], "failed": []},
+            ],
+        ) as push_mock, patch(
+            "app.agents.flow_controller.time.sleep", MagicMock()
+        ) as sleep_mock:
+            result = flow_controller.push_performance_slot(
+                "Asia/Shanghai", 10,
+                now=datetime(2026, 9, 17, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(sorted(result["sent"]), ["g1", "g2"])
+        self.assertEqual(push_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(60)
+        self.assertFalse(self.notify_mock.called)
+
+    def test_push_slot_retry_still_failed_keeps_alert(self):
+        with patch(
+            "app.agents.flow_controller.run_duzhan",
+            return_value={"sent": [], "failed": ["g2"]},
+        ), patch("app.agents.flow_controller.time.sleep", MagicMock()):
             result = flow_controller.push_performance_slot(
                 "Asia/Shanghai", 10,
                 now=datetime(2026, 9, 17, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
@@ -114,6 +147,25 @@ class FlowControllerTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["sent"], ["owner-1"])
+
+    def test_ctob_retries_once_then_succeeds(self):
+        with patch(
+            "app.ctob.run_ctob",
+            side_effect=[
+                {"sent": ["owner-1"], "failed": ["owner-2"]},
+                {"sent": ["owner-2"], "failed": []},
+            ],
+        ) as push_mock, patch(
+            "app.agents.flow_controller.time.sleep", MagicMock()
+        ) as sleep_mock:
+            result = flow_controller.run_ctob_evening(
+                now=datetime(2026, 9, 17, 20, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(sorted(result["sent"]), ["owner-1", "owner-2"])
+        self.assertEqual(push_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(60)
+        self.assertFalse(self.notify_mock.called)
 
     def test_event_idempotency(self):
         self.assertTrue(write_event("task.received", event_key="k1", producer="t"))

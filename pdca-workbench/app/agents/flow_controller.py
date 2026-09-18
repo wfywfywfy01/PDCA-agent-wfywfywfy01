@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -94,6 +95,19 @@ def push_performance_slot(tz_name: str, hour: int, now: datetime | None = None) 
         return {"tz": tz_name, "hour": hour, "status": "failed", "error": str(exc)[:300]}
     failed = result.get("failed") or []
     sent = result.get("sent") or []
+    # 对齐核心日报模式：部分失败 60 秒后整档重试一次（VPS 幂等键防重复推送）。
+    if failed:
+        logger.warning("督战官部分群失败，60 秒后重试一次: {} {} {}", tz_name, hour, failed)
+        time.sleep(60)
+        try:
+            retry = run_duzhan(tz_name, hour, now)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("督战官重试失败: {}", exc)
+            retry = {"sent": [], "failed": failed}
+        retry_sent = retry.get("sent") or []
+        retry_failed = retry.get("failed") or []
+        sent = sorted(set(sent) | set(retry_sent))
+        failed = retry_failed
     write_event("slot.push_succeeded" if not failed else "slot.push_failed",
                 producer="flow_controller",
                 event_key=_slot_events_key("flow_controller", "push_result", tz_name, day, hour),
@@ -124,12 +138,24 @@ def run_ctob_evening(day: str | None = None, now: datetime | None = None) -> dic
         notify("C转B晚追失败", str(exc)[:200])
         return {"status": "failed", "error": str(exc)[:300]}
     failed = result.get("failed") or []
+    sent = result.get("sent") or []
+    # 对齐核心日报模式：部分失败 60 秒后整档重试一次（幂等键 ctob-* 防重复推送）。
+    if failed:
+        logger.warning("C转B 晚追部分失败，60 秒后重试一次: {}", failed)
+        time.sleep(60)
+        try:
+            retry = run_ctob(day, now)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("C转B 晚追重试失败: {}", exc)
+            retry = {"sent": [], "failed": failed}
+        sent = sorted(set(sent) | set(retry.get("sent") or []))
+        failed = retry.get("failed") or []
     if failed:
         finish_run("ctob", day, "failed", ",".join(failed)[:512])
         notify("C转B晚追部分失败", str(failed))
-        return {"status": "partial", "failed": failed}
-    finish_run("ctob", day, "sent", ",".join(result.get("sent") or [])[:512])
-    return {"status": "ok", "sent": result.get("sent") or []}
+        return {"status": "partial", "sent": sent, "failed": failed}
+    finish_run("ctob", day, "sent", ",".join(sent)[:512])
+    return {"status": "ok", "sent": sent}
 
 
 def build_daily_report(day: str) -> str:

@@ -953,6 +953,23 @@ def start_scheduler() -> BackgroundScheduler | None:
                     coalesce=True,
                     misfire_grace_time=3600,
                 )
+                # 补发兜底（对齐核心日报 08:30/09:30 双触发模式）：+30 分钟再触发
+                # 一次推送，共享 claim_run 台账——健康时跳过；崩溃/漏跑时补上，
+                # 且 VPS 幂等键保证绝不重复推给群。
+                backup_hour, backup_minute = collect_clock(hour, -30)
+                _scheduler.add_job(
+                    duzhan_job,
+                    args=[tz_name, hour],
+                    trigger="cron",
+                    hour=backup_hour,
+                    minute=backup_minute,
+                    day_of_week="mon-fri",
+                    timezone=zone,
+                    id=f"duzhan_backup_{tz_slug}_{hour:02d}",
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
         if getattr(settings, "duzhan_reply_enabled", False):
             _scheduler.add_job(
                 duzhan_at_poll_job,
@@ -974,6 +991,19 @@ def start_scheduler() -> BackgroundScheduler | None:
             day_of_week="mon-fri",
             timezone=ZoneInfo("Asia/Shanghai"),
             id="ctob_2000",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+        # 补发兜底：20:30 再触发一次，共享 ctob 台账与幂等键，绝不重复推送。
+        _scheduler.add_job(
+            ctob_job,
+            trigger="cron",
+            hour=20,
+            minute=30,
+            day_of_week="mon-fri",
+            timezone=ZoneInfo("Asia/Shanghai"),
+            id="ctob_backup_2030",
             max_instances=1,
             coalesce=True,
             misfire_grace_time=3600,
@@ -1031,8 +1061,8 @@ def start_scheduler() -> BackgroundScheduler | None:
     logger.info(
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
         "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00 "
-        "im_reply_poll=*/30 9-18 duzhan={} collect=-{}m at_poll={} ctob20={} "
-        "agent={} shadow={} health={} outbox={}",
+        "im_reply_poll=*/30 9-18 duzhan={}(+30m兜底) collect=-{}m at_poll={} "
+        "ctob20={}(+30m兜底) agent={} shadow={} health={} outbox={}",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
         getattr(settings, "duzhan_times", []) if getattr(settings, "duzhan_enabled", False) else "停用",
