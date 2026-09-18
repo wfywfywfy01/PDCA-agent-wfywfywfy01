@@ -1025,5 +1025,135 @@ class DuzhanLedgerTests(unittest.TestCase):
         self.assertIn("e435ab5d", key)
 
 
+class DuzhanSlotStructureTests(unittest.TestCase):
+    """A 档位结构增量：10:00 定目标 / 15:00 上午总结 / 20:00 兑现核对。"""
+
+    def _person(self, **over: object) -> dict:
+        row = {
+            "group": "于冰业绩达标群",
+            "display": "于冰",
+            "target_wan": 200,
+            "mtd_wan": 170.2,
+            "daily_target_wan": 6.67,
+            "rolling_target_wan": 120.1,
+            "days_elapsed": 18,
+            "days_in_month": 30,
+            "target_gap_wan": 50.1,
+            "target_ahead": True,
+            "perf_arrived_wan": 170.2,
+            "perf_slip": [{"amount_text": "USD 45,022", "wan": 32.0, "snippet": "水单已回传"}],
+            "perf_intent": [{"amount_text": "120万", "wan": 120.0, "snippet": "明确意向"}],
+            "wa_reached": 15,
+            "wa_lower_bound": False,
+            "intent_count": 2,
+            "hours_minutes": 396.0,
+            "hours_band": "近满勤",
+            "mto_count": 4,
+            "mto_names": ["2.webp"],
+            "collections": [
+                {"title": "越南尾款 38246$ XSD", "status": "done"},
+                {"title": "迪拜 Billionaire 订单确认", "status": "progress"},
+                {"title": "马来 Derict D 回复", "status": "stalled"},
+            ],
+            "blockers": [],
+            "evidence": ["$38246"],
+        }
+        row.update(over)
+        return row
+
+    def _ledger(self, person: dict, day: str = "2026-09-18") -> dict:
+        return {
+            "day": day,
+            "today_target": "1300万战役",
+            "people": [person],
+            "red": [],
+            "black": [],
+        }
+
+    def test_morning_slot_locks_target_and_carries_yesterday(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        prev = self._person(
+            perf_arrived_wan=140.0,
+            collections=[
+                {"title": "越南尾款 38246$ XSD", "status": "progress"},
+                {"title": "迪拜 Billionaire 订单确认", "status": "planned"},
+            ],
+        )
+        text = render_brief(group, 10, now, self._ledger(self._person()), self._ledger(prev))
+        self.assertIn("0. 今日目标（本档先定）", text)
+        self.assertIn("日目标 6.67 万/天，累计应达 120.1 万", text)
+        self.assertIn("领先 50.1 万", text)
+        self.assertIn("昨日未闭环结转（今日第一动作）", text)
+        self.assertIn("越南尾款 38246$ XSD", text)
+
+    def test_morning_slot_without_target_says_pending(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(
+            target_wan=None,
+            daily_target_wan=None,
+            rolling_target_wan=None,
+            target_gap_wan=None,
+        )
+        text = render_brief(group, 10, now, self._ledger(person))
+        self.assertIn("0. 今日目标（本档先定）：待确认（缺月度目标）", text)
+
+    def test_midday_slot_reports_delta_not_month_over_day(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        prev = self._person(perf_arrived_wan=150.2)
+        text = render_brief(group, 15, now, self._ledger(self._person()), self._ledger(prev))
+        self.assertIn("【目标梳理｜上午总结】", text)
+        self.assertIn("本次新增 +20.0 万", text)
+        self.assertIn("累计到账 170.2 万｜累计应达 120.1 万（领先 50.1 万）｜今日日目标 6.67 万", text)
+        self.assertIn("上午工作：6.6h / 标准8h（近满勤）", text)
+        # 月累计 ÷ 日目标 的荒唐完成率不允许再出现
+        self.assertNotIn("完成率", text)
+
+    def test_midday_slot_without_prev_says_pending(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        text = render_brief(group, 15, now, self._ledger(self._person()), None)
+        self.assertIn("本次新增 待确认（缺上一档口径）", text)
+
+    def test_evening_slot_covers_perf_whatsapp_hours_and_tomorrow(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        prev = self._person(
+            collections=[
+                {"title": "越南尾款 38246$ XSD", "status": "progress"},
+                {"title": "迪拜 Billionaire 订单确认", "status": "progress"},
+            ]
+        )
+        text = render_brief(group, 20, now, self._ledger(self._person()), self._ledger(prev))
+        self.assertIn("【当天总结｜业绩核对】", text)
+        self.assertIn("到账", text)
+        self.assertIn("水单", text)
+        self.assertIn("意向", text)
+        self.assertIn("WhatsApp：15 户｜明确意向 2 户", text)
+        self.assertIn("当日工时：", text)
+        self.assertIn("【明日预告】", text)
+        self.assertIn("迪拜 Billionaire 订单确认", text)
+
+    def test_evening_slot_gives_first_action_when_nothing_open(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(collections=[{"title": "已办完", "status": "done"}])
+        text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
+        self.assertIn("无未完成事项，按日目标继续推进", text)
+
+    def test_lina_slot_sections_are_english(self):
+        group = groups_for_tz(TZ_PARIS)[0]
+        now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_PARIS))
+        person = self._person(group="Lina业绩达标群", display="Lina")
+        text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
+        self.assertIn("【Day wrap-up | Performance check】", text)
+        self.assertIn("WhatsApp:", text)
+        self.assertIn("Hours today:", text)
+        self.assertIn("【Tomorrow】First action:", text)
+        self.assertNotIn("【当天总结｜业绩核对】", text)
+
+
 if __name__ == "__main__":
     unittest.main()
