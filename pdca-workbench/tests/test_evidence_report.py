@@ -98,6 +98,61 @@ class EvidenceSaveTests(unittest.TestCase):
             self.assertNotIn(banned, source, banned + " 不应该出现在证据日报里")
 
 
+class SharedRecipientTests(unittest.TestCase):
+    """一份收件人名单：PDCA_MGMT_HTML_USER_IDS 给所有早报 HTML 用。"""
+
+    def test_feature_list_wins_over_shared(self):
+        from app.im_files import resolve_user_ids
+
+        settings = SimpleNamespace(mgmt_html_user_ids=[13365], evidence_report_user_ids=[1])
+        self.assertEqual(resolve_user_ids(settings, "evidence_report_user_ids"), [1])
+
+    def test_falls_back_to_shared_list(self):
+        from app.im_files import resolve_user_ids
+
+        settings = SimpleNamespace(mgmt_html_user_ids=[13365, 13102, 12564], evidence_report_user_ids=[])
+        self.assertEqual(
+            resolve_user_ids(settings, "evidence_report_user_ids"), [13365, 13102, 12564]
+        )
+
+    def test_deliver_uses_shared_list_when_not_passed(self):
+        import tempfile
+
+        from app.im_files import send_files
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        html = Path(tmp.name) / "督战证据_2026-09-18.html"
+        html.write_text("<html>x</html>", encoding="utf-8")
+        calls: list[list[str]] = []
+
+        def fake_run(args, timeout=None):
+            calls.append(args)
+            return 0, "{}", ""
+
+        shared = SimpleNamespace(
+            duzhan_bot_app_id="vbot_duzhan",
+            todo_bot_app_id="",
+            mgmt_html_user_ids=[13365, 13102, 12564],
+            evidence_report_user_ids=[],
+        )
+        with mock.patch("app.config.get_settings", return_value=shared), mock.patch(
+            "app.vertu.client.run_vertu_sync", side_effect=fake_run
+        ):
+            result = evidence_report.deliver_report(
+                {"day": "2026-09-18", "html": str(html), "bytes": 10, "people": 1, "images": 0}
+            )
+        self.assertEqual(result["sent"], ["user:13365", "user:13102", "user:12564"])
+        self.assertEqual(len(calls), 3)
+
+    def test_send_files_skips_missing_html(self):
+        from app.im_files import send_files
+
+        result = send_files(html_path="D:/not-exist-xyz.html", user_ids=[13365])
+        self.assertEqual(result["sent"], [])
+        self.assertTrue(result["failed"])
+
+
 class EvidenceDeliveryTests(unittest.TestCase):
     """交付环节：私聊发文件；不配群就绝不发群（老板 2026-09-19）。"""
 
@@ -153,11 +208,18 @@ class EvidenceDeliveryTests(unittest.TestCase):
         self.assertIn("+send-user", calls[0])
 
     def test_no_recipients_no_send(self):
+        """收件人与共享名单都为空 → 一条都不发（共享名单默认非空时另行覆盖）。"""
         import tempfile
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        with mock.patch("app.vertu.client.run_vertu_sync") as run:
+        empty = SimpleNamespace(
+            duzhan_bot_app_id="vbot", todo_bot_app_id="",
+            mgmt_html_user_ids=[], evidence_report_user_ids=[],
+        )
+        with mock.patch("app.config.get_settings", return_value=empty), mock.patch(
+            "app.vertu.client.run_vertu_sync"
+        ) as run:
             result = evidence_report.deliver_report(self._summary(tmp.name))
         run.assert_not_called()
         self.assertEqual(result["sent"], [])
@@ -173,7 +235,13 @@ class EvidenceDeliveryTests(unittest.TestCase):
             calls.append(args)
             return 0, "{}", ""
 
-        with mock.patch("app.vertu.client.run_vertu_sync", side_effect=fake_run):
+        no_users = SimpleNamespace(
+            duzhan_bot_app_id="vbot", todo_bot_app_id="",
+            mgmt_html_user_ids=[], evidence_report_user_ids=[],
+        )
+        with mock.patch("app.config.get_settings", return_value=no_users), mock.patch(
+            "app.vertu.client.run_vertu_sync", side_effect=fake_run
+        ):
             result = evidence_report.deliver_report(
                 self._summary(tmp.name), channel_id="7065d7ec-8b7a-4006-93ff-459d4d1671ad"
             )
