@@ -499,6 +499,69 @@ def kpi_refresh_job() -> None:
     return
 
 
+def campaign_wa_check_job() -> None:
+    """每天 08:00：查 MCP 前 24 小时，看谁把腕表闪购活动讲到了 WhatsApp 客户面前。
+
+    只读 MCP（conversations/evidence）→ 生成 HTML → 发共享名单（app/im_files）。
+    失败不静默；未配收件人则只落盘。
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.im_files import resolve_user_ids, send_files
+    from app.scheduler.run_ledger import claim_run, finish_run
+    from app.wa_campaign_check import run_check
+
+    settings = get_settings()
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+    if not claim_run("campaign_wa_check", day):
+        logger.info("腕表闪购核查本日已出，跳过 {}", day)
+        return
+    out_dir = settings.data_dir / "exports" / "campaign_wa"
+    try:
+        result = run_check(
+            out_dir,
+            days=int(getattr(settings, "campaign_wa_check_days", 2) or 2),
+            end=day,
+        )
+    except Exception as exc:  # noqa: BLE001 — 采集/渲染失败要留痕并告警
+        logger.exception("腕表闪购核查生成失败: {}", exc)
+        finish_run("campaign_wa_check", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("腕表闪购核查生成失败", str(exc)[:200])
+        return
+    summary = result.get("summary") or {}
+    people = summary.get("people") or []
+    hit = [item for item in people if item.get("verdict") == "明确传达了活动"]
+    miss = [item for item in people if item.get("verdict") != "明确传达了活动"]
+    caption = (
+        "【腕表闪购 · WhatsApp 触达核查｜前 24 小时】\n"
+        "区间：" + " ~ ".join(summary.get("period") or []) + "\n"
+        "已传达：" + ("、".join(item["display"] for item in hit) or "无") + "\n"
+        "待跟进：" + ("、".join(item["display"] for item in miss) or "无") + "\n"
+        "明细见附件 HTML（逐条原文可核）"
+    )
+    delivery = send_files(
+        html_path=result["html"],
+        user_ids=resolve_user_ids(settings, "campaign_wa_check_user_ids"),
+        channel_id=getattr(settings, "campaign_wa_check_channel_id", "") or "",
+        extra_paths=[result.get("json") or ""],
+        caption=caption,
+        idempotency_key="campaign-wa-" + day,
+    )
+    if delivery.get("failed"):
+        logger.warning("腕表闪购核查发送失败: {}", delivery["failed"])
+        notify("腕表闪购核查发送失败", str(delivery.get("failed"))[:200])
+    finish_run("campaign_wa_check", day, "sent", ",".join(delivery.get("sent") or [])[:200])
+    logger.info(
+        "腕表闪购核查完成 {}｜已传达 {} 人｜待跟进 {} 人｜发送 {}",
+        result.get("html"),
+        len(hit),
+        len(miss),
+        delivery.get("sent"),
+    )
+    _prune_evidence_reports(out_dir, keep=30)
+
+
 def evidence_report_job() -> None:
     """每天 07:30：把前一日全部证据导成单文件 HTML（数据日=昨天），供人工核对。
 
@@ -1110,6 +1173,34 @@ def start_scheduler() -> BackgroundScheduler | None:
                 max_instances=1,
                 coalesce=True,
             )
+
+    # 08:00 — 腕表闪购 WhatsApp 核查（查 MCP 前 24 小时，谁把活动讲给客户了）。
+    # PDCA_CAMPAIGN_WA_CHECK_ENABLED=1 才注册；08:30 备份共享 claim 台账，绝不重复发。
+    if getattr(settings, "campaign_wa_check_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        campaign_time = str(getattr(settings, "campaign_wa_check_time", "08:00") or "08:00")
+        try:
+            campaign_hour, campaign_minute = (int(part) for part in campaign_time.split(":", 1))
+            campaign_backup = campaign_hour * 60 + campaign_minute + 30
+            for job_id, hour, minute in (
+                ("campaign_wa_check", campaign_hour, campaign_minute),
+                ("campaign_wa_check_backup", (campaign_backup // 60) % 24, campaign_backup % 60),
+            ):
+                _scheduler.add_job(
+                    campaign_wa_check_job,
+                    trigger="cron",
+                    hour=hour,
+                    minute=minute,
+                    day_of_week="mon-sun",
+                    timezone=ZoneInfo("Asia/Shanghai"),
+                    id=job_id,
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法腕表闪购核查时间: {}", campaign_time)
 
     # 07:30 — 督战证据日报（前一日全部证据导 HTML）：PDCA_EVIDENCE_REPORT_ENABLED=1 才注册。
     # 与本机计划任务配合：容器生成 → 08:00 拉到桌面，固定测试流程每天一份。

@@ -88,6 +88,24 @@ class Settings:
         self.evidence_report_time = os.environ.get(
             "PDCA_EVIDENCE_REPORT_TIME", "07:30"
         ).strip()
+        # 腕表闪购 WhatsApp 核查（每天 08:00 查 MCP 前 24 小时；默认开）
+        self.campaign_wa_check_enabled = (
+            os.environ.get("PDCA_CAMPAIGN_WA_CHECK_ENABLED", "1") == "1"
+        )
+        self.campaign_wa_check_time = os.environ.get(
+            "PDCA_CAMPAIGN_WA_CHECK_TIME", "08:00"
+        ).strip()
+        self.campaign_wa_check_days = int(
+            os.environ.get("PDCA_CAMPAIGN_WA_CHECK_DAYS", "2") or 2
+        )
+        self.campaign_wa_check_user_ids = [
+            int(item.strip())
+            for item in os.environ.get("PDCA_CAMPAIGN_WA_CHECK_USER_IDS", "").split(",")
+            if item.strip().isdigit()
+        ]
+        self.campaign_wa_check_channel_id = os.environ.get(
+            "PDCA_CAMPAIGN_WA_CHECK_CHANNEL_ID", ""
+        ).strip()
         self.evidence_report_images = int(
             os.environ.get("PDCA_EVIDENCE_REPORT_IMAGES", "24") or 24
         )

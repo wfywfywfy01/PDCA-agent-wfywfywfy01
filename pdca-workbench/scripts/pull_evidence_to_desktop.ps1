@@ -76,6 +76,19 @@ if (-not $pulled) {
     }
 }
 
+# 腕表闪购 WhatsApp 核查（08:00 出，若容器已生成就一并拉到桌面）
+$campaignName = "机械腕表闪购_WhatsApp核查_" + $Day + ".html"
+$campaignSrc = "/app/data/exports/campaign_wa/" + $campaignName
+$campaignDst = Join-Path $Desktop $campaignName
+try {
+    docker cp ("pdca-workbench:" + $campaignSrc) $campaignDst 2>$null | Out-Null
+    if (Test-Path $campaignDst) {
+        Write-Log ("campaign pulled: " + $campaignDst)
+    }
+} catch {
+    Write-Log ("campaign pull skipped: " + $_.Exception.Message)
+}
+
 if (Test-Path $html) {
     Write-Log ("done: " + $html)
     exit 0
