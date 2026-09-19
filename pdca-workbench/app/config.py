@@ -91,6 +91,16 @@ class Settings:
         self.evidence_report_images = int(
             os.environ.get("PDCA_EVIDENCE_REPORT_IMAGES", "24") or 24
         )
+        # 证据日报私聊收件人（默认不发；.env 里配 user_id）
+        self.evidence_report_user_ids = [
+            int(item.strip())
+            for item in os.environ.get("PDCA_EVIDENCE_REPORT_USER_IDS", "").split(",")
+            if item.strip().isdigit()
+        ]
+        # 证据日报是否也发某个群（默认空 = 不发群）
+        self.evidence_report_channel_id = os.environ.get(
+            "PDCA_EVIDENCE_REPORT_CHANNEL_ID", ""
+        ).strip()
         # 海外渠道督战官：独立机器人，按群时区推 10:00/15:00/20:00。
         self.duzhan_enabled = os.environ.get("PDCA_DUZHAN_ENABLED", "0") == "1"
         self.duzhan_bot_app_id = os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip()

@@ -98,6 +98,89 @@ class EvidenceSaveTests(unittest.TestCase):
             self.assertNotIn(banned, source, banned + " 不应该出现在证据日报里")
 
 
+class EvidenceDeliveryTests(unittest.TestCase):
+    """交付环节：私聊发文件；不配群就绝不发群（老板 2026-09-19）。"""
+
+    def _summary(self, tmp: str) -> dict:
+        html_path = Path(tmp) / "督战证据_2026-09-18.html"
+        html_path.write_text("<html>报告</html>", encoding="utf-8")
+        html_path.with_suffix(".json").write_text("{}", encoding="utf-8")
+        return {"day": "2026-09-18", "html": str(html_path), "bytes": 1234, "people": 3, "images": 2}
+
+    def test_sends_to_configured_users_only(self):
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        calls: list[list[str]] = []
+
+        def fake_run(args, timeout=None):
+            calls.append(args)
+            return 0, "{}", ""
+
+        bot_settings = SimpleNamespace(
+            duzhan_bot_app_id="vbot_duzhan", todo_bot_app_id=""
+        )
+        with mock.patch("app.config.get_settings", return_value=bot_settings), mock.patch(
+            "app.vertu.client.run_vertu_sync", side_effect=fake_run
+        ):
+            result = evidence_report.deliver_report(self._summary(tmp.name), user_ids=[13365])
+        self.assertEqual(result["sent"], ["user:13365"])
+        self.assertEqual(result["failed"], [])
+        args = calls[0]
+        self.assertIn("+bot-send-user", args)
+        self.assertIn("--attach", args)
+        self.assertIn("file", args)
+        self.assertNotIn("+send", args, "没配群就不许发群")
+
+    def test_falls_back_to_account_identity_without_bot(self):
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        calls: list[list[str]] = []
+
+        def fake_run(args, timeout=None):
+            calls.append(args)
+            return 0, "{}", ""
+
+        no_bot = SimpleNamespace(duzhan_bot_app_id="", todo_bot_app_id="")
+        with mock.patch("app.config.get_settings", return_value=no_bot), mock.patch(
+            "app.vertu.client.run_vertu_sync", side_effect=fake_run
+        ):
+            result = evidence_report.deliver_report(self._summary(tmp.name), user_ids=[13365])
+        self.assertEqual(result["sent"], ["user:13365"])
+        self.assertIn("+send-user", calls[0])
+
+    def test_no_recipients_no_send(self):
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch("app.vertu.client.run_vertu_sync") as run:
+            result = evidence_report.deliver_report(self._summary(tmp.name))
+        run.assert_not_called()
+        self.assertEqual(result["sent"], [])
+
+    def test_group_send_requires_explicit_channel(self):
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        calls: list[list[str]] = []
+
+        def fake_run(args, timeout=None):
+            calls.append(args)
+            return 0, "{}", ""
+
+        with mock.patch("app.vertu.client.run_vertu_sync", side_effect=fake_run):
+            result = evidence_report.deliver_report(
+                self._summary(tmp.name), channel_id="7065d7ec-8b7a-4006-93ff-459d4d1671ad"
+            )
+        self.assertEqual(result["sent"], ["channel"])
+        self.assertIn("--channel-id", calls[0])
+
+
 class EvidenceRegistrationTests(unittest.TestCase):
     def _register(self, **over: object):
         from app.scheduler import jobs as scheduler_jobs

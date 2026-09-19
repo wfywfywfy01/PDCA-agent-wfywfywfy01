@@ -509,7 +509,7 @@ def evidence_report_job() -> None:
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
-    from app.evidence_report import save_report
+    from app.evidence_report import deliver_report, save_report
     from app.scheduler.run_ledger import claim_run, finish_run
 
     settings = get_settings()
@@ -538,6 +538,18 @@ def evidence_report_job() -> None:
         summary.get("images"),
         summary.get("elapsed_seconds"),
     )
+    delivery = deliver_report(
+        summary,
+        user_ids=getattr(settings, "evidence_report_user_ids", []) or [],
+        channel_id=getattr(settings, "evidence_report_channel_id", "") or "",
+    )
+    if delivery.get("failed"):
+        logger.warning("证据日报发送失败: {}", delivery["failed"])
+        notify("督战证据日报发送失败", str(delivery.get("failed"))[:200])
+    elif delivery.get("sent"):
+        logger.info("证据日报已发送 {}", delivery["sent"])
+    else:
+        logger.info("证据日报未配置收件人，仅落盘 {}", summary.get("html"))
     _prune_evidence_reports(out_dir, keep=45)
 
 

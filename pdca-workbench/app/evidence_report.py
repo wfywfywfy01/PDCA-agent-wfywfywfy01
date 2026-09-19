@@ -416,6 +416,77 @@ def build_html(day: str, ledger: dict) -> str:
     body = [person_card(row, raw_by_owner.get(str(row.get("display"))) or [], images.get(str(row.get("display"))) or []) for row in people]
     return "".join(head) + "".join(body) + CHECKLIST + "</body></html>"
 
+def deliver_report(
+    summary: dict,
+    *,
+    user_ids: list[int] | tuple[int, ...] = (),
+    channel_id: str = "",
+    caption: str = "",
+) -> dict:
+    """把生成的 HTML（+JSON）发出去。
+
+    - user_ids：私聊收件人（机器人身份，回退账号身份）；
+    - channel_id：**默认空 → 绝不发群**，只有显式配置才发；
+    - 只发文件，不改任何数据；失败返回原因，不抛。
+    """
+    from app.config import get_settings
+    from app.vertu.client import run_vertu_sync
+
+    settings = get_settings()
+    html_path = Path(str(summary.get("html") or ""))
+    if not html_path.exists():
+        return {"sent": [], "failed": [str(html_path)], "reason": "文件不存在"}
+    json_path = html_path.with_suffix(".json")
+    body = caption or (
+        "【督战证据日报｜数据日 " + str(summary.get("day")) + "】\n"
+        f"- {summary.get('people')} 人｜{summary.get('images')} 张报价图"
+        f"｜{round(int(summary.get('bytes') or 0) / 1024)} KB\n"
+        "- 内容：三关键词原文证据 / MTO 型号与 OCR / 催款任务 / 卡点 / 工时拆解 / 当天群原话\n"
+        "- 附件：HTML（双击用浏览器打开）+ 同名 JSON"
+    )
+    body_file = html_path.with_suffix(".body.txt")
+    body_file.write_text(body, encoding="utf-8")
+    bot_app_id = (
+        getattr(settings, "duzhan_bot_app_id", "")
+        or getattr(settings, "todo_bot_app_id", "")
+    ).strip()
+    sent: list[str] = []
+    failed: list[str] = []
+    try:
+        for user_id in user_ids or ():
+            args = ["im", "+bot-send-user", "--app-id", bot_app_id] if bot_app_id else ["im", "+send-user"]
+            args += [
+                "--user-id", str(user_id),
+                "--body-file", str(body_file),
+                "--attach", str(html_path),
+                "--message-type", "file",
+                "--idempotency-key", f"evidence-{summary.get('day')}-{user_id}",
+            ]
+            if json_path.exists():
+                args += ["--attach", str(json_path)]
+            code, out, err = run_vertu_sync(args, timeout=180.0)
+            if code == 0:
+                sent.append(f"user:{user_id}")
+            else:
+                failed.append(f"user:{user_id}")
+                logger.warning("证据日报私聊发送失败 {}: {}", user_id, (err or out or "")[:160])
+        if channel_id:
+            args = ["im", "+send", "--channel-id", channel_id,
+                    "--body-file", str(body_file),
+                    "--attach", str(html_path),
+                    "--message-type", "file",
+                    "--idempotency-key", f"evidence-{summary.get('day')}-{channel_id[:8]}"]
+            code, out, err = run_vertu_sync(args, timeout=180.0)
+            if code == 0:
+                sent.append("channel")
+            else:
+                failed.append("channel")
+                logger.warning("证据日报群发送失败 {}: {}", channel_id[:8], (err or out or "")[:160])
+    finally:
+        body_file.unlink(missing_ok=True)
+    return {"sent": sent, "failed": failed}
+
+
 def save_report(day: str, out_dir: Path, image_limit: int = 24) -> dict:
     """采集 + 渲染 + 落盘（HTML 与同名 JSON），返回概要，供定时任务调用。"""
     started = time.time()
