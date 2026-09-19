@@ -91,6 +91,14 @@ class Settings:
         self.evidence_report_images = int(
             os.environ.get("PDCA_EVIDENCE_REPORT_IMAGES", "24") or 24
         )
+        # 所有「早上固定输出」的 HTML（证据日报 / 三策略简报）共用这一份收件人名单
+        self.mgmt_html_user_ids = [
+            int(item.strip())
+            for item in os.environ.get(
+                "PDCA_MGMT_HTML_USER_IDS", "13365,13102,12564"
+            ).split(",")
+            if item.strip().isdigit()
+        ]
         # 证据日报私聊收件人（默认不发；.env 里配 user_id）
         self.evidence_report_user_ids = [
             int(item.strip())
