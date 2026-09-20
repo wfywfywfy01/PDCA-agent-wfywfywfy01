@@ -19,6 +19,9 @@ param(
   [string]$VertuCli = 'C:\Users\frank\AppData\Roaming\vertu-im-desktop\personal-opencode\home\bin\vertu-cli.cmd',
   [int]$DownAlertCooldownMinutes = 30,
   [int]$RecoverStreakRequired = 2,
+  [int]$RestartCooldownMinutes = 30,
+  [string]$WorkbenchUrl = 'http://127.0.0.1:8767/health',
+  [int]$WorkbenchPort = 8767,
   [switch]$Quiet
 )
 
@@ -115,13 +118,16 @@ function Get-VpnState {
 }
 
 function Test-WorkbenchAlive {
+  # 返回 Ok/Detail/Responding：
+  #   Responding=$true  说明进程活着但可能降级（HTTP 5xx）——不应盲目重启
+  #   Responding=$false 说明进程没在应答（超时/拒绝）——才算需要重启的“卡死”
   try {
-    $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8767/health' -UseBasicParsing -TimeoutSec 12
-    return @{ Ok = ($r.StatusCode -eq 200); Detail = 'HTTP ' + $r.StatusCode }
+    $r = Invoke-WebRequest -Uri $WorkbenchUrl -UseBasicParsing -TimeoutSec 12
+    return @{ Ok = ($r.StatusCode -eq 200); Detail = 'HTTP ' + $r.StatusCode; Responding = $true }
   } catch {
     $code = $_.Exception.Response.StatusCode.value__
-    if ($code) { return @{ Ok = $false; Detail = 'HTTP ' + $code } }
-    return @{ Ok = $false; Detail = 'unreachable' }
+    if ($code) { return @{ Ok = $false; Detail = 'HTTP ' + $code; Responding = $true } }
+    return @{ Ok = $false; Detail = 'unreachable'; Responding = $false }
   }
 }
 
@@ -157,10 +163,28 @@ function Send-Alert([string]$title, [string]$body) {
   }
 }
 
+function Stop-WorkbenchProcess {
+  # 只在“进程无应答”时调用：找到监听端口的老进程并终止，避免新进程绑不上端口。
+  $conn = Get-NetTCPConnection -LocalPort $WorkbenchPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $conn) { Write-GuardLog '端口无监听进程，直接启动'; return }
+  try {
+    taskkill /PID $conn.OwningProcess /F 2>&1 | Out-Null
+    Write-GuardLog ('已终止无应答的工作台进程 PID ' + $conn.OwningProcess)
+    Start-Sleep -Seconds 3
+  } catch {
+    Write-GuardLog ('终止进程失败: ' + $_.Exception.Message)
+  }
+}
+
 function Start-Workbench {
   Write-GuardLog '尝试拉起工作台服务…'
   Start-Process cmd -ArgumentList '/c', 'start.bat' -WorkingDirectory $WorkbenchRoot -WindowStyle Hidden
-  Start-Sleep -Seconds 20
+  # 启动并轮询：数据库引导 + 迁移可能耗时，最多等 90 秒再判定
+  for ($i = 1; $i -le 9; $i++) {
+    Start-Sleep -Seconds 10
+    $probe = Test-WorkbenchAlive
+    if ($probe.Ok) { Write-GuardLog ('工作台启动成功（约 ' + ($i * 10) + ' 秒）'); return $probe }
+  }
   return Test-WorkbenchAlive
 }
 
@@ -217,15 +241,35 @@ if ($dbState -eq 'up' -and $previousDb -eq 'down') {
   }
 }
 
+# 工作台异常处置：区分“进程无应答（需重启）”与“进程降级（5xx，不重启）”，并加重启冷却
+$lastRestartAt = [datetime]::MinValue
+if ($state.lastRestartAt) { try { $lastRestartAt = [datetime]::Parse($state.lastRestartAt) } catch { } }
+$restartCooldownOk = ((Get-Date) - $lastRestartAt).TotalMinutes -ge $RestartCooldownMinutes
+
 if ($dbState -eq 'up' -and $wbState -eq 'down' -and $upStreak -ge $RecoverStreakRequired) {
-  $after = Start-Workbench
-  if ($after.Ok) {
-    Send-Alert '工作台已自动恢复' ('数据库恢复后自动重启工作台成功（' + $after.Detail + '）。')
+  if (-not $wb.Responding) {
+    if ($restartCooldownOk) {
+      Stop-WorkbenchProcess
+      $after = Start-Workbench
+      $lastRestartAt = Get-Date
+      if ($after.Ok) {
+        Send-Alert '工作台已自动恢复' ('数据库可用，工作台进程无应答，已自动重启成功（' + $after.Detail + '）。')
+      } else {
+        Send-Alert '工作台自动恢复失败' ('数据库可用但工作台仍不可访问（' + $after.Detail + '），已尝试重启一次，需要人工介入。')
+      }
+      if ($after.Ok) { $wbState = 'up' } else { $wbState = 'down' }
+      $alerted = $true
+    } else {
+      Write-GuardLog ('工作台无应答，但距上次自动重启不足 ' + $RestartCooldownMinutes + ' 分钟，本次不重启（避免反复重启）')
+    }
   } else {
-    Send-Alert '工作台自动恢复失败' ('数据库可用但工作台仍不可访问（' + $after.Detail + '），需要人工介入。')
+    # 进程有响应但非 200：可能仍在恢复或降级，自动重启只会打断它
+    Write-GuardLog ('工作台有响应但非 200（' + $wb.Detail + '），不自动重启')
+    if ($state.workbench -ne 'down') {
+      $sent = Send-Alert '工作台健康检查异常' ('数据库正常，但 /health 返回 ' + $wb.Detail + '。进程存活，守护不会自动重启；请查看 pdca_workbench 日志确认原因。')
+      if ($sent) { $alerted = $true }
+    }
   }
-  if ($after.Ok) { $wbState = 'up' } else { $wbState = 'down' }
-  $alerted = $true
 }
 
 $newState = @{
@@ -233,6 +277,7 @@ $newState = @{
   workbench = $wbState
   checkedAt = (Get-Date).ToString('o')
   lastAlertAt = $state.lastAlertAt
+  lastRestartAt = if ($lastRestartAt -gt [datetime]::MinValue) { $lastRestartAt.ToString('o') } else { '' }
   lastDownAlertAt = if ($lastDownAlertAt -gt [datetime]::MinValue) { $lastDownAlertAt.ToString('o') } else { '' }
   downStreak = $downStreak
   upStreak = $upStreak
