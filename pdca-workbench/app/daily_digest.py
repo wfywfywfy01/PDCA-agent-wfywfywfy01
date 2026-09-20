@@ -52,7 +52,7 @@ def _red_text(item: dict) -> str:
     else:
         head += "｜业绩待确认"
     if money > 0:
-        head += f"（回款{money:g}万）"
+        head += f"（已录单{money:g}万）"
     return head
 
 

@@ -345,6 +345,78 @@ class DuzhanAtReplyTests(unittest.TestCase):
         self.assertEqual(draft_at_reply("", "zh"), "在。")
         self.assertEqual(draft_at_reply("", "en"), "Here.")
 
+
+    def test_reply_save_keeps_same_cursor_schema(self):
+        """2026-09-20 修：逐条落盘的游标曾写成 last_seen/answered，读取端只认
+        last_created_at/answered_ids → 下一次轮询会把游标当空的重初始化（漏答 @），
+        并丢掉已答 id 集合（重答）。"""
+        import json
+        import tempfile
+        from pathlib import Path
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        runtime = root / "runtime"
+        runtime.mkdir()
+        channel = "e435ab5d-d425-4ccd-a247-c7207efbb4f6"
+        cursor = runtime / "duzhan_at_cursor.json"
+        cursor.write_text(
+            json.dumps(
+                {"channels": {channel: {"last_created_at": "2026-09-15T07:40:00Z", "answered_ids": []}}}
+            ),
+            encoding="utf-8",
+        )
+        fake_settings = type("S", (), {"data_dir": root})()
+        first = [
+            {
+                "id": "q1",
+                "created_at": "2026-09-15T07:50:00Z",
+                "body": "@海外渠道督战官 1+1=？",
+            }
+        ]
+        later = first + [
+            {
+                "id": "q2",
+                "created_at": "2026-09-15T07:55:00Z",
+                "body": "@海外渠道督战官 2+1=？",
+            }
+        ]
+        replies: list[str] = []
+
+        def fake_fetch(channel_id, date_from):
+            if channel_id != channel:
+                return []
+            return list(later if replies else first)
+
+        with patch("app.duzhan.get_settings", return_value=fake_settings), patch(
+            "app.duzhan._fetch_recent", side_effect=fake_fetch
+        ), patch(
+            "app.duzhan.push_duzhan_message", side_effect=lambda body, cid, **kw: replies.append(kw.get("parent_message_id")) or True
+        ) as push:
+            first_result = poll_at_mentions()
+            saved = json.loads(cursor.read_text(encoding="utf-8"))["channels"][channel]
+            self.assertIn("last_created_at", saved, "落盘必须沿用读取端的 schema")
+            self.assertIn("answered_ids", saved)
+            self.assertIn("q1", saved["answered_ids"])
+            self.assertEqual(saved["last_created_at"], "2026-09-15T07:50:00Z")
+            second_result = poll_at_mentions()
+
+        self.assertEqual(len(first_result["replied"]), 1, first_result)
+        self.assertEqual(len(second_result["replied"]), 1, second_result)
+        self.assertTrue(second_result["replied"][0].endswith(":q2"), second_result)
+        self.assertEqual(replies, ["q1", "q2"], "同一条 @ 只能答一次")
+        self.assertEqual(push.call_count, 2)
+
+    def test_answered_ids_keep_insertion_order(self):
+        from app.duzhan import _remember_answered
+
+        answered: list[str] = []
+        for item in ("b", "a", "c"):
+            answered = _remember_answered(answered, item, limit=2)
+        self.assertEqual(answered, ["a", "c"], "按写入顺序 FIFO 淘汰，不按字典序")
+        self.assertEqual(_remember_answered(answered, "c", limit=2), ["a", "c"], "重复 id 不重复记账")
+
     def test_first_poll_does_not_answer_history(self):
         import tempfile
         from pathlib import Path
@@ -742,7 +814,7 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("红榜 TOP3（部门口径·全员可见｜综合=过程50%+业绩50%）：", text)
         self.assertIn("@于冰", text)
         self.assertIn("业绩待确认", text)
-        self.assertIn("黑榜 待改进（部门口径·全员可见）：@新人小组 本月回款0 / @Lina WhatsApp未覆盖", text)
+        self.assertIn("黑榜 待改进（部门口径·全员可见）：@新人小组 本月已录单0 / @Lina WhatsApp未覆盖", text)
         self.assertIn("扣罚台账：今日无扣罚记录", text)
         self.assertNotIn("红榜", render_brief(group, 10, now, ledger))
 

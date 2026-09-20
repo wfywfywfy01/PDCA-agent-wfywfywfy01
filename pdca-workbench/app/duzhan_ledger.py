@@ -1867,7 +1867,7 @@ def collect_ledger(day: str) -> dict:
         item.display: (bundle or (None, None, None))
         for item, bundle in zip(queried, bundles)
     }
-    # 当日消息过滤 + 图片 OCR：Qwen 是单机推理，按人并发预取（默认 2，避免打爆网关）。
+    # 当日消息过滤 + 图片 OCR：Qwen 是单机推理，按人并发预取（默认 3，避免打爆网关）。
     owner_msgs: dict[str, list[dict]] = {}
     ocr_inputs: list[tuple] = []
     for owner in OWNERS:
@@ -1884,20 +1884,23 @@ def collect_ledger(day: str) -> dict:
         owner_msgs[owner.display] = day_msgs
         ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
 
+    # 三个 OCR 开关都用 getattr 兜底：采集是关键路径，Settings 少一个字段也不能整轮失败。
+    ocr_workers = getattr(settings, "mto_ocr_workers", 3)
+    ocr_budget = getattr(settings, "mto_ocr_budget_seconds", 420)
+    ocr_max_images = getattr(settings, "mto_ocr_max_images", 8)
+
     def _ocr_one(item: tuple):
         from app.mto_ocr import review_mto_images
 
-        return review_mto_images(
-            item[1], item[2], max_images=settings.mto_ocr_max_images
-        )
+        return review_mto_images(item[1], item[2], max_images=ocr_max_images)
 
     # OCR 单独给时间预算：超时未读完的按「待确认」，绝不拖过整点推送（见 _parallel_map_deadline）。
     ocr_results = _parallel_map_deadline(
         _ocr_one,
         ocr_inputs,
-        settings.mto_ocr_workers,
+        ocr_workers,
         "督战官 MTO OCR",
-        settings.mto_ocr_budget_seconds,
+        ocr_budget,
     )
     ocr_cache: dict[str, tuple] = {
         item[0]: (result or (None, [], []))

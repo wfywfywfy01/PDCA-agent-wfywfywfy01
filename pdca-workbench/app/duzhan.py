@@ -148,7 +148,7 @@ _EN_PAIRS = (
     ("WhatsApp未覆盖", "WhatsApp not covered"),
     ("今日明确意向0", "no clear intent today"),
     ("累计已录单未出", "MTD booked pending"),
-    ("本月回款0", "MTD collection 0"),
+    ("本月已录单0", "MTD booked 0"),
     ("意向未出数", "intent pending"),
     ("未报今日任务", "no plan posted today"),
     ("证据不足", "evidence missing"),
@@ -1126,7 +1126,7 @@ def _red_item_text(item: dict, lang: str) -> str:
     else:
         head += "｜业绩待确认"
     if mtd is not None:
-        head += f"（回款{wan_text(mtd, lang)}万）"
+        head += f"（已录单{wan_text(mtd, lang)}万）"
     return head
 
 
@@ -1324,6 +1324,26 @@ def _save_cursor(payload: dict) -> None:
     os.replace(tmp, path)
 
 
+def _cursor_row(last_created_at: str, answered: list[str], limit: int = 200) -> dict:
+    """游标里「单个频道」的状态行。
+
+    读写必须同一套 schema（last_created_at / answered_ids）：2026-09-20 的逐条落盘
+    曾经写成 last_seen / answered，和读取端不一致，下一次轮询会把游标当成空的重新
+    初始化（跳过待答的 @），并且丢掉已答 id 集合（可能重答）。这里统一成一个构造函数。
+    """
+    return {"last_created_at": last_created_at, "answered_ids": answered[-limit:]}
+
+
+def _remember_answered(answered: list[str], message_id: str, limit: int = 200) -> list[str]:
+    """记一条已答 id，保持写入顺序（先进先出淘汰），不按字典序排序。
+
+    按字典序截断会随机丢掉「最近答过的 id」，一旦 last_created_at 没能前进就会重答。
+    """
+    if message_id not in answered:
+        answered.append(message_id)
+    return answered[-limit:] if len(answered) > limit else list(answered)
+
+
 def _fetch_recent(channel_id: str, date_from: str) -> list[dict]:
     from app.vertu.client import run_vertu_sync_json
 
@@ -1368,10 +1388,7 @@ def poll_at_mentions() -> dict:
         messages.sort(key=lambda item: str(item.get("created_at") or ""))
         if not last_seen:
             newest = str(messages[-1].get("created_at") or "") if messages else ""
-            channels[group.channel_id] = {
-                "last_created_at": newest,
-                "answered_ids": answered[-200:],
-            }
+            channels[group.channel_id] = _cursor_row(newest, answered)
             skipped_init.append(group.name)
             continue
         newest = last_seen
@@ -1398,21 +1415,18 @@ def poll_at_mentions() -> dict:
             if ok:
                 replied.append(f"{group.name}:{message_id}")
                 answered_set.add(message_id)
-                answered.append(message_id)
-                # 立刻落盘：崩溃重启后不会重复回答同一条 @（原来整轮结束才写）
-                state["channels"][group.channel_id] = {
-                    "last_seen": max(newest, created or ""),
-                    "answered": sorted(answered_set)[-200:],
-                }
+                answered = _remember_answered(answered, message_id)
+                # 立刻落盘：崩溃重启后不会重复回答同一条 @（原来整轮结束才写）。
+                # 注意与读取端同一套 schema，见 _cursor_row。
+                state["channels"][group.channel_id] = _cursor_row(
+                    max(newest, created or ""), answered
+                )
                 try:
                     _save_cursor(state)
                 except OSError as exc:  # noqa: BLE001 — 落盘失败不影响已发出的回复
                     logger.warning("督战官游标落盘失败: {}", exc)
             else:
                 logger.warning("督战官 @回复失败 {} {}", group.name, message_id)
-        channels[group.channel_id] = {
-            "last_created_at": newest,
-            "answered_ids": answered[-200:],
-        }
+        channels[group.channel_id] = _cursor_row(newest, answered)
     _save_cursor(state)
     return {"replied": replied, "initialized": skipped_init}

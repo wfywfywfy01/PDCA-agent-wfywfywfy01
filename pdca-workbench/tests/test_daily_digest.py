@@ -272,7 +272,7 @@ class DigestStructureTests(unittest.TestCase):
         text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
         self.assertIn("红榜（过程+业绩综合）：", text)
         self.assertIn("@邓琳莹 综合12｜过程12｜业绩按小组口径", text)
-        self.assertIn("@于冰 综合118｜过程119｜业绩117%（回款170.2万）", text)
+        self.assertIn("@于冰 综合118｜过程119｜业绩117%（已录单170.2万）", text)
         self.assertNotIn("本月未出单", text)
         self.assertIn("黑榜（待改进）", text)
 
