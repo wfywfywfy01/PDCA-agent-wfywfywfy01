@@ -47,6 +47,72 @@ const loading = ref(true)
 const error = ref('')
 let loadId = 0
 
+// ── Vemory 经销商会议 ─────────────────────────────────────────────────────
+const vemory = ref<{ total: number; meetings: Record<string, unknown>[]; warning?: string | null } | null>(null)
+const vemoryLoading = ref(false)
+const vemoryError = ref('')
+const detailOpen = ref(false)
+const detail = ref<Record<string, unknown> | null>(null)
+const detailLoading = ref(false)
+const detailError = ref('')
+const audioLinks = ref<Record<string, unknown>[]>([])
+
+function asText(value: unknown): string {
+  if (value == null) return ''
+  const type = typeof value
+  if (type === 'string' || type === 'number' || type === 'boolean') return String(value)
+  return ''
+}
+
+function asEntries(value: unknown): { key: string; value: string }[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, val]) => ({ key, value: asText(val) || (Array.isArray(val) ? val.map(asText).filter(Boolean).join('；') : '') }))
+    .filter((entry) => entry.value)
+}
+
+async function loadVemory() {
+  vemoryLoading.value = true
+  vemoryError.value = ''
+  try {
+    const params = new URLSearchParams({ start: startDate.value })
+    if (endDate.value) params.set('end', endDate.value)
+    vemory.value = await apiGet<{ total: number; meetings: Record<string, unknown>[]; warning?: string | null }>(
+      '/api/meeting-center/vemory/dealer-meetings?' + params.toString(),
+    )
+  } catch (err) {
+    vemoryError.value = err instanceof HttpError ? err.detail : '经销商会议加载失败'
+  } finally {
+    vemoryLoading.value = false
+  }
+}
+
+async function openVemoryDetail(row: Record<string, unknown>) {
+  const meetingId = String(row.meeting_id ?? row.id ?? '')
+  if (!meetingId) return
+  detailOpen.value = true
+  detail.value = null
+  detailError.value = ''
+  detailLoading.value = true
+  audioLinks.value = []
+  try {
+    const res = await apiGet<{ meeting: Record<string, unknown> }>(
+      '/api/meeting-center/vemory/detail?meeting_id=' + encodeURIComponent(meetingId),
+    )
+    detail.value = res.meeting
+  } catch (err) {
+    detailError.value = err instanceof HttpError ? err.detail : '会议详情加载失败'
+  } finally {
+    detailLoading.value = false
+  }
+  try {
+    const audio = await apiGet<{ links?: Record<string, unknown>[] }>('/api/meeting-center/vemory/audio-links')
+    audioLinks.value = audio.links ?? []
+  } catch {
+    audioLinks.value = []
+  }
+}
+
 const showDispatch = ref(false)
 const dispatchMeeting = ref<MeetingItem | null>(null)
 const dispatchBusy = ref(false)
@@ -71,6 +137,7 @@ async function load() {
   loading.value = true
   error.value = ''
   payload.value = null
+  loadVemory()
   if (!startDate.value || (endDate.value && endDate.value < startDate.value)) {
     error.value = '请选择有效日期范围，结束日期不能早于开始日期'
     loading.value = false
@@ -267,6 +334,104 @@ watch([startDate, endDate], load)
         <p v-if="!payload.meetings.length" class="empty">当前权限范围内，该时段暂无会议记录</p>
       </section>
     </template>
+
+    <section class="panel card">
+      <header class="section-head">
+        <div>
+          <h2>经销商会议（Vemory）</h2>
+          <p>{{ startDate }}{{ endDate ? ' 至 ' + endDate : '' }} · 共 {{ vemory?.total ?? 0 }} 场 · 仅显示当前数据权限内的会议</p>
+        </div>
+        <button class="btn btn-sm" type="button" :disabled="vemoryLoading" @click="loadVemory">
+          {{ vemoryLoading ? '加载中…' : '刷新' }}
+        </button>
+      </header>
+
+      <div v-if="vemoryError" class="alert" role="alert">
+        <span>{{ vemoryError }}</span>
+        <button class="btn btn-sm" type="button" @click="loadVemory">重试</button>
+      </div>
+
+      <div v-else-if="vemoryLoading" class="skeleton-rows" aria-busy="true" aria-label="正在加载经销商会议">
+        <div v-for="row in 3" :key="row" class="skeleton-row">
+          <span class="skeleton" style="width: 38%" />
+          <span class="skeleton" style="flex: 1" />
+        </div>
+      </div>
+
+      <div v-else-if="vemory && vemory.meetings.length" class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">会议</th>
+              <th scope="col">负责人</th>
+              <th scope="col">时间</th>
+              <th scope="col">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, index) in vemory.meetings" :key="index">
+              <td><strong>{{ asText(row.title) || asText(row.subject) || '（未命名会议）' }}</strong></td>
+              <td>{{ asText(row.owner_name) || '—' }}</td>
+              <td class="num">{{ asText(row.start_time) || asText(row.meeting_date) || asText(row.created_at) || '—' }}</td>
+              <td><button class="link-btn" type="button" @click="openVemoryDetail(row)">查看详情</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-else class="empty-state">
+        <h2>该时段没有经销商会议</h2>
+        <p>Vemory 只返回所选日期范围内、且在您数据权限内的会议；可以调整日期后重新加载。</p>
+        <button class="btn" type="button" @click="loadVemory">重新加载</button>
+      </div>
+
+      <p v-if="vemory?.warning" class="hint-warn">数据源提示：{{ vemory.warning }}</p>
+    </section>
+
+    <div v-if="detailOpen" class="overlay" @click.self="detailOpen = false">
+      <section class="card modal" role="dialog" aria-modal="true" aria-labelledby="vemory-detail-title">
+        <header class="modal-head">
+          <div>
+            <h2 id="vemory-detail-title">会议详情</h2>
+            <p>Vemory 纪要、章节与音频入口</p>
+          </div>
+          <button class="btn btn-sm" type="button" @click="detailOpen = false">关闭</button>
+        </header>
+
+        <div v-if="detailError" class="alert" role="alert">
+          <span>{{ detailError }}</span>
+          <button class="btn btn-sm" type="button" @click="detailOpen = false">关闭</button>
+        </div>
+
+        <div v-else-if="detailLoading" class="skeleton-rows" aria-busy="true">
+          <div v-for="row in 4" :key="row" class="skeleton-row"><span class="skeleton" style="flex: 1" /></div>
+        </div>
+
+        <template v-else-if="detail">
+          <dl class="detail-kv">
+            <div v-for="entry in asEntries(detail)" :key="entry.key">
+              <dt>{{ entry.key }}</dt>
+              <dd>{{ entry.value }}</dd>
+            </div>
+          </dl>
+          <div v-if="audioLinks.length" class="audio-links">
+            <h3>音频</h3>
+            <ul>
+              <li v-for="(link, index) in audioLinks" :key="index">
+                <a :href="asText(link.url) || asText(link.play_url)" target="_blank" rel="noopener">
+                  {{ asText(link.name) || asText(link.title) || ('音频 ' + (index + 1)) }}
+                </a>
+              </li>
+            </ul>
+          </div>
+        </template>
+
+        <div v-else class="empty-state">
+          <h2>没有可展示的详情</h2>
+          <p>该会议可能尚未生成纪要。</p>
+        </div>
+      </section>
+    </div>
 
     <div v-if="showDispatch" class="modal-backdrop" @click.self="showDispatch = false">
       <section class="card modal">
@@ -555,4 +720,13 @@ h2 {
   gap: 10px;
   margin-top: 14px;
 }
+
+.skeleton-rows { display: grid; }
+.detail-kv { margin: 0; display: grid; gap: 8px; }
+.detail-kv dt { color: var(--muted); font-size: 11px; }
+.detail-kv dd { margin: 3px 0 0; font-size: 13px; color: var(--text); line-height: 1.6; word-break: break-word; max-height: 260px; overflow: auto; }
+.audio-links { margin-top: 16px; }
+.audio-links h3 { margin: 0 0 8px; font-size: 13px; color: var(--blue); }
+.audio-links ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.audio-links a { font-size: 13px; }
 </style>

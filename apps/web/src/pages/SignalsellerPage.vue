@@ -68,6 +68,79 @@ const editBusy = ref(false)
 const editError = ref('')
 const editForm = ref({ next_action: '', abcd_grade: '', followup_round: '', last_followup_date: '' })
 
+// ── 作战手册（SignalSeller 方法论）─────────────────────────────────────────
+const methodology = ref<Record<string, unknown> | null>(null)
+const methodOpen = ref(false)
+const methodLoading = ref(false)
+const methodError = ref('')
+
+const METHOD_SECTIONS: { key: string; label: string }[] = [
+  { key: 'principle', label: '核心原则' },
+  { key: 'abcd_grading', label: 'ABCD 分级' },
+  { key: 'followup_triggers', label: '跟进触发' },
+  { key: 'three_round_outreach', label: '三轮触达' },
+  { key: 'hard_constraints', label: '红线约束' },
+  { key: 'alert_rules', label: '预警规则' },
+  { key: 'channel_matrix', label: '渠道矩阵' },
+  { key: 'suit_mapping', label: '适配矩阵' },
+  { key: 'kpi_targets', label: '目标口径' },
+]
+
+function methodText(value: unknown): string {
+  if (value == null) return ''
+  const type = typeof value
+  if (type === 'string' || type === 'number' || type === 'boolean') return String(value)
+  return ''
+}
+
+function methodItems(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => {
+    const direct = methodText(item)
+    if (direct) return direct
+    if (item && typeof item === 'object') {
+      return Object.entries(item as Record<string, unknown>)
+        .map(([key, val]) => key + '：' + (methodText(val) || JSON.stringify(val)))
+        .join(' · ')
+    }
+    return String(item)
+  })
+}
+
+function methodEntries(value: unknown): { key: string; value: string }[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return Object.entries(value as Record<string, unknown>).map(([key, val]) => ({
+    key,
+    value: methodText(val) || (Array.isArray(val) ? methodItems(val).join('；') : JSON.stringify(val)),
+  }))
+}
+
+function methodSectionHasContent(key: string): boolean {
+  const value = methodology.value?.[key]
+  if (value == null) return false
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value as object).length > 0
+  return String(value).length > 0
+}
+
+async function loadMethodology() {
+  if (methodology.value || methodLoading.value) return
+  methodLoading.value = true
+  methodError.value = ''
+  try {
+    methodology.value = await apiGet<Record<string, unknown>>('/api/signalseller/methodology')
+  } catch (err) {
+    methodError.value = err instanceof HttpError ? err.detail : '作战手册加载失败'
+  } finally {
+    methodLoading.value = false
+  }
+}
+
+async function toggleMethodology() {
+  methodOpen.value = !methodOpen.value
+  if (methodOpen.value) await loadMethodology()
+}
+
 const outreachCustomer = ref<CustomerRow | null>(null)
 const outreachBusy = ref(false)
 const outreachResult = ref('')
@@ -377,6 +450,58 @@ onMounted(() => {
           </div>
         </section>
       </template>
+
+      <section class="panel card">
+        <header class="section-head">
+          <div>
+            <h2>作战手册</h2>
+            <p>
+              SignalSeller 方法论：分级、触发条件、触达轮次与红线约束。
+              <span v-if="methodology?.version" class="mono">v{{ methodology.version }}</span>
+            </p>
+          </div>
+          <button class="btn btn-sm" type="button" :aria-expanded="methodOpen" aria-controls="method-body" @click="toggleMethodology">
+            {{ methodOpen ? '收起' : '展开' }}
+          </button>
+        </header>
+
+        <div v-if="methodError" class="alert" role="alert">
+          <span>{{ methodError }}</span>
+          <button class="btn btn-sm" type="button" @click="methodError = ''; loadMethodology()">重试</button>
+        </div>
+
+        <div v-else-if="methodLoading" class="method-grid" aria-busy="true" aria-label="正在加载作战手册">
+          <div v-for="row in 4" :key="row" class="method-block">
+            <span class="skeleton" style="width: 40%" />
+            <span class="skeleton" style="width: 80%" />
+          </div>
+        </div>
+
+        <div v-else-if="methodOpen && methodology" id="method-body" class="method-grid">
+          <article v-for="section in METHOD_SECTIONS" :key="section.key" class="method-block">
+            <template v-if="methodSectionHasContent(section.key)">
+              <h3>{{ section.label }}</h3>
+              <p v-if="methodText(methodology[section.key])" class="method-text">{{ methodText(methodology[section.key]) }}</p>
+              <ul v-else-if="methodItems(methodology[section.key]).length" class="method-list">
+                <li v-for="(item, index) in methodItems(methodology[section.key])" :key="index">{{ item }}</li>
+              </ul>
+              <dl v-else-if="methodEntries(methodology[section.key]).length" class="method-kv">
+                <div v-for="entry in methodEntries(methodology[section.key])" :key="entry.key">
+                  <dt>{{ entry.key }}</dt>
+                  <dd>{{ entry.value }}</dd>
+                </div>
+              </dl>
+            </template>
+          </article>
+          <p v-if="methodology.source" class="hint">来源：{{ methodology.source }}</p>
+        </div>
+
+        <div v-else class="empty-state">
+          <h2>作战手册已收起</h2>
+          <p>展开后显示分级标准、跟进触发规则、三轮触达节奏与红线约束。</p>
+          <button class="btn" type="button" @click="toggleMethodology">展开作战手册</button>
+        </div>
+      </section>
     </template>
 
     <div v-if="editCustomer" class="modal-backdrop" @click.self="editCustomer = null">
@@ -756,4 +881,22 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+.method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.method-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.method-block h3 { margin: 0; font-size: 13px; color: var(--blue); }
+.method-text { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.method-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.6; display: grid; gap: 6px; }
+.method-kv { margin: 0; display: grid; gap: 6px; }
+.method-kv dt { color: var(--muted); font-size: 11px; }
+.method-kv dd { margin: 2px 0 0; font-size: 12px; color: var(--text); }
+.method-grid .hint { grid-column: 1 / -1; }
 </style>
