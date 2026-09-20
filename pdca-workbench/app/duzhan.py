@@ -267,10 +267,20 @@ def collect_clock(hour: int, lead_minutes: int) -> tuple[int, int]:
     return divmod(total, 60)
 
 
-def _idempotency_key(tz_name: str, day: str, hour: int, channel_id: str = "") -> str:
-    """催收同款：脚本名-YYYYMMDD-HHMM，群维度再拼 channel 前 8 位。"""
+def _idempotency_key(
+    tz_name: str,
+    day: str,
+    hour: int,
+    channel_id: str = "",
+    producer: str = "duzhan",
+) -> str:
+    """催收同款：producer-YYYYMMDD-HHMM-时区，群维度再拼 channel 前 8 位。
+
+    producer 必须区分「确定性三追推送」与「Agent/Outbox 草稿推送」：两者
+    同一群同一档内容完全不同，若共用键会被服务端静默去重掉一条。
+    """
     slug = tz_name.lower().replace("/", "")
-    base = f"duzhan-{day.replace('-', '')}-{hour:02d}00-{slug}"
+    base = f"{producer}-{day.replace('-', '')}-{hour:02d}00-{slug}"
     if channel_id:
         return f"{base}-{channel_id[:8]}"
     return base

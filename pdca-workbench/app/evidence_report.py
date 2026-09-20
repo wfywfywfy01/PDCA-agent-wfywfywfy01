@@ -16,6 +16,8 @@ import html
 import io
 import json
 import os
+import re
+import shutil
 import sys
 import tempfile
 import time
@@ -90,8 +92,24 @@ def thumb_b64(path: Path, max_width: int = 760, quality: int = 72) -> str | None
         return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
     except Exception:  # noqa: BLE001 — 单张图坏了不影响整份报告
         return None
+def _safe_attachment_name(name: object, index: int) -> str:
+    """附件名净化：统一分隔符 → basename → 去点前缀 → 白名单字符，防路径穿越。
+
+    注意 POSIX 下反斜杠不是分隔符（Path("..\\..\\x").name 仍是整串），
+    所以先把 \\ 换成 /，再 lstrip('.')，两个平台都能得到干净名字。
+    """
+    base = str(name or "image").replace("\\", "/")
+    base = Path(base).name.lstrip(".")
+    cleaned = re.sub(r"[^\w.\-\u4e00-\u9fff]", "_", base)[:80].strip("._") or "image"
+    return f"{index}-{cleaned}"
+
+
 def download_images(owner_rows: list[dict], raw_by_owner: dict[str, list[dict]], limit: int) -> dict[str, list[dict]]:
-    """下载 MTO 图片并生成缩略图，返回 {display: [{name, b64, note}]}。"""
+    """下载 MTO 图片并生成缩略图，返回 {display: [{name, b64, note}]}。
+
+    原图只做缩略图用，函数结束（含异常）一律删掉临时目录——每天 07:30 跑一次，
+    不回收会把容器磁盘按天写满（2026-09-20 审查发现）。
+    """
     out: dict[str, list[dict]] = {}
     workdir = Path(tempfile.mkdtemp(prefix="pdca-evidence-"))
     used = 0
@@ -111,7 +129,10 @@ def download_images(owner_rows: list[dict], raw_by_owner: dict[str, list[dict]],
                 key = str(att.get("storage_key") or "")
                 if not (url or key):
                     continue
-                target = workdir / (str(used) + "-" + name.replace("/", "_"))
+                target = workdir / _safe_attachment_name(name, used)
+                if not target.resolve().is_relative_to(workdir.resolve()):
+                    logger.warning("证据日报附件名异常，跳过: {}", name)
+                    continue
                 args = ["im", "+attachment-download", "--output", str(target)]
                 args += (["--url", url] if url else ["--storage-key", key])
                 # 用 app.vertu.client 解析 CLI 路径：容器里 vertu-cli 不在 PATH 上，
@@ -129,6 +150,7 @@ def download_images(owner_rows: list[dict], raw_by_owner: dict[str, list[dict]],
                 used += 1
         if items:
             out[display] = items
+    shutil.rmtree(workdir, ignore_errors=True)
     return out
 
 
@@ -171,9 +193,13 @@ def collect(day: str, image_limit: int) -> dict:
         attachments[owner.display] = images
     # 注意：把「每人的消息」传进去（download_images 自己挑图片附件），
     # 传附件字典会取不到图片——2026-09-18 首版就因此一张图都没内嵌。
-    images = download_images(
-        [{"display": item.display} for item in OWNERS], raw_by_owner, image_limit
-    )
+    try:
+        images = download_images(
+            [{"display": item.display} for item in OWNERS], raw_by_owner, image_limit
+        )
+    except Exception as exc:  # noqa: BLE001 — 图片失败不影响文字证据
+        logger.warning("证据日报图片处理失败: {}", exc)
+        images = {}
     ledger["_raw_by_owner"] = raw_by_owner
     ledger["_images"] = images
     ledger["_elapsed"] = round(time.time() - started, 1)

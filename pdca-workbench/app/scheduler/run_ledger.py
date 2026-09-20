@@ -38,6 +38,16 @@ def claim_run(job_name: str, bucket: str) -> bool:
                 session.add(existing)
                 session.commit()
                 return True
+            if existing.status == "failed":
+                # 失败允许兜底触发重试一次（+30 分钟备份、崩溃补跑）。
+                # 重复外发由各任务的 VPS 幂等键兜住，不会真的发两条。
+                existing.status = "sending"
+                existing.detail = ""
+                existing.started_at = now
+                existing.finished_at = None
+                session.add(existing)
+                session.commit()
+                return True
             return False
         session.add(ScheduledJobRun(
             run_key=run_key, job_name=job_name, bucket=bucket, status="sending"
