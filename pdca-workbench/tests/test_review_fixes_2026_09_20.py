@@ -419,9 +419,18 @@ class CollectLedgerWiringTests(unittest.TestCase):
         def fake_ocr(messages, sender_id):
             return (sender_id, [f"img-{sender_id}"], [])
 
-        with mock.patch.object(dl, "fetch_personal_okr", lambda: []), mock.patch.object(
-            dl, "load_vps_activity", lambda: {}
-        ), mock.patch.object(dl, "fetch_vemory_day", lambda day: []), mock.patch.object(
+        okr_rows = [{"salesperson": "于冰", "sales_amount": 2_000_000}]
+        vemory_rows = [{"name": "于冰", "meetings": 2}]
+        vps_payload = {"sent": 7}
+
+        def fake_vps(owner, activity):
+            return (activity.get("sent"), None, "", "", None, False)
+
+        with mock.patch.object(dl, "fetch_personal_okr", lambda: okr_rows), mock.patch.object(
+            dl, "load_vps_activity", lambda: vps_payload
+        ), mock.patch.object(
+            dl, "_vps_for_owner", fake_vps
+        ), mock.patch.object(dl, "fetch_vemory_day", lambda day: vemory_rows), mock.patch.object(
             dl, "fetch_channel_history", fake_history
         ), mock.patch.object(dl, "_mcp_bundle", fake_bundle), mock.patch.object(
             dl, "parse_wa_reached", lambda payload: (payload, False)
@@ -451,6 +460,11 @@ class CollectLedgerWiringTests(unittest.TestCase):
         sizes = {size for _, size in history_calls}
         self.assertEqual(sizes, {"200", "300"})
         self.assertEqual(len(history_calls), len(set(history_calls)))
+        # 四个源的数据必须各就各位（按名字取值，不靠下标顺序）
+        self.assertEqual(rows["于冰"]["mtd_wan"], 200.0, "personal-okr 应进业绩字段")
+        self.assertEqual(rows["于冰"]["vps_im_sent"], 7, "Agent/IM 报告应进 VPS 字段")
+        self.assertIsNotNone(rows["于冰"]["vemory"], "Vemory 应进 Vemory 字段")
+        self.assertEqual(rows["于冰"]["daily_report"], {}, "日报群数据应进日报字段")
         # 月目标来源应标注为文件（2026-09 已配置）+ 滚动日目标已算
         self.assertEqual(rows["于冰"]["target_source"], "file")
         self.assertIsNotNone(rows["于冰"]["rolling_target_wan"])

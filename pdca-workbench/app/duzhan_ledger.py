@@ -1788,13 +1788,19 @@ def collect_ledger(day: str) -> dict:
         "日报群拉取": lambda: fetch_channel_history(report_channel, day, "300"),
     }
     names = list(sources)
-    fetched = _parallel_map(
-        lambda name: _safe_fetch(name, sources[name]), names, len(names), "督战官采集"
+    # 按名字取值而不是下标：将来调整源顺序也不会把 A 的数据接到 B 的字段上。
+    fetched = dict(
+        zip(
+            names,
+            _parallel_map(
+                lambda name: _safe_fetch(name, sources[name]), names, len(names), "督战官采集"
+            ),
+        )
     )
-    okr_rows = fetched[0] or []
-    vps_activity = fetched[1] or {}
-    vemory_rows = fetched[2]
-    report_messages = fetched[3]
+    okr_rows = fetched["personal-okr"] or []
+    vps_activity = fetched["Agent/IM 报告"] or {}
+    vemory_rows = fetched["Vemory"]
+    report_messages = fetched["日报群拉取"]
     daily_reports = parse_daily_reports(report_messages, day) if report_messages else {}
     channel_ids = sorted({cid for item in OWNERS for cid in _history_ids(item) if cid})
     history_list = _parallel_map(
