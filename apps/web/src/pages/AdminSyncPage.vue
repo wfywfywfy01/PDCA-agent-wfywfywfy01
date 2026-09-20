@@ -331,4 +331,3 @@ onMounted(async () => {
 .card-alert-note { padding: 12px 14px; border: 1px dashed var(--border-strong); border-radius: var(--radius); margin-bottom: 12px; }
 .card-alert-note .hint { margin: 0; }
 </style>
-

@@ -858,7 +858,3 @@ tbody tr:last-child td { border-bottom: none; }
   .kv { grid-template-columns: 1fr; }
 }
 </style>
-
-
-
-
