@@ -248,7 +248,14 @@ $restartCooldownOk = ((Get-Date) - $lastRestartAt).TotalMinutes -ge $RestartCool
 
 if ($dbState -eq 'up' -and $wbState -eq 'down' -and $upStreak -ge $RecoverStreakRequired) {
   if (-not $wb.Responding) {
-    if ($restartCooldownOk) {
+    # 宽限期复检：手工部署/重启会造成短暂“无应答”窗口；
+    # 此时贸然杀进程或再拉一个实例，会打断正在进行中的部署。
+    Start-Sleep -Seconds 20
+    $recheck = Test-WorkbenchAlive
+    if ($recheck.Ok) {
+      Write-GuardLog ('复检时工作台已恢复（' + $recheck.Detail + '），可能正在部署/重启，本次不干预')
+      $wbState = 'up'
+    } elseif ($restartCooldownOk) {
       Stop-WorkbenchProcess
       $after = Start-Workbench
       $lastRestartAt = Get-Date
