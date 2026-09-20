@@ -270,9 +270,12 @@ class MtoOcrTests(unittest.TestCase):
             result = ocr_image_bytes(png_bytes, "image/png")
         self.assertTrue(result["raw_ok"])
         self.assertEqual(result["model"], "Quantum")
-        self.assertEqual(len(calls), 2)
-        # 第二次请求带“直接输出 JSON”引导
-        steered = calls[1]["messages"][-1]["content"]
+        # 2026-09-20：截断重试条件从「raw_ok=False」放宽到「raw_ok=False 或 金额缺失」。
+        # 本例第一次被截断 → 型号二次识别（第 2 次）拿到型号但金额仍缺 → 再补一次
+        # 「直接输出 JSON」（第 3 次），把金额捞回来（以前金额会丢成「未满30万」）。
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(result["usd"], 45022.0, "截断后必须把金额捞回来")
+        steered = calls[-1]["messages"][-1]["content"]
         self.assertIn("JSON", steered)
 
 

@@ -44,6 +44,11 @@ async def run_vertu(
     bin_path = resolve_vertu_command()
     # Windows .cmd/.bat 文件必须经 cmd /c 执行，否则 asyncio 子进程无法识别
     if sys.platform == "win32" and bin_path.lower().endswith((".cmd", ".bat")):
+        try:
+            _reject_cmd_metachars(args)
+        except ValueError as exc:
+            logger.error("{}", exc)
+            return -1, "", str(exc)
         cmd = ["cmd", "/c", bin_path, *args]
     else:
         cmd = [bin_path, *args]
@@ -61,11 +66,33 @@ async def run_vertu(
             stderr_b.decode("utf-8", errors="replace"),
         )
     except asyncio.TimeoutError:
-        logger.warning("vertu-cli 超时: {}", " ".join(cmd))
+        # 必须真的杀掉子进程：以前只返回超时，命令仍在后台跑完——对 im +send-* 这类
+        # 写操作就是「调用方以为失败、消息其实发出去了」，重试还会再发一条（2026-09-20 审查）。
+        logger.warning("vertu-cli 超时，终止子进程: {}", " ".join(cmd))
+        try:
+            proc.kill()
+            await proc.wait()
+        except (ProcessLookupError, OSError) as exc:  # 进程可能已退出
+            logger.debug("vertu-cli 终止时进程已结束: {}", exc)
         return -1, "", f"timeout after {timeout}s"
     except OSError as exc:
         logger.error("vertu-cli 执行失败: {}", exc)
         return -1, "", str(exc)
+
+
+# Windows 上 vertu-cli 是 .cmd，必须经 cmd /c 启动，而 cmd.exe 会二次解析参数：
+# 参数里出现引号 + & | ^ < > % ! 就能拼出额外命令（2026-09-20 审查实测可执行 echo）。
+# 这里直接拒绝这类参数——调用方应该用 --body-file/env 传自由文本，而不是塞进命令行。
+_CMD_METACHARS = set('"&|^<>%')
+
+
+def _reject_cmd_metachars(args: list[str]) -> None:
+    """经 cmd /c 传参前做一次白名单式检查，命中直接拒绝（不执行）。"""
+    for item in args:
+        text = str(item)
+        hit = sorted({ch for ch in text if ch in _CMD_METACHARS})
+        if hit:
+            raise ValueError(f"参数含 cmd 特殊字符 {hit}，拒绝执行以免命令注入: {text[:60]!r}")
 
 
 def run_vertu_sync(
@@ -79,6 +106,11 @@ def run_vertu_sync(
     command = resolve_vertu_command()
     cmd = [command, *args]
     if sys.platform == "win32" and command.lower().endswith((".cmd", ".bat")):
+        try:
+            _reject_cmd_metachars(args)
+        except ValueError as exc:
+            logger.error("{}", exc)
+            return -1, "", str(exc)
         cmd = ["cmd", "/c", command, *args]
     try:
         completed = subprocess.run(

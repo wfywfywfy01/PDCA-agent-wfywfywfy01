@@ -248,6 +248,16 @@ def evidence_li(items: list[dict], lang: str = "zh") -> str:
     return "".join(out)
 
 
+def _daily_cell(row: dict, short: bool = False) -> str:
+    """日报单元格：取数失败写「待确认」，不能替人下「未见」的结论（2026-09-20 审查）。"""
+    report = row.get("daily_report") or {}
+    if report:
+        return ("已交" if short else "已交 " + str(report.get("item_count") or 0) + " 项")
+    if not row.get("daily_report_ok", True):
+        return "待确认" if short else "待确认（日报群取数失败）"
+    return "未见" if short else "未见"
+
+
 def mto_block(row: dict, images: list[dict]) -> str:
     quotes = [item for item in (row.get("mto_quotes") or []) if isinstance(item, dict)]
     lines = []
@@ -307,7 +317,7 @@ def person_card(row: dict, raw: list[dict], images: list[dict]) -> str:
         f"<div class='kv'><b>明确意向</b>{esc(row.get('intent_count') if row.get('intent_count') is not None else '待确认')} 户（MCP）</div>"
         f"<div class='kv'><b>MTO 4 款</b>{esc(row.get('mto_count') if row.get('mto_count') is not None else '待确认')} 张</div>"
         f"<div class='kv'><b>工时</b>{hours(row.get('hours_minutes'))}｜{esc(row.get('hours_band') or '待确认')}</div>"
-        f"<div class='kv'><b>日报</b>{'已交 ' + str((row.get('daily_report') or {}).get('item_count') or 0) + ' 项' if row.get('daily_report') else '未见'}</div>"
+        f"<div class='kv'><b>日报</b>{_daily_cell(row)}</div>"
         f"<div class='kv'><b>评分</b>{esc(round(float(row.get('score') or 0)))} 分</div>"
         "</div>"
     )
@@ -385,7 +395,7 @@ def overview_table(people: list[dict], raw_by_owner: dict, images: dict) -> str:
             f"<td>{esc(row.get('mto_count') if row.get('mto_count') is not None else '待确认')} 张</td>"
             f"<td>{esc(row.get('wa_reached') if row.get('wa_reached') is not None else '待确认')} 户</td>"
             f"<td>{hours(row.get('hours_minutes'))}</td>"
-            f"<td>{'已交' if row.get('daily_report') else '未见'}</td>"
+            f"<td>{_daily_cell(row, short=True)}</td>"
             f"<td>{len(raw_by_owner.get(name) or [])}</td>"
             f"<td>{len(images.get(name) or [])}</td>"
             "</tr>"

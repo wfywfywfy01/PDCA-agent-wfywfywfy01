@@ -52,7 +52,7 @@ def _red_text(item: dict) -> str:
     else:
         head += "｜业绩待确认"
     if money > 0:
-        head += f"（回款{money:g}万）"
+        head += f"（已录单{money:g}万）"
     return head
 
 
@@ -230,7 +230,12 @@ def build_digest(
         mto_text = '待确认' if mto is None else f"{mto}/4"
         hours = '待确认' if person.get('hours_minutes') is None else f"{float(person['hours_minutes']) / 60:.1f}h"
         report = person.get('daily_report') or {}
-        report_text = '已交' if report else '未见日报'
+        if report:
+            report_text = '已交'
+        elif person.get('daily_report_ok', True):
+            report_text = '未见日报'
+        else:
+            report_text = '日报待确认（取数失败）'
         slip = _amounts(person.get('perf_slip') or [])
         intent = _amounts(person.get('perf_intent') or [])
         lead = ''

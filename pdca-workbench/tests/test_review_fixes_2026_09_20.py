@@ -547,5 +547,158 @@ class OcrBudgetTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
 
 
+class AmountParsingTests(unittest.TestCase):
+    """审查修复：金额千分位、大数科学计数法（推送里出现过「0万」）。"""
+
+    def test_thousand_separators(self):
+        from app.duzhan_ledger import _amount_text, _perf_amount
+
+        self.assertEqual(_perf_amount("水单 1,000万 已付")["wan"], 1000.0)
+        self.assertEqual(_perf_amount("意向 1,234.5万")["wan"], 1234.5)
+        self.assertEqual(_perf_amount("货款 2,000,000元")["wan"], 200.0)
+        self.assertEqual(_amount_text("柬埔寨新订单1,500万"), "1500万")
+
+    def test_amount_text_is_not_scientific(self):
+        from app.duzhan_ledger import num_text
+
+        self.assertEqual(num_text(2000000), "2000000")
+        self.assertEqual(num_text(1234.5), "1234.5")
+        self.assertEqual(num_text(45.0), "45")
+
+
+class TolerantNumericTests(unittest.TestCase):
+    """审查修复：外部卡片/环境变量给脏值时不能崩，也不能静默变 0。"""
+
+    def test_as_int_accepts_percent_and_rejects_junk(self):
+        from app.duzhan_ledger import as_float, as_int
+
+        self.assertEqual(as_int("100%"), 100)
+        self.assertEqual(as_int("已完成"), 0)
+        self.assertEqual(as_int(None, 7), 7)
+        self.assertEqual(as_int(True), 0)
+        self.assertEqual(as_float("1.5"), 1.5)
+        self.assertEqual(as_float("abc", 2.5), 2.5)
+
+    def test_daily_report_with_dirty_progress(self):
+        from app.duzhan_ledger import parse_daily_reports
+
+        messages = [
+            {
+                "created_at": "2026-09-18T10:00:00Z",
+                "metadata": {
+                    "kind": "daily_report_submission",
+                    "work_date": "2026-09-18",
+                    "submitter_name": "于冰",
+                    "today": [
+                        {"progress": "100%", "spent_hours": "1.5"},
+                        {"progress": "已完成", "spent_hours": 2},
+                    ],
+                },
+            }
+        ]
+        reports = parse_daily_reports(messages, "2026-09-18")
+        self.assertEqual(reports["于冰"]["done_count"], 1)
+        self.assertEqual(reports["于冰"]["spent_hours"], 3.5)
+
+
+class ConfigToleranceTests(unittest.TestCase):
+    """审查修复：PDCA_* 空串/非数字不能让进程起不来；true/yes/on 不能被当成关闭。"""
+
+    def test_bad_values_fall_back(self):
+        import os
+
+        from app.config import Settings
+
+        with mock.patch.dict(
+            os.environ,
+            {"PDCA_WORKERS": "", "PDCA_WORKBENCH_PORT": "abc", "PDCA_SECURE_COOKIES": "yes"},
+            clear=False,
+        ):
+            settings = Settings()
+        self.assertEqual(settings.workers, 2)
+        self.assertEqual(settings.port, 8767)
+        self.assertTrue(settings.secure_cookies, "yes 必须当开启")
+
+    def test_helpers_accept_common_truthy_strings(self):
+        import os
+
+        from app.config import _env_flag, _env_int
+
+        with mock.patch.dict(os.environ, {"PDCA_TEST_FLAG": "on", "PDCA_TEST_INT": ""}, clear=False):
+            self.assertTrue(_env_flag("PDCA_TEST_FLAG", "0"))
+            self.assertEqual(_env_int("PDCA_TEST_INT", "9"), 9)
+
+
+class MtoParsingRegressionTests(unittest.TestCase):
+    """审查修复：型号被腰斩 / 两段 JSON / 没配密钥时不能拿图片数冒充达标数。"""
+
+    def test_model_names_keep_single_char_suffix(self):
+        from app.mto_ocr import _clean_model, parse_quote_text
+
+        self.assertEqual(_clean_model("Vertu Constellation Quest"), "Vertu Constellation Quest")
+        self.assertEqual(_clean_model("Vertu Metavertu 2"), "Vertu Metavertu 2")
+        row = parse_quote_text("机型 Vertu Metavertu 2 报价 USD 45000")
+        self.assertEqual(row["model"], "Vertu Metavertu 2")
+
+    def test_last_json_block_wins(self):
+        from app.mto_ocr import parse_quote_text
+
+        text = '先给示例：{"model": "VERTU"}\n最终：{"model": "Vertu Aster P", "total_usd": 45000}'
+        row = parse_quote_text(text)
+        self.assertEqual(row["model"], "Vertu Aster P")
+        self.assertEqual(row["usd"], 45000.0)
+
+    def test_no_key_means_pending_not_image_count(self):
+        from app import mto_ocr
+
+        messages = [
+            {
+                "sender_user_id": 7,
+                "message_type": "image",
+                "attachments": [{"attachment_type": "image", "url": f"/f/{index}.jpg"}],
+            }
+            for index in range(3)
+        ]
+        settings = mock.Mock(qwen_api_key="", mto_ocr_max_images=8)
+        with mock.patch.object(mto_ocr, "get_settings", lambda: settings):
+            count, names, quotes = mto_ocr.review_mto_images(messages, 7)
+        self.assertIsNone(count, "没读图就不能给「达标款数」")
+        self.assertEqual(len(names), 3)
+        self.assertEqual(quotes, [])
+
+
+class DailyReportSourceHonestyTests(unittest.TestCase):
+    """审查修复：日报群取数失败必须写「待确认」，不能替人下「未见日报」的结论。"""
+
+    def test_source_failure_renders_pending_and_no_gap(self):
+        from app.duzhan import _daily_report_text
+        from app.duzhan_ledger import PersonRow, score_row
+
+        row = PersonRow(group="于冰业绩达标群", display="于冰", daily_report_ok=False)
+        scored = score_row(row)
+        self.assertNotIn("未报今日任务", scored.gaps)
+        self.assertIn("待确认", _daily_report_text({"daily_report": {}, "daily_report_ok": False}, "zh"))
+        self.assertIn("未见今日正式日报", _daily_report_text({"daily_report": {}}, "zh"))
+
+
+class PusherLoggingTests(unittest.TestCase):
+    """审查修复：vps_im_push 少 import logger，任何推送失败都会抛 NameError。"""
+
+    def test_failure_path_returns_false_instead_of_raising(self):
+        from app import vps_im_push
+
+        class Resp:
+            status_code = 500
+            text = "boom"
+
+        self.assertTrue(hasattr(vps_im_push, "logger"))
+        with mock.patch.object(vps_im_push, "_file_channel", lambda path: "chan-1"), mock.patch.object(
+            vps_im_push.httpx, "post", lambda *a, **k: Resp()
+        ), mock.patch.object(
+            vps_im_push, "get_settings", lambda: mock.Mock(vps_bot_app_id="id", vps_bot_app_secret="sec")
+        ):
+            self.assertFalse(vps_im_push.push_vps_message("hello"))
+
+
 if __name__ == "__main__":
     unittest.main()

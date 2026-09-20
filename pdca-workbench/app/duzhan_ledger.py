@@ -180,6 +180,8 @@ class PersonRow:
     vemory: list[dict] = field(default_factory=list)
     vemory_ok: bool = True
     daily_report: dict = field(default_factory=dict)
+    # 日报群取数是否成功：失败时必须写「待确认」，不能渲染成「未见日报」并据此扣分。
+    daily_report_ok: bool = True
     collections: list[dict] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
@@ -529,8 +531,8 @@ _PERF_NOISE_RE = re.compile(
 _PERF_AMOUNT_RE = re.compile(
     r"(?:USD|usd|\$|美金|美元)\s*([\d,]+(?:\.\d+)?)|"
     r"([\d,]+(?:\.\d+)?)\s*(?:USD|usd|\$|美金|美元)|"
-    r"([\d]+(?:\.\d+)?)\s*([Ww万])|"
-    r"([\d]+(?:\.\d+)?)\s*(?:万?RMB|人民币|元)"
+    r"([\d,]+(?:\.\d+)?)\s*([Ww万])|"
+    r"([\d,]+(?:\.\d+)?)\s*(?:万?RMB|人民币|元)"
 )
 
 
@@ -595,6 +597,48 @@ def parse_performance_buckets(
     return buckets
 
 
+def as_int(value: object, default: int = 0) -> int:
+    """宽松取整：外部卡片可能给「100%」「已完成」这类值，坏值按 default，绝不抛异常。
+
+    日报卡片的 metadata 由 IM 侧写入、不在本仓控制，采集是关键路径，不能因为一个
+    非数字 progress 就让整轮采集（三个整点推送）全部失败。
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip().replace(",", "")
+    if text.endswith("%"):
+        text = text[:-1].strip()
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        logger.warning("无法解析的整数值，按 {} 处理: {!r}", default, value)
+        return default
+
+
+def as_float(value: object, default: float = 0.0) -> float:
+    """宽松取浮点：同上，坏值按 default，绝不抛异常。"""
+    if value is None or isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(",", "").rstrip("%")
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        logger.warning("无法解析的数值，按 {} 处理: {!r}", default, value)
+        return default
+
+
+def num_text(value: float) -> str:
+    """金额显示：整数不带小数点，大数不用科学计数法（format(x, "g") 会把 2000000 写成 2e+06）。"""
+    number = float(value)
+    if number.is_integer():
+        return f"{int(number):,}".replace(",", "")
+    return f"{number:.2f}".rstrip("0").rstrip(".")
+
+
 def _perf_amount(text: str) -> dict:
     """从一行文字抠金额：USD 优先，其次 x万 / x元 / xRMB；读不出留空。"""
     match = _PERF_AMOUNT_RE.search(text or "")
@@ -606,35 +650,73 @@ def _perf_amount(text: str) -> dict:
             usd = float(raw)
         except ValueError:
             return {"text": "", "wan": None, "usd": None}
-        return {"text": "$" + format(usd, "g"), "wan": round(usd * RATE_CNY / 10000, 1), "usd": usd}
+        return {"text": "$" + num_text(usd), "wan": round(usd * RATE_CNY / 10000, 1), "usd": usd}
     if match.group(3):
         try:
             wan = float(match.group(3).replace(",", ""))
         except ValueError:
             return {"text": "", "wan": None, "usd": None}
-        return {"text": format(wan, "g") + "万", "wan": wan, "usd": None}
+        return {"text": num_text(wan) + "万", "wan": wan, "usd": None}
     if match.group(5):
         try:
             yuan = float(match.group(5).replace(",", ""))
         except ValueError:
             return {"text": "", "wan": None, "usd": None}
-        return {"text": format(yuan, "g") + "元", "wan": round(yuan / 10000, 2), "usd": None}
+        return {"text": num_text(yuan) + "元", "wan": round(yuan / 10000, 2), "usd": None}
     return {"text": "", "wan": None, "usd": None}
 
 
-def load_month_targets(day: str) -> dict[str, float]:
-    """本地月度目标（万）。CLI target_amount 当前全 0，先用这张表。"""
+def target_entries(day: str) -> list[dict]:
+    """目标文件里当月的 entries；结构非法时返回空表并告警。
+
+    这张表由用户每月手写维护，格式错一点点都不能让采集整轮失败：
+    collect_ledger 第 2 行就读它，抛异常会让三个整点全部变「待确认」，
+    证据 HTML / 日报作业也会直接 failed。
+    """
     month = day[:7]
     try:
         payload = json.loads(TARGETS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    entries = (payload.get(month) or {}).get("entries") or []
-    out: dict[str, float] = {}
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("月度目标文件读取失败（{}）：{}", TARGETS_FILE, exc)
+        return []
+    if not isinstance(payload, dict):
+        logger.warning("月度目标文件顶层必须是对象，已忽略：{}", TARGETS_FILE)
+        return []
+    plan = payload.get(month)
+    if plan is None:
+        return []
+    if not isinstance(plan, dict):
+        logger.warning("月度目标 {} 的值必须是对象，已忽略", month)
+        return []
+    entries = plan.get("entries") or []
+    if not isinstance(entries, list):
+        logger.warning("月度目标 {} 的 entries 必须是数组，已忽略", month)
+        return []
+    clean: list[dict] = []
     for item in entries:
-        name = str(item.get("name") or "")
-        if name:
-            out[name] = float(item.get("target_wan") or 0)
+        if not isinstance(item, dict):
+            logger.warning("月度目标 {} 里有非对象条目，已跳过：{!r}", month, item)
+            continue
+        clean.append(item)
+    return clean
+
+
+def load_month_targets(day: str) -> dict[str, float]:
+    """本地月度目标（万）；0 / 负数 / 非数字都按「未配置」处理，不静默当成有效目标。"""
+    out: dict[str, float] = {}
+    for item in target_entries(day):
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        value = as_float(item.get("target_wan"), default=-1.0)
+        if value <= 0:
+            logger.warning(
+                "月度目标 {} 的 target_wan 非法（{!r}），按未配置处理",
+                name,
+                item.get("target_wan"),
+            )
+            continue
+        out[name] = value
     return out
 
 
@@ -683,7 +765,6 @@ def warn_target_fallback(day: str, monthly_targets: dict[str, float]) -> list[st
         return []
     if month in _TARGET_WARNED:
         return missing
-    _TARGET_WARNED.add(month)
     names = "、".join(missing) if missing else "（当月条目整体缺失）"
     logger.warning("月度目标文件未覆盖 {}，以下人员回退硬编码目标: {}", month, names)
     try:
@@ -693,7 +774,10 @@ def warn_target_fallback(day: str, monthly_targets: dict[str, float]) -> list[st
             f"以下人员暂时回退到硬编码目标：{names}。请更新目标文件后重新采集。",
         )
     except Exception as exc:  # noqa: BLE001 — 告警失败不影响采集
-        logger.warning("月度目标兜底告警发送失败: {}", exc)
+        # 只有发出去才记「本月已告警」：否则一次 notify 异常会让当月彻底静默。
+        logger.warning("月度目标兜底告警发送失败（下轮会重试）: {}", exc)
+        return missing
+    _TARGET_WARNED.add(month)
     return missing
 
 
@@ -820,7 +904,7 @@ _ITEM_RE = re.compile(
 _AMOUNT_RE = re.compile(
     r"(?:USD|usd|\$|美金|美元)\s*([\d,]+(?:\.\d+)?)|"
     r"([\d,]+(?:\.\d+)?)\s*(?:USD|usd|\$|美金|美元)|"
-    r"(\d+(?:\.\d+)?)\s*([Ww万])"
+    r"([\d,]+(?:\.\d+)?)\s*([Ww万])"
 )
 _ORDER_RE = re.compile(r"XSD-[A-Z0-9-]+")
 _BLOCK_HINTS = (
@@ -859,7 +943,7 @@ def _amount_text(title: str) -> str:
     if match.group(2):
         return f"${match.group(2).replace(',', '')}"
     if match.group(3) and match.group(4):
-        return f"{match.group(3)}万"
+        return f"{match.group(3).replace(',', '')}万"
     return ""
 
 
@@ -1120,8 +1204,8 @@ def parse_daily_reports(messages: list[dict], day: str) -> dict[str, dict]:
         if not name:
             continue
         items = [item for item in (meta.get("today") or []) if isinstance(item, dict)]
-        spent = sum(float(item.get("spent_hours") or 0) for item in items)
-        done = sum(1 for item in items if int(item.get("progress") or 0) >= 100)
+        spent = sum(as_float(item.get("spent_hours")) for item in items)
+        done = sum(1 for item in items if as_int(item.get("progress")) >= 100)
         reports[name] = {
             "submitted": True,
             "submitted_at": str(msg.get("created_at") or ""),
@@ -1500,9 +1584,9 @@ def score_row(row: PersonRow) -> PersonRow:
     report_items = list((row.daily_report or {}).get("items") or [])
     if report_items:
         total = len(report_items)
-        done = sum(1 for item in report_items if int(item.get("progress") or 0) >= 100)
+        done = sum(1 for item in report_items if as_int(item.get("progress")) >= 100)
         rate = sum(
-            min(max(int(item.get("progress") or 0), 0), 100)
+            min(max(as_int(item.get("progress")), 0), 100)
             for item in report_items
         ) / (total * 100)
     else:
@@ -1519,7 +1603,9 @@ def score_row(row: PersonRow) -> PersonRow:
         if infer_status(item) != "done" and ("今天可付款" in blob or item.get("deadline") == "今天"):
             overdue += 1
     if total == 0:
-        gaps.append("未报今日任务")
+        # 日报群取数失败时不能算「未报」：那是把「读不到」当成「没交」（2026-09-20 审查）。
+        if getattr(row, "daily_report_ok", True):
+            gaps.append("未报今日任务")
     elif done < total:
         prefix = "日报完成" if report_items else "任务完成"
         gaps.append(f"{prefix}{done}/{total}")
@@ -1530,7 +1616,7 @@ def score_row(row: PersonRow) -> PersonRow:
     if row.mtd_wan is None:
         gaps.append("累计已录单未出")
     elif row.mtd_wan <= 0:
-        gaps.append("本月回款0")
+        gaps.append("本月已录单0")
     row.score = round(rate * 100 + evidenced * 5 - overdue * 10, 2)
     row.gaps = gaps
     return row
@@ -1679,10 +1765,11 @@ def fetch_personal_okr() -> list[dict]:
 
 def _mtd_wan(owner: Owner, rows: list[dict]) -> float | None:
     matched: list[dict] = []
+    aliases = vemory_aliases(owner)
     for row in rows:
         name = str(row.get("salesperson") or "")
         dept = str(row.get("dept_l2") or "")
-        if owner.cli_name and name == owner.cli_name:
+        if name and name in aliases:
             matched.append(row)
         elif owner.display == "Safae" and "safae" in name.lower():
             matched.append(row)
@@ -1843,6 +1930,11 @@ def collect_ledger(day: str) -> dict:
     vps_activity = fetched["Agent/IM 报告"] or {}
     vemory_rows = fetched["Vemory"]
     report_messages = fetched["日报群拉取"]
+    # report_messages 为 None = 日报群取数失败（_safe_fetch 吞异常），
+    # 与「今天没人交日报」必须区分开：前者写「待确认」，后者才是「未见日报」。
+    daily_reports_ok = report_messages is not None
+    if not daily_reports_ok:
+        logger.warning("日报群取数失败，日报字段一律写「待确认」，不参与扣分")
     daily_reports = parse_daily_reports(report_messages, day) if report_messages else {}
     channel_ids = sorted({cid for item in OWNERS for cid in _history_ids(item) if cid})
     history_list = _parallel_map(
@@ -1867,7 +1959,7 @@ def collect_ledger(day: str) -> dict:
         item.display: (bundle or (None, None, None))
         for item, bundle in zip(queried, bundles)
     }
-    # 当日消息过滤 + 图片 OCR：Qwen 是单机推理，按人并发预取（默认 2，避免打爆网关）。
+    # 当日消息过滤 + 图片 OCR：Qwen 是单机推理，按人并发预取（默认 3，避免打爆网关）。
     owner_msgs: dict[str, list[dict]] = {}
     ocr_inputs: list[tuple] = []
     for owner in OWNERS:
@@ -1884,20 +1976,23 @@ def collect_ledger(day: str) -> dict:
         owner_msgs[owner.display] = day_msgs
         ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
 
+    # 三个 OCR 开关都用 getattr 兜底：采集是关键路径，Settings 少一个字段也不能整轮失败。
+    ocr_workers = getattr(settings, "mto_ocr_workers", 3)
+    ocr_budget = getattr(settings, "mto_ocr_budget_seconds", 420)
+    ocr_max_images = getattr(settings, "mto_ocr_max_images", 8)
+
     def _ocr_one(item: tuple):
         from app.mto_ocr import review_mto_images
 
-        return review_mto_images(
-            item[1], item[2], max_images=settings.mto_ocr_max_images
-        )
+        return review_mto_images(item[1], item[2], max_images=ocr_max_images)
 
     # OCR 单独给时间预算：超时未读完的按「待确认」，绝不拖过整点推送（见 _parallel_map_deadline）。
     ocr_results = _parallel_map_deadline(
         _ocr_one,
         ocr_inputs,
-        settings.mto_ocr_workers,
+        ocr_workers,
         "督战官 MTO OCR",
-        settings.mto_ocr_budget_seconds,
+        ocr_budget,
     )
     ocr_cache: dict[str, tuple] = {
         item[0]: (result or (None, [], []))
@@ -1921,6 +2016,7 @@ def collect_ledger(day: str) -> dict:
         ) = _vps_for_owner(owner, vps_activity)
         row.vemory, row.vemory_ok = match_vemory(owner, vemory_rows)
         row.daily_report = match_daily_report(owner, daily_reports)
+        row.daily_report_ok = daily_reports_ok
         msgs: list[dict] = owner_msgs.get(owner.display, [])
         try:
             if owner.im_user_id:
