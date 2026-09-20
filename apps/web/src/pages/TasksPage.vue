@@ -131,8 +131,8 @@ onMounted(() => {
 
 <template>
   <AppNav />
-  <main class="tasks">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>任务中心</h1>
         <p class="sub">PDCA 任务全生命周期 · {{ tasks.length }} 项 · 已完成 {{ doneCount() }}</p>

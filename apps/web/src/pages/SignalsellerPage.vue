@@ -209,8 +209,8 @@ onMounted(() => {
 
 <template>
   <AppNav />
-  <main class="signalseller">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>获客指挥</h1>
         <p class="sub">ABCD 客户分层 · 跟进任务 · 触达文案（数据来自数据库）</p>

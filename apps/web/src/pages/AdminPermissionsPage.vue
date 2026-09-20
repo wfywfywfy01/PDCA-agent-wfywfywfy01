@@ -74,7 +74,7 @@ onMounted(load)
 <template>
   <AppNav />
   <main class="page">
-    <header class="head"><div><h1>权限控制台</h1><p>账号绑定、数据隔离与实际权限核验。</p></div><a class="btn" href="/admin-panel/">完整运营后台</a></header>
+    <header class="page-head"><div><h1>权限控制台</h1><p>账号绑定、数据隔离与实际权限核验。</p></div><a class="btn" href="/admin-panel/">完整运营后台</a></header>
     <p v-if="error" class="message error" role="alert">{{ error }}</p><p v-if="notice" class="message ok" role="status">{{ notice }}</p>
     <div v-if="loading" class="card state" aria-busy="true">正在加载账号与门店…</div>
     <div v-else-if="users.length" class="layout">

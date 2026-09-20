@@ -107,8 +107,8 @@ onMounted(() => {
 
 <template>
   <AppNav />
-  <main class="onboarding">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>{{ curriculum?.title || '新人培训' }}</h1>
         <p class="sub">5 天上岗路径 · 模块打卡 · 进度跟踪</p>

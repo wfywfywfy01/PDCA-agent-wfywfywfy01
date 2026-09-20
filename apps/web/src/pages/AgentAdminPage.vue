@@ -680,7 +680,7 @@ onBeforeUnmount(() => {
   </main>
 </template>
 <style scoped>
-.agent-admin { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
+.agent-admin { max-width: 1240px; margin: 0 auto; padding: 24px 20px 64px; }
 
 /* 页头 */
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
