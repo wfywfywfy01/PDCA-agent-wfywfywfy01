@@ -217,9 +217,11 @@ def _slogan_text(slogan: str, lang: str) -> str:
 
 
 def is_duzhan_workday(tz_name: str, now: datetime | None = None) -> bool:
-    """周一到周五才跑；按该时区本地 weekday。"""
+    """按中国工作日日历：工作日 + 周末调休上班 + 长假（长假照推、只是不处罚）。"""
+    from app.workday_calendar import is_workday
+
     clock = (now or datetime.now(ZoneInfo(tz_name))).astimezone(ZoneInfo(tz_name))
-    return clock.weekday() < 5
+    return is_workday(clock.strftime("%Y-%m-%d"))
 
 
 def prev_slot_hour(hour: int) -> int | None:
@@ -1157,14 +1159,19 @@ def _board_text(
             f"@{item['display']} {_to_en(str(item.get('reason') or ''))}"
             for item in black
         ) or "none"
+        exempt = bool((ledger or {}).get("_penalty_exempt"))
         head = (
             f"\nRed TOP3 (department-wide, visible to all groups): {red_line}\n"
-            f"Black (to improve, department-wide): {black_line}\n"
+            + ("Black: holiday period, no penalty\n" if exempt else f"Black (to improve, department-wide): {black_line}\n")
         )
         if compact:
             return head
         reward = "none verified" if not rewards else "; ".join(incentive(item) for item in rewards)
-        penalty = "none" if not penalties else "; ".join(incentive(item) for item in penalties)
+        penalty = (
+            "holiday period, no penalty recorded"
+            if exempt
+            else ("none" if not penalties else "; ".join(incentive(item) for item in penalties))
+        )
         return head + f"Reward ledger: {reward}\nPenalty ledger: {penalty}\n"
     red_line = " / ".join(_red_item_text(item, lang) for item in red) or "待确认"
     black_line = " / ".join(
@@ -1172,15 +1179,21 @@ def _board_text(
         for item in black
     ) or "无"
     # 老板 2026-09-20 拍板：红黑榜是部门口径、全员可见（每个群都会看到全部 10 人）
+    # 长假期间照常推送进度，但一律不处罚：不列黑榜、不记扣罚（老板 2026-09-20 拍板）。
+    exempt = bool((ledger or {}).get("_penalty_exempt"))
     head = (
         "\n"
         f"红榜 TOP3（部门口径·全员可见｜综合=过程50%+业绩50%）：{red_line}\n"
-        f"黑榜 待改进（部门口径·全员可见）：{black_line}\n"
+        + ("黑榜：长假期间不处罚（不列黑榜、不记扣罚）\n" if exempt else f"黑榜 待改进（部门口径·全员可见）：{black_line}\n")
     )
     if compact:
         return head
     reward = "今日无已核验奖励记录" if not rewards else "；".join(incentive(item) for item in rewards)
-    penalty = "今日无扣罚记录" if not penalties else "；".join(incentive(item) for item in penalties)
+    penalty = (
+        "长假期间不记扣罚"
+        if exempt
+        else ("今日无扣罚记录" if not penalties else "；".join(incentive(item) for item in penalties))
+    )
     return head + f"奖励台账：{reward}\n扣罚台账：{penalty}\n"
 
 

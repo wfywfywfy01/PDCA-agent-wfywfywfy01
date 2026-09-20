@@ -1903,6 +1903,10 @@ def _mcp_bundle(subject: dict, period: dict) -> tuple:
 def collect_ledger(day: str) -> dict:
     """踩点采集：达标群+跟进群+日报群、WhatsApp MCP、Vemory、VPS、回款。失败字段留空。"""
     ledger = empty_ledger(day)
+    # 长假期间照常推送，但一律不处罚（不列黑榜、不记扣罚）——渲染侧读这个标记。
+    from app.workday_calendar import penalty_exempt
+
+    ledger["_penalty_exempt"] = penalty_exempt(day)
     monthly_targets = load_month_targets(day)
     # 月度目标单一来源：文件缺当月条目时告警（每月一次），仅兜底不静默。
     warn_target_fallback(day, monthly_targets)
