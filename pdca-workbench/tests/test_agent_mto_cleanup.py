@@ -174,8 +174,10 @@ class CleanupJobRegistrationTests(unittest.TestCase):
             scheduler_jobs._scheduler = original
         jobs = [kwargs for _, _, kwargs in scheduler.jobs if kwargs["id"] == "mto_temp_cleanup"]
         self.assertEqual(len(jobs), 1)
-        self.assertEqual(jobs[0]["hour"], 3)
-        self.assertEqual(jobs[0]["minute"], 30)
+        # 2026-09-20 拍板：报价图属敏感资料，改成每小时 15 分清理（阈值 6 小时），
+        # 不再等每日 03:30。所以这里断言「只有 minute、没有 hour」＝整点每小时跑。
+        self.assertNotIn("hour", jobs[0])
+        self.assertEqual(jobs[0]["minute"], 15)
 
 
 if __name__ == "__main__":
