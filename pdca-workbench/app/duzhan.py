@@ -555,6 +555,9 @@ def _daily_report_text(person: dict | None, lang: str) -> str:
     """日报申报工时与系统证据工时并列，不互相覆盖。"""
     report = (person or {}).get("daily_report") or {}
     if not report:
+        if not (person or {}).get("daily_report_ok", True):
+            # 取数失败 ≠ 没交：读不到就写「待确认」，不能替人下结论。
+            return "daily report pending" if lang == "en" else "待确认（日报群取数失败）"
         return "not submitted today" if lang == "en" else "未见今日正式日报"
     declared = float(report.get("spent_hours") or 0)
     evidenced = float((person or {}).get("hours_minutes") or 0) / 60

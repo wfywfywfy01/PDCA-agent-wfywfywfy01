@@ -33,7 +33,9 @@ MODEL_PROMPT = (
     "如 Vertu Signature S+ / Vertu Alphafold / 机械表型号）。"
     "只输出 JSON：{\"model\": \"...\"}；看不清就输出 {\"model\": \"\"}，不要猜。"
 )
-_JSON_RE = re.compile(r"\{.*\}", re.S)
+# 不贪婪：逐个匹配「不含嵌套花括号」的片段，最后取能解析成 dict 的那个。
+# 推理模型常见的输出是「先给示例 JSON，再给最终 JSON」，贪婪匹配会把两段一起吃进来 → json.loads 失败、字段全丢。
+_JSON_RE = re.compile(r"\{[^{}]*\}", re.S)
 
 
 _MD_MODEL_RE = re.compile(
@@ -42,7 +44,7 @@ _MD_MODEL_RE = re.compile(
 )
 # 没有“机型：”前缀时，抓 Vertu 开头的型号串（含系列与后缀）
 _VERTU_MODEL_RE = re.compile(
-    r"((?:VERTU|Vertu|vertu)\s?[A-Za-z][A-Za-z0-9+\-]*(?:\s+[A-Za-z0-9+\-]{2,}){0,3})"
+    r"((?:VERTU|Vertu|vertu)\s?[A-Za-z][A-Za-z0-9+\-]*(?:\s+[A-Za-z0-9+\-]{1,}){0,3})"
 )
 _MD_USD_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
 _MD_DELIVERY_RE = re.compile(r"(?:EST\.?\s*DELIVERY\s*DATE|\u4ea4\u4ed8\u65e5\u671f|\u9884\u8ba1\u4ea4\u4ed8)[^\d]{0,20}(\d{4}-\d{2}-\d{2})", re.I)
@@ -63,15 +65,16 @@ def _tls_verify():
 def parse_quote_text(raw: str) -> dict:
     """从模型输出抠报价字段；JSON 优先，Markdown 输出做确定性兜底。读不到标待确认。"""
     text = (raw or "").strip()
-    match = _JSON_RE.search(text)
     payload: dict = {}
-    if match:
+    # 取「最后一个能解析成 dict 的 JSON 片段」：模型常先给示例再给答案，
+    # 用第一个会把示例当成结果，用贪婪匹配又会把两段连起来解析失败。
+    for match in _JSON_RE.finditer(text):
         try:
             loaded = json.loads(match.group(0))
-            if isinstance(loaded, dict):
-                payload = loaded
         except json.JSONDecodeError:
-            payload = {}
+            continue
+        if isinstance(loaded, dict):
+            payload = loaded
     model = _clean_model(payload.get("model"))
     sku = str(payload.get("sku") or "").strip()
     delivery = str(payload.get("delivery") or "").strip()
@@ -111,7 +114,7 @@ def parse_quote_text(raw: str) -> dict:
 
 
 _MODEL_CUT_RE = re.compile(
-    r"\s*[-—–]?\s*(?:金额|总价|合计|价格|售价|报价|EST|USD|delivery|交付|客户|customer|sku).*$",
+    r"\s*[-—–]?\s*(?:金额|总价|合计|价格|售价|报价|\bEST\b|\bESTIMATED\b|USD|delivery|交付|客户|customer|sku).*$",
     re.I | re.S,
 )
 
@@ -236,7 +239,10 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
             # 型号是硬要求：再定向问一次（只抄型号），仍读不出才留空并标记。
             row = _retry_model_only(payload, url, key, row)
         # 截断重试一次：追加“直接输出 JSON”引导，避免 reasoning 吃满预算。
-        if not row["raw_ok"] and choice.get("finish_reason") == "length":
+        # 触发条件除了 raw_ok=False，还要覆盖「型号读出来了但金额丢了」——
+        # 那正是 finish_reason=length 的典型后果，漏了它会把达标款写成「未满30万」。
+        truncated = choice.get("finish_reason") == "length"
+        if truncated and (not row["raw_ok"] or row.get("usd") is None):
             payload["messages"] = payload["messages"] + [{
                 "role": "user",
                 "content": "请直接输出结果 JSON，不要任何说明。",
@@ -335,8 +341,22 @@ def download_ocr_delete(url_path: str) -> dict:
         base, headers = _vps_auth()
         full = url_path if url_path.startswith("http") else base + url_path
         resp = httpx.get(full, headers=headers, timeout=30.0, follow_redirects=True)
+        status = int(getattr(resp, "status_code", 200) or 200)
+        if status != 200:
+            # 以前不看状态码：401/404 的 JSON 错误体被当图片送进 Qwen，白烧 1-2 次调用
+            # 还把结果写成「未读出报价」，运维看不出是凭据过期。
+            logger.error(
+                "MTO 附件下载失败 status={} url={}：{}",
+                status,
+                full[-60:],
+                (getattr(resp, "text", "") or "")[:160],
+            )
+            return parse_quote_text("")
         dest.write_bytes(resp.content)
         mime = resp.headers.get("content-type") or "image/jpeg"
+        if mime and not mime.lower().startswith("image/"):
+            logger.error("MTO 附件不是图片（Content-Type={}）：{}", mime[:60], full[-60:])
+            return parse_quote_text("")
         if "webp" in mime or full.lower().endswith(".webp"):
             mime = "image/webp"
         return ocr_image_bytes(resp.content, mime)
@@ -459,4 +479,8 @@ def review_mto_images(
     if settings.qwen_api_key:
         qualify_n, names = summarize_quotes(quotes)
         return qualify_n, names, quotes
-    return len(quotes), [str(item.get("file") or "image") for item in quotes][:6], []
+    # 没配密钥 = 没读图：第一返回值语义是「信息完整报价数」，绝不能拿图片张数顶替，
+    # 否则下游（MTO N/4 达标、工时加分）会把截图数当成达标款数。返回 None 让渲染写「待确认」。
+    names = [str(item.get("file") or "image") for item in quotes][:6]
+    logger.warning("未配置 QWEN 密钥，MTO 只登记了 {} 张图片、未读图", len(quotes))
+    return None, names, []

@@ -119,16 +119,20 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
                 }
             ],
             "red": [{"display": "Lina", "mtd_wan": 55, "reason": "WhatsApp未覆盖"}],
-            "black": [{"display": "Safae", "reason": "WhatsApp未覆盖；本月回款0"}],
+            "black": [{"display": "Safae", "reason": "WhatsApp未覆盖；本月已录单0"}],
             "penalties": [],
         }
         text = render_brief(group, 20, now, ledger)
         self.assertIn("Turkey contract", text)
         self.assertIn("discount", text)
         self.assertIn("WhatsApp not covered", text)
-        self.assertIn("MTD collection 0", text)
+        self.assertIn("MTD booked 0", text)
         self.assertNotIn("待确认", text)
         self.assertNotIn("土耳其", text)
+        # 英文档里不允许漏出中文：文案映射表（duzhan.py 的 zh→en 映射）与生成端
+        # 必须成对改名，否则会像 2026-09-20 的「本月回款0→本月已录单0」那样只改一半。
+        leftovers = sorted({ch for ch in text if "\u4e00" <= ch <= "\u9fff"})
+        self.assertEqual(leftovers, [], f"英文正文里仍有中文: {leftovers}")
         self.assertNotIn("折扣", text)
         self.assertNotIn("本月回款", text)
 
@@ -790,7 +794,7 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
                 {"display": "杨晶晶", "mtd_wan": 86.5, "reason": "今日明确意向0"},
             ],
             "black": [
-                {"display": "新人小组", "reason": "本月回款0"},
+                {"display": "新人小组", "reason": "本月已录单0"},
                 {"display": "Lina", "reason": "WhatsApp未覆盖"},
             ],
             "penalties": [],
