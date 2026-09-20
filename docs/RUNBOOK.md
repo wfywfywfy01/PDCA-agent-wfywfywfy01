@@ -24,4 +24,5 @@
 - PDCA-LogicalBackup（每日 06:30，scripts/pg_logical_backup.py）：用 psycopg2 逐表导出 gzip JSONL 到 pdca-workbench/data/backups/，保留 14 份，不依赖 pg_dump 版本（本机 pg_dump 16.9 与服务端 18.4 不匹配，应用内置 pg_dump 备份因此长期失败）。
 - 手工核验：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\db_guard.ps1；python scripts\pg_logical_backup.py --workbench-root <workbench 目录>（需数据库在线）。
 
-注意：生产环境数据库不可用时不要重启工作台——bootstrap_database() 会因“生产环境 PostgreSQL 不可用”直接中止启动；正确顺序是等数据库恢复后再拉起（守护脚本已自动处理）。详见 docs/INCIDENT_2026-09-20-db-outage.md。
+注意：生产环境数据库不可用时不要重启工作台——bootstrap_database() 会因“生产环境 PostgreSQL 不可用”直接中止启动；正确顺序是等数据库恢复后再拉起（守护脚本已自动处理）。详见 docs/INCIDENT_2026-09-20-db-outage.md。- PDCA-NativeBackup（每日 06:15，scripts/pg_native_backup.py）：通过 Docker Engine API 让数据库容器自己执行 pg_dump（版本天然匹配，无需本机安装客户端），再把 dump 取回本机 data/backups/native_*.dump（custom 格式，pg_restore 可直接恢复），保留 14 份。
+- 手工核验：python scripts\pg_native_backup.py --workbench-root <workbench 目录>；恢复示例：pg_restore -h <host> -U postgres -d pdca --clean <native_*.dump>。
