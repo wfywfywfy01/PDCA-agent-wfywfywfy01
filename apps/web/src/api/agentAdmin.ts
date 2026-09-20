@@ -10,6 +10,7 @@ export interface ImBot {
   name: string
   description: string
   avatar_display_url: string | null
+  avatar_signed_url?: string | null
   webhook_url: string
   agent_enabled: boolean
   agent_provider: string
