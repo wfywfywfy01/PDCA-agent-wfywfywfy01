@@ -367,7 +367,7 @@ def download_ocr_delete(url_path: str) -> dict:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def cleanup_temp_files(max_age_hours: float = 24.0) -> dict:
+def cleanup_temp_files(max_age_hours: float = 6.0) -> dict:
     """清理 MTO 下载残留（隔日清理）。
 
     download_ocr_delete 正常路径读完即删；进程崩溃/容器重启可能留下

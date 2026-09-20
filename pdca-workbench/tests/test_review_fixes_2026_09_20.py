@@ -700,5 +700,49 @@ class PusherLoggingTests(unittest.TestCase):
             self.assertFalse(vps_im_push.push_vps_message("hello"))
 
 
+class RetentionAndReminderTests(unittest.TestCase):
+    """老板 2026-09-20 拍板：证据 HTML 不压缩、发完继续留 2 周；每周提醒备份一次；
+    MTO 残图改成每小时清理 + 6 小时阈值。"""
+
+    def test_prune_keeps_two_weeks(self):
+        import os
+        import tempfile
+        from pathlib import Path
+
+        from app.scheduler.jobs import _prune_evidence_reports
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index in range(20):
+                name = f"督战证据_2026-09-{index + 1:02d}"
+                html = root / f"{name}.html"
+                html.write_text("x", encoding="utf-8")
+                (root / f"{name}.json").write_text("{}", encoding="utf-8")
+                os.utime(html, (1000 + index, 1000 + index))
+            _prune_evidence_reports(root, keep=14)
+            left = sorted(item.name for item in root.glob("*.html"))
+            self.assertEqual(len(left), 14, left)
+            self.assertNotIn("督战证据_2026-09-01.html", left)
+            self.assertEqual(len(list(root.glob("*.json"))), 14, "同名 json 要一起删")
+
+    def test_default_keep_days_is_two_weeks(self):
+        from app.config import get_settings
+
+        self.assertEqual(get_settings().evidence_report_keep_days, 14)
+
+    def test_jobs_are_registered_as_configured(self):
+        from app.scheduler import jobs
+
+        scheduler = jobs.start_scheduler()
+        self.assertIsNotNone(scheduler)
+        ids = {item.id for item in scheduler.get_jobs()}
+        self.assertIn("backup_reminder", ids)
+        self.assertIn("mto_temp_cleanup", ids)
+        cleanup = scheduler.get_job("mto_temp_cleanup")
+        self.assertEqual(str(cleanup.trigger), "cron[minute='15']", "MTO 残图改成每小时清理")
+        reminder = scheduler.get_job("backup_reminder")
+        self.assertIn("day_of_week='mon'", str(reminder.trigger))
+
+
 if __name__ == "__main__":
     unittest.main()

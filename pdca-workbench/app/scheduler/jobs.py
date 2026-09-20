@@ -559,8 +559,83 @@ def campaign_wa_check_job() -> None:
         len(miss),
         delivery.get("sent"),
     )
-    _prune_evidence_reports(out_dir, keep=30)
+    _prune_evidence_reports(out_dir)
 
+
+def backup_reminder_job() -> None:
+    """每周一 09:00：提醒人工做一次备份（老板 2026-09-20 要求「一周提醒一次」）。
+
+    证据 HTML 只留最近 14 天，归档动作必须由人做，所以这条提醒本身就是保留策略的一部分。
+    按 ISO 周做 claim，一周只提醒一次；用 IM 私聊（机器人身份），不打扰群。
+    """
+    import tempfile
+    from datetime import datetime
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    from app.im_files import resolve_user_ids
+    from app.scheduler.run_ledger import claim_run, finish_run
+    from app.vertu.client import run_vertu_sync
+
+    settings = get_settings()
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    week = now.strftime("%G-W%V")
+    if not claim_run("backup_reminder", week):
+        logger.info("本周备份提醒已发出，跳过 {}", week)
+        return
+    user_ids = resolve_user_ids(settings, "backup_reminder_user_ids")
+    if not user_ids:
+        logger.warning("备份提醒没配收件人（PDCA_BACKUP_REMINDER_USER_IDS / PDCA_MGMT_HTML_USER_IDS），跳过")
+        finish_run("backup_reminder", week, "failed", "no recipients")
+        return
+    evidence_dir = settings.data_dir / "exports" / "evidence"
+    keep_days = int(getattr(settings, "evidence_report_keep_days", 14) or 14)
+    try:
+        files = sorted(evidence_dir.glob("督战证据_*.html"))
+        newest = files[-1].name if files else "（还没有生成）"
+    except OSError:
+        newest = "（读取失败）"
+    body = (
+        f"【每周备份提醒｜{week}】\n"
+        "1) 证据 HTML：容器 data/exports/evidence/（保留最近 " + str(keep_days) + " 天）"
+        "→ 把桌面上的「督战证据_*.html」归档到 V Drive/网盘；最新一份：" + newest + "\n"
+        "2) 数据库：部署机 /opt/pdca/backups 的 pdca-before-*.dump（每次部署自动备份）→ 每周导出一份留档\n"
+        "3) 目标文件：pdca-workbench/app/monthly_sales_targets.json（每月更新后一并备份）\n"
+        "本提醒每周一 09:00 自动发出（一周一次）。"
+    )
+    bot_app_id = (
+        getattr(settings, "duzhan_bot_app_id", "") or getattr(settings, "todo_bot_app_id", "")
+    ).strip()
+    sent: list[str] = []
+    failed: list[str] = []
+    tmp_dir = Path(tempfile.mkdtemp(prefix="backup-reminder-"))
+    body_file = tmp_dir / "body.txt"
+    body_file.write_text(body, encoding="utf-8")
+    try:
+        for user_id in user_ids:
+            args = (
+                ["im", "+bot-send-user", "--app-id", bot_app_id]
+                if bot_app_id
+                else ["im", "+send-user"]
+            )
+            args += ["--user-id", str(user_id), "--body-file", str(body_file)]
+            args += ["--idempotency-key", f"backup-reminder-{week}-{user_id}"]
+            code, out, err = run_vertu_sync(args, timeout=60.0)
+            if code == 0:
+                sent.append(f"user:{user_id}")
+            else:
+                failed.append(f"user:{user_id}")
+                logger.warning("备份提醒发送失败 {}: {}", user_id, (err or out or "")[:160])
+    finally:
+        import shutil
+
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    if failed:
+        finish_run("backup_reminder", week, "failed", ",".join(failed)[:200])
+        notify("每周备份提醒发送失败", str(failed))
+        return
+    finish_run("backup_reminder", week, "sent", ",".join(sent)[:200])
+    logger.info("每周备份提醒已发出 {}｜{}", week, sent)
 
 def evidence_report_job() -> None:
     """每天 07:30：把前一日全部证据导成单文件 HTML（数据日=昨天），供人工核对。
@@ -613,13 +688,27 @@ def evidence_report_job() -> None:
         logger.info("证据日报已发送 {}", delivery["sent"])
     else:
         logger.info("证据日报未配置收件人，仅落盘 {}", summary.get("html"))
-    _prune_evidence_reports(out_dir, keep=45)
+    _prune_evidence_reports(out_dir)
 
 
-def _prune_evidence_reports(out_dir, keep: int = 45) -> None:
-    """只保留最近 N 天产物，避免磁盘只涨不降（删失败不影响主流程）。"""
+def _prune_evidence_reports(out_dir, keep: int | None = None) -> None:
+    """只保留最近 N 天产物（默认 14 天＝2 周），避免磁盘只涨不降。
+
+    老板 2026-09-20 拍板：发完当天继续留 2 周即可，不做压缩；
+    每周由 backup_reminder_job 提醒人工归档。删失败不影响主流程。
+    """
+    if keep is None:
+        settings = get_settings()
+        try:
+            keep = int(getattr(settings, "evidence_report_keep_days", 14) or 14)
+        except (TypeError, ValueError):
+            keep = 14
+    keep = max(1, keep)
     try:
-        files = sorted(out_dir.glob("督战证据_*.html"), key=lambda item: item.stat().st_mtime)
+        files = sorted(
+            (item for item in out_dir.glob("*.html") if item.is_file()),
+            key=lambda item: item.stat().st_mtime,
+        )
         for stale in files[: max(len(files) - keep, 0)]:
             stale.unlink(missing_ok=True)
             stale.with_suffix(".json").unlink(missing_ok=True)
@@ -829,7 +918,7 @@ def mto_temp_cleanup_job() -> None:
         logger.info("MTO 临时文件清理已关闭 (PDCA_MTO_TEMP_CLEANUP_ENABLED=0)")
         return
     try:
-        result = cleanup_temp_files(getattr(settings, "mto_temp_max_age_hours", 24.0))
+        result = cleanup_temp_files(getattr(settings, "mto_temp_max_age_hours", 6.0))
         logger.info(
             "MTO 临时文件清理完成 removed={} freed_bytes={}",
             result.get("removed"),
@@ -1332,15 +1421,39 @@ def start_scheduler() -> BackgroundScheduler | None:
                     misfire_grace_time=3600,
                 )
 
-    # MTO 图片下载残留隔日清理：每日 03:30（北京时间）。
+    # 每周一 09:00：提醒人工备份（证据 HTML 只留 14 天，归档靠人）。
+    if getattr(settings, "backup_reminder_enabled", True):
+        from zoneinfo import ZoneInfo as _TzBackup
+
+        try:
+            _bk_hour, _bk_minute = (
+                int(part)
+                for part in str(getattr(settings, "backup_reminder_time", "09:00") or "09:00").split(":", 1)
+            )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法备份提醒时间，回退 09:00")
+            _bk_hour, _bk_minute = 9, 0
+        _scheduler.add_job(
+            backup_reminder_job,
+            trigger="cron",
+            day_of_week="mon",
+            hour=_bk_hour,
+            minute=_bk_minute,
+            timezone=_TzBackup("Asia/Shanghai"),
+            id="backup_reminder",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+    # MTO 图片下载残留清理：每小时 15 分（北京时间）+ 6 小时阈值。
+    # 报价图属敏感资料，进程被强杀会留下 mto-ocr-* 残图，等一天太久了。
     if getattr(settings, "mto_temp_cleanup_enabled", True):
         from zoneinfo import ZoneInfo as _TzCleanup
 
         _scheduler.add_job(
             mto_temp_cleanup_job,
             trigger="cron",
-            hour=3,
-            minute=30,
+            minute=15,
             timezone=_TzCleanup("Asia/Shanghai"),
             id="mto_temp_cleanup",
             max_instances=1,
