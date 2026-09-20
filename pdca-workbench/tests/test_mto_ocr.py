@@ -85,6 +85,7 @@ class MtoOcrTests(unittest.TestCase):
                 "qwen_base_url": "https://qwen.example/v1",
                 "qwen_api_key": "test-key",
                 "qwen_model": "qwen3.8-27b",
+                "qwen_ca_bundle": "",
             },
         )()
         with patch("app.mto_ocr.get_settings", return_value=fake_settings), patch(

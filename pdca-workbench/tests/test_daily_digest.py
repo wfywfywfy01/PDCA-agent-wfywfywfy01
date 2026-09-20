@@ -134,7 +134,7 @@ class DigestStructureTests(unittest.TestCase):
             ]
         )
         text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
-        self.assertIn("累计到账 待确认", text)
+        self.assertIn("累计已录单 待确认", text)
         self.assertIn("MTO 待确认", text)
         self.assertIn("WhatsApp 待确认", text)
         self.assertIn("工时 待确认", text)
@@ -166,7 +166,7 @@ class DigestStructureTests(unittest.TestCase):
         self.assertIn("未检索到未闭环事项", text)
         self.assertIn("未见卡点上报", text)
         self.assertIn("月目标 1228 万", text)      # 部门目标来自目标文件，与人数无关
-        self.assertIn("到账 待确认", text)          # 没有一人出数，不编 0
+        self.assertIn("已录单 待确认", text)          # 没有一人出数，不编 0
         self.assertIn("未取到人员台账", text)
 
 

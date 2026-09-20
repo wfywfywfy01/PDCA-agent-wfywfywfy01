@@ -253,7 +253,7 @@ class RenderCopyTests(unittest.TestCase):
         self.assertNotIn("今日目标：1300万战役", text, "1300万是月目标口号，不能占今日目标位")
         self.assertIn("业绩三关键词", text)
         # 老板 2026-09-18 拍板：括号里的解释说明去掉，标题已经说明口径
-        self.assertIn("到账：147.4 万", text)
+        self.assertIn("已录单（开单额）：147.4 万", text)
         self.assertIn("水单：$45,000", text)
         self.assertIn("意向：120万", text)
         self.assertNotIn("已录单，系统口径", text)

@@ -175,6 +175,14 @@ class Settings:
         ).strip()
         self.qwen_api_key = os.environ.get("PDCA_QWEN_API_KEY", "").strip()
         self.qwen_model = os.environ.get("PDCA_QWEN_MODEL", "qwen3.8-27b").strip()
+        # TLS：网关证书由公共 CA 签发，默认走标准校验；若日后换成内网 CA，
+        # 用 PDCA_QWEN_CA_BUNDLE 指向 CA 文件即可，禁止退回 verify=False。
+        self.qwen_ca_bundle = os.environ.get("PDCA_QWEN_CA_BUNDLE", "").strip()
+        # 采集并发：MTO 图片 OCR 按人并发（Qwen 是单机推理，默认只给 2）。
+        try:
+            self.mto_ocr_workers = max(1, int(os.environ.get("PDCA_MTO_OCR_WORKERS", "2")))
+        except ValueError:
+            self.mto_ocr_workers = 2
         self.vemory_api_url = os.environ.get("PDCA_VEMORY_API_URL", "").strip()
         self.duzhan_agent_im_html = os.environ.get("PDCA_DUZHAN_AGENT_IM_HTML", "").strip()
         # ── 多智能体督战运行时（migrations 011；规格 docs/多智能体督战系统实施规格.md）──

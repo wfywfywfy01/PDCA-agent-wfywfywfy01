@@ -48,6 +48,18 @@ _MD_USD_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)")
 _MD_DELIVERY_RE = re.compile(r"(?:EST\.?\s*DELIVERY\s*DATE|\u4ea4\u4ed8\u65e5\u671f|\u9884\u8ba1\u4ea4\u4ed8)[^\d]{0,20}(\d{4}-\d{2}-\d{2})", re.I)
 
 
+def _tls_verify():
+    """Qwen 网关的 TLS 校验策略。
+
+    2026-09-20 实测：qwen3.vertu.cn:8443 的证书由公共 CA 签发，Python 默认
+    信任库可直接校验通过，因此不再用 verify=False（那会失去中间人防护）。
+    万一将来换成内网 CA，配置 PDCA_QWEN_CA_BUNDLE=/path/ca.pem 指向 CA 包，
+    仍然保持校验，不要退回 verify=False。
+    """
+    bundle = (getattr(get_settings(), "qwen_ca_bundle", "") or "").strip()
+    return bundle or True
+
+
 def parse_quote_text(raw: str) -> dict:
     """从模型输出抠报价字段；JSON 优先，Markdown 输出做确定性兜底。读不到标待确认。"""
     text = (raw or "").strip()
@@ -213,7 +225,7 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
                 "Content-Type": "application/json",
             },
             timeout=120.0,
-            verify=False,
+            verify=_tls_verify(),
         )
         resp.raise_for_status()
         data = resp.json()
@@ -237,7 +249,7 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
                     "Content-Type": "application/json",
                 },
                 timeout=120.0,
-                verify=False,
+                verify=_tls_verify(),
             )
             retry_resp.raise_for_status()
             text = retry_resp.json()["choices"][0]["message"]["content"]
@@ -262,7 +274,7 @@ def _retry_model_only(payload: dict, url: str, key: str, row: dict) -> dict:
             json=retry_payload,
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             timeout=120.0,
-            verify=False,
+            verify=_tls_verify(),
         )
         resp.raise_for_status()
         text = (resp.json().get("choices") or [{}])[0].get("message", {}).get("content") or ""

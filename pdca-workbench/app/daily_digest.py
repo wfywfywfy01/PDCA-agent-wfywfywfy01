@@ -96,14 +96,14 @@ def _target_line(month_target: float | None, mtd: float | None, day: str) -> str
 
     progress = daily_target_progress(month_target, mtd, day)
     if progress.get("daily_target") is None:
-        return f"月目标 待确认｜累计 {_wan(mtd)}"
+        return f"月目标 待确认｜累计已录单 {_wan(mtd)}"
     text = (
         f"月目标 {_wan(month_target)}｜日目标 {progress['daily_target']:g} 万/天"
         f"（第 {progress['days_elapsed']}/{progress['days_in_month']} 天，累计应达 {_wan(progress['rolling_target']) }）"
     )
     if progress.get("gap") is not None:
         lead = "领先" if progress["ahead"] else "落后"
-        text += f"｜累计到账 {_wan(mtd)}（{lead} {abs(progress['gap']):g} 万）"
+        text += f"｜已录单 {_wan(mtd)}（{lead} {abs(progress['gap']):g} 万）"
     return text
 
 
@@ -171,7 +171,7 @@ def build_digest(
     lines.append("一、大部门（海外事业部）")
     lines.append(f"   • {_target_line(department_target, arrived, ledger_day)}")
     lines.append(
-        f"   • 三口径：到账 {_wan(arrived)}{missing_text}"
+        f"   • 三口径：已录单 {_wan(arrived)}{missing_text}"
         f"｜水单 {_bucket_text(slip_count, slip_total, slip_known)}"
         f"｜意向 {_bucket_text(intent_count, intent_total, intent_known)}"
     )
@@ -243,7 +243,7 @@ def build_digest(
             daily_text = f"按{group_name}整体算（{person['group_target_wan']:g} 万/月）"
         else:
             daily_text = "待确认"
-        lines.append(f"   • {display}：累计到账 {_wan(mtd)}{lead}｜日目标 {daily_text}")
+        lines.append(f"   • {display}：已录单 {_wan(mtd)}{lead}｜日目标 {daily_text}")
         lines.append(f"     水单 {slip}｜意向 {intent}｜MTO {mto_text}｜WhatsApp {wa_text}｜工时 {hours}｜{report_text}")
     lines.append("")
     lines.append("四、明日预告（昨日未闭环 → 今天第一动作）")
@@ -277,7 +277,9 @@ def build_digest(
     else:
         lines.append("   • 未见卡点上报（日常计划类内容不计入本节）")
     lines.append("")
-    lines.append("口径：到账=已录单｜水单=已付款未到账｜意向=明确意向额；读不出写待确认。")
+    lines.append(
+        "口径：已录单（开单额）=系统 sales 视图，非银行回款｜水单=已付款未到账｜意向=明确意向额；读不出写待确认。"
+    )
     return chr(10).join(lines)
 
 

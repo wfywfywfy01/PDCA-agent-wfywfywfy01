@@ -300,7 +300,7 @@ def person_card(row: dict, raw: list[dict], images: list[dict]) -> str:
         f"<div class='kv'><b>月目标</b>{target_text}</div>"
         f"<div class='kv'><b>滚动日目标</b>{esc(row.get('daily_target_wan') if row.get('daily_target_wan') is not None else '待确认')} 万/天</div>"
         f"<div class='kv'><b>累计应达</b>{wan(row.get('rolling_target_wan'))}</div>"
-        f"<div class='kv'><b>累计到账</b>{wan(row.get('perf_arrived_wan'))}</div>"
+        f"<div class='kv'><b>已录单（开单额）</b>{wan(row.get('perf_arrived_wan'))}</div>"
         f"<div class='kv'><b>领先/落后</b>{gap_text}</div>"
         f"<div class='kv'><b>WhatsApp</b>{esc(row.get('wa_reached') if row.get('wa_reached') is not None else '待确认')} 户"
         + ("（已同步下限）" if row.get("wa_lower_bound") else "") + "</div>"
@@ -312,7 +312,10 @@ def person_card(row: dict, raw: list[dict], images: list[dict]) -> str:
         "</div>"
     )
     parts.append("<h3>① 业绩三关键词（原文级证据）</h3><ul>")
-    parts.append("<li><b>到账（系统已录单）</b>：" + wan(row.get("perf_arrived_wan")) + "（系统口径，不是群原话）</li>")
+    parts.append(
+        "<li><b>已录单（开单额）</b>：" + wan(row.get("perf_arrived_wan"))
+        + "（系统 sales 视图口径，非银行回款；不是群原话）</li>"
+    )
     parts.append("<li><b>水单</b>（客户已付款未到账）：</li>" + evidence_li(row.get("perf_slip") or []))
     parts.append("<li><b>意向</b>（明确意向金额）：</li>" + evidence_li(row.get("perf_intent") or []))
     parts.append("</ul>")
@@ -357,7 +360,7 @@ def person_card(row: dict, raw: list[dict], images: list[dict]) -> str:
     return "".join(parts)
 def overview_table(people: list[dict], raw_by_owner: dict, images: dict) -> str:
     head = (
-        "<tr><th>姓名</th><th>群</th><th>月目标</th><th>日目标</th><th>累计应达</th><th>累计到账</th>"
+        "<tr><th>姓名</th><th>群</th><th>月目标</th><th>日目标</th><th>累计应达</th><th>已录单（开单额）</th>"
         "<th>领先/落后</th><th>水单</th><th>意向</th><th>MTO</th><th>WhatsApp</th><th>工时</th>"
         "<th>日报</th><th>原话</th><th>图片</th></tr>"
     )
@@ -401,7 +404,7 @@ CHECKLIST = """
   <li><b>催款任务 / 卡点</b>：有没有漏读或多读（把计划当卡点）？</li>
   <li><b>红黑榜</b>：综合分 = 过程 50% + 业绩 50%，与事实印象是否一致？</li>
 </ol>
-<p class="meta">口径：到账=系统已录单；水单=客户已付款未到我们账户；意向=明确意向金额；读不出写「待确认」，一笔都没有写「未检索到」，绝不用 0 冒充。本文件只读生成，未向任何群发送消息。</p>
+<p class="meta">口径：已录单（开单额）=系统 sales 视图（非银行回款）；水单=客户已付款未到我们账户；意向=明确意向金额；读不出写「待确认」，一笔都没有写「未检索到」，绝不用 0 冒充。本文件只读生成，未向任何群发送消息。</p>
 """
 
 
