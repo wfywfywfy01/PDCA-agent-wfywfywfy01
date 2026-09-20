@@ -16,6 +16,9 @@ param(
   [string]$PythonExe = 'D:\Python\python.exe',
   [string]$AlertBotAppId = 'vbot_RsnvScIUYM9n84FS',
   [string]$AlertUserId = '13365',
+  [string]$VertuCli = 'C:\Users\frank\AppData\Roaming\vertu-im-desktop\personal-opencode\home\bin\vertu-cli.cmd',
+  [int]$DownAlertCooldownMinutes = 30,
+  [int]$RecoverStreakRequired = 2,
   [switch]$Quiet
 )
 
@@ -88,15 +91,35 @@ function Test-WorkbenchAlive {
   }
 }
 
+function Resolve-VertuCli {
+  # 计划任务的 PATH 与交互式 shell 不同，可能解析到旧版 npm 包（缺少 im +bot-send-user）；
+  # 优先使用桌面端内置 CLI 的绝对路径。
+  if ($VertuCli -and (Test-Path $VertuCli)) { return $VertuCli }
+  $cmd = Get-Command vertu-cli -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  return ''
+}
+
 function Send-Alert([string]$title, [string]$body) {
   $message = '[PDCA 守护] ' + $title + $NL + $body
+  $cli = Resolve-VertuCli
+  if (-not $cli) {
+    Write-GuardLog 'IM 告警失败：找不到 vertu-cli'
+    return $false
+  }
   try {
-    $out = (& vertu-cli im +bot-send-user --app-id $AlertBotAppId --user-id $AlertUserId --body $message 2>&1) -join ' '
+    $out = (& $cli im +bot-send-user --app-id $AlertBotAppId --user-id $AlertUserId --body $message 2>&1) -join ' '
     $short = $out.Trim()
-    if ($short.Length -gt 120) { $short = $short.Substring(0, 120) }
+    if ($short.Length -gt 140) { $short = $short.Substring(0, 140) }
+    if ($short -match 'unknown command|not found|error:') {
+      Write-GuardLog ('IM 告警可能失败: ' + $short)
+      return $false
+    }
     Write-GuardLog ('IM 告警已发送: ' + $short)
+    return $true
   } catch {
     Write-GuardLog ('IM 告警发送失败: ' + $_.Exception.Message)
+    return $false
   }
 }
 
@@ -111,7 +134,7 @@ function Start-Workbench {
 $target = Get-DbTarget
 if (-not $target) { Write-GuardLog '无法解析 PDCA_DATABASE_URL，跳过'; exit 0 }
 
-$state = @{ db = 'unknown'; workbench = 'unknown'; lastAlertAt = '' }
+$state = @{ db = 'unknown'; workbench = 'unknown'; lastAlertAt = ''; lastDownAlertAt = ''; downStreak = 0; upStreak = 0 }
 if (Test-Path $stateFile) {
   try { $state = Get-Content $stateFile -Raw | ConvertFrom-Json } catch { }
 }
@@ -124,20 +147,36 @@ $wbState = 'down'
 if ($wb.Ok) { $wbState = 'up' }
 $previousDb = $state.db
 
-Write-GuardLog ('db=' + $dbState + ' (' + $db.Detail + ')  workbench=' + $wbState + ' (' + $wb.Detail + ')')
+# 抗抖动计数：数据库主机曾出现“通—断—通”反复，避免告警刷屏
+$downStreak = [int]$state.downStreak
+$upStreak = [int]$state.upStreak
+if ($dbState -eq 'down') { $downStreak = $downStreak + 1; $upStreak = 0 } else { $upStreak = $upStreak + 1; $downStreak = 0 }
+
+Write-GuardLog ('db=' + $dbState + ' (' + $db.Detail + ')  workbench=' + $wbState + ' (' + $wb.Detail + ')  streak(up=' + $upStreak + ',down=' + $downStreak + ')')
 
 $alerted = $false
-if ($dbState -eq 'down' -and $previousDb -ne 'down') {
-  Send-Alert '生产数据库不可用' ($target.Host + ':' + $target.Port + '/' + $target.Database + ' 探测失败：' + $db.Detail + $NL + '工作台状态：' + $wb.Detail + $NL + '请检查数据库主机（曾出现 TCP 可连但服务冻结的情况）。')
-  $alerted = $true
+$lastDownAlertAt = [datetime]::MinValue
+if ($state.lastDownAlertAt) { try { $lastDownAlertAt = [datetime]::Parse($state.lastDownAlertAt) } catch { } }
+$cooldownOk = ((Get-Date) - $lastDownAlertAt).TotalMinutes -ge $DownAlertCooldownMinutes
+
+if ($dbState -eq 'down' -and $previousDb -ne 'down' -and $cooldownOk) {
+  $sent = Send-Alert '生产数据库不可用' ($target.Host + ':' + $target.Port + '/' + $target.Database + ' 探测失败：' + $db.Detail + $NL + '工作台状态：' + $wb.Detail + $NL + '该主机曾出现 TCP 可连但服务冻结；请检查数据库主机。' + $NL + '（同类告警 ' + $DownAlertCooldownMinutes + ' 分钟内不再重复）')
+  if ($sent) { $lastDownAlertAt = Get-Date; $alerted = $true }
+} elseif ($dbState -eq 'down' -and $previousDb -ne 'down') {
+  Write-GuardLog ('数据库不可用，但处于告警冷却期（' + $DownAlertCooldownMinutes + ' 分钟），本次不推送')
 }
 
+# 恢复需连续 N 次正常才确认，避免“刚恢复又断”造成误报
 if ($dbState -eq 'up' -and $previousDb -eq 'down') {
-  Send-Alert '生产数据库已恢复' ($target.Host + ':' + $target.Port + ' 已可正常连接。工作台状态：' + $wb.Detail)
-  $alerted = $true
+  if ($upStreak -ge $RecoverStreakRequired) {
+    $sent = Send-Alert '生产数据库已恢复' ($target.Host + ':' + $target.Port + ' 连续 ' + $upStreak + ' 次探测正常。工作台状态：' + $wb.Detail)
+    if ($sent) { $alerted = $true }
+  } else {
+    Write-GuardLog ('数据库已连通，等待连续 ' + $RecoverStreakRequired + ' 次正常后再确认恢复（当前 ' + $upStreak + ' 次）')
+  }
 }
 
-if ($dbState -eq 'up' -and $wbState -eq 'down') {
+if ($dbState -eq 'up' -and $wbState -eq 'down' -and $upStreak -ge $RecoverStreakRequired) {
   $after = Start-Workbench
   if ($after.Ok) {
     Send-Alert '工作台已自动恢复' ('数据库恢复后自动重启工作台成功（' + $after.Detail + '）。')
@@ -153,6 +192,9 @@ $newState = @{
   workbench = $wbState
   checkedAt = (Get-Date).ToString('o')
   lastAlertAt = $state.lastAlertAt
+  lastDownAlertAt = if ($lastDownAlertAt -gt [datetime]::MinValue) { $lastDownAlertAt.ToString('o') } else { '' }
+  downStreak = $downStreak
+  upStreak = $upStreak
 }
 if ($alerted) { $newState.lastAlertAt = (Get-Date).ToString('o') }
 if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Force -Path $stateDir | Out-Null }
