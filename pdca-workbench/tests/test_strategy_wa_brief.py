@@ -1,0 +1,169 @@
+# -*- coding: utf-8 -*-
+"""三策略 WhatsApp HTML：分类、渲染、08:00 调度。不联网。"""
+from __future__ import annotations
+
+import unittest
+from datetime import datetime
+from types import SimpleNamespace
+from unittest import mock
+
+from app.strategy_wa_brief import (
+    OwnerScan,
+    TZ,
+    build_html,
+    build_im_body,
+    classify,
+    topic_verdict,
+    window_for,
+    window_text,
+)
+
+
+class ClassifyTests(unittest.TestCase):
+    def test_watch_strong(self):
+        labels = dict(classify("本单满30万可加提腕表资格"))
+        self.assertEqual(labels["watch"], "strong")
+
+    def test_apple_watch_repair_ignored(self):
+        labels = dict(classify("欢迎来到 SPR。我们维修 Apple Watch、AirPods"))
+        self.assertNotIn("watch", labels)
+
+    def test_clearance_strong(self):
+        labels = dict(
+            classify("pay 30%, get full- price goods, 70% rest payment by three months.")
+        )
+        self.assertEqual(labels["clearance"], "strong")
+
+    def test_clearance_upfront_q4(self):
+        labels = dict(
+            classify(
+                "the company accepts a 30% upfront payment, with the remaining 70% to be settled in Q4."
+            )
+        )
+        self.assertEqual(labels["clearance"], "strong")
+
+    def test_holiday(self):
+        labels = dict(classify("圣诞黑五购物节提前备货"))
+        self.assertEqual(labels["holiday"], "strong")
+
+    def test_not_meta1_not_watch_strategy(self):
+        labels = dict(classify("not meta 1"))
+        self.assertEqual(labels, {})
+
+
+class WindowTests(unittest.TestCase):
+    def test_24h_before_8am(self):
+        start, end = window_for("2026-09-19")
+        self.assertEqual(start, datetime(2026, 9, 18, 8, 0, tzinfo=TZ))
+        self.assertEqual(end, datetime(2026, 9, 19, 8, 0, tzinfo=TZ))
+        self.assertIn("09-18 08:00 → 09-19 08:00", window_text(start, end))
+
+
+class RenderTests(unittest.TestCase):
+    def test_html_and_im_body(self):
+        start, end = window_for("2026-09-19")
+        scans = [
+            OwnerScan("杨晶晶", 47, message_count=2, hits=[]),
+            OwnerScan("Lina", 171, message_count=0, wa_configured=False, note="触达 0"),
+        ]
+        from app.strategy_wa_brief import Hit
+
+        scans[0].hits.append(
+            Hit(
+                "杨晶晶",
+                "clearance",
+                "strong",
+                "2026-09-18 12:00:00",
+                "919***4798",
+                "outbound",
+                "text",
+                "pay 30%, get full- price goods",
+            )
+        )
+        html_text = build_html("2026-09-19", start, end, scans)
+        self.assertIn("清库存30%现金拿货", html_text)
+        self.assertIn("pay 30%", html_text)
+        self.assertIn("无WA", html_text)
+        body = build_im_body("2026-09-19", start, end, scans)
+        self.assertIn("①", body)
+        self.assertIn("杨晶晶有", body)
+        self.assertIn("Lina无WA", body)
+        self.assertEqual(topic_verdict(scans[0], "clearance"), "有")
+        self.assertEqual(topic_verdict(scans[1], "watch"), "无WA")
+        empty_incomplete = OwnerScan("杨晶晶", 47, message_count=0, complete=False)
+        self.assertEqual(topic_verdict(empty_incomplete, "holiday"), "待确认")
+        scanned = OwnerScan("Viki", 216, message_count=40, complete=False)
+        self.assertEqual(topic_verdict(scanned, "holiday"), "无")
+
+
+class JobRegistrationTests(unittest.TestCase):
+    def _register(self, **over: object):
+        from app.scheduler import jobs as scheduler_jobs
+
+        class RecordingScheduler:
+            def __init__(self):
+                self.jobs = []
+
+            def add_job(self, func, *args, **kwargs):
+                self.jobs.append((func, args, kwargs))
+
+            def start(self):
+                return None
+
+        base = {
+            "scheduler_enabled": True,
+            "sync_cron": "0 6 * * *",
+            "daily_report_enabled": False,
+            "todo_remind_enabled": False,
+            "todo_remind_times": [],
+            "todo_group_notice_enabled": False,
+            "todo_group_channel_id": "",
+            "todo_scoring_enabled": False,
+            "todo_ledger_sync_enabled": False,
+            "todo_brief_enabled": False,
+            "todo_okr_link_enabled": False,
+            "mto_temp_cleanup_enabled": False,
+            "daily_digest_enabled": False,
+            "evidence_report_enabled": False,
+            "strategy_wa_brief_enabled": True,
+            "strategy_wa_brief_time": "08:00",
+        }
+        base.update(over)
+        original = scheduler_jobs._scheduler
+        scheduler_jobs._scheduler = None
+        try:
+            with mock.patch.object(
+                scheduler_jobs, "get_settings", return_value=SimpleNamespace(**base)
+            ), mock.patch.object(
+                scheduler_jobs, "BackgroundScheduler", RecordingScheduler
+            ):
+                scheduler = scheduler_jobs.start_scheduler()
+        finally:
+            scheduler_jobs._scheduler = original
+        return {
+            kwargs["id"]: (kwargs["hour"], kwargs["minute"], func.__name__)
+            for func, _, kwargs in scheduler.jobs
+            if str(kwargs.get("id", "")).startswith("strategy_wa_brief")
+        }
+
+    def test_registers_8am_and_backup(self):
+        jobs = self._register()
+        self.assertEqual(jobs["strategy_wa_brief"][0:2], (8, 0))
+        self.assertEqual(jobs["strategy_wa_brief_backup"][0:2], (8, 30))
+
+    def test_disabled(self):
+        self.assertEqual(self._register(strategy_wa_brief_enabled=False), {})
+
+
+class SendAttachTests(unittest.TestCase):
+    def test_dry_run_skips_send(self):
+        from app import strategy_wa_brief as mod
+
+        fake = OwnerScan("于冰", 45, message_count=0, complete=True)
+        with mock.patch.object(mod, "scan_owners", return_value=[fake]), mock.patch.object(
+            mod, "save_html", return_value=__import__("pathlib").Path("x.html")
+        ), mock.patch("app.todos.service.send_direct_message") as send:
+            result = mod.run_brief("2026-09-19", dry_run=True)
+        self.assertFalse(result["sent"])
+        self.assertEqual(result["reason"], "dry_run")
+        send.assert_not_called()
