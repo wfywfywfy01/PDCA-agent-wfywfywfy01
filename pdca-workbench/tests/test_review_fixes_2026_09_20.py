@@ -400,5 +400,61 @@ class SetMonthlyTargetsScriptTests(unittest.TestCase):
             self.assertEqual(saved["2026-09"]["entries"][0]["target_wan"], 200, "旧月份不能被改")
 
 
+class CollectLedgerWiringTests(unittest.TestCase):
+    """并发改造后的接线：源顺序不能错位，每人 MCP/OCR 结果必须按人对上号。"""
+
+    def test_sources_and_per_person_caches_line_up(self):
+        from app import duzhan_ledger as dl
+
+        history_calls: list[tuple] = []
+
+        def fake_history(channel_id, day, size):
+            history_calls.append((channel_id, size))
+            return []
+
+        def fake_bundle(subject, period):
+            key = subject.get("employee_id")
+            return (f"reach-{key}", f"ops-{key}", f"customers-{key}")
+
+        def fake_ocr(messages, sender_id):
+            return (sender_id, [f"img-{sender_id}"], [])
+
+        with mock.patch.object(dl, "fetch_personal_okr", lambda: []), mock.patch.object(
+            dl, "load_vps_activity", lambda: {}
+        ), mock.patch.object(dl, "fetch_vemory_day", lambda day: []), mock.patch.object(
+            dl, "fetch_channel_history", fake_history
+        ), mock.patch.object(dl, "_mcp_bundle", fake_bundle), mock.patch.object(
+            dl, "parse_wa_reached", lambda payload: (payload, False)
+        ), mock.patch.object(
+            dl, "parse_intent_count", lambda payload: payload
+        ), mock.patch.object(
+            dl, "parse_wa_hour_chats", lambda payload: []
+        ), mock.patch(
+            "app.mto_ocr.review_mto_images", fake_ocr
+        ):
+            ledger = dl.collect_ledger("2026-09-18")
+
+        rows = {row["display"]: row for row in ledger["people"]}
+        self.assertIn("于冰", rows)
+        # 每人 MCP 三项按人对上号（缓存 keyed by display，不能串号）
+        for owner in dl.OWNERS:
+            if not owner.employee_id:
+                continue
+            row = rows.get(owner.display)
+            self.assertIsNotNone(row, owner.display)
+            self.assertEqual(row["wa_reached"], f"reach-{owner.employee_id}", owner.display)
+            self.assertEqual(row["intent_count"], f"ops-{owner.employee_id}", owner.display)
+        # OCR 结果按人对上号
+        self.assertEqual(rows["于冰"]["mto_count"], 13063)
+        self.assertEqual(rows["于冰"]["mto_names"], ["img-13063"])
+        # 群历史：日报群用 300，个人群用 200；每个群只拉一次
+        sizes = {size for _, size in history_calls}
+        self.assertEqual(sizes, {"200", "300"})
+        self.assertEqual(len(history_calls), len(set(history_calls)))
+        # 月目标来源应标注为文件（2026-09 已配置）+ 滚动日目标已算
+        self.assertEqual(rows["于冰"]["target_source"], "file")
+        self.assertIsNotNone(rows["于冰"]["rolling_target_wan"])
+
+
 if __name__ == "__main__":
     unittest.main()
