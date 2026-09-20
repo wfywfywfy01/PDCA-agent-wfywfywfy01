@@ -150,8 +150,9 @@ python scripts/evidence_report.py --day 2026-09-18 --images 40     # 最多内�
    ```
 
    写盘前会校验「明细合计 = 部门目标」（与 `app/daily_report.py` 同一条不变量），不一致直接拒绝。
-3. **采集并发**：一轮采集里四个数据源、各群历史、每人三项 MCP 查询、每人 MTO 图片 OCR 都并发跑；
-   超时/失败只影响单项（留「待确认」），不再一个慢源拖垮整轮。OCR 并发度 `PDCA_MTO_OCR_WORKERS`（默认 2）。
+3. **采集并发与预算**：一轮采集里四个数据源、各群历史、每人三项 MCP 查询、每人 MTO 图片 OCR 都并发跑；
+   超时/失败只影响单项（留「待确认」），不再一个慢源拖垮整轮。OCR 三个开关：并发度 `PDCA_MTO_OCR_WORKERS`（默认 3）、
+   每人最多读图数 `PDCA_MTO_OCR_MAX_IMAGES`（默认 8）、单轮总预算 `PDCA_MTO_OCR_BUDGET_SECONDS`（默认 420s，超时未读完记「待确认」）。
 4. **TLS 不关校验**：`qwen3.vertu.cn:8443` 的证书由公共 CA 签发，Qwen 调用走标准校验；
    换成内网 CA 时用 `PDCA_QWEN_CA_BUNDLE` 指定 CA 包，禁止回退 `verify=False`。
 

@@ -297,7 +297,7 @@ class MtoOcrWorkerSettingTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"PDCA_MTO_OCR_WORKERS": "0"}, clear=False):
             self.assertEqual(Settings().mto_ocr_workers, 1)
         with mock.patch.dict(os.environ, {"PDCA_MTO_OCR_WORKERS": "abc"}, clear=False):
-            self.assertEqual(Settings().mto_ocr_workers, 2)
+            self.assertEqual(Settings().mto_ocr_workers, 3)
 
     def test_env_parsing(self):
         self._workers()
@@ -416,7 +416,7 @@ class CollectLedgerWiringTests(unittest.TestCase):
             key = subject.get("employee_id")
             return (f"reach-{key}", f"ops-{key}", f"customers-{key}")
 
-        def fake_ocr(messages, sender_id):
+        def fake_ocr(messages, sender_id, **kwargs):
             return (sender_id, [f"img-{sender_id}"], [])
 
         okr_rows = [{"salesperson": "于冰", "sales_amount": 2_000_000}]
@@ -468,6 +468,83 @@ class CollectLedgerWiringTests(unittest.TestCase):
         # 月目标来源应标注为文件（2026-09 已配置）+ 滚动日目标已算
         self.assertEqual(rows["于冰"]["target_source"], "file")
         self.assertIsNotNone(rows["于冰"]["rolling_target_wan"])
+
+
+class OcrBudgetTests(unittest.TestCase):
+    """OCR 限流：超预算/超每人上限按「待确认」处理，绝不拖过整点推送窗口。"""
+
+    def test_deadline_marks_unfinished_as_pending(self):
+        import time as _time
+
+        from app.duzhan_ledger import _parallel_map_deadline
+
+        def fn(item):
+            if item == "slow":
+                _time.sleep(3)
+            return item
+
+        start = _time.monotonic()
+        results = _parallel_map_deadline(fn, ["a", "slow", "b"], 3, "test", 1)
+        cost = _time.monotonic() - start
+        self.assertEqual(results[0], "a")
+        self.assertIsNone(results[1], "超预算的项必须写待确认")
+        self.assertEqual(results[2], "b")
+        self.assertLess(cost, 2.5, "不能等没跑完的项")
+
+    def test_zero_budget_means_no_limit(self):
+        from app.duzhan_ledger import _parallel_map_deadline
+
+        self.assertEqual(_parallel_map_deadline(lambda x: x * 2, [1, 2], 2, "t", 0), [2, 4])
+        self.assertEqual(_parallel_map_deadline(lambda x: x, [], 2, "t", 5), [])
+
+    def test_review_caps_images_per_person(self):
+        from app import mto_ocr
+
+        messages = [
+            {
+                "sender_user_id": 7,
+                "message_type": "image",
+                "attachments": [{"attachment_type": "image", "url": f"/f/{index}.jpg"}],
+            }
+            for index in range(5)
+        ]
+        calls: list[str] = []
+
+        def fake_ocr(url):
+            calls.append(url)
+            return {"model": "", "wan": None, "usd": None, "qualifies": False}
+
+        settings = mock.Mock(qwen_api_key="k", mto_ocr_max_images=2)
+        with mock.patch.object(mto_ocr, "download_ocr_delete", fake_ocr), mock.patch.object(
+            mto_ocr, "get_settings", lambda: settings
+        ), mock.patch.object(
+            mto_ocr, "summarize_quotes", lambda quotes: (len(quotes), [])
+        ):
+            count, _names, quotes = mto_ocr.review_mto_images(messages, 7)
+        self.assertEqual(len(calls), 2, "每人最多 OCR 上限张数")
+        self.assertEqual(count, 2)
+        self.assertEqual(len(quotes), 2)
+
+    def test_explicit_max_images_wins(self):
+        from app import mto_ocr
+
+        messages = [
+            {
+                "sender_user_id": 7,
+                "message_type": "image",
+                "attachments": [{"attachment_type": "image", "url": f"/f/{index}.jpg"}],
+            }
+            for index in range(4)
+        ]
+        calls: list[str] = []
+        settings = mock.Mock(qwen_api_key="k", mto_ocr_max_images=9)
+        with mock.patch.object(
+            mto_ocr, "download_ocr_delete", lambda url: calls.append(url) or {"qualifies": False}
+        ), mock.patch.object(mto_ocr, "get_settings", lambda: settings), mock.patch.object(
+            mto_ocr, "summarize_quotes", lambda quotes: (0, [])
+        ):
+            mto_ocr.review_mto_images(messages, 7, max_images=3)
+        self.assertEqual(len(calls), 3)
 
 
 if __name__ == "__main__":

@@ -393,10 +393,25 @@ def cleanup_temp_files(max_age_hours: float = 24.0) -> dict:
     return {"removed": removed, "freed_bytes": freed}
 
 
-def review_mto_images(messages: list | None, sender_id: int | None) -> tuple[int, list[str], list[dict]]:
-    """本人当日图片：OCR 报价与目标客户；磁盘文件不保留。"""
+def review_mto_images(
+    messages: list | None, sender_id: int | None, max_images: int | None = None
+) -> tuple[int, list[str], list[dict]]:
+    """本人当日图片：OCR 报价与目标客户；磁盘文件不保留。
+
+    max_images 默认取 PDCA_MTO_OCR_MAX_IMAGES（8）：一天几十张图时，OCR 是整轮采集
+    的瓶颈（实测 44 张图 ≈ 9 分钟），而「每日 4 款方案」用不到那么多张，超出的只记数
+    不读图，避免拖过整点推送窗口。
+    """
     settings = get_settings()
+    limit = max_images
+    if limit is None:
+        try:
+            limit = int(getattr(settings, "mto_ocr_max_images", 8))
+        except (TypeError, ValueError):
+            limit = 8
+    limit = max(1, limit)
     quotes: list[dict] = []
+    truncated = [False]
     from app.duzhan_ledger import DUZHAN_BOT_ID
 
     for msg in messages or []:
@@ -415,6 +430,13 @@ def review_mto_images(messages: list | None, sender_id: int | None) -> tuple[int
                 continue
             url = str(att.get("url") or "")
             if not url:
+                continue
+            if len(quotes) >= limit:
+                if not truncated[0]:
+                    truncated[0] = True
+                    logger.info(
+                        "MTO 图片超过每人 {} 张上限，多出的不再 OCR: sender={}", limit, sender_id
+                    )
                 continue
             if settings.qwen_api_key:
                 quotes.append(download_ocr_delete(url))
