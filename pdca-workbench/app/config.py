@@ -109,6 +109,18 @@ class Settings:
         self.evidence_report_time = os.environ.get(
             "PDCA_EVIDENCE_REPORT_TIME", "07:30"
         ).strip()
+        # 发完当天继续留 2 周（老板 2026-09-20 拍板：不压缩，只留 14 天）
+        self.evidence_report_keep_days = _env_int("PDCA_EVIDENCE_REPORT_KEEP_DAYS", "14")
+        # 每周一 09:00 提醒人工备份一次（保留期只有 2 周，归档靠人）
+        self.backup_reminder_enabled = _env_flag("PDCA_BACKUP_REMINDER_ENABLED", "1")
+        self.backup_reminder_time = os.environ.get(
+            "PDCA_BACKUP_REMINDER_TIME", "09:00"
+        ).strip()
+        self.backup_reminder_user_ids = [
+            int(item.strip())
+            for item in os.environ.get("PDCA_BACKUP_REMINDER_USER_IDS", "").split(",")
+            if item.strip().isdigit()
+        ]
         # 腕表闪购 WhatsApp 核查（每天 08:00 查 MCP 前 24 小时；默认开）
         self.campaign_wa_check_enabled = (
             _env_flag("PDCA_CAMPAIGN_WA_CHECK_ENABLED", "1")
@@ -238,7 +250,8 @@ class Settings:
             _env_flag("PDCA_MTO_TEMP_CLEANUP_ENABLED", "1")
         )
         try:
-            self.mto_temp_max_age_hours = _env_float("PDCA_MTO_TEMP_MAX_AGE_HOURS", "24")
+            # 报价图属敏感资料：进程被强杀会留残图，清理改成每小时跑、阈值 6 小时。
+            self.mto_temp_max_age_hours = _env_float("PDCA_MTO_TEMP_MAX_AGE_HOURS", "6")
         except ValueError:
             self.mto_temp_max_age_hours = 24.0
         # 主 Agent（Supervisor）：供应商无关，参数由环境变量配置。
