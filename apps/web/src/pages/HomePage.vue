@@ -199,8 +199,8 @@ onMounted(loadAll)
 
 <template>
   <AppNav />
-  <main class="cockpit">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>经营驾驶舱</h1>
         <p class="sub">
@@ -208,18 +208,26 @@ onMounted(loadAll)
           <span v-if="today">T-1（{{ today.closure.report_date }}）已收到 {{ today.closure.reported }} 家门店填报</span>
         </p>
       </div>
-      <div class="head-actions">
-        <div class="period-switch">
+      <div class="page-actions">
+        <div class="segmented" role="group" aria-label="统计周期">
           <button
             v-for="p in periods"
             :key="p.value"
             type="button"
-            :class="['chip', { active: period === p.value }]"
+            :class="{ active: period === p.value }"
+            :aria-pressed="period === p.value"
             @click="period = p.value; loadAll()"
           >
             {{ p.label }}
           </button>
         </div>
+        <router-link
+          v-if="me && (me.role === 'admin' || me.role === 'manager')"
+          class="btn"
+          to="/admin/agents"
+        >
+          Agent 管理
+        </router-link>
         <button
           v-if="me && (me.role === 'admin' || me.role === 'manager')"
           class="btn btn-primary"
@@ -232,32 +240,35 @@ onMounted(loadAll)
       </div>
     </header>
 
-    <p v-if="syncMessage" class="sync-msg">{{ syncMessage }}</p>
+    <p v-if="syncMessage" class="toast" role="status">{{ syncMessage }}</p>
 
-    <div v-if="error" class="card error-card">{{ error }}</div>
+    <div v-if="error" class="card alert" role="alert">
+      <span>{{ error }}</span>
+      <button class="btn btn-sm" type="button" @click="loadAll()">重试</button>
+    </div>
 
-    <section v-else class="kpi-grid">
-      <div class="card kpi">
-        <span class="kpi-label">Sell-in（进货）</span>
-        <span class="kpi-value">{{ kpiAmount(sellIn) }}</span>
-        <span class="kpi-note">
+    <section v-else class="stats">
+      <div class="card stat">
+        <span class="stat-label">Sell-in（进货）</span>
+        <span class="stat-value num">{{ kpiAmount(sellIn) }}</span>
+        <span class="stat-note">
           <span :class="badgeClass(sellIn?.state)">{{ badgeLabel(sellIn?.state) }}</span>
           {{ sectionErrors.sellIn || sellIn?.note || (loading ? '加载中…' : '数据不可用') }}
         </span>
       </div>
-      <div class="card kpi">
-        <span class="kpi-label">Sell-out（终销）</span>
-        <span class="kpi-value">{{ kpiAmount(sellOut) }}</span>
-        <span class="kpi-note">
+      <div class="card stat">
+        <span class="stat-label">Sell-out（终销）</span>
+        <span class="stat-value num">{{ kpiAmount(sellOut) }}</span>
+        <span class="stat-note">
           <span :class="badgeClass(sellOut?.state)">{{ badgeLabel(sellOut?.state) }}</span>
           {{ sectionErrors.sellOut || sellOut?.note || (loading ? '加载中…' : '数据不可用') }}
           <span v-if="sellOut?.review_count">{{ sellOut.review_count }} 条待复核金额未计入</span>
         </span>
       </div>
-      <div v-for="[key, fact] in visibleFacts" :key="key" class="card kpi">
-        <span class="kpi-label">{{ FACT_LABELS[key] || key }}</span>
-        <span class="kpi-value">{{ fact.state === 'available' ? (fact.value ?? 'N/A') : 'N/A' }}</span>
-        <span class="kpi-note">
+      <div v-for="[key, fact] in visibleFacts" :key="key" class="card stat">
+        <span class="stat-label">{{ FACT_LABELS[key] || key }}</span>
+        <span class="stat-value num">{{ fact.state === 'available' ? (fact.value ?? 'N/A') : 'N/A' }}</span>
+        <span class="stat-note">
           <span :class="factBadgeClass(fact.state)">
             {{ factLabel(fact.state) }}
           </span>
@@ -268,8 +279,14 @@ onMounted(loadAll)
 
     <div class="two-col">
       <section class="card panel">
-        <h2>当前待处理</h2>
-        <p v-if="sectionErrors.today" class="empty" role="alert">待处理事项加载失败：{{ sectionErrors.today }}</p>
+        <header class="section-head">
+          <div>
+            <h2>当前待处理</h2>
+            <p>按优先级排列，点击可直接进入处理。</p>
+          </div>
+          <span v-if="today?.actions?.length" class="pill pill-blue num">{{ today.actions.length }} 项</span>
+        </header>
+        <p v-if="sectionErrors.today" class="hint" role="alert">待处理事项加载失败：{{ sectionErrors.today }}</p>
         <template v-else-if="today?.actions?.length">
           <a
             v-for="(action, index) in today.actions"
@@ -281,14 +298,19 @@ onMounted(loadAll)
             <span>{{ action.message }}</span>
           </a>
         </template>
-        <p v-else-if="loading" class="empty">加载中…</p>
-        <p v-else-if="today" class="empty">当前没有已识别的待处理异常</p>
-        <p v-else class="empty">待处理事项暂不可用</p>
+        <p v-else-if="loading" class="hint">加载中…</p>
+        <p v-else-if="today" class="hint">当前没有已识别的待处理异常</p>
+        <p v-else class="hint">待处理事项暂不可用</p>
       </section>
 
       <section class="card panel">
-        <h2>客户分层（仅已建档客户）</h2>
-        <p v-if="sectionErrors.customers" class="empty" role="alert">客户分层加载失败：{{ sectionErrors.customers }}</p>
+        <header class="section-head">
+          <div>
+            <h2>客户分层</h2>
+            <p>仅统计已建档客户，触达数为最近同步口径。</p>
+          </div>
+        </header>
+        <p v-if="sectionErrors.customers" class="hint" role="alert">客户分层加载失败：{{ sectionErrors.customers }}</p>
         <div v-else-if="customers?.length" class="customer-grid">
           <article v-for="row in customers" :key="row.level" class="customer-card">
             <span class="c-label">{{ row.level }} 类</span>
@@ -298,130 +320,16 @@ onMounted(loadAll)
             </span>
           </article>
         </div>
-        <p v-else-if="customers" class="empty">暂无客户分层数据</p>
-        <p v-else class="empty">加载中…</p>
+        <p v-else-if="customers" class="hint">暂无客户分层数据</p>
+        <p v-else class="hint">加载中…</p>
       </section>
     </div>
   </main>
 </template>
 
 <style scoped>
-.cockpit {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 24px 20px 60px;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
-h1 {
-  margin: 0 0 4px;
-  font-size: 24px;
-}
-
-h2 {
-  margin: 0 0 14px;
-  font-size: 15px;
-  color: var(--muted);
-}
-
-.sub {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.period-switch {
-  display: flex;
-  gap: 4px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px;
-}
-
-.chip {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.chip.active {
-  background: var(--blue-soft);
-  color: var(--blue);
-  font-weight: 600;
-}
-
-.sync-msg {
-  color: var(--amber);
-  font-size: 13px;
-  margin: 0 0 10px;
-}
-
-.error-card {
-  padding: 32px;
-  text-align: center;
-  color: var(--red);
-}
-
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.kpi {
-  padding: 16px 18px;
-  display: grid;
-  gap: 8px;
-}
-
-.kpi-label {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.kpi-value {
-  font-size: 26px;
-  font-weight: 700;
-}
-
-.kpi-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted);
-  flex-wrap: wrap;
-}
-
-.two-col {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 16px;
-}
-
-.panel {
-  padding: 20px 22px;
-}
+.two-col { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+.panel { padding: 20px 22px; }
 
 .action-row {
   display: grid;
@@ -429,24 +337,12 @@ h2 {
   padding: 12px 14px;
   border-radius: 10px;
   color: var(--text);
-  transition: background 0.15s;
+  transition: background-color 0.15s;
 }
+.action-row:hover { background: rgba(78, 158, 245, 0.08); }
+.action-row span { color: var(--muted); font-size: 13px; }
 
-.action-row:hover {
-  background: rgba(78, 158, 245, 0.08);
-}
-
-.action-row span {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.customer-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-}
-
+.customer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .customer-card {
   background: var(--card-2);
   border: 1px solid var(--border);
@@ -455,30 +351,11 @@ h2 {
   display: grid;
   gap: 6px;
 }
+.c-label { font-size: 12px; color: var(--blue); }
+.customer-card b { font-size: 24px; font-variant-numeric: tabular-nums; }
+.c-sub { font-size: 12px; color: var(--muted); }
 
-.c-label {
-  font-size: 12px;
-  color: var(--blue);
-}
-
-.customer-card b {
-  font-size: 24px;
-}
-
-.c-sub {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.empty {
-  color: var(--muted);
-  font-size: 13px;
-  padding: 8px 0;
-}
-
-@media (max-width: 760px) {
-  .two-col {
-    grid-template-columns: 1fr;
-  }
+@media (max-width: 860px) {
+  .two-col { grid-template-columns: 1fr; }
 }
 </style>

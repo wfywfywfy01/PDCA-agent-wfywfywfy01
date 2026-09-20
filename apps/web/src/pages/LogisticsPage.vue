@@ -356,8 +356,8 @@ watch(me, (value) => {
 
 <template>
   <AppNav />
-  <main class="logistics">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>物流中心</h1>
         <p class="sub">{{ board === 'freight' ? '日升货代预报 · 面单匹配 · 异常复核' : '经销商运单进度 · 异常核查 · 实时追踪' }}</p>

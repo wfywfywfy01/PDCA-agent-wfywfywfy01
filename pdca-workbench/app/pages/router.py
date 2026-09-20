@@ -597,7 +597,6 @@ async def agent_admin_page(
 
 @router.get("/knowledge")
 @router.get("/knowledge/")
-@router.get("/app/knowledge")
 async def knowledge_page(
     user: Annotated[User, Depends(get_current_user)] = None,
 ):

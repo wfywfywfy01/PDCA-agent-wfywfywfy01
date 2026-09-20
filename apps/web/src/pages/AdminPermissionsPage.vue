@@ -74,7 +74,7 @@ onMounted(load)
 <template>
   <AppNav />
   <main class="page">
-    <header class="head"><div><h1>权限控制台</h1><p>账号绑定、数据隔离与实际权限核验。</p></div><a class="btn" href="/admin-panel/">完整运营后台</a></header>
+    <header class="page-head"><div><h1>权限控制台</h1><p>账号绑定、数据隔离与实际权限核验。</p></div><a class="btn" href="/admin-panel/">完整运营后台</a></header>
     <p v-if="error" class="message error" role="alert">{{ error }}</p><p v-if="notice" class="message ok" role="status">{{ notice }}</p>
     <div v-if="loading" class="card state" aria-busy="true">正在加载账号与门店…</div>
     <div v-else-if="users.length" class="layout">
@@ -107,7 +107,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page { max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }.head,.section-title { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }.head { margin-bottom:18px; }.head h1,.editor h2 { margin:0 0 5px; }.head h1 { font-size:24px; }.head p,.editor p { margin:0; color:var(--muted); font-size:13px; }
+.head,.section-title { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }.head { margin-bottom:18px; }.head h1,.editor h2 { margin:0 0 5px; }.head h1 { font-size:24px; }.head p,.editor p { margin:0; color:var(--muted); font-size:13px; }
 .layout { display:grid; grid-template-columns:minmax(0, 2fr) minmax(280px, 1fr); gap:16px; }.workspace { display:grid; gap:16px; }.list-card,.editor { padding:18px; }.search { display:grid; grid-template-columns:auto minmax(180px, 280px); align-items:center; gap:12px; color:var(--muted); font-size:13px; margin-bottom:12px; }.table-wrap { overflow-x:auto; }table { width:100%; border-collapse:collapse; font-size:13px; }th,td { padding:10px; border-bottom:1px solid var(--border); text-align:left; }th { color:var(--muted); }tr.active { background:var(--blue-soft); }td button { all:unset; cursor:pointer; color:var(--text); display:grid; width:100%; }td button:focus-visible { outline:2px solid var(--blue); }small,.muted { color:var(--muted); }.warn { margin-left:7px; color:var(--amber); font-weight:600; }
 .fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:18px 0; }.fields label { display:grid; gap:7px; color:var(--muted); font-size:13px; }.switch { display:block; font-size:14px; }.message { padding:10px 14px; border-radius:var(--radius); }.error { color:var(--red); background:rgba(244,63,94,.1); }.ok { color:var(--green); background:rgba(16,185,129,.1); }.state { padding:40px; text-align:center; color:var(--muted); }
 @media(max-width:900px){.layout{grid-template-columns:1fr}}@media(max-width:600px){.page{padding:16px 12px 40px}.fields{grid-template-columns:1fr}.head,.section-title{align-items:stretch;flex-direction:column}.section-title .btn{width:100%}.search{grid-template-columns:1fr}}
