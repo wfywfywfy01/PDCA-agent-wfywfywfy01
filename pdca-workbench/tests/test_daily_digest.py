@@ -51,8 +51,9 @@ class DigestStructureTests(unittest.TestCase):
         self.assertEqual(_prev_day("2026-09-19"), "2026-09-18")
         self.assertEqual(_prev_day("bad"), "bad")
         text = _window_text("2026-09-19", "2026-09-18")
-        self.assertIn("09-18 08:00 → 09-19 08:00", text)
-        self.assertIn("数据日 2026-09-18", text)
+        # 实际口径是数据日整天（不是 08:00→08:00），标注必须如实
+        self.assertIn("数据日 2026-09-18 全天", text)
+        self.assertIn("推送日 2026-09-19 08:00", text)
 
     def test_sections_in_total_to_detail_order(self):
         led = _ledger(

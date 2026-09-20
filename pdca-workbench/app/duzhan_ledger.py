@@ -346,18 +346,20 @@ def estimate_hours(chats: list[dict], person: dict | None = None) -> dict:
     meeting = min(meeting_raw, CAP_MEETING)
     vps = vps_minutes(row)
     covered = wa + mto + collect + meeting + vps
-    minutes = min(covered, STANDARD_DAY_MIN)
-    gap = max(STANDARD_DAY_MIN - covered, 0.0)
-    hours = round(minutes / 60.0, 2)
-    std = round(STANDARD_DAY_MIN / 60.0, 1)
-    ratio = covered / STANDARD_DAY_MIN if STANDARD_DAY_MIN else 0
-    if (
+    # 一条证据都没有时，工时是「没出数」而不是「0 小时」（老板口径：不用 0 冒充）
+    no_evidence = (
         chats == []
         and row.get("mto_count") is None
         and not collect_n
         and meeting_n == 0
         and row.get("vps_turns") is None
-    ):
+    )
+    minutes = None if no_evidence else min(covered, STANDARD_DAY_MIN)
+    gap = max(STANDARD_DAY_MIN - covered, 0.0)
+    hours = None if minutes is None else round(minutes / 60.0, 2)
+    std = round(STANDARD_DAY_MIN / 60.0, 1)
+    ratio = covered / STANDARD_DAY_MIN if STANDARD_DAY_MIN else 0
+    if no_evidence:
         band = "待确认"
     elif ratio >= 0.85:
         band = "近满勤"
@@ -377,7 +379,7 @@ def estimate_hours(chats: list[dict], person: dict | None = None) -> dict:
         "std": STANDARD_DAY_MIN,
     }
     return {
-        "minutes": round(minutes, 1),
+        "minutes": None if minutes is None else round(minutes, 1),
         "hours": hours,
         "band": band,
         "window": window,
@@ -515,8 +517,8 @@ _PERF_KEYWORDS = {
 }
 # 这些是机器人自己的模板回显或明确否定，不能当成客户水单/意向
 _PERF_NOISE_RE = re.compile(
-    r"晚追|早追|中追|无s*VPSs*留痕|无Vemory|Vemorys*录音链接|"
-    r"水单s*[（(]s*无s*[)）]|意向s*[（(]s*无s*[)）]|"
+    r"晚追|早追|中追|无\s*VPS\s*留痕|无Vemory|Vemory\s*录音链接|"
+    r"水单\s*[（(]\s*无\s*[)）]|意向\s*[（(]\s*无\s*[)）]|"
     r"无s*水单|没有水单|没有s*意向|无意向|暂无意向|无明确意向|"
     r"请补：|回复格式|本档动作",
 )
@@ -1544,6 +1546,7 @@ def mcp_call(name: str, arguments: dict) -> dict | None:
     token = settings.aisales_mcp_token
     url = settings.aisales_mcp_url
     if not token or not url:
+        logger.warning("AINativeSales MCP 未配置 token/url，本次取数按待确认处理: {}", name)
         return None
     try:
         resp = httpx.post(
@@ -1563,7 +1566,13 @@ def mcp_call(name: str, arguments: dict) -> dict | None:
             timeout=20.0,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("AINativeSales 请求失败: {}", exc)
+        logger.warning("AINativeSales 请求失败 {}: {}", name, exc)
+        return None
+    if resp.status_code != 200:
+        # 非 200 以前是静默 None → 十个人的 WhatsApp/意向/工时全变「待确认」且无告警
+        logger.error(
+            "AINativeSales 非 200（{} {}）: {}", resp.status_code, name, (resp.text or "")[:200]
+        )
         return None
     raw = resp.text
     payload = None

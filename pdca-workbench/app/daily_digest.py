@@ -116,16 +116,16 @@ def _prev_day(day: str) -> str:
 
 
 def _window_text(day: str, ledger_day: str) -> str:
-    """前 24 小时窗口：数据日 08:00 → 推送日 08:00。"""
+    """数据窗口标注。
+
+    实际口径是「数据日整天」（messages_on_day 只留 0:00–24:00），不是 08:00→08:00，
+    所以这里如实写「数据日 0:00–24:00」，避免老板按前 24 小时理解（2026-09-20 审查发现）。
+    """
     try:
-        end = datetime.strptime(day, "%Y-%m-%d").replace(hour=8, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        datetime.strptime(ledger_day, "%Y-%m-%d")
     except ValueError:
         return f"窗口待确认｜数据日 {ledger_day}"
-    start = end - timedelta(hours=24)
-    return (
-        f"窗口：{start.strftime('%m-%d %H:%M')} → {end.strftime('%m-%d %H:%M')}"
-        f"（北京时间）｜数据日 {ledger_day}"
-    )
+    return f"数据日 {ledger_day} 全天（北京时间 00:00–24:00）｜推送日 {day} 08:00"
 
 
 def build_digest(
