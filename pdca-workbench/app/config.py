@@ -51,7 +51,7 @@ class Settings:
 
     def __init__(self) -> None:
         self.app_root = APP_ROOT
-        self.host = _env_flag("PDCA_HOST", "0.0.0.0")
+        self.host = os.environ.get("PDCA_HOST", "0.0.0.0")
         self.port = _env_int("PDCA_WORKBENCH_PORT", "8767")
         self.secret_key = os.environ.get(
             "PDCA_SECRET_KEY",
@@ -71,11 +71,13 @@ class Settings:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.database_url = self._resolve_database_url()
         self.vertu_command = self._resolve_vertu_command()
-        self.require_vertu = os.environ.get(
+        self.require_vertu = _env_flag(
             "PDCA_REQUIRE_VERTU",
-            "1" if os.environ.get("PDCA_ENV", "development").strip().lower() == "production" else "0")
+            "1" if os.environ.get("PDCA_ENV", "development").strip().lower() == "production" else "0",
+        )
         # Vemory 全量拉取（经销商部门会议列表/详情/音频直链 API）
-        self.vemory_dept_ids = _env_flag("PDCA_VEMORY_DEPT_IDS", "2231,2227,2223,2230"
+        self.vemory_dept_ids = os.environ.get(
+            "PDCA_VEMORY_DEPT_IDS", "2231,2227,2223,2230"
         ).strip()
         try:
             self.vemory_page_size = _env_int("PDCA_VEMORY_PAGE_SIZE", "50")
@@ -166,11 +168,15 @@ class Settings:
         # @海外渠道督战官 才回；默认跟督战开关走，1 分钟轮询。
         # 三档只出总结性内容（明细走每天 08:00 的证据 HTML）；=0 回到长版
         self.duzhan_compact = _env_flag("PDCA_DUZHAN_COMPACT", "1")
-        self.duzhan_reply_enabled = os.environ.get(
+        self.duzhan_reply_enabled = _env_flag(
             "PDCA_DUZHAN_REPLY_ENABLED",
-            "1" if self.duzhan_enabled else "0")
+            "1" if self.duzhan_enabled else "0",
+        )
         # C转B 跟进群：与达标群同结构（10:00 定任务 / 15:00 追变化 / 20:00 验兑现）。
-        self.ctob_enabled = _env_flag("PDCA_CTOB_ENABLED", "1" if self.duzhan_enabled else "0")
+        self.ctob_enabled = _env_flag(
+            "PDCA_CTOB_ENABLED",
+            "1" if self.duzhan_enabled else "0",
+        )
         # C转B 三档同样只出总结性内容；=0 回到长版
         self.ctob_compact = _env_flag("PDCA_CTOB_COMPACT", "1")
         self.ctob_times = [
