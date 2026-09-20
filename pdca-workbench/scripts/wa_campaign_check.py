@@ -194,19 +194,137 @@ def fetch_baseline(employee_id: int, start: str, end: str) -> dict:
         return {"error": str(exc)[:160]}
 
 
+MEDIA_PROMPT = (
+    "这是一张销售发出去（或客户发来）的图片。只输出一个 JSON："
+    "{\"kind\": \"机械腕表配给\"|\"腕表清仓\"|\"手机清仓\"|\"品牌/其他\", \"text\": \"图上关键文字最多120字\"}。"
+    "分类规则：机械腕表配给=MECHANICAL WATCH ALLOCATION / TODAY ONLY / 42,000 / 84,000 / 琥珀 / 白碳；"
+    "腕表清仓=CLEARANCE TIMEPOICES / WATCH H1 / METAWATCH / LIQUIDATION；手机清仓=CLEARANCE MOBILE / 手机促销。"
+)
+MEDIA_KINDS = ("机械腕表配给", "腕表清仓", "手机清仓", "品牌/其他")
+
+
+def _classify_image(url: str) -> dict:
+    """下载图片用本地 Qwen 认图归类（下载/识别失败都写“品牌/其他”，绝不让整份报告挂掉）。"""
+    try:
+        return _classify_image_inner(url)
+    except Exception as exc:  # noqa: BLE001 — 单张图失败不影响其它人/其它图
+        return {"kind": "品牌/其他", "text": "认图失败 " + str(exc)[:80]}
+
+
+def _classify_image_inner(url: str) -> dict:
+    import base64
+
+    qbase = os.environ.get("PDCA_QWEN_BASE_URL", "").strip()
+    qkey = os.environ.get("PDCA_QWEN_API_KEY", "").strip()
+    qmodel = os.environ.get("PDCA_QWEN_MODEL", "").strip()
+    if not (qbase and qkey and qmodel):
+        return {"kind": "品牌/其他", "text": "未配置本地 Qwen，无法认图"}
+    resp = httpx.get(url, timeout=60.0, follow_redirects=True)
+    mime = resp.headers.get("content-type") or "image/jpeg"
+    if not mime.startswith("image"):
+        return {"kind": "品牌/其他", "text": "附件类型 " + mime}
+    b64 = base64.b64encode(resp.content).decode("ascii")
+    payload = {
+        "model": qmodel,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": MEDIA_PROMPT},
+                    {"type": "image_url", "image_url": {"url": "data:" + mime + ";base64," + b64}},
+                ],
+            }
+        ],
+        "max_tokens": 700,
+        "temperature": 0,
+    }
+    out = httpx.post(
+        qbase.rstrip("/") + "/v1/chat/completions",
+        json=payload,
+        headers={"Authorization": "Bearer " + qkey},
+        timeout=240.0,
+    )
+    text = ((out.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    match = re.search(r"\{.*\}", text, re.S)
+    if match:
+        try:
+            obj = json.loads(match.group(0))
+            kind = str(obj.get("kind") or "").strip()
+            if kind not in MEDIA_KINDS:
+                kind = "品牌/其他"
+            return {"kind": kind, "text": str(obj.get("text") or "")[:160]}
+        except ValueError:
+            pass
+    return {"kind": "品牌/其他", "text": " ".join(text.split())[:160]}
+
+
+def fetch_media(employee_id: int, start: str, end: str, limit: int = 8) -> list[dict]:
+    """区间内该人发出的图片素材（下载 + 认图归类），最多 limit 张。"""
+    rows: list[dict] = []
+    try:
+        for page in (1, 2, 3):
+            data = mcp_call(
+                "business.get_evidence",
+                {
+                    "evidence_type": "messages",
+                    "subject": {"employee_id": employee_id},
+                    "period": {"start_date": start, "end_date": end},
+                    "platform": "WhatsApp",
+                    "text_only": False,
+                    "page": page,
+                    "page_size": 100,
+                },
+            )
+            batch = [item for item in data.get("rows") or [] if item.get("row_type") == "detail"]
+            if not batch:
+                break
+            rows.extend(batch)
+    except Exception as exc:  # noqa: BLE001 — 拉不到图片不影响文本核查
+        return [{"kind": "品牌/其他", "text": "拉取失败 " + str(exc)[:80], "time": "", "direction": "", "customer": ""}]
+    media: list[dict] = []
+    for row in rows:
+        url = str((row.get("multimodal") or {}).get("media_url") or "")
+        if not url:
+            continue
+        if len(media) >= limit:
+            break
+        info = _classify_image(url)
+        media.append(
+            {
+                "time": str(row.get("time") or ""),
+                "direction": str(row.get("direction") or ""),
+                "customer": str(row.get("customer_display") or ""),
+                "kind": info["kind"],
+                "text": info["text"],
+                "url": url,
+            }
+        )
+    return media
+
+
 def judge(person: dict) -> tuple[str, str]:
     """判定：明确传达活动 / 只擦边 / 完全没提。"""
     themes = set(person.get("themes") or {})
     hits = person.get("hits") or []
-    if not hits:
-        return "完全没提", "bad"
+    kinds = {item.get("kind") for item in (person.get("media") or [])}
     core = {"机械腕表", "配给/配货"}
     money = {"门槛 4.2 万美元", "门槛 8.4 万美元", "门槛 30 万人民币", "门槛 60 万人民币"}
+    # 1) 图里就是机械腕表配给海报 → 最硬的证据
+    if "机械腕表配给" in kinds:
+        return "明确传达了活动（含图片素材）", "good"
+    # 2) 文字里把机械腕表 + 配给 + 门槛/限时/定金 讲全了
     if themes & core and (themes & money or themes & {"限时截止", "Q4 旺季话术", "定金/付款"}):
-        return "明确传达了活动", "good"
+        return "明确传达了活动（文字）", "good"
+    # 3) 只发了腕表素材，但是清仓/融资那套，不是 TODAY ONLY 配给
+    if "腕表清仓" in kinds:
+        return "发了腕表素材（清仓/融资，不是 TODAY ONLY 配给）", "warn"
+    # 4) 提到机械腕表但没讲清门槛
     if themes & core:
         return "提到了，但没讲清门槛", "warn"
-    return "只提到表/表字，未涉及活动", "warn"
+    # 5) 只有 watch/表 这类泛词命中（多为人名、其他产品）
+    if hits:
+        return "只提到表/表字，未涉及活动", "warn"
+    return "完全没提", "bad"
 
 
 def poster_b64(path: Path, max_width: int = 420) -> str | None:
@@ -277,12 +395,14 @@ def render(payload: dict) -> str:
     lines.append("<h2>一、结论速览</h2>")
     lines.append(
         "<table><tr><th>负责人</th><th>判定</th><th>区间内 WhatsApp 触达/回复</th><th>命中消息</th>"
-        "<th>覆盖客户</th><th>涉及主题</th><th>最早</th><th>最晚</th></tr>"
+        "<th>图片素材</th><th>覆盖客户</th><th>涉及主题</th><th>最早</th><th>最晚</th></tr>"
     )
     for person in people:
         verdict, tone = person["verdict"]
         customers = {hit["customer"] for hit in person["hits"]}
         times = sorted(hit["time"] for hit in person["hits"] if hit["time"])
+        media_kinds = [item.get("kind") for item in (person.get("media") or [])]
+        media_text = "、".join(sorted({k for k in media_kinds if k})) or "无图"
         base = person.get("baseline") or {}
         base_text = (
             f"{base.get('reached') if base.get('reached') is not None else '待确认'} 户"
@@ -295,7 +415,8 @@ def render(payload: dict) -> str:
             f"<td><b>{html.escape(person['display'])}</b></td>"
             f"<td class='{tone}'>{verdict}</td>"
             f"<td>{html.escape(base_text)}</td>"
-            f"<td>{len(person['hits'])}</td><td>{len(customers)}</td>"
+            f"<td>{len(person['hits'])}</td>"
+            f"<td>{html.escape(media_text)}</td><td>{len(customers)}</td>"
             f"<td>{html.escape('、'.join(sorted(person['themes'])) or '—')}</td>"
             f"<td>{html.escape(times[0] if times else '—')}</td>"
             f"<td>{html.escape(times[-1] if times else '—')}</td>"
@@ -336,6 +457,19 @@ def render(payload: dict) -> str:
                 f"{html.escape(hit['content'][:400])}"
                 "</div>"
             )
+        media = person.get("media") or []
+        if media:
+            lines.append("<h3 style='font-size:13.5px;margin:10px 0 4px;'>图片素材（本地 Qwen 认图）</h3>")
+            for item in media:
+                lines.append(
+                    "<div class='msg'>"
+                    f"<b>{html.escape(item.get('time') or '')}</b> ｜ "
+                    + ("发" if item.get("direction") == "outbound" else "收")
+                    + " ｜ 客户 " + html.escape(item.get("customer") or "")
+                    + " ｜ <span class='tag'>" + html.escape(item.get("kind") or "") + "</span><br/>"
+                    + html.escape(item.get("text") or "")
+                    + "</div>"
+                )
         if person["errors"]:
             lines.append("<p class='note'>部分关键词查询失败：" + html.escape("；".join(person["errors"])[:400]) + "</p>")
         lines.append("</div>")
@@ -354,7 +488,13 @@ def render(payload: dict) -> str:
     return "".join(lines)
 
 
-def run(days: int = 2, end: str = "", posters_dir: str = "", out: str = "") -> dict:
+def run(
+    days: int = 2,
+    end: str = "",
+    posters_dir: str = "",
+    out: str = "",
+    media_limit: int = 8,
+) -> dict:
     """采集 + 渲染 + 落盘，返回 {"html", "json", "summary"}。定时任务与 CLI 共用。"""
     load_env_file()
     end = end or datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d")
@@ -365,6 +505,7 @@ def run(days: int = 2, end: str = "", posters_dir: str = "", out: str = "") -> d
     for display, employee_id in TARGETS:
         person = fetch_hits(display, employee_id, start, end)
         person["baseline"] = fetch_baseline(employee_id, start, end)
+        person["media"] = fetch_media(employee_id, start, end, limit=media_limit)
         person["verdict"] = judge(person)
         people.append(person)
     posters = []
@@ -407,57 +548,24 @@ def run(days: int = 2, end: str = "", posters_dir: str = "", out: str = "") -> d
 
 
 def main() -> int:
+    """CLI：与定时任务共用 run()（单一代码路径，避免两处逻辑漂移）。"""
     parser = argparse.ArgumentParser(description="机械腕表闪购 WhatsApp 触达核查（只读，出 HTML）")
     parser.add_argument("--days", type=int, default=3, help="核查区间天数（含今天）")
     parser.add_argument("--end", default="", help="区间结束日 YYYY-MM-DD，默认今天（北京时间）")
     parser.add_argument("--out", default="")
     parser.add_argument("--posters", default="", help="海报图片目录（可选，用于内嵌缩略图）")
+    parser.add_argument("--media", type=int, default=8, help="每人最多认图多少张")
     args = parser.parse_args()
-    load_env_file()
-    end = args.end or datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d")
-    start = (
-        datetime.strptime(end, "%Y-%m-%d") - timedelta(days=max(args.days - 1, 0))
-    ).strftime("%Y-%m-%d")
-    people = []
-    for display, employee_id in TARGETS:
-        person = fetch_hits(display, employee_id, start, end)
-        person["baseline"] = fetch_baseline(employee_id, start, end)
-        person["verdict"] = judge(person)
-        people.append(person)
-        print(f"{display}: {person['verdict'][0]}｜命中 {len(person['hits'])} 条")
-    posters = []
-    if args.posters:
-        folder = Path(args.posters)
-        for label in ("琥珀", "白碳"):
-            match = list(folder.glob(f"*{label}*.png"))
-            if match:
-                posters.append({"label": label + "款海报", "b64": poster_b64(match[0])})
-    payload = {
-        "period_start": start,
-        "period_end": end,
-        "generated_at": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M"),
-        "people": people,
-        "posters": posters,
-    }
-    out = Path(args.out) if args.out else Path.home() / "Desktop" / f"机械腕表闪购_WhatsApp核查_{end}.html"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(payload), encoding="utf-8")
-    (out.with_suffix(".json")).write_text(
-        json.dumps(
-            {
-                "period": [start, end],
-                "people": [
-                    {"display": p["display"], "verdict": p["verdict"][0], "hits": len(p["hits"]),
-                     "themes": sorted(p["themes"])}
-                    for p in people
-                ],
-            },
-            ensure_ascii=False,
-            indent=1,
-        ),
-        encoding="utf-8",
+    result = run(
+        days=args.days,
+        end=args.end,
+        posters_dir=args.posters,
+        out=args.out,
+        media_limit=max(args.media, 0),
     )
-    print(f"HTML: {out} ({out.stat().st_size / 1024:.0f} KB)")
+    for item in (result["summary"].get("people") or []):
+        print(f"{item['display']}: {item['verdict']}｜命中 {item['hits']} 条")
+    print(f"HTML: {result['html']} ({result['bytes'] / 1024:.0f} KB)")
     return 0
 
 
