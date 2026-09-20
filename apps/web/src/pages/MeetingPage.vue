@@ -182,8 +182,8 @@ watch([startDate, endDate], load)
 
 <template>
   <AppNav />
-  <main class="meetings">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>会议中心</h1>
         <p class="sub">会议记录 · 待办派发 · 闭环跟踪</p>

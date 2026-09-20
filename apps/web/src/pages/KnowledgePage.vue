@@ -183,7 +183,7 @@ onMounted(loadScope)
 
 <template>
   <AppNav />
-  <main class="knowledge">
+  <main class="page">
     <header class="page-head">
       <div>
         <p class="eyebrow">DEALER KNOWLEDGE</p>

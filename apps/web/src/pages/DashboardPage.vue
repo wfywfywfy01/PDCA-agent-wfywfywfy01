@@ -176,8 +176,8 @@ watch(month, load)
 
 <template>
   <AppNav />
-  <main class="dashboard">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>数据看板</h1>
         <p class="sub">经销商进货（Sell-in）· 月度汇总与近 6 月趋势</p>

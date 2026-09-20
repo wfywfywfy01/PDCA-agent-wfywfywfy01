@@ -211,8 +211,8 @@ onMounted(async () => {
 
 <template>
   <AppNav />
-  <main class="walkin">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>客流五件套</h1>
         <p class="sub">门店日报上报 · 月度汇总 · 转化漏斗（数据来自数据库）</p>

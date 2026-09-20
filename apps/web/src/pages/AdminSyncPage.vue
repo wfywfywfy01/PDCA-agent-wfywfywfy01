@@ -70,8 +70,8 @@ onMounted(async () => {
 
 <template>
   <AppNav />
-  <main class="admin">
-    <header class="head">
+  <main class="page">
+    <header class="page-head">
       <div>
         <h1>数据同步</h1>
         <p class="sub">手动刷新业务数据；各数据源的完成情况分别显示。</p>
