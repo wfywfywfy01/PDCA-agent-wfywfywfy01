@@ -10,7 +10,7 @@ import asyncio
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -1725,6 +1725,48 @@ def _parallel_map(func, items: list, workers: int, label: str) -> list:
         return results
 
 
+def _parallel_map_deadline(func, items: list, workers: int, label: str, budget_seconds: int) -> list:
+    """带总预算的并发映射：超时没跑完的项按 None 返回（宁可写「待确认」，不拖过整点）。
+
+    背景：MTO 图片 OCR 是整轮采集的瓶颈（2026-09-18 实测 44 张图、并发 2 ≈ 9 分钟）。
+    采集是整点前 15 分钟起跑，一旦超时就会让 15:00 的推送拿到半张表，所以给 OCR 单独
+    设时间预算，到点没读完的直接记「待确认」。未完成的线程不再等（shutdown 不阻塞）。
+    """
+    items = list(items)
+    if not items:
+        return []
+    workers = max(1, min(int(workers or 1), len(items)))
+    timeout = None
+    try:
+        timeout = int(budget_seconds)
+    except (TypeError, ValueError):
+        timeout = None
+    if timeout is not None and timeout <= 0:
+        timeout = None
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pdca")
+    try:
+        futures = [pool.submit(func, item) for item in items]
+        _, pending = wait(futures, timeout=timeout)
+        if pending:
+            logger.warning(
+                "{} 超出 {}s 预算，{} 项未完成按待确认处理", label, timeout, len(pending)
+            )
+        results = []
+        for future in futures:
+            if future in pending:
+                results.append(None)
+                continue
+            try:
+                results.append(future.result())
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("{} 失败: {}", label, exc)
+                results.append(None)
+        return results
+    finally:
+        # 不等未完成的线程：它们最多再占用一会儿 Qwen，本轮采集不再被拖住。
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def _safe_fetch(name: str, fn):
     """单数据源兜底：失败只记日志返回 None，绝不让一个源拖垮整轮采集。"""
     try:
@@ -1845,10 +1887,17 @@ def collect_ledger(day: str) -> dict:
     def _ocr_one(item: tuple):
         from app.mto_ocr import review_mto_images
 
-        return review_mto_images(item[1], item[2])
+        return review_mto_images(
+            item[1], item[2], max_images=settings.mto_ocr_max_images
+        )
 
-    ocr_results = _parallel_map(
-        _ocr_one, ocr_inputs, settings.mto_ocr_workers, "督战官 MTO OCR"
+    # OCR 单独给时间预算：超时未读完的按「待确认」，绝不拖过整点推送（见 _parallel_map_deadline）。
+    ocr_results = _parallel_map_deadline(
+        _ocr_one,
+        ocr_inputs,
+        settings.mto_ocr_workers,
+        "督战官 MTO OCR",
+        settings.mto_ocr_budget_seconds,
     )
     ocr_cache: dict[str, tuple] = {
         item[0]: (result or (None, [], []))

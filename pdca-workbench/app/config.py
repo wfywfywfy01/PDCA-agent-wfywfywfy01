@@ -178,11 +178,21 @@ class Settings:
         # TLS：网关证书由公共 CA 签发，默认走标准校验；若日后换成内网 CA，
         # 用 PDCA_QWEN_CA_BUNDLE 指向 CA 文件即可，禁止退回 verify=False。
         self.qwen_ca_bundle = os.environ.get("PDCA_QWEN_CA_BUNDLE", "").strip()
-        # 采集并发：MTO 图片 OCR 按人并发（Qwen 是单机推理，默认只给 2）。
+        # 采集并发：MTO 图片 OCR 按人并发（Qwen 是单机推理，默认 3）。
         try:
-            self.mto_ocr_workers = max(1, int(os.environ.get("PDCA_MTO_OCR_WORKERS", "2")))
+            self.mto_ocr_workers = max(1, int(os.environ.get("PDCA_MTO_OCR_WORKERS", "3")))
         except ValueError:
-            self.mto_ocr_workers = 2
+            self.mto_ocr_workers = 3
+        # 每人最多 OCR 多少张图（每日 4 款方案，多了既慢又没信息量）。
+        try:
+            self.mto_ocr_max_images = max(1, int(os.environ.get("PDCA_MTO_OCR_MAX_IMAGES", "8")))
+        except ValueError:
+            self.mto_ocr_max_images = 8
+        # OCR 总预算：超时未完成的按「待确认」，绝不拖过整点推送窗口。
+        try:
+            self.mto_ocr_budget_seconds = max(0, int(os.environ.get("PDCA_MTO_OCR_BUDGET_SECONDS", "420")))
+        except ValueError:
+            self.mto_ocr_budget_seconds = 420
         self.vemory_api_url = os.environ.get("PDCA_VEMORY_API_URL", "").strip()
         self.duzhan_agent_im_html = os.environ.get("PDCA_DUZHAN_AGENT_IM_HTML", "").strip()
         # ── 多智能体督战运行时（migrations 011；规格 docs/多智能体督战系统实施规格.md）──
