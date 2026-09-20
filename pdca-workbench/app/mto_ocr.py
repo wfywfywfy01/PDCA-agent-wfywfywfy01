@@ -56,7 +56,7 @@ def _tls_verify():
     万一将来换成内网 CA，配置 PDCA_QWEN_CA_BUNDLE=/path/ca.pem 指向 CA 包，
     仍然保持校验，不要退回 verify=False。
     """
-    bundle = (get_settings().qwen_ca_bundle or "").strip()
+    bundle = (getattr(get_settings(), "qwen_ca_bundle", "") or "").strip()
     return bundle or True
 
 

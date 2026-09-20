@@ -231,7 +231,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         }
         yu_bing = bodies.get("df41ad35-0e26-4431-ac36-10789ff51a1c") or ""
         self.assertTrue(yu_bing, "必须推到于冰群")
-        self.assertIn("累计回款：170.2 万", yu_bing, "兜底采集后必须是真实数字")
+        self.assertIn("已录单（开单额）：170.2 万", yu_bing, "兜底采集后必须是真实数字")
         self.assertIn("滚动日目标", yu_bing)
         self.assertFalse(result["from_snapshot"])
 
@@ -725,7 +725,7 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         }
         text = render_brief(group, 20, now, ledger)
         self.assertIn("月度目标：200 万", text)
-        self.assertIn("累计回款：170.2 万", text)
+        self.assertIn("已录单（开单额）：170.2 万", text)
         # 1300万是部门月目标口号，只作“战役”展示；今日目标位改为滚动日目标
         self.assertIn("战役：1300万战役", text)
         self.assertIn("滚动日目标：", text)
@@ -739,10 +739,10 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("柬埔寨支付订单", text)
         self.assertIn("XSD-DL26091502472", text)
         # 红榜双口径：综合 = 过程 50% + 业绩 50%（业绩缺口径时写“业绩待确认”）
-        self.assertIn("红榜 TOP3（综合=过程50%+业绩50%）：", text)
+        self.assertIn("红榜 TOP3（部门口径·全员可见｜综合=过程50%+业绩50%）：", text)
         self.assertIn("@于冰", text)
         self.assertIn("业绩待确认", text)
-        self.assertIn("黑榜 待改进：@新人小组 本月回款0 / @Lina WhatsApp未覆盖", text)
+        self.assertIn("黑榜 待改进（部门口径·全员可见）：@新人小组 本月回款0 / @Lina WhatsApp未覆盖", text)
         self.assertIn("扣罚台账：今日无扣罚记录", text)
         self.assertNotIn("红榜", render_brief(group, 10, now, ledger))
 
@@ -1344,7 +1344,7 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         )
         text = render_brief(group, 20, now, self._ledger(self._person()), self._ledger(prev))
         self.assertIn("【当天总结｜业绩核对】", text)
-        self.assertIn("到账", text)
+        self.assertIn("已录单", text)
         self.assertIn("水单", text)
         self.assertIn("意向", text)
         self.assertIn("WhatsApp：15 户｜明确意向 2 户", text)

@@ -1528,7 +1528,7 @@ def score_row(row: PersonRow) -> PersonRow:
     if overdue:
         gaps.append(f"逾期{overdue}项")
     if row.mtd_wan is None:
-        gaps.append("累计回款未出")
+        gaps.append("累计已录单未出")
     elif row.mtd_wan <= 0:
         gaps.append("本月回款0")
     row.score = round(rate * 100 + evidenced * 5 - overdue * 10, 2)
@@ -1537,7 +1537,7 @@ def score_row(row: PersonRow) -> PersonRow:
 
 
 def perf_score(row: PersonRow) -> float | None:
-    """业绩达成分（0–120）：累计到账 ÷ 累计应达 ×100；缺口径返回 None。
+    """业绩达成分（0–120）：累计已录单 ÷ 累计应达 ×100；缺口径返回 None。
 
     老板 2026-09-18 拍板：红榜要过程完成度和业绩综合，两个都得有，
     所以业绩分只作为红榜的一半权重，不覆盖过程分。

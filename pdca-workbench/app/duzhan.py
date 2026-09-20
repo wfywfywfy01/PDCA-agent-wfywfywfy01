@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import operator
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -146,7 +147,7 @@ _EN_PAIRS = (
     ("今日WhatsApp触达0", "WhatsApp reach 0 today"),
     ("WhatsApp未覆盖", "WhatsApp not covered"),
     ("今日明确意向0", "no clear intent today"),
-    ("累计回款未出", "MTD collection pending"),
+    ("累计已录单未出", "MTD booked pending"),
     ("本月回款0", "MTD collection 0"),
     ("意向未出数", "intent pending"),
     ("未报今日任务", "no plan posted today"),
@@ -809,7 +810,7 @@ def _slot_sections(
 ) -> str:
     """15:00 梳理目标+上午总结；20:00 业绩核对+WhatsApp+工时+明日预告。
 
-    口径：到账是月累计（系统），日目标只作参照；本档只报“相对上一档新增”，
+    口径：已录单是月累计（系统），日目标只作参照；本档只报“相对上一档新增”，
     避免拿月累计去除日目标得出离谱完成率。
     """
     person = person or {}
