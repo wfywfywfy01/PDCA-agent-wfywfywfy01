@@ -21,6 +21,8 @@ const me = ref<Me | null>(null)
 const logoutBusy = ref(false)
 const logoutError = ref('')
 const panelOpen = ref(false)
+const identityError = ref('')
+const identityBusy = ref(false)
 
 const ROLE_LABELS: Record<string, string> = {
   admin: '系统管理员',
@@ -63,16 +65,37 @@ function onKeydown(event: KeyboardEvent) {
 
 watch(() => router.currentRoute.value.fullPath, closePanel)
 
-onMounted(async () => {
-  window.addEventListener('keydown', onKeydown)
+async function loadIdentity() {
+  identityBusy.value = true
+  identityError.value = ''
   try {
     me.value = await apiGet<Me>('/api/auth/me')
     if (me.value.must_change_password) {
       router.replace({ path: '/login', query: { change_password: '1', next: router.currentRoute.value.fullPath } })
     }
-  } catch {
+  } catch (err) {
     me.value = null
+    if (err instanceof HttpError && err.status === 401) {
+      identityError.value = ''
+      return
+    }
+    // 身份接口失败通常意味着后端或数据库异常；此时页面上的权限相关入口会消失，
+    // 必须显式告知用户，而不是静默降级。
+    if (err instanceof HttpError) {
+      identityError.value = err.status >= 500
+        ? '后端服务异常（HTTP ' + err.status + '），常见原因是数据库不可用'
+        : '身份接口返回 HTTP ' + err.status + '（' + err.detail + '）'
+    } else {
+      identityError.value = '无法连接后端服务'
+    }
+  } finally {
+    identityBusy.value = false
   }
+}
+
+onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
+  await loadIdentity()
 })
 
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
@@ -126,9 +149,18 @@ async function logout() {
     </div>
 
     <nav v-if="panelOpen" id="nav-panel" class="panel" aria-label="工作台导航（展开）">
-      <router-link v-for="item in navItems" :key="item.to" :to="item.to">{{ item.label }}</router-link>
+      <router-link v-for="item in navItems" :key="item.to" :to="item.to" @click="closePanel">{{ item.label }}</router-link>
       <span v-if="me" class="panel-user">{{ whoLabel }} · {{ roleLabel }}</span>
     </nav>
+
+    <div v-if="identityError" class="identity-warning" role="alert">
+      <span>
+        无法读取当前登录身份：{{ identityError }}。数据接口可能同时不可用，页面上的管理入口会暂时隐藏。
+      </span>
+      <button class="btn btn-sm" type="button" :disabled="identityBusy" @click="loadIdentity">
+        {{ identityBusy ? '重试中…' : '重试' }}
+      </button>
+    </div>
 
     <p v-if="logoutError" class="logout-error" role="alert">{{ logoutError }}</p>
   </header>
@@ -189,6 +221,13 @@ async function logout() {
 .panel-user { padding: 10px 12px; color: var(--faint); font-size: 12px; }
 
 .logout-error { margin: 0; padding: 6px 20px 10px; color: var(--red); font-size: 13px; }
+
+.identity-warning {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  margin: 0; padding: 9px 20px; font-size: 13px;
+  color: var(--amber); background: rgba(245, 158, 11, 0.1);
+  border-top: 1px solid rgba(245, 158, 11, 0.28);
+}
 
 @media (max-width: 900px) {
   .links { display: none; }
