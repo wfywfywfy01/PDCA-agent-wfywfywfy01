@@ -80,6 +80,19 @@ except Exception as exc:
   return @{ Ok = $text.StartsWith('OK'); Detail = $text }
 }
 
+function Get-VpnState {
+  # 远端数据库在内网，必须经 VPN（vpn-cd.vertu.cn）可达。
+  # 注意：VPN 断开时企业网络设备仍会“完成”TCP 握手，端口看起来是通的，
+  # 但协议层完全没有响应——必须单独检查 VPN 网卡状态才能给出可执行的结论。
+  $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -match 'OpenVPN' }
+  if (-not $adapters) { return @{ Known = $false; Up = $true; Detail = '未检测到 OpenVPN 网卡' } }
+  $names = ($adapters | ForEach-Object { $_.Name + '(' + $_.Status + ')' }) -join ', '
+  $dco = $adapters | Where-Object { $_.InterfaceDescription -match 'DCO' }
+  if ($dco) { return @{ Known = $true; Up = ($dco.Status -eq 'Up'); Detail = $names } }
+  $up = @($adapters | Where-Object { $_.Status -eq 'Up' })
+  return @{ Known = $true; Up = ($up.Count -gt 0); Detail = $names }
+}
+
 function Test-WorkbenchAlive {
   try {
     $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8767/health' -UseBasicParsing -TimeoutSec 12
@@ -159,8 +172,15 @@ $lastDownAlertAt = [datetime]::MinValue
 if ($state.lastDownAlertAt) { try { $lastDownAlertAt = [datetime]::Parse($state.lastDownAlertAt) } catch { } }
 $cooldownOk = ((Get-Date) - $lastDownAlertAt).TotalMinutes -ge $DownAlertCooldownMinutes
 
+$vpn = Get-VpnState
+Write-GuardLog ('VPN: ' + $vpn.Detail)
+
 if ($dbState -eq 'down' -and $previousDb -ne 'down' -and $cooldownOk) {
-  $sent = Send-Alert '生产数据库不可用' ($target.Host + ':' + $target.Port + '/' + $target.Database + ' 探测失败：' + $db.Detail + $NL + '工作台状态：' + $wb.Detail + $NL + '该主机曾出现 TCP 可连但服务冻结；请检查数据库主机。' + $NL + '（同类告警 ' + $DownAlertCooldownMinutes + ' 分钟内不再重复）')
+  $cause = '请检查数据库主机（' + $target.Host + '）是否存活。'
+  if ($vpn.Known -and -not $vpn.Up) {
+    $cause = '本机 VPN 未连通（' + $vpn.Detail + '），内网数据库因此不可达。' + $NL + '请先恢复 VPN（OpenVPN Connect -> 连接 vpn-cd.vertu.cn），再确认数据库。'
+  }
+  $sent = Send-Alert '生产数据库不可用' ($target.Host + ':' + $target.Port + '/' + $target.Database + ' 探测失败：' + $db.Detail + $NL + '工作台状态：' + $wb.Detail + $NL + $cause + $NL + '（同类告警 ' + $DownAlertCooldownMinutes + ' 分钟内不再重复）')
   if ($sent) { $lastDownAlertAt = Get-Date; $alerted = $true }
 } elseif ($dbState -eq 'down' -and $previousDb -ne 'down') {
   Write-GuardLog ('数据库不可用，但处于告警冷却期（' + $DownAlertCooldownMinutes + ' 分钟），本次不推送')
