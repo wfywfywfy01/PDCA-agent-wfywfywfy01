@@ -87,6 +87,53 @@ class CampaignCheckTests(unittest.TestCase):
         self.assertEqual(result["summary"]["period"], ["2026-09-18", "2026-09-19"])
 
 
+class VerdictWithMediaTests(unittest.TestCase):
+    """图片素材也要进判定（老板 2026-09-20：于冰其实发了，文本扫描抓不到图）。"""
+
+    def _person(self, **over: object) -> dict:
+        person = {"display": "x", "hits": [], "themes": {}, "media": []}
+        person.update(over)
+        return person
+
+    def _script(self):
+        """judge() 在 scripts/wa_campaign_check.py 里，通过 bridge 的加载器取。"""
+        from app.wa_campaign_check import _script_module
+
+        return _script_module()
+
+    def test_mechanical_poster_image_counts_as_delivered(self):
+        person = self._person(
+            media=[{"kind": "机械腕表配给", "text": "MECHANICAL WATCH ALLOCATION TODAY ONLY"}]
+        )
+        self.assertEqual(self._script().judge(person)[0], "明确传达了活动（含图片素材）")
+
+    def test_watch_clearance_image_is_not_the_allocation_campaign(self):
+        person = self._person(
+            hits=[
+                {
+                    "id": "1",
+                    "time": "2026-09-18 10:42:21",
+                    "direction": "outbound",
+                    "customer": "849***8004",
+                    "content": "Good day Mr. Watcharaphon",
+                    "themes": ["腕表/表"],
+                    "keywords": ["watch"],
+                }
+            ],
+            media=[{"kind": "腕表清仓", "text": "VERTU CLEARANCE - TIMEPIECES / WATCH H1"}],
+        )
+        verdict = self._script().judge(person)[0]
+        self.assertIn("腕表素材", verdict)
+        self.assertIn("不是 TODAY ONLY 配给", verdict)
+
+    def test_text_verdict_still_works(self):
+        person = self._person(
+            hits=[{"id": "1", "time": "", "direction": "outbound", "customer": "x", "content": "机械腕表配给 30 万", "themes": ["机械腕表", "配给/配货", "门槛 30 万人民币"], "keywords": ["机械"]}],
+            themes={"机械腕表": ["1"], "配给/配货": ["1"], "门槛 30 万人民币": ["1"]},
+        )
+        self.assertEqual(self._script().judge(person)[0], "明确传达了活动（文字）")
+
+
 class CampaignJobTests(unittest.TestCase):
     def _register(self, **over: object):
         from app.scheduler import jobs as scheduler_jobs
