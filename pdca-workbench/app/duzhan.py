@@ -423,7 +423,7 @@ def _render_person(
             f"- Owner: {reporter} | Date: {day} | Slot: {slot}\n"
             f"- Focus: {focus}\n"
             f"- Monthly target: {target} wan | Rolling daily plan: {target_progress}\n"
-            f"- MTD collection: {mtd} wan | Campaign: {slogan_text}\n"
+            f"- MTD booked (sales orders): {mtd} wan | Campaign: {slogan_text}\n"
         )
     else:
         title, focus = _SLOT_ZH.get(hour, ("督战", ""))
@@ -433,7 +433,7 @@ def _render_person(
             f"- 汇报人：{reporter} | 日期：{day} | 阶段：{slot}\n"
             f"- 本档动作：{focus}\n"
             f"- 月度目标：{target} 万 | 滚动日目标：{target_progress}\n"
-            f"- 累计回款：{mtd} 万 | 战役：{slogan}\n"
+            f"- 已录单（开单额）：{mtd} 万 | 战役：{slogan}\n"
         )
     if getattr(get_settings(), "duzhan_compact", True):
         # 老板 2026-09-19：三档只出总结性内容，明细放每天 08:00 的证据 HTML。
@@ -476,7 +476,7 @@ def _full_person_body(
     perf = _perf_text(person, lang)
     if lang == "en":
         return (
-            "1. Performance keywords (arrived / payment slip / intent):\n"
+            "1. Performance keywords (booked / payment slip / intent):\n"
             f"{perf}\n"
             "2. Core collection (progress % + expected payment time):\n"
             f"{core}\n"
@@ -495,7 +495,7 @@ def _full_person_body(
             f"7. Daily report check: {daily}"
         )
     return (
-        "1. 业绩三关键词（到账 / 水单 / 意向）：\n"
+        "1. 业绩三关键词（已录单 / 水单 / 意向）：\n"
         f"{perf}\n"
         "2. 核心客户催款与回款进展（百分比量化 + 预计打款时间）：\n"
         f"{core}\n"
@@ -516,7 +516,7 @@ def _full_person_body(
 
 
 def _perf_text(person: dict | None, lang: str) -> str:
-    """业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向（明确意向金额）。"""
+    """业绩三关键词：已录单（开单额，系统口径）/ 水单（已付款未到账）/ 意向（明确意向金额）。"""
     person = person or {}
     arrived = wan_text(person.get("perf_arrived_wan"), lang)
     slip = person.get("perf_slip") or []
@@ -539,12 +539,12 @@ def _perf_text(person: dict | None, lang: str) -> str:
 
     if lang == "en":
         return (
-            f"   • Arrived: {arrived} wan\n"
+            f"   • Booked (sales orders): {arrived} wan\n"
             f"   • Payment slip: {_brief(slip)}\n"
             f"   • Intent: {_brief(intent)}"
         )
     return (
-        f"   • 到账：{arrived} 万\n"
+        f"   • 已录单（开单额）：{arrived} 万\n"
         f"   • 水单：{_brief(slip)}\n"
         f"   • 意向：{_brief(intent)}"
     )
@@ -678,8 +678,8 @@ def _compact_body(
             target_line = "今日目标：待确认" if not english else "Today's target: pending"
         if arrived is not None:
             target_line += (
-                (f"｜累计到账 {arrived} 万（{'领先' if ahead else '落后'} {abs(float(gap)):g} 万）"
-                 if gap is not None else f"｜累计到账 {arrived} 万")
+                (f"｜累计已录单 {arrived} 万（{'领先' if ahead else '落后'} {abs(float(gap)):g} 万）"
+                 if gap is not None else f"｜累计已录单 {arrived} 万")
                 if not english
                 else (f" | MTD {arrived} wan ({'ahead' if ahead else 'behind'} {abs(float(gap)):g} wan)"
                       if gap is not None else f" | MTD {arrived} wan")
@@ -715,7 +715,7 @@ def _compact_body(
             )
         if rolling is not None:
             delta_text += (
-                f"；累计到账 {arrived} 万｜应达 {rolling} 万"
+                f"；累计已录单 {arrived} 万｜应达 {rolling} 万"
                 if not english
                 else f"; MTD {arrived} wan | due {rolling} wan"
             )
@@ -752,12 +752,12 @@ def _compact_body(
     wa_text = count_text(person.get("wa_reached"), lower_bound=bool(person.get("wa_lower_bound")), lang=lang)
     intent_text = count_text(person.get("intent_count"), lang=lang)
     if english:
-        lines.append(f"Arrived {wan_text(arrived, lang)} wan | Slip {_brief(slip)} | Intent {_brief(intent)}")
+        lines.append(f"Booked {wan_text(arrived, lang)} wan | Slip {_brief(slip)} | Intent {_brief(intent)}")
         lines.append(
             f"WhatsApp {wa_text} accounts | intent {intent_text} | Hours {_hours_text_short(person, lang)}"
         )
     else:
-        lines.append(f"到账 {wan_text(arrived, lang)} 万｜水单 {_brief(slip)}｜意向 {_brief(intent)}")
+        lines.append(f"已录单 {wan_text(arrived, lang)} 万｜水单 {_brief(slip)}｜意向 {_brief(intent)}")
         lines.append(
             f"WhatsApp {wa_text} 户（明确意向 {intent_text} 户）｜工时：{_hours_text_short(person, lang)}"
         )
@@ -840,7 +840,7 @@ def _slot_sections(
             arrived_text = "pending" if english else "待确认"
         else:
             arrived_text = f"{arrived} wan" if english else f"{arrived} 万"
-        progress_text = ("MTD booked " if english else "累计到账 ") + arrived_text
+        progress_text = ("MTD booked " if english else "累计已录单 ") + arrived_text
         if rolling is not None:
             progress_text += (
                 f" | cumulative due {rolling} wan" if english else f"｜累计应达 {rolling} 万"
@@ -1153,7 +1153,10 @@ def _board_text(
             f"@{item['display']} {_to_en(str(item.get('reason') or ''))}"
             for item in black
         ) or "none"
-        head = f"\nRed TOP3: {red_line}\nBlack (to improve): {black_line}\n"
+        head = (
+            f"\nRed TOP3 (department-wide, visible to all groups): {red_line}\n"
+            f"Black (to improve, department-wide): {black_line}\n"
+        )
         if compact:
             return head
         reward = "none verified" if not rewards else "; ".join(incentive(item) for item in rewards)
@@ -1164,10 +1167,11 @@ def _board_text(
         f"@{item['display']} {item.get('reason')}"
         for item in black
     ) or "无"
+    # 老板 2026-09-20 拍板：红黑榜是部门口径、全员可见（每个群都会看到全部 10 人）
     head = (
         "\n"
-        f"红榜 TOP3（综合=过程50%+业绩50%）：{red_line}\n"
-        f"黑榜 待改进：{black_line}\n"
+        f"红榜 TOP3（部门口径·全员可见｜综合=过程50%+业绩50%）：{red_line}\n"
+        f"黑榜 待改进（部门口径·全员可见）：{black_line}\n"
     )
     if compact:
         return head
@@ -1312,10 +1316,11 @@ def _load_cursor() -> dict:
 
 
 def _save_cursor(payload: dict) -> None:
-    _cursor_path().write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    """原子写游标：先写临时文件再 os.replace，避免崩溃留下半个 JSON（2026-09-20 审查）。"""
+    path = _cursor_path()
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _fetch_recent(channel_id: str, date_from: str) -> list[dict]:
@@ -1386,11 +1391,22 @@ def poll_at_mentions() -> dict:
                 reply,
                 group.channel_id,
                 parent_message_id=message_id,
+                # 幂等键带原消息 id：回复成功但进程在落游标前崩溃，重启也不会重复回答（2026-09-20 审查）
+                idempotency_key=f"duzhan-at-{message_id}",
             )
             if ok:
                 replied.append(f"{group.name}:{message_id}")
                 answered_set.add(message_id)
                 answered.append(message_id)
+                # 立刻落盘：崩溃重启后不会重复回答同一条 @（原来整轮结束才写）
+                state["channels"][group.channel_id] = {
+                    "last_seen": max(newest, created or ""),
+                    "answered": sorted(answered_set)[-200:],
+                }
+                try:
+                    _save_cursor(state)
+                except OSError as exc:  # noqa: BLE001 — 落盘失败不影响已发出的回复
+                    logger.warning("督战官游标落盘失败: {}", exc)
             else:
                 logger.warning("督战官 @回复失败 {} {}", group.name, message_id)
         channels[group.channel_id] = {

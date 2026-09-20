@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from loguru import logger
 
+from app.alerting import notify
 from app.config import get_settings
 
 TODAY_SLOGAN = "1300万战役"  # 部门月目标口号（1228 万 ≈ 1300 万），只作口号展示
@@ -184,6 +186,8 @@ class PersonRow:
     # 滚动日目标（月目标 ÷ 当月天数 × 已过天数）；Nove 为 None 时渲染“待确认”。
     daily_target_wan: float | None = None
     rolling_target_wan: float | None = None
+    # 月目标来源：file（用户维护的目标文件）/ group（组目标摊到人）/ hardcoded / none
+    target_source: str = ""
     days_elapsed: int | None = None
     days_in_month: int | None = None
     target_gap_wan: float | None = None
@@ -632,6 +636,65 @@ def load_month_targets(day: str) -> dict[str, float]:
         if name:
             out[name] = float(item.get("target_wan") or 0)
     return out
+
+
+def resolve_month_target(
+    owner: Owner, day: str, monthly_targets: dict[str, float]
+) -> tuple[float | None, str]:
+    """单人月目标与来源：file / group / hardcoded / none。
+
+    单一来源原则：app/monthly_sales_targets.json 是月度目标的唯一权威来源（用户
+    每月更新），文件命中就直接用；文件没有的条目按「组目标摊到人」再按 OWNERS 里
+    硬编码的历史目标兜底，并且必须告警（见 warn_target_fallback），不能静默用旧数。
+    文件名按 display 匹配，display 是英文名的人用 target_name 兜一层（如 Viki←尤文静）。
+    """
+    for key in (owner.display, owner.target_name):
+        if key and key in monthly_targets:
+            return monthly_targets[key], "file"
+    split = split_group_target_of(owner.display, day)
+    if split:
+        return split[0], "group"
+    if owner.target_wan is not None:
+        return owner.target_wan, "hardcoded"
+    return None, "none"
+
+
+def month_target_scope(day: str, monthly_targets: dict[str, float]) -> tuple[bool, list[str]]:
+    """当月目标文件覆盖情况：返回 (是否覆盖到人, 文件没覆盖、只能兜底的人)。"""
+    tracked = [item for item in OWNERS if item.target_wan or item.group]
+    if not monthly_targets:
+        return False, [item.display for item in tracked]
+    missing = [
+        item.display
+        for item in tracked
+        if resolve_month_target(item, day, monthly_targets)[1] not in ("file", "group")
+    ]
+    return (not missing), missing
+
+
+_TARGET_WARNED: set[str] = set()
+
+
+def warn_target_fallback(day: str, monthly_targets: dict[str, float]) -> list[str]:
+    """当月目标文件缺人时告警（同一个月只发一次），返回兜底名单。"""
+    covered, missing = month_target_scope(day, monthly_targets)
+    month = day[:7]
+    if covered and not missing:
+        return []
+    if month in _TARGET_WARNED:
+        return missing
+    _TARGET_WARNED.add(month)
+    names = "、".join(missing) if missing else "（当月条目整体缺失）"
+    logger.warning("月度目标文件未覆盖 {}，以下人员回退硬编码目标: {}", month, names)
+    try:
+        notify(
+            "月度目标未更新",
+            f"{month} 的月度目标没有在 app/monthly_sales_targets.json 里配置完整，"
+            f"以下人员暂时回退到硬编码目标：{names}。请更新目标文件后重新采集。",
+        )
+    except Exception as exc:  # noqa: BLE001 — 告警失败不影响采集
+        logger.warning("月度目标兜底告警发送失败: {}", exc)
+    return missing
 
 
 def _group_entry_of(display: str, day: str) -> tuple[dict, list[str]] | None:
@@ -1631,6 +1694,46 @@ def _mtd_wan(owner: Owner, rows: list[dict]) -> float | None:
     return round(total / 10000, 2)
 
 
+def _parallel_map(func, items: list, workers: int, label: str) -> list:
+    """并发映射，保持输入顺序；单项异常只记日志并留 None。
+
+    采集全是 I/O（IM 拉群、MCP、Qwen OCR），串行时一轮要跑几分钟；并发度按上游
+    承受力给上限（IM/MCP 6~8，单机推理的 Qwen 只给 2），一个源慢或挂不影响其它源。
+    """
+    items = list(items)
+    if not items:
+        return []
+    workers = max(1, min(int(workers or 1), len(items)))
+    if workers == 1:
+        results = []
+        for item in items:
+            try:
+                results.append(func(item))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("{} 失败: {}", label, exc)
+                results.append(None)
+        return results
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pdca") as pool:
+        futures = [pool.submit(func, item) for item in items]
+        results = []
+        for future in futures:
+            try:
+                results.append(future.result())
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("{} 失败: {}", label, exc)
+                results.append(None)
+        return results
+
+
+def _safe_fetch(name: str, fn):
+    """单数据源兜底：失败只记日志返回 None，绝不让一个源拖垮整轮采集。"""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("督战官 {} 失败: {}", name, exc)
+        return None
+
+
 def _subject(owner: Owner) -> dict | None:
     if owner.employee_id:
         return {"employee_id": owner.employee_id}
@@ -1639,41 +1742,112 @@ def _subject(owner: Owner) -> dict | None:
     return None
 
 
+def _mcp_bundle(subject: dict, period: dict) -> tuple:
+    """一人的三项 MCP 查询（触达/经营/客户明细）并发预取用。
+
+    mcp_call 自身失败只返回 None，三项互不影响，与串行版本语义一致。
+    """
+    reach = mcp_call(
+        "business.query",
+        {
+            "domain": "conversations",
+            "query_mode": "reach_summary",
+            "subject": subject,
+            "period": period,
+            "platform": "WhatsApp",
+        },
+    )
+    ops = mcp_call("sales.operation_summary", {"subject": subject, "period": period})
+    customers = mcp_call(
+        "business.query",
+        {
+            "domain": "conversations",
+            "query_mode": "customers",
+            "subject": subject,
+            "period": period,
+            "filters": {"platform": "WhatsApp", "page_size": 50},
+        },
+    )
+    return reach, ops, customers
+
+
 def collect_ledger(day: str) -> dict:
     """踩点采集：达标群+跟进群+日报群、WhatsApp MCP、Vemory、VPS、回款。失败字段留空。"""
     ledger = empty_ledger(day)
     monthly_targets = load_month_targets(day)
+    # 月度目标单一来源：文件缺当月条目时告警（每月一次），仅兜底不静默。
+    warn_target_fallback(day, monthly_targets)
     period = {"start_date": day, "end_date": day}
-    try:
-        okr_rows = fetch_personal_okr()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("督战官 personal-okr 失败: {}", exc)
-        okr_rows = []
-    try:
-        vps_activity = load_vps_activity()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("督战官 Agent/IM 报告失败: {}", exc)
-        vps_activity = {}
-    try:
-        vemory_rows = fetch_vemory_day(day)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("督战官 Vemory 失败: {}", exc)
-        vemory_rows = None
-    report_channel = get_settings().todo_group_channel_id
-    try:
-        report_messages = fetch_channel_history(report_channel, day, "300")
-        daily_reports = parse_daily_reports(report_messages, day)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("督战官日报群拉取失败: {}", exc)
-        daily_reports = {}
-    histories: dict[str, list[dict]] = {}
-    channel_ids = {cid for item in OWNERS for cid in _history_ids(item) if cid}
-    for channel_id in channel_ids:
+    settings = get_settings()
+    report_channel = settings.todo_group_channel_id
+    # 四个互不依赖的源并发抓（原来串行，一轮白等几十秒）；失败各自兜底。
+    sources = {
+        "personal-okr": lambda: fetch_personal_okr(),
+        "Agent/IM 报告": lambda: load_vps_activity(),
+        "Vemory": lambda: fetch_vemory_day(day),
+        "日报群拉取": lambda: fetch_channel_history(report_channel, day, "300"),
+    }
+    names = list(sources)
+    fetched = _parallel_map(
+        lambda name: _safe_fetch(name, sources[name]), names, len(names), "督战官采集"
+    )
+    okr_rows = fetched[0] or []
+    vps_activity = fetched[1] or {}
+    vemory_rows = fetched[2]
+    report_messages = fetched[3]
+    daily_reports = parse_daily_reports(report_messages, day) if report_messages else {}
+    channel_ids = sorted({cid for item in OWNERS for cid in _history_ids(item) if cid})
+    history_list = _parallel_map(
+        lambda cid: fetch_channel_history(cid, day, "200"),
+        channel_ids,
+        8,
+        "督战官拉群历史",
+    )
+    histories: dict[str, list[dict]] = {
+        cid: (rows or []) for cid, rows in zip(channel_ids, history_list)
+    }
+    # 每人三项 MCP 查询并发预取（串行时这是除 OCR 外的第二个大头）。
+    subjects = {item.display: _subject(item) for item in OWNERS}
+    queried = [item for item in OWNERS if subjects[item.display]]
+    bundles = _parallel_map(
+        lambda item: _mcp_bundle(subjects[item.display], period),
+        queried,
+        6,
+        "督战官 MCP",
+    )
+    mcp_cache: dict[str, tuple] = {
+        item.display: (bundle or (None, None, None))
+        for item, bundle in zip(queried, bundles)
+    }
+    # 当日消息过滤 + 图片 OCR：Qwen 是单机推理，按人并发预取（默认 2，避免打爆网关）。
+    owner_msgs: dict[str, list[dict]] = {}
+    ocr_inputs: list[tuple] = []
+    for owner in OWNERS:
+        if not owner.im_user_id:
+            continue
+        raw_msgs: list[dict] = []
+        for cid in _history_ids(owner):
+            raw_msgs.extend(histories.get(cid) or [])
         try:
-            histories[channel_id] = fetch_channel_history(channel_id, day, "200")
+            day_msgs = messages_on_day(raw_msgs, day, _group_timezone(owner))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("督战官拉群历史失败 {}: {}", channel_id, exc)
-            histories[channel_id] = []
+            logger.warning("督战官当日消息过滤失败 {}: {}", owner.display, exc)
+            day_msgs = []
+        owner_msgs[owner.display] = day_msgs
+        ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
+
+    def _ocr_one(item: tuple):
+        from app.mto_ocr import review_mto_images
+
+        return review_mto_images(item[1], item[2])
+
+    ocr_results = _parallel_map(
+        _ocr_one, ocr_inputs, settings.mto_ocr_workers, "督战官 MTO OCR"
+    )
+    ocr_cache: dict[str, tuple] = {
+        item[0]: (result or (None, [], []))
+        for item, result in zip(ocr_inputs, ocr_results)
+    }
     people: list[PersonRow] = []
     for owner in OWNERS:
         row = PersonRow(
@@ -1692,17 +1866,12 @@ def collect_ledger(day: str) -> dict:
         ) = _vps_for_owner(owner, vps_activity)
         row.vemory, row.vemory_ok = match_vemory(owner, vemory_rows)
         row.daily_report = match_daily_report(owner, daily_reports)
+        msgs: list[dict] = owner_msgs.get(owner.display, [])
         try:
-            msgs: list[dict] = []
-            for cid in _history_ids(owner):
-                msgs.extend(histories.get(cid) or [])
-            msgs = messages_on_day(msgs, day, _group_timezone(owner))
             if owner.im_user_id:
-                from app.mto_ocr import review_mto_images
-
-                row.mto_count, row.mto_names, row.mto_quotes = review_mto_images(
-                    msgs, owner.im_user_id
-                )
+                row.mto_count, row.mto_names, row.mto_quotes = ocr_cache.get(
+                    owner.display
+                ) or (None, [], [])
                 row.collections, row.blockers, row.evidence = parse_owner_reports(
                     msgs, owner.im_user_id
                 )
@@ -1732,32 +1901,9 @@ def collect_ledger(day: str) -> dict:
             row.mto_count, row.mto_names, row.mto_quotes = None, [], []
         subject = _subject(owner)
         if subject:
-            reach = mcp_call(
-                "business.query",
-                {
-                    "domain": "conversations",
-                    "query_mode": "reach_summary",
-                    "subject": subject,
-                    "period": period,
-                    "platform": "WhatsApp",
-                },
-            )
+            reach, ops, customers = mcp_cache.get(owner.display, (None, None, None))
             row.wa_reached, row.wa_lower_bound = parse_wa_reached(reach)
-            ops = mcp_call(
-                "sales.operation_summary",
-                {"subject": subject, "period": period},
-            )
             row.intent_count = parse_intent_count(ops)
-            customers = mcp_call(
-                "business.query",
-                {
-                    "domain": "conversations",
-                    "query_mode": "customers",
-                    "subject": subject,
-                    "period": period,
-                    "filters": {"platform": "WhatsApp", "page_size": 50},
-                },
-            )
             if customers is None:
                 row.hours_minutes = None
                 row.hours_band = ""
@@ -1772,15 +1918,13 @@ def collect_ledger(day: str) -> dict:
                 row.hours_window = est["window"]
                 row.hours_parts = est["parts"]
         # 滚动日目标：月目标 ÷ 当月天数 × 已过天数（缺月目标写待确认）
-        month_target = row.target_wan
-        if month_target is None:
-            month_target = monthly_targets.get(owner.display)
-        if month_target is None:
+        # 月目标单一来源＝目标文件（用户每月更新）；文件缺条目才兜底并告警。
+        month_target, row.target_source = resolve_month_target(owner, day, monthly_targets)
+        if row.target_source == "group":
             # 新人小组：老板 2026-09-18 拍板 100 万按人头平均分；
             # 同时保留组口径字段，渲染侧能标出“这是小组目标摊下来的”。
             split = split_group_target_of(owner.display, day)
             if split:
-                month_target = split[0]
                 row.group_target_wan = split[0] * split[2]
                 row.group_target_name = split[1]
         progress = daily_target_progress(month_target, row.mtd_wan, day)
