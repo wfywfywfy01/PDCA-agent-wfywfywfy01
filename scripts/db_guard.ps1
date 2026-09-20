@@ -82,15 +82,36 @@ except Exception as exc:
 
 function Get-VpnState {
   # 远端数据库在内网，必须经 VPN（vpn-cd.vertu.cn）可达。
-  # 注意：VPN 断开时企业网络设备仍会“完成”TCP 握手，端口看起来是通的，
-  # 但协议层完全没有响应——必须单独检查 VPN 网卡状态才能给出可执行的结论。
+  # 两个坑：
+  #   1) VPN 断开时企业网络设备仍会“完成”TCP 握手，端口看起来是通的，协议层却完全无响应；
+  #   2) OpenVPN Connect 可能走 TAP(TUN_WIN) 通道，此时 DCO 网卡始终显示 Disconnected，
+  #      而且断开后 TAP 网卡仍保留残留 IP 并保持 Up 状态。
+  # 因此以 OpenVPN 客户端日志里最后一条 EVENT 为准，网卡状态只作为辅助信息。
   $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -match 'OpenVPN' }
-  if (-not $adapters) { return @{ Known = $false; Up = $true; Detail = '未检测到 OpenVPN 网卡' } }
-  $names = ($adapters | ForEach-Object { $_.Name + '(' + $_.Status + ')' }) -join ', '
-  $dco = $adapters | Where-Object { $_.InterfaceDescription -match 'DCO' }
-  if ($dco) { return @{ Known = $true; Up = ($dco.Status -eq 'Up'); Detail = $names } }
+  $names = '未检测到 OpenVPN 网卡'
+  if ($adapters) { $names = ($adapters | ForEach-Object { $_.Name + '(' + $_.Status + ')' }) -join ', ' }
+
+  $logPath = Join-Path $env:APPDATA 'OpenVPN Connect\log\ovpn.log'
+  if (Test-Path $logPath) {
+    $lastEvent = Get-Content $logPath -Tail 400 -ErrorAction SilentlyContinue |
+      Select-String -Pattern 'EVENT: (CONNECTED|DISCONNECTED|RECONNECTING|AUTH_FAILED)' |
+      Select-Object -Last 1
+    if ($lastEvent) {
+      $line = $lastEvent.Line
+      $isUp = $line -match 'EVENT: CONNECTED'
+      $stamp = ''
+      $m = [regex]::Match($line, '\[(?<ts>[^\]]+)\]')
+      if ($m.Success) { $stamp = $m.Groups['ts'].Value }
+      $summary = '日志最后事件: '
+      if ($isUp) { $summary = $summary + '已连接' } else { $summary = $summary + '未连接' }
+      if ($stamp) { $summary = $summary + '（' + $stamp + '）' }
+      return @{ Known = $true; Up = $isUp; Detail = $summary + ' | 网卡: ' + $names }
+    }
+  }
+
+  if (-not $adapters) { return @{ Known = $false; Up = $true; Detail = $names } }
   $up = @($adapters | Where-Object { $_.Status -eq 'Up' })
-  return @{ Known = $true; Up = ($up.Count -gt 0); Detail = $names }
+  return @{ Known = $true; Up = ($up.Count -gt 0); Detail = '网卡: ' + $names }
 }
 
 function Test-WorkbenchAlive {
