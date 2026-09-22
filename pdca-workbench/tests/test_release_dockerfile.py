@@ -16,7 +16,7 @@ class ReleaseDockerfileTests(unittest.TestCase):
         self.assertRegex(self.runtime.splitlines()[0], r"^wfywfywfy01/pdca-workbench@sha256:[a-f0-9]{64}$")
         for command in ("CMD", "ENTRYPOINT", "HEALTHCHECK", "VOLUME", "EXPOSE", "USER"):
             self.assertIsNone(re.search(r"^" + command + r"\s", self.runtime, re.MULTILINE))
-        self.assertEqual(re.findall(r"^ENV (.+)$", self.runtime, re.MULTILINE), ["PDCA_RELEASE_SHA=$SOURCE_REVISION"])
+        self.assertEqual(re.findall(r"^ENV (.+)$", self.runtime, re.MULTILINE), ["PDCA_RELEASE_SHA=$SOURCE_REVISION", "VERTU_COMMAND=vps-work"])
         self.assertIn("com.vertu.pdca.source_revision=$SOURCE_REVISION", self.runtime)
         self.assertIn("org.opencontainers.image.revision=$SOURCE_REVISION", self.runtime)
 
