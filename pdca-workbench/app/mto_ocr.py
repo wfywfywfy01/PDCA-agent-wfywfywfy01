@@ -314,8 +314,8 @@ def _vps_auth() -> tuple[str, dict]:
     ).strip().rstrip("/")
     if env_key and env_login:
         return base, {
-            "x-vertu-auth-channel": "vertu-cli",
-            "user-agent": "vertu-cli",
+            "x-vertu-auth-channel": "vps-work",
+            "user-agent": "vps-work",
             "Authorization": f"Bearer {env_key}",
             "x-vertu-agent-app-id": env_id,
             "x-vertu-user-login": env_login,
@@ -324,8 +324,8 @@ def _vps_auth() -> tuple[str, dict]:
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     base = str(cfg.get("baseUrl") or "https://vps-service.vertu.cn").rstrip("/")
     headers = {
-        "x-vertu-auth-channel": "vertu-cli",
-        "user-agent": "vertu-cli",
+        "x-vertu-auth-channel": "vps-work",
+        "user-agent": "vps-work",
         "Authorization": f"Bearer {cfg.get('agentAppKey')}",
         "x-vertu-agent-app-id": str(cfg.get("agentAppId") or ""),
         "x-vertu-user-login": str(cfg.get("login") or ""),
