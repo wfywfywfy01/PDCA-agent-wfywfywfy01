@@ -23,11 +23,6 @@ COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
 RUN python -m pip install --no-index --no-deps -r requirements.lock \
     && python -m pip check
 
-# vertu-cli 已弃用。基座镜像仍带 node/npm，这里装官方包 vps-work，不必整包重建基座。
-RUN npm install -g vps-work@2.1.3 --omit=optional \
-    && vps-work --version
-ENV VERTU_COMMAND=vps-work
-
 # Remove deleted/renamed source files too. Never touch /app/data, /repo or /mvp.
 RUN rm -rf /app/app /app/frontend /app/migrations /app/scripts /app/logibot /app/spa-dist
 COPY pdca-workbench/app ./app

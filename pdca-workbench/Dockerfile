@@ -32,8 +32,8 @@ COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
-    && npm install -g vertu-cli@2.8.0 @vertu-tech/vps-cli@0.1.12 --omit=optional \
-    && vertu-cli --version \
+    && npm install -g vps-work@2.1.3 @vertu-tech/vps-cli@0.1.12 --omit=optional \
+    && vps-work --version \
     && vertu --version
 
 COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
@@ -60,7 +60,7 @@ ENV PDCA_MVP_ROOT=/mvp
 ENV PDCA_REPO_ROOT=/repo
 ENV PDCA_PG_DUMP_COMMAND=/usr/lib/postgresql/18/bin/pg_dump
 ENV PDCA_TRACKING_HEADLESS=1
-ENV VERTU_COMMAND=vertu-cli
+ENV VERTU_COMMAND=vps-work
 ENV LOGIBOT_ROOT=/app/logibot
 ENV LOGIBOT_DATA_DIR=/app/data/logibot
 

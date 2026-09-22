@@ -56,7 +56,7 @@ docker run --detach \
   --env PDCA_BOOTSTRAP_ADMIN_USERNAME=smoke-admin \
   --env PDCA_BOOTSTRAP_ADMIN_PASSWORD='SmokeAdmin123!' \
   --env PDCA_BOOTSTRAP_ADMIN_DISPLAY_NAME='Smoke Admin' \
-  --env VERTU_COMMAND=vps-work \
+  --env VERTU_COMMAND=vertu-cli \
   --volume "$MVP_ROOT:/mvp:ro" \
   --volume "$RUNTIME_ROOT/inputs:/mvp/inputs" \
   --volume "$RUNTIME_ROOT/outputs:/mvp/outputs" \
@@ -197,6 +197,6 @@ assert payload["facts"]["walkin_reported"]["value"] >= 1
 assert isinstance(payload["actions"], list)
 PY
 
-cli_version="$(docker exec "$CONTAINER_NAME" vps-work --version)"
+cli_version="$(docker exec "$CONTAINER_NAME" vertu-cli --version)"
 legacy_cli_version="$(docker exec "$CONTAINER_NAME" vertu --version)"
 echo "Docker 冒烟测试通过: image=$IMAGE cli=$cli_version legacy_cli=$legacy_cli_version health=$health_body"

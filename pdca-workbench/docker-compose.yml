@@ -42,7 +42,7 @@ services:
       PDCA_KNOWLEDGE_HUB_URL: ${PDCA_KNOWLEDGE_HUB_URL:-https://dealer-knowledge.vertu.cn}
       PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE: /run/secrets/dealer-knowledge-jwt.key
       PDCA_KNOWLEDGE_HUB_TEAM_MAP: ${PDCA_KNOWLEDGE_HUB_TEAM_MAP:-{"overseas":"overseas-sales"}}
-      VERTU_COMMAND: vps-work
+      VERTU_COMMAND: vertu-cli
       VERTU_VPS_SERVICE_URL: ${VERTU_VPS_SERVICE_URL:-https://vps-service.vertu.cn}
       VERTU_APP_ID: ${VERTU_APP_ID:-cursor}
       VERTU_APP_KEY: ${VERTU_APP_KEY:?请在未跟踪的 .env 中设置 VERTU_APP_KEY}
