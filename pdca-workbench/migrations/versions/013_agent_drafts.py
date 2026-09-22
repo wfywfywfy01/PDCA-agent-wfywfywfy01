@@ -32,7 +32,7 @@ def upgrade() -> None:
         sa.Column('slot', sa.String(8), nullable=False, server_default=''),
         sa.Column('body', sa.Text(), nullable=False, server_default=''),
         sa.Column('approval_policy', sa.String(32), nullable=False, server_default='manual_required'),
-        sa.Column('shadow', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('shadow', sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     )

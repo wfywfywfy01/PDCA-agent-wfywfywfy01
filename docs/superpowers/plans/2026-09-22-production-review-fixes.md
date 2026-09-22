@@ -75,7 +75,7 @@
 - [x] 运行定向测试并确认历史库缺约束、SQLite 被误判。
 - [x] 历史库按安全基线执行实际迁移；数据库本地性通过 URL scheme/hostname 判断。
 - [x] 运行定向测试。
-- [ ] PostgreSQL 测试容器升级与重复升级验证（本机 Docker 守护进程不可用，未执行）。
+- [x] PostgreSQL 测试容器升级与重复升级验证：空库、013 升级、无版本历史库、重复执行均通过。
 
 ### 任务 6：会议音频前后端契约
 
@@ -97,3 +97,14 @@
 - [x] 运行 `cd apps/web && npm test && npm run typecheck && npm run build`。
 - [x] 检查 `git diff --check`、`git status`、改动文件和敏感信息，确认仅包含本轮修复。
 - [x] 提交到 `codex/fix-review-20260922`；不部署生产，部署需用户另行确认。
+
+### 容器验收补充（2026-09-22）
+
+- 已启动本机 Docker Desktop，在隔离网络、临时数据库中完成验收。
+- `Dockerfile.release` 构建通过；本机 Docker Hub 镜像站断连，使用预留构建参数 `NODE_RUNTIME_IMAGE=node:22-slim`，已核实缓存镜像为 Node 22.23.1 / Debian bookworm。生产 Python 运行环境仍使用 Dockerfile 中固定的 GHCR digest。
+- SQLite 容器冒烟通过：运行版本、前端资源、登录改密、问卷保存、五件套录入及 T-1 首页统计。
+- PostgreSQL 容器冒烟通过：登录改密、六路并发追加记录、最新零值修订、所属门店隔离、跨门店与管理接口拒绝、前端资源。
+- 真实 PostgreSQL 停机后 `/health` 返回 503，未误报健康。
+- 新发现并修复迁移 008/013 的布尔默认值跨数据库兼容问题：使用 SQLAlchemy `false()` / `true()`，替代整数 SQL 默认值。
+- 新增 `scripts/postgres_migration_acceptance.py` 并接入 CI 已调用的 PostgreSQL 冒烟脚本；先验证完整迁移链、013 升级、历史会议去重与唯一约束、重复执行，再启动应用做业务验收。
+- 新增迁移验证仅允许 development、关闭调度、PostgreSQL、名为 `pdca_review` 的空数据库；测试数据随临时容器清理。
