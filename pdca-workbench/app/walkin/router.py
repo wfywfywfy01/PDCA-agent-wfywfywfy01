@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import math
 import asyncio
 import time
 from typing import Annotated, Optional
@@ -21,7 +20,11 @@ from app.config import get_settings
 from app.database import get_session
 from app.legacy import bridge
 from app.models.dealer_store import DealerStore, is_demo_store
-from app.models.walkin_daily_report import WalkinDailyReport, latest_walkin_reports
+from app.models.walkin_daily_report import (
+    WalkinDailyReport,
+    latest_walkin_reports,
+    revenue_requires_review,
+)
 from app.validation import require_iso_date, require_iso_month
 from app.vertu.activation import ActivationQueryError, fetch_dealer_activation
 
@@ -32,13 +35,7 @@ _vps_cache: dict[str, tuple[float, dict]] = {}
 _VPS_TTL = 600  # seconds
 
 
-def _revenue_requires_review(amount: float) -> bool:
-    settings = get_settings()
-    threshold = min(
-        settings.max_reported_revenue_usd,
-        getattr(settings, "revenue_review_threshold_usd", settings.max_reported_revenue_usd),
-    )
-    return not math.isfinite(amount) or amount < 0 or amount > threshold
+_revenue_requires_review = revenue_requires_review
 
 
 # ---------------------------------------------------------------------------

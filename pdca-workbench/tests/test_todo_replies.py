@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -166,6 +168,82 @@ class PollRepliesTests(unittest.TestCase):
         with Session(self.engine) as session:
             p = session.get(TodoProject, project)
             self.assertEqual(p.status, "跟进中")
+
+
+class ReplyActionEndpointTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.engine = create_engine(
+            f"sqlite:///{(Path(self.temp_dir.name) / 'reply-actions.sqlite').as_posix()}"
+        )
+        SQLModel.metadata.create_all(self.engine)
+        self.request = SimpleNamespace(client=SimpleNamespace(host="test"))
+        self.user = SimpleNamespace(username="admin", role="admin")
+
+    def tearDown(self):
+        self.engine.dispose()
+        self.temp_dir.cleanup()
+
+    def test_apply_all_uses_reply_reminder_and_returns_success(self):
+        from app.todos.router import apply_reply_all
+
+        now = datetime.now()
+        with Session(self.engine) as session:
+            old_task = PdcaTask(
+                task_date="2026-09-20", title="旧任务", owner="何海文", status="pending"
+            )
+            new_task = PdcaTask(
+                task_date="2026-09-22", title="新任务", owner="何海文", status="pending"
+            )
+            session.add(old_task)
+            session.add(new_task)
+            session.commit()
+            old_send = ImRemindSend(
+                person="何海文", sent_at=now - timedelta(days=2), message_id="old",
+                item_task_ids=json.dumps([old_task.id]),
+            )
+            new_send = ImRemindSend(
+                person="何海文", sent_at=now, message_id="new",
+                item_task_ids=json.dumps([new_task.id]),
+            )
+            session.add(old_send)
+            session.add(new_send)
+            session.commit()
+            reply = TodoReply(
+                person="何海文", text="旧任务已完成", at=now - timedelta(days=1),
+                signal="done", remind_send_id=old_send.id,
+            )
+            session.add(reply)
+            session.commit()
+            session.refresh(reply)
+            reply_id = reply.id
+            old_task_id = old_task.id
+            new_task_id = new_task.id
+        with patch("app.database.get_engine", return_value=self.engine), patch(
+            "app.todos.router.log_action"
+        ) as audit:
+            result = asyncio.run(apply_reply_all(reply_id, self.request, self.user))
+        self.assertEqual(result, {"ok": True, "tasks_closed": 1})
+        audit.assert_called_once()
+        with Session(self.engine) as session:
+            self.assertEqual(session.get(PdcaTask, old_task_id).status, "done")
+            self.assertEqual(session.get(PdcaTask, new_task_id).status, "pending")
+
+    def test_ignore_reply_returns_success_and_audits(self):
+        from app.todos.router import ignore_reply
+
+        with Session(self.engine) as session:
+            reply = TodoReply(person="何海文", text="收到", signal="")
+            session.add(reply)
+            session.commit()
+            session.refresh(reply)
+            reply_id = reply.id
+        with patch("app.database.get_engine", return_value=self.engine), patch(
+            "app.todos.router.log_action"
+        ) as audit:
+            result = asyncio.run(ignore_reply(reply_id, self.request, self.user))
+        self.assertEqual(result, {"ok": True})
+        audit.assert_called_once()
 
 
 if __name__ == "__main__":

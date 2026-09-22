@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
@@ -69,3 +70,15 @@ def latest_walkin_reports(rows: Iterable[WalkinDailyReport]) -> list[WalkinDaily
         if key not in latest or version > latest[key][0]:
             latest[key] = (version, row)
     return [row for _, row in latest.values()]
+
+
+def revenue_requires_review(amount: float) -> bool:
+    """统一判断门店填报金额是否只展示原值、但不进入经营汇总。"""
+    from app.config import get_settings
+
+    settings = get_settings()
+    threshold = min(
+        settings.max_reported_revenue_usd,
+        getattr(settings, "revenue_review_threshold_usd", settings.max_reported_revenue_usd),
+    )
+    return not math.isfinite(amount) or amount < 0 or amount > threshold

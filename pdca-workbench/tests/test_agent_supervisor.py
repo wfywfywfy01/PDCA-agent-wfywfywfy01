@@ -167,6 +167,33 @@ class SupervisorServiceTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["detail"], "运行不存在")
 
+    def test_collect_action_is_read_only_even_outside_shadow_mode(self):
+        from app.agents.schemas import SupervisorAction
+
+        decision = SupervisorDecision(
+            intent="department_summary",
+            summary="部门总结",
+            actions=[SupervisorAction(action_type="collect", target="all")],
+        )
+        run = supervisor_service.start_run(
+            run_type="user_task", requested_by="manager", input_text="部门总结"
+        )
+        with patch(
+            "app.agents.supervisor_service.classify_intent", return_value=decision
+        ), patch(
+            "app.agents.supervisor_service._tool_group_state",
+            return_value={"groups": [], "count": 0},
+        ), patch(
+            "app.agents.supervisor_service.build_department_summary",
+            return_value={"summary_draft": "总结"},
+        ), patch(
+            "app.agents.group_service.run_group_slot"
+        ) as run_group_slot:
+            result = supervisor_service.execute_run(run.id)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["results"]["collect"]["count"], 0)
+        run_group_slot.assert_not_called()
+
     def test_llm_readonly_query_gets_default_tools(self):
         """LLM 查询类意图即使没给白名单动作，也返回只读数据。"""
         with patch(

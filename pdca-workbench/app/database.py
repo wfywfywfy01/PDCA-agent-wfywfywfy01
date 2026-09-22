@@ -213,6 +213,8 @@ def _migrate_schema() -> None:
         "ALTER TABLE pdca_tasks ADD COLUMN IF NOT EXISTS owner_locked BOOLEAN DEFAULT FALSE",
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS reply_text VARCHAR(1024) DEFAULT ''",
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP",
+        "ALTER TABLE todo_replies ADD COLUMN IF NOT EXISTS remind_send_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_todo_replies_remind_send_id ON todo_replies (remind_send_id)",
         # 项目（事项）类型：keyword/meeting/manual
         "ALTER TABLE todo_projects ADD COLUMN IF NOT EXISTS kind VARCHAR(16) DEFAULT 'keyword'",
         # 群认领闭环 + 三源印证打分（2026-09-07）
@@ -281,6 +283,8 @@ def _migrate_schema() -> None:
         "ALTER TABLE pdca_tasks ADD COLUMN owner_locked BOOLEAN DEFAULT 0",
         "ALTER TABLE todo_projects ADD COLUMN reply_text VARCHAR(1024) DEFAULT ''",
         "ALTER TABLE todo_projects ADD COLUMN replied_at TIMESTAMP",
+        "ALTER TABLE todo_replies ADD COLUMN remind_send_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_todo_replies_remind_send_id ON todo_replies (remind_send_id)",
         "ALTER TABLE todo_projects ADD COLUMN kind VARCHAR(16) DEFAULT 'keyword'",
         "ALTER TABLE pdca_tasks ADD COLUMN claimed_at TIMESTAMP",
         "ALTER TABLE pdca_tasks ADD COLUMN score INTEGER",

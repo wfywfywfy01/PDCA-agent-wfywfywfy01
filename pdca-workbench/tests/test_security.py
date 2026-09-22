@@ -32,6 +32,21 @@ from app.walkin.router import walkin_metrics_summary
 
 
 class InputValidationTests(unittest.TestCase):
+    def test_remote_database_guard_parses_scheme_and_hostname(self):
+        cases = (
+            ("sqlite://", False),
+            ("sqlite:///./local.sqlite", False),
+            ("sqlite+pysqlite:///./local.sqlite", False),
+            ("postgresql://u:p@localhost:5432/pdca", False),
+            ("postgresql://u:p@db:5432/pdca", False),
+            ("postgresql://localhost-name:p@10.140.3.125:5432/pdca", True),
+        )
+        for url, expected in cases:
+            with self.subTest(url=url), patch.dict(
+                os.environ, {"PDCA_DATABASE_URL": url}, clear=False
+            ), patch("app.config.pathlib.Path.exists", return_value=False):
+                self.assertEqual(Settings().remote_db_from_host, expected)
+
     def test_production_allows_only_the_fixed_private_data_hub_http_service(self):
         base = {
             "PDCA_ENV": "production",

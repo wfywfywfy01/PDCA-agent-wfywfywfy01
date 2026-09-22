@@ -153,6 +153,50 @@ class OutboxTests(unittest.TestCase):
         self.assertEqual(stored.send_attempts, 2)
         self.assertTrue(self.notify_mock.called)
 
+    def test_exhausted_failures_do_not_block_new_pending_rows(self):
+        with Session(self.engine) as session:
+            for index in range(40):
+                session.add(AgentOutbox(
+                    idempotency_key=f"old-failed-{index}",
+                    channel_id="channel-1",
+                    body="旧失败消息",
+                    approval_status="approved",
+                    send_status="failed",
+                    send_attempts=2,
+                ))
+            exhausted_pending = AgentOutbox(
+                idempotency_key="old-pending-exhausted",
+                channel_id="channel-1",
+                body="旧异常消息",
+                approval_status="approved",
+                send_status="pending",
+                send_attempts=2,
+            )
+            session.add(exhausted_pending)
+            fresh = AgentOutbox(
+                idempotency_key="fresh-pending",
+                channel_id="channel-1",
+                body="新消息",
+                approval_status="approved",
+                send_status="pending",
+            )
+            session.add(fresh)
+            session.commit()
+            session.refresh(exhausted_pending)
+            session.refresh(fresh)
+            exhausted_pending_id = exhausted_pending.id
+            fresh_id = fresh.id
+        deliver = MagicMock(return_value=True)
+        with patch("app.agents.outbox._deliver", deliver):
+            result = outbox_module.send_due(limit=40)
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(deliver.call_count, 1)
+        with Session(self.engine) as session:
+            exhausted = session.get(AgentOutbox, exhausted_pending_id)
+            self.assertEqual(exhausted.send_status, "pending")
+            self.assertEqual(exhausted.send_attempts, 2)
+            self.assertEqual(session.get(AgentOutbox, fresh_id).send_status, "sent")
+
     def test_retry_reopens_failed(self):
         self.settings.agent_auto_template_push = True
         row = outbox_module.create_outbox(
@@ -173,6 +217,7 @@ class OutboxTests(unittest.TestCase):
             stored = session.get(AgentOutbox, row.id)
         self.assertEqual(stored.send_status, "pending")
         self.assertEqual(stored.approval_status, "pending")
+        self.assertEqual(stored.send_attempts, 0)
 
     def test_send_due_disabled_skips(self):
         self.settings.agent_outbox_enabled = False

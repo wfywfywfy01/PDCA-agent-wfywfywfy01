@@ -285,6 +285,57 @@ class ProjectReminderTests(unittest.TestCase):
 class TodoTasksEndpointTests(unittest.TestCase):
     """GET /api/todos/tasks 筛选逻辑（直接调 async 函数，绕过 HTTP）。"""
 
+    def test_project_write_endpoints_return_after_commit_and_audit(self):
+        import asyncio
+        from types import SimpleNamespace as NS
+
+        from app.todos.router import (
+            ProjectMergeRequest,
+            ProjectStatusRequest,
+            ProjectUpdateRequest,
+            merge_project,
+            update_project,
+            update_project_status,
+        )
+
+        request = NS(client=NS(host="test"))
+        user = NS(username="admin", role="admin")
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(f"sqlite:///{Path(tmp) / 'project-writes.sqlite'}")
+            SQLModel.metadata.create_all(engine)
+            try:
+                with Session(engine) as session:
+                    source = TodoProject(
+                        key="source", name="源项目", kind="manual", executors="[]"
+                    )
+                    target = TodoProject(
+                        key="target", name="目标项目", kind="manual", executors="[]"
+                    )
+                    session.add(source)
+                    session.add(target)
+                    session.commit()
+                    session.refresh(source)
+                    session.refresh(target)
+                    source_id, target_id = source.id, target.id
+                with patch("app.database.get_engine", return_value=engine), patch(
+                    "app.todos.router.log_action"
+                ) as audit:
+                    status = asyncio.run(update_project_status(
+                        source_id, ProjectStatusRequest(status="跟进中"), request, user
+                    ))
+                    updated = asyncio.run(update_project(
+                        source_id, ProjectUpdateRequest(name="源项目更新"), request, user
+                    ))
+                    merged = asyncio.run(merge_project(
+                        source_id, ProjectMergeRequest(target_id=target_id), request, user
+                    ))
+                self.assertEqual(status["status"], "跟进中")
+                self.assertEqual(updated["name"], "源项目更新")
+                self.assertEqual(merged["target_id"], target_id)
+                self.assertEqual(audit.call_count, 3)
+            finally:
+                engine.dispose()
+
     def test_list_projects_with_seeded_rows(self):
         import asyncio
 

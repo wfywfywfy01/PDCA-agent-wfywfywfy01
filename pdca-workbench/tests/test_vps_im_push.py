@@ -45,6 +45,23 @@ class PushChannelOverrideTests(unittest.TestCase):
         sent_json = self.post_mock.call_args.kwargs["json"]
         self.assertEqual(sent_json["channel_id"], "channel-from-file")
 
+    def test_business_push_adds_channel_to_idempotency_key(self):
+        self._write_override('channel-from-file')
+        with patch.dict("os.environ", {
+            "PDCA_VPS_BOT_APP_ID": "app",
+            "PDCA_VPS_BOT_APP_SECRET": "sec",
+        }):
+            result = vps_im_push.push_vps_message(
+                "hi", idempotency_key="daily_report:2026-09-22"
+            )
+        self.assertTrue(result)
+        sent_json = self.post_mock.call_args.kwargs["json"]
+        expected = "daily_report:2026-09-22:channel-from-file"
+        self.assertEqual(sent_json["idempotency_key"], expected)
+        self.assertEqual(
+            self.post_mock.call_args.kwargs["headers"]["Idempotency-Key"], expected
+        )
+
     def test_env_fallback_when_no_override(self):
         with patch.dict("os.environ", {
             "PDCA_VPS_BOT_APP_ID": "app",

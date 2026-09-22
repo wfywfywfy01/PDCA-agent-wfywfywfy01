@@ -206,6 +206,20 @@ class DailyReportJobTests(unittest.TestCase):
         build_report.assert_not_called()
         business_push.assert_not_called()
 
+    def test_retry_uses_same_day_and_channel_idempotency_key(self):
+        from app.scheduler.jobs import daily_report_job
+
+        with patch("app.scheduler.run_ledger.claim_run", return_value=True), \
+                patch("app.scheduler.run_ledger.finish_run"), \
+                patch("app.daily_report.build_report", return_value="日报"), \
+                patch("app.scheduler.jobs.time.sleep"), \
+                patch("app.vps_im_push.push_vps_message", side_effect=[False, True]) as push:
+            daily_report_job()
+        self.assertEqual(push.call_count, 2)
+        first_key = push.call_args_list[0].kwargs["idempotency_key"]
+        self.assertEqual(first_key, push.call_args_list[1].kwargs["idempotency_key"])
+        self.assertTrue(first_key.startswith("daily_report:"))
+
 
 if __name__ == "__main__":
     unittest.main()

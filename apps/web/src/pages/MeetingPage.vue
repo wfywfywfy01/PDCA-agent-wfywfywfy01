@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
+import { audioHref, meetingAudioFor, meetingDate } from './meetingAudio'
 
 interface MeetingItem {
   meeting_date?: string
@@ -105,9 +106,22 @@ async function openVemoryDetail(row: Record<string, unknown>) {
   } finally {
     detailLoading.value = false
   }
+  const directAudio = detail.value ? audioHref(detail.value) : ''
+  if (directAudio) {
+    audioLinks.value = [{
+      meeting_id: meetingId,
+      name: row.name ?? row.title ?? '会议音频',
+      audio_url: directAudio,
+    }]
+    return
+  }
   try {
-    const audio = await apiGet<{ links?: Record<string, unknown>[] }>('/api/meeting-center/vemory/audio-links')
-    audioLinks.value = audio.links ?? []
+    const day = meetingDate(row, startDate.value)
+    const params = new URLSearchParams({ start: day, end: day })
+    const audio = await apiGet<{ links?: Record<string, unknown>[] }>(
+      '/api/meeting-center/vemory/audio-links?' + params.toString(),
+    )
+    audioLinks.value = meetingAudioFor(audio.links ?? [], meetingId)
   } catch {
     audioLinks.value = []
   }
@@ -418,7 +432,7 @@ watch([startDate, endDate], load)
             <h3>音频</h3>
             <ul>
               <li v-for="(link, index) in audioLinks" :key="index">
-                <a :href="asText(link.url) || asText(link.play_url)" target="_blank" rel="noopener">
+                <a :href="audioHref(link)" target="_blank" rel="noopener">
                   {{ asText(link.name) || asText(link.title) || ('音频 ' + (index + 1)) }}
                 </a>
               </li>

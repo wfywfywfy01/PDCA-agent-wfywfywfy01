@@ -7,12 +7,12 @@ Alembic 迁移目录。应用启动时仍会执行 `SQLModel.metadata.create_all
 ## 已有库首次接入 Alembic
 
 已有数据库（由 create_all/运行时补丁建出）没有 `alembic_version` 表，
-直接 `alembic upgrade head` 会因 001 与现有表冲突而失败。先标记基线：
+直接 `alembic upgrade head` 会因 001 与现有表冲突而失败。使用显式迁移入口；
+它会补齐历史结构、标记到安全基线 010，再实际执行后续约束和数据迁移：
 
 ```powershell
 cd pdca-workbench
-alembic stamp 001
-alembic upgrade head
+python scripts/migrate.py
 ```
 
 ## 全新库

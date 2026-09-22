@@ -769,12 +769,13 @@ def daily_report_job() -> None:
         finish_run("daily_report", day, "failed", f"{type(exc).__name__}: {exc}")
         notify("每日经营日报生成失败", str(exc)[:200])
         return
-    pushed = push_vps_message(message)
+    idempotency_key = f"daily_report:{day}"
+    pushed = push_vps_message(message, idempotency_key=idempotency_key)
     if not pushed:
         # 瞬时网络/服务抖动重试一次；仍失败再告警（不静默）。
         logger.warning("日报首次推送失败，60 秒后重试 {}", day)
         time.sleep(60)
-        pushed = push_vps_message(message)
+        pushed = push_vps_message(message, idempotency_key=idempotency_key)
     if pushed:
         finish_run("daily_report", day, "sent")
         logger.info("日报已推送 {}", day)
