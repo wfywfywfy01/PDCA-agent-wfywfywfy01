@@ -236,11 +236,11 @@ function Get-AgentCredential {
         return $existing
     }
     # 首次部署才取本机默认 Agent，失败再回退 cursor。
-    $lines = & vertu-cli agent env --shell powershell 2>&1
+    $lines = & vps-work agent env --shell powershell 2>&1
     if ($LASTEXITCODE -ne 0) {
-        $lines = & vertu-cli agent env --app-id cursor --shell powershell 2>&1
+        $lines = & vps-work agent env --app-id cursor --shell powershell 2>&1
     }
-    if ($LASTEXITCODE -ne 0) { throw "vertu-cli agent env failed" }
+    if ($LASTEXITCODE -ne 0) { throw "vps-work agent env failed" }
     $text = $lines -join "`n"
     $appMatch = [regex]::Match(
         $text, "(?m)^\`$env:VERTU_APP_ID='((?:''|[^'])*)'\s*$"
@@ -256,7 +256,7 @@ function Get-AgentCredential {
             $text,
             "(?m)^\`$env:$name='((?:''|[^'])*)'\s*$"
         )
-        if (-not $match.Success) { throw "vertu-cli did not return $name" }
+        if (-not $match.Success) { throw "vps-work did not return $name" }
         $result[$name] = $match.Groups[1].Value.Replace("''", "'")
     }
     return $result
@@ -382,7 +382,7 @@ function Start-PdcaContainer {
         "-e", "PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080",
         "-e", "PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE=/run/secrets/dealer-knowledge-jwt.key",
         "-e", 'PDCA_KNOWLEDGE_HUB_TEAM_MAP={"overseas":"overseas-sales"}',
-        "-e", "VERTU_COMMAND=vertu-cli",
+        "-e", "VERTU_COMMAND=vps-work",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
         "-e", "VERTU_APP_ID=$($script:AgentAppId)"
