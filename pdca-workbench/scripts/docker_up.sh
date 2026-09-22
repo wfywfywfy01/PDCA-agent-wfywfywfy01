@@ -30,6 +30,8 @@ fi
 
 cd "$WB_DIR"
 
+docker network inspect dealer-knowledge >/dev/null 2>&1 || docker network create dealer-knowledge >/dev/null
+
 # 首次生成未跟踪的 .env 模板；敏感项不会写入仓库。
 if [[ ! -f .env ]]; then
   cp env.docker .env
