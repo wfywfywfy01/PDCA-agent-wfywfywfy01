@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from datetime import datetime, date
@@ -61,22 +60,9 @@ from sqlmodel import Session, select                        # noqa: E402
 # ── vertu-cli 工具 ─────────────────────────────────────────────────────────────
 
 def _find_vertu() -> str:
-    cmd = os.environ.get("VERTU_COMMAND", "")
-    if cmd:
-        if Path(cmd).name.lower() in {"vertu", "vertu.cmd", "vertu.ps1"}:
-            cmd = "vertu-cli"
-        if Path(cmd).exists():
-            return cmd
-        found = shutil.which(cmd)
-        if found:
-            return found
-    found = shutil.which("vertu-cli")
-    if found:
-        return found
-    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
-    if npm_cmd.exists():
-        return str(npm_cmd)
-    return "vertu-cli"
+    from app.config import resolve_cli_command
+
+    return resolve_cli_command()
 
 
 def _run(cmd: list[str], timeout: int = 120) -> tuple[int, str, str]:

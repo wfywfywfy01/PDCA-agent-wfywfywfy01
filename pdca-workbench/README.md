@@ -112,6 +112,49 @@ python scripts/backfill_meeting_projects.py           # 实际回填（幂等）
 python scripts/backfill_meeting_projects.py --dry-run # 只统计不动库
 ```
 
+## 督战证据日报（固定测试流程）
+
+老板 2026-09-18 定的固定测试流程：**先收集他们当天被系统读到的全部证据 →
+生成单文件 HTML 到桌面 → 人工逐人核对「系统读到的 = 群里真实发生的」→ 读错的进问题清单改完再跑**。
+
+**每天 07:30 自动生成一份**（容器任务 `evidence_report`，落 `data/exports/evidence/`，
+保留最近 45 天），**08:00 由本机计划任务「PDCA Evidence Daily」拉到桌面**
+（`scripts/pull_evidence_to_desktop.ps1`：先 `docker cp`，容器没有才本机现场生成）。
+开关：`PDCA_EVIDENCE_REPORT_ENABLED` / `PDCA_EVIDENCE_REPORT_TIME`（默认 07:30）/
+`PDCA_EVIDENCE_REPORT_IMAGES`（默认内嵌 24 张）。
+
+```bash
+# 只读，不发任何消息；默认输出到桌面「督战证据_<日期>.html」+ 同名 .json
+python scripts/evidence_report.py --day 2026-09-18
+python scripts/evidence_report.py --day 2026-09-18 --no-images     # 不内嵌原图（更快）
+python scripts/evidence_report.py --day 2026-09-18 --images 40     # 最多内嵌 40 张报价图
+```
+
+报告内容：总览表（目标/日目标/累计已录单/领先落后/水单/意向/MTO/WhatsApp/工时/日报/原话条数）；
+逐人卡片含 ① 业绩三关键词原文级证据 ② MTO 图 + 本地 Qwen OCR 明细（型号/USD/是否≥30万/交期/客户）
++ 缩略图 ③ 催款任务条目 ④ 卡点与证据 ⑤ 工时拆解 / VPS / Vemory ⑥ 当天本人群原话（逐条可核）。
+末尾附 7 条复查要点。口径：读不出写「待确认」，一笔都没有写「未检索到」，绝不用 0 冒充。
+
+## 口径与配置基线（2026-09-20 拍板）
+
+1. **业绩口径统一叫「已录单 / 开单额」**：系统 sales 视图（odoo_sale，不含定金），不是银行回款。
+   三关键词固定为「已录单 / 水单（已付款未到账）/ 意向（明确金额）」，三追、日报、证据 HTML 同一套文案。
+2. **月度目标只有一个来源**：`app/monthly_sales_targets.json`（用户每月更新）。仪表盘/三追/日报都按这张表算，
+   文件缺人时按「组目标摊到人」→ `duzhan_ledger.OWNERS` 里的历史值兜底，并推一条「月度目标未更新」告警，
+   不静默沿用旧数。维护方式：
+
+   ```bash
+   python scripts/set_monthly_targets.py --show                       # 看当前内容
+   python scripts/set_monthly_targets.py --month 2026-10 --copy-from 2026-09 \
+       --dept 1500 --person 于冰=260 --group 新部=120:邓琳莹,Safae,王宇彤,张月馨,江旭 --dry-run
+   ```
+
+   写盘前会校验「明细合计 = 部门目标」（与 `app/daily_report.py` 同一条不变量），不一致直接拒绝。
+3. **采集并发**：一轮采集里四个数据源、各群历史、每人三项 MCP 查询、每人 MTO 图片 OCR 都并发跑；
+   超时/失败只影响单项（留「待确认」），不再一个慢源拖垮整轮。OCR 并发度 `PDCA_MTO_OCR_WORKERS`（默认 2）。
+4. **TLS 不关校验**：`qwen3.vertu.cn:8443` 的证书由公共 CA 签发，Qwen 调用走标准校验；
+   换成内网 CA 时用 `PDCA_QWEN_CA_BUNDLE` 指定 CA 包，禁止回退 `verify=False`。
+
 ## 经销商资料库接入
 
 PDCA 只在服务端签发最长 5 分钟的作用域 JWT，浏览器不会获得共享密钥。生产环境：

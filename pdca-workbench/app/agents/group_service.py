@@ -233,7 +233,10 @@ def run_group_instance(
     from app.duzhan import _idempotency_key
 
     outbox_row = create_outbox(
-        idempotency_key=_idempotency_key(config.timezone, day, hour, config.channel_id),
+        # producer="agent"：与整点确定性三追推送的键区分开，避免服务端去重丢消息
+        idempotency_key=_idempotency_key(
+            config.timezone, day, hour, config.channel_id, producer="agent"
+        ),
         channel_id=config.channel_id,
         body=output.draft_message,
         message_kind="group_followup",

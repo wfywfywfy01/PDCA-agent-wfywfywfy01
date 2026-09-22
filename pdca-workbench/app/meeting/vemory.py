@@ -119,6 +119,8 @@ async def list_dealer_meetings(
     rows: list[dict] = []
     error: str | None = None
     expected_total: int | None = None
+    from app.vertu.client import cli_command_missing
+
     for page in range(1, settings.vemory_max_pages + 1):
         payload = await run_vertu_json(
             [
@@ -133,7 +135,10 @@ async def list_dealer_meetings(
             timeout=45.0,
         )
         if not isinstance(payload, dict) or not payload.get("ok"):
-            error = "会议列表接口调用失败（vertu-cli meeting +list）"
+            if cli_command_missing("meeting"):
+                error = "本机 vps-work 没有 meeting 命令"
+            else:
+                error = "会议列表接口调用失败（vps-work meeting +list）"
             logger.warning("vemory list failed page={} ids={}", page, ids)
             break
         try:

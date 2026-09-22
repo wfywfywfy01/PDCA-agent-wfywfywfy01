@@ -44,7 +44,7 @@ PDCA_SECURE_COOKIES=1
 PDCA_TRUST_PROXY_HEADERS=0
 PDCA_VPS_SYNC_ROLE=0
 PDCA_CORS_ORIGINS=https://pdca-workbench-teams.vertu.cn
-VERTU_COMMAND=vertu-cli
+VERTU_COMMAND=vps-work
 VERTU_VPS_SERVICE_URL=${VERTU_VPS_SERVICE_URL:-https://vps-service.vertu.cn}
 VERTU_APP_ID=${VERTU_APP_ID:-cursor}
 VERTU_APP_KEY=$VERTU_APP_KEY
@@ -69,7 +69,7 @@ updates = {
     "PDCA_ENV": "production",
     "PDCA_MVP_ROOT": mvp,
     "PDCA_REPO_ROOT": repo,
-    "VERTU_COMMAND": "vertu-cli",
+    "VERTU_COMMAND": "vps-work",
     "VERTU_VPS_SERVICE_URL": os.environ.get(
         "VERTU_VPS_SERVICE_URL", "https://vps-service.vertu.cn"
     ),
@@ -130,11 +130,11 @@ if [[ -n "$SERVICE_NAME" ]] && systemctl list-unit-files "$SERVICE_NAME.service"
     echo "systemd 模式需要 Node.js >= 20" >&2
     exit 1
   fi
-  if ! command -v vertu-cli >/dev/null 2>&1; then
-    echo "systemd 模式找不到 vertu-cli；请安装固定版本: npm install -g vertu-cli@2.1.10" >&2
+  if ! command -v vps-work >/dev/null 2>&1; then
+    echo "systemd 模式找不到 vps-work；请安装固定版本: npm install -g vps-work@2.1.3" >&2
     exit 1
   fi
-  vertu-cli --version
+  vps-work --version
   python3 - "$ENV_FILE" <<'PY'
 import json
 import os
@@ -151,7 +151,7 @@ for raw_line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     if key in {"VERTU_VPS_SERVICE_URL", "VERTU_APP_ID", "VERTU_APP_KEY", "VERTU_USER_LOGIN"}:
         env[key] = value.strip()
 result = subprocess.run(
-    ["vertu-cli", "auth", "scopes", "--json"],
+    ["vps-work", "auth", "scopes", "--json"],
     env=env,
     capture_output=True,
     text=True,

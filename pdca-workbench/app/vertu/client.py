@@ -12,21 +12,12 @@ from pathlib import Path
 
 from loguru import logger
 
-from app.config import get_settings
-
 
 def resolve_vertu_command() -> str:
-    """解析 vertu-cli 可执行路径。"""
-    settings = get_settings()
-    if settings.vertu_command and Path(settings.vertu_command).exists():
-        return settings.vertu_command
-    discovered = shutil.which(settings.vertu_command)
-    if discovered:
-        return discovered
-    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
-    if npm_cmd.exists():
-        return str(npm_cmd)
-    return settings.vertu_command
+    """解析 CLI 路径。实际命令是 vps-work，见 app.config.resolve_cli_command。"""
+    from app.config import resolve_cli_command
+
+    return resolve_cli_command()
 
 
 async def run_vertu(
@@ -44,6 +35,11 @@ async def run_vertu(
     bin_path = resolve_vertu_command()
     # Windows .cmd/.bat 文件必须经 cmd /c 执行，否则 asyncio 子进程无法识别
     if sys.platform == "win32" and bin_path.lower().endswith((".cmd", ".bat")):
+        try:
+            _reject_cmd_metachars(args)
+        except ValueError as exc:
+            logger.error("{}", exc)
+            return -1, "", str(exc)
         cmd = ["cmd", "/c", bin_path, *args]
     else:
         cmd = [bin_path, *args]
@@ -61,11 +57,33 @@ async def run_vertu(
             stderr_b.decode("utf-8", errors="replace"),
         )
     except asyncio.TimeoutError:
-        logger.warning("vertu-cli 超时: {}", " ".join(cmd))
+        # 必须真的杀掉子进程：以前只返回超时，命令仍在后台跑完——对 im +send-* 这类
+        # 写操作就是「调用方以为失败、消息其实发出去了」，重试还会再发一条（2026-09-20 审查）。
+        logger.warning("vertu-cli 超时，终止子进程: {}", " ".join(cmd))
+        try:
+            proc.kill()
+            await proc.wait()
+        except (ProcessLookupError, OSError) as exc:  # 进程可能已退出
+            logger.debug("vertu-cli 终止时进程已结束: {}", exc)
         return -1, "", f"timeout after {timeout}s"
     except OSError as exc:
         logger.error("vertu-cli 执行失败: {}", exc)
         return -1, "", str(exc)
+
+
+# Windows 上 vertu-cli 是 .cmd，必须经 cmd /c 启动，而 cmd.exe 会二次解析参数：
+# 参数里出现引号 + & | ^ < > % ! 就能拼出额外命令（2026-09-20 审查实测可执行 echo）。
+# 这里直接拒绝这类参数——调用方应该用 --body-file/env 传自由文本，而不是塞进命令行。
+_CMD_METACHARS = set('"&|^<>%')
+
+
+def _reject_cmd_metachars(args: list[str]) -> None:
+    """经 cmd /c 传参前做一次白名单式检查，命中直接拒绝（不执行）。"""
+    for item in args:
+        text = str(item)
+        hit = sorted({ch for ch in text if ch in _CMD_METACHARS})
+        if hit:
+            raise ValueError(f"参数含 cmd 特殊字符 {hit}，拒绝执行以免命令注入: {text[:60]!r}")
 
 
 def run_vertu_sync(
@@ -79,6 +97,11 @@ def run_vertu_sync(
     command = resolve_vertu_command()
     cmd = [command, *args]
     if sys.platform == "win32" and command.lower().endswith((".cmd", ".bat")):
+        try:
+            _reject_cmd_metachars(args)
+        except ValueError as exc:
+            logger.error("{}", exc)
+            return -1, "", str(exc)
         cmd = ["cmd", "/c", command, *args]
     try:
         completed = subprocess.run(
@@ -136,7 +159,15 @@ async def run_vertu_json(
     vertu sandbox 命令在有 permission notices 时返回 exit code 255（非错误），
     因此优先尝试解析 stdout JSON，仅在 stdout 为空时才把非零 exit code 视为失败。
     """
+    command = args[0] if args else ""
+    if command and command in _MISSING_COMMANDS:
+        return None
     code, stdout, stderr = await run_vertu(args, timeout=timeout)
+    err = stderr or ""
+    if code != 0 and command and "unknown command" in err.lower():
+        _MISSING_COMMANDS.add(command)
+        logger.warning("vps-work 没有子命令 {}，本进程不再调用", command)
+        return None
     text = stdout.strip()
     if text:
         try:
@@ -157,6 +188,12 @@ async def run_vertu_json(
 
 
 _HEALTH_CACHE: dict = {"ts": 0.0, "value": None}
+_MISSING_COMMANDS: set[str] = set()
+
+
+def cli_command_missing(name: str) -> bool:
+    """本进程里已经确认 vertu-cli 没有的子命令。"""
+    return name in _MISSING_COMMANDS
 
 
 async def vertu_health(force: bool = False) -> dict:
@@ -169,7 +206,7 @@ async def vertu_health(force: bool = False) -> dict:
     command = resolve_vertu_command()
     resolved = Path(command).is_file() or bool(shutil.which(command))
     if not resolved:
-        value = {"ok": False, "installed": False, "auth_mode": None, "detail": "vertu-cli 未安装"}
+        value = {"ok": False, "installed": False, "auth_mode": None, "detail": "vps-work 未安装"}
     else:
         # `auth status` in vertu-cli 2.1.x still requires a local
         # ~/.vertu/vps-service.json even when complete Agent credentials are
@@ -189,7 +226,7 @@ async def vertu_health(force: bool = False) -> dict:
             "installed": True,
             "auth_mode": "agent" if agent_app_id else "session",
             "never_expires": bool(agent_app_id),
-            "detail": None if authorized else "vertu-cli 凭据不可用",
+            "detail": None if authorized else "vps-work 凭据不可用",
         }
         if code != 0:
             logger.warning("vertu-cli auth scopes 失败: {}", (stderr or "")[:200])

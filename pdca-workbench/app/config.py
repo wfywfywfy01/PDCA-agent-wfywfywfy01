@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import pathlib
+
+from loguru import logger
 import json
 import shutil
 from functools import lru_cache
@@ -17,21 +20,84 @@ DEFAULT_MVP = APP_ROOT.parent / "data_platform" / "data_role_pdca_mvp"
 DEFAULT_REPO = APP_ROOT.parent
 
 
+# vertu-cli / vertu 是旧二进制。VERTU_COMMAND 还写着这些名字时忽略，去找 vps-work。
+_STALE_CLI_NAMES = {
+    "vertu-cli",
+    "vertu-cli.cmd",
+    "vertu-cli.ps1",
+    "vertu",
+    "vertu.cmd",
+    "vertu.ps1",
+}
+
+
+def resolve_cli_command() -> str:
+    """找 vps-work。显式 VERTU_COMMAND 指向别的文件时照用。都没有才退回 vertu-cli。"""
+    configured = os.environ.get("VERTU_COMMAND", "").strip()
+    name = Path(configured).name.lower()
+    if configured and name not in _STALE_CLI_NAMES:
+        path = Path(configured)
+        if path.exists():
+            return str(path.resolve())
+        discovered = shutil.which(configured)
+        if discovered:
+            return discovered
+    for candidate in ("vps-work", "vps-work.cmd"):
+        discovered = shutil.which(candidate)
+        if discovered:
+            return discovered
+    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vps-work.cmd"
+    if npm_cmd.exists():
+        return str(npm_cmd)
+    legacy = shutil.which("vertu-cli") or shutil.which("vertu-cli.cmd")
+    if legacy:
+        logger.warning("未找到 vps-work，暂用 vertu-cli: {}", legacy)
+        return legacy
+    return configured or "vps-work"
+
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    """布尔开关：1/true/yes/on 都算开启，非法值按默认值处理（不静默关掉功能）。"""
+    raw = os.environ.get(name)
+    if raw is None:
+        raw = default
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "on", "y"}:
+        return True
+    if text in {"0", "false", "no", "off", "n", ""}:
+        return False
+    return str(default).strip() == "1"
+
+
+def _env_int(name: str, default: str = "0") -> int:
+    """整数开关：空串/非数字回退默认值，绝不让 Settings() 抛异常（否则容器起不来）。"""
+    try:
+        return int(str(os.environ.get(name, default)).strip() or default)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _env_float(name: str, default: str = "0") -> float:
+    """浮点开关：同上。"""
+    try:
+        return float(str(os.environ.get(name, default)).strip() or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 class Settings:
     """运行时配置。"""
 
     def __init__(self) -> None:
         self.app_root = APP_ROOT
         self.host = os.environ.get("PDCA_HOST", "0.0.0.0")
-        self.port = int(os.environ.get("PDCA_WORKBENCH_PORT", "8767"))
+        self.port = _env_int("PDCA_WORKBENCH_PORT", "8767")
         self.secret_key = os.environ.get(
             "PDCA_SECRET_KEY",
             "pdca-dev-secret-change-in-production",
         )
         self.algorithm = "HS256"
-        self.access_token_expire_minutes = int(
-            os.environ.get("PDCA_TOKEN_EXPIRE_MINUTES", "480"),
-        )
+        self.access_token_expire_minutes = _env_int("PDCA_TOKEN_EXPIRE_MINUTES", "480")
         mvp = os.environ.get("PDCA_MVP_ROOT", str(DEFAULT_MVP))
         repo = os.environ.get("PDCA_REPO_ROOT", str(DEFAULT_REPO))
         self.mvp_root = Path(mvp).resolve()
@@ -43,41 +109,101 @@ class Settings:
         self.data_dir = APP_ROOT / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.database_url = self._resolve_database_url()
+        # 2026-09-21：本机进程直连生产库是事故源（本机跑任务会占生产档位、甚至真外发）。
+        # 这里判定「非容器 + 连的不是本机库」，由 run_ledger 拒绝占用档位。
+        _db = self.database_url
+        _local_db = any(_h in _db for _h in ("localhost", "127.0.0.1", "@db:", "host.docker.internal"))
+        _in_container = pathlib.Path("/.dockerenv").exists() or bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
+        self.remote_db_from_host = (not _local_db) and (not _in_container)
+        if self.remote_db_from_host:
+            logger.warning("本机进程直连远程数据库：默认禁止占用生产档位，放行请设 PDCA_ALLOW_REMOTE_DB=1")
         self.vertu_command = self._resolve_vertu_command()
-        self.require_vertu = os.environ.get(
+        self.require_vertu = _env_flag(
             "PDCA_REQUIRE_VERTU",
             "1" if os.environ.get("PDCA_ENV", "development").strip().lower() == "production" else "0",
-        ) == "1"
+        )
         # Vemory 全量拉取（经销商部门会议列表/详情/音频直链 API）
         self.vemory_dept_ids = os.environ.get(
             "PDCA_VEMORY_DEPT_IDS", "2231,2227,2223,2230"
         ).strip()
         try:
-            self.vemory_page_size = int(os.environ.get("PDCA_VEMORY_PAGE_SIZE", "50"))
+            self.vemory_page_size = _env_int("PDCA_VEMORY_PAGE_SIZE", "50")
         except ValueError:
             self.vemory_page_size = 50
         try:
-            self.vemory_max_pages = int(os.environ.get("PDCA_VEMORY_MAX_PAGES", "20"))
+            self.vemory_max_pages = _env_int("PDCA_VEMORY_MAX_PAGES", "20")
         except ValueError:
             self.vemory_max_pages = 20
         try:
-            self.vemory_audio_cache_ttl = int(
-                os.environ.get("PDCA_VEMORY_AUDIO_CACHE_TTL", "1800")
-            )
+            self.vemory_audio_cache_ttl = _env_int("PDCA_VEMORY_AUDIO_CACHE_TTL", "1800")
         except ValueError:
             self.vemory_audio_cache_ttl = 1800
-        self.include_demo_data = os.environ.get("PDCA_INCLUDE_DEMO_DATA", "0") == "1"
-        self.max_reported_revenue_usd = float(
-            os.environ.get("PDCA_MAX_REPORTED_REVENUE_USD", "5000000")
-        )
-        self.revenue_review_threshold_usd = float(
-            os.environ.get("PDCA_REVENUE_REVIEW_THRESHOLD_USD", "1000000")
-        )
-        self.scheduler_enabled = os.environ.get("PDCA_SCHEDULER_ENABLED", "1") == "1"
+        self.include_demo_data = _env_flag("PDCA_INCLUDE_DEMO_DATA", "0")
+        self.max_reported_revenue_usd = _env_float("PDCA_MAX_REPORTED_REVENUE_USD", "5000000")
+        self.revenue_review_threshold_usd = _env_float("PDCA_REVENUE_REVIEW_THRESHOLD_USD", "1000000")
+        self.scheduler_enabled = _env_flag("PDCA_SCHEDULER_ENABLED", "1")
         # 每日经营日报推送（08:30，服务器自跑）；走 VPS IM 机器人通道
-        self.daily_report_enabled = os.environ.get("PDCA_DAILY_REPORT_ENABLED", "1") == "1"
+        self.daily_report_enabled = _env_flag("PDCA_DAILY_REPORT_ENABLED", "1")
+        # 海外日报群总结（默认 08:00，前 24 小时总分结构）；文案确认前默认关闭
+        self.daily_digest_enabled = (
+            _env_flag("PDCA_DAILY_DIGEST_ENABLED", "0")
+        )
+        self.daily_digest_time = os.environ.get("PDCA_DAILY_DIGEST_TIME", "08:00").strip()
+        # 策略核查挂在 08:00 campaign 任务上，读 wa_strategies.json。这个开关不再单独注册任务。
+        self.strategy_wa_brief_enabled = (
+            _env_flag("PDCA_STRATEGY_WA_BRIEF_ENABLED", "0")
+        )
+        self.strategy_wa_brief_time = os.environ.get(
+            "PDCA_STRATEGY_WA_BRIEF_TIME", "08:00"
+        ).strip()
+        try:
+            self.strategy_wa_brief_user_id = int(
+                os.environ.get("PDCA_STRATEGY_WA_BRIEF_USER_ID", "13102") or 13102
+            )
+        except ValueError:
+            self.strategy_wa_brief_user_id = 13102
+        # 督战证据日报（每天一份 HTML 落 data/exports/evidence，08:00 前生成）
+        self.evidence_report_enabled = (
+            _env_flag("PDCA_EVIDENCE_REPORT_ENABLED", "1")
+        )
+        self.evidence_report_time = os.environ.get(
+            "PDCA_EVIDENCE_REPORT_TIME", "07:30"
+        ).strip()
+        # 发完当天继续留 2 周（老板 2026-09-20 拍板：不压缩，只留 14 天）
+        self.evidence_report_keep_days = _env_int("PDCA_EVIDENCE_REPORT_KEEP_DAYS", "14")
+        # 每周一 09:00 提醒人工备份一次（保留期只有 2 周，归档靠人）
+        self.backup_reminder_enabled = _env_flag("PDCA_BACKUP_REMINDER_ENABLED", "1")
+        self.backup_reminder_time = os.environ.get(
+            "PDCA_BACKUP_REMINDER_TIME", "09:00"
+        ).strip()
+        self.backup_reminder_user_ids = [
+            int(item.strip())
+            for item in os.environ.get("PDCA_BACKUP_REMINDER_USER_IDS", "").split(",")
+            if item.strip().isdigit()
+        ]
+        # 策略 WhatsApp 核查（每天 08:00，前 24 小时；策略见 wa_strategies.json）
+        self.campaign_wa_check_enabled = (
+            _env_flag("PDCA_CAMPAIGN_WA_CHECK_ENABLED", "1")
+        )
+        self.campaign_wa_check_time = os.environ.get(
+            "PDCA_CAMPAIGN_WA_CHECK_TIME", "08:00"
+        ).strip()
+        self.campaign_wa_check_days = int(
+            os.environ.get("PDCA_CAMPAIGN_WA_CHECK_DAYS", "2") or 2
+        )
+        self.campaign_wa_check_user_ids = [
+            int(item.strip())
+            for item in os.environ.get("PDCA_CAMPAIGN_WA_CHECK_USER_IDS", "").split(",")
+            if item.strip().isdigit()
+        ]
+        self.campaign_wa_check_channel_id = os.environ.get(
+            "PDCA_CAMPAIGN_WA_CHECK_CHANNEL_ID", ""
+        ).strip()
+        self.evidence_report_images = int(
+            os.environ.get("PDCA_EVIDENCE_REPORT_IMAGES", "24") or 24
+        )
         # 海外渠道督战官：独立机器人，按群时区推 10:00/15:00/20:00。
-        self.duzhan_enabled = os.environ.get("PDCA_DUZHAN_ENABLED", "0") == "1"
+        self.duzhan_enabled = _env_flag("PDCA_DUZHAN_ENABLED", "0")
         self.duzhan_bot_app_id = os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip()
         self.duzhan_bot_app_secret = os.environ.get(
             "PDCA_DUZHAN_BOT_APP_SECRET", ""
@@ -89,20 +215,29 @@ class Settings:
         ]
         # 10/15/20 是推送整点；提前这么多分钟跑采集组表。
         try:
-            lead = int(os.environ.get("PDCA_DUZHAN_LEAD_MINUTES", "15"))
+            lead = _env_int("PDCA_DUZHAN_LEAD_MINUTES", "15")
         except ValueError:
             lead = 15
         self.duzhan_lead_minutes = min(60, max(5, lead))
         # @海外渠道督战官 才回；默认跟督战开关走，1 分钟轮询。
-        self.duzhan_reply_enabled = os.environ.get(
+        # 三档只出总结性内容（明细走每天 08:00 的证据 HTML）；=0 回到长版
+        self.duzhan_compact = _env_flag("PDCA_DUZHAN_COMPACT", "1")
+        self.duzhan_reply_enabled = _env_flag(
             "PDCA_DUZHAN_REPLY_ENABLED",
             "1" if self.duzhan_enabled else "0",
-        ) == "1"
-        # C转B 跟进群：工作日 20:00 追一次 WhatsApp，默认跟督战开关。
-        self.ctob_enabled = os.environ.get(
+        )
+        # C转B 跟进群：与达标群同结构（10:00 定任务 / 15:00 追变化 / 20:00 验兑现）。
+        self.ctob_enabled = _env_flag(
             "PDCA_CTOB_ENABLED",
             "1" if self.duzhan_enabled else "0",
-        ) == "1"
+        )
+        # C转B 三档同样只出总结性内容；=0 回到长版
+        self.ctob_compact = _env_flag("PDCA_CTOB_COMPACT", "1")
+        self.ctob_times = [
+            item.strip()
+            for item in os.environ.get("PDCA_CTOB_TIMES", "10:00,15:00,20:00").split(",")
+            if item.strip()
+        ]
         self.aisales_mcp_url = os.environ.get(
             "PDCA_AISALES_MCP_URL",
             "https://aisales-report.vertu.cn/mcp",
@@ -115,47 +250,67 @@ class Settings:
         ).strip()
         self.qwen_api_key = os.environ.get("PDCA_QWEN_API_KEY", "").strip()
         self.qwen_model = os.environ.get("PDCA_QWEN_MODEL", "qwen3.8-27b").strip()
+        # TLS：网关证书由公共 CA 签发，默认走标准校验；若日后换成内网 CA，
+        # 用 PDCA_QWEN_CA_BUNDLE 指向 CA 文件即可，禁止退回 verify=False。
+        self.qwen_ca_bundle = os.environ.get("PDCA_QWEN_CA_BUNDLE", "").strip()
+        # 采集并发：MTO 图片 OCR 按人并发（Qwen 是单机推理，默认 3）。
+        try:
+            self.mto_ocr_workers = max(1, _env_int("PDCA_MTO_OCR_WORKERS", "3"))
+        except ValueError:
+            self.mto_ocr_workers = 3
+        # 每人最多 OCR 多少张图（每日 4 款方案，多了既慢又没信息量）。
+        try:
+            self.mto_ocr_max_images = max(1, _env_int("PDCA_MTO_OCR_MAX_IMAGES", "8"))
+        except ValueError:
+            self.mto_ocr_max_images = 8
+        # OCR 总预算：超时未完成的按「待确认」，绝不拖过整点推送窗口。
+        try:
+            self.mto_ocr_budget_seconds = max(0, _env_int("PDCA_MTO_OCR_BUDGET_SECONDS", "420"))
+        except ValueError:
+            self.mto_ocr_budget_seconds = 420
         self.vemory_api_url = os.environ.get("PDCA_VEMORY_API_URL", "").strip()
         self.duzhan_agent_im_html = os.environ.get("PDCA_DUZHAN_AGENT_IM_HTML", "").strip()
         # ── 多智能体督战运行时（migrations 011；规格 docs/多智能体督战系统实施规格.md）──
         # 部署默认全部关闭/影子：模型故障与 Agent 异常绝不阻断现有三追。
-        self.agent_enabled = os.environ.get("PDCA_AGENT_ENABLED", "0") == "1"
-        self.agent_shadow_mode = os.environ.get("PDCA_AGENT_SHADOW_MODE", "1") == "1"
-        self.agent_outbox_enabled = os.environ.get("PDCA_AGENT_OUTBOX_ENABLED", "0") == "1"
+        self.agent_enabled = _env_flag("PDCA_AGENT_ENABLED", "0")
+        self.agent_shadow_mode = _env_flag("PDCA_AGENT_SHADOW_MODE", "1")
+        self.agent_outbox_enabled = _env_flag("PDCA_AGENT_OUTBOX_ENABLED", "0")
         self.agent_auto_template_push = (
-            os.environ.get("PDCA_AGENT_AUTO_TEMPLATE_PUSH", "0") == "1"
+            _env_flag("PDCA_AGENT_AUTO_TEMPLATE_PUSH", "0")
         )
-        self.agent_task_write = os.environ.get("PDCA_AGENT_TASK_WRITE", "0") == "1"
-        self.agent_llm_draft = os.environ.get("PDCA_AGENT_LLM_DRAFT", "0") == "1"
+        self.agent_task_write = _env_flag("PDCA_AGENT_TASK_WRITE", "0")
+        self.agent_llm_draft = _env_flag("PDCA_AGENT_LLM_DRAFT", "0")
         self.agent_healthcheck_enabled = (
-            os.environ.get("PDCA_AGENT_HEALTHCHECK_ENABLED", "1") == "1"
+            _env_flag("PDCA_AGENT_HEALTHCHECK_ENABLED", "1")
         )
         try:
-            self.agent_healthcheck_delay_minutes = int(
-                os.environ.get("PDCA_AGENT_HEALTHCHECK_DELAY_MINUTES", "5")
-            )
+            self.agent_healthcheck_delay_minutes = _env_int("PDCA_AGENT_HEALTHCHECK_DELAY_MINUTES", "5")
         except ValueError:
             self.agent_healthcheck_delay_minutes = 5
+        # MTO 图片下载残留隔日清理（默认开启；只清理 temp/mto-ocr-* 前缀）。
+        self.mto_temp_cleanup_enabled = (
+            _env_flag("PDCA_MTO_TEMP_CLEANUP_ENABLED", "1")
+        )
+        # 报价图属敏感资料：进程被强杀会留残图，清理改成每小时跑、阈值 6 小时。
+        self.mto_temp_max_age_hours = _env_float("PDCA_MTO_TEMP_MAX_AGE_HOURS", "6")
         # 主 Agent（Supervisor）：供应商无关，参数由环境变量配置。
-        self.supervisor_enabled = os.environ.get("PDCA_SUPERVISOR_ENABLED", "0") == "1"
+        self.supervisor_enabled = _env_flag("PDCA_SUPERVISOR_ENABLED", "0")
         # 豆包 ASR：默认关闭；模式 fallback/verify/always 由适配层消费。
-        self.asr_enabled = os.environ.get("PDCA_ASR_ENABLED", "0") == "1"
+        self.asr_enabled = _env_flag("PDCA_ASR_ENABLED", "0")
         try:
-            self.asr_timeout_seconds = int(
-                os.environ.get("PDCA_DOUBAO_ASR_TIMEOUT_SECONDS", "180")
-            )
+            self.asr_timeout_seconds = _env_int("PDCA_DOUBAO_ASR_TIMEOUT_SECONDS", "180")
         except ValueError:
             self.asr_timeout_seconds = 180
         # MTO 视觉能力：复用现有 Qwen 配置。
-        self.mto_vision_enabled = os.environ.get("PDCA_MTO_VISION_ENABLED", "1") == "1"
+        self.mto_vision_enabled = _env_flag("PDCA_MTO_VISION_ENABLED", "1")
         self.sync_cron = os.environ.get("PDCA_SYNC_CRON", "0 6 * * *")
         # 待办催办（提醒跟进）：VPS IM 私聊本人。
         # PDCA_TODO_REMIND_TIMES 为逗号分隔的 HH:MM 列表，默认上午/下午各一轮。
-        self.todo_remind_enabled = os.environ.get("PDCA_TODO_REMIND_ENABLED", "1") == "1"
+        self.todo_remind_enabled = _env_flag("PDCA_TODO_REMIND_ENABLED", "1")
         # 派生写任务独立关闭：生产首次启用前必须完成 dry-run 与目标核验。
-        self.todo_scoring_enabled = os.environ.get("PDCA_TODO_SCORING_ENABLED", "0") == "1"
+        self.todo_scoring_enabled = _env_flag("PDCA_TODO_SCORING_ENABLED", "0")
         self.todo_ledger_sync_enabled = (
-            os.environ.get("PDCA_TODO_LEDGER_SYNC_ENABLED", "0") == "1"
+            _env_flag("PDCA_TODO_LEDGER_SYNC_ENABLED", "0")
         )
         self.todo_remind_times = [
             item.strip()
@@ -207,7 +362,7 @@ class Settings:
         # 群知会（每天把待办丢到工作大群让大家认领，再进入私聊跟进）：
         # 启用开关 + 群会话 id + 发送时刻（默认 09:00，早于 09:30 私聊轮）。
         self.todo_group_notice_enabled = (
-            os.environ.get("PDCA_TODO_GROUP_NOTICE_ENABLED", "0") == "1"
+            _env_flag("PDCA_TODO_GROUP_NOTICE_ENABLED", "0")
         )
         self.todo_group_channel_id = os.environ.get(
             "PDCA_TODO_GROUP_CHANNEL_ID", ""
@@ -225,13 +380,11 @@ class Settings:
         self.todo_ledger_doc_id = os.environ.get("PDCA_TODO_LEDGER_DOC_ID", "").strip()
         # 每日催收简报接收人（user_id，默认付汪阳 13365）：18:20 机器人发送
         # 已完成/有进度/无回复 分类 + 升级链名单。
-        self.todo_report_user_id = int(
-            os.environ.get("PDCA_TODO_REPORT_USER_ID", "13365")
-        )
+        self.todo_report_user_id = _env_int("PDCA_TODO_REPORT_USER_ID", "13365")
         # 每日催收简报开关（显式启用，默认关，与打分/台账一致）。
-        self.todo_brief_enabled = os.environ.get("PDCA_TODO_BRIEF_ENABLED", "0") == "1"
+        self.todo_brief_enabled = _env_flag("PDCA_TODO_BRIEF_ENABLED", "0")
         # 待办/项目 ↔ 个人 OKR 挂接（显式启用，默认关）。
-        self.todo_okr_link_enabled = os.environ.get("PDCA_TODO_OKR_LINK_ENABLED", "0") == "1"
+        self.todo_okr_link_enabled = _env_flag("PDCA_TODO_OKR_LINK_ENABLED", "0")
         self.workbench_base_url = os.environ.get(
             "PDCA_WORKBENCH_URL",
             "https://pdca-workbench-teams.vertu.cn/app/",
@@ -249,23 +402,19 @@ class Settings:
             "PDCA_VEMORY_DEPT_IDS", "2231,2227,2223,2230"
         ).strip()
         try:
-            self.vemory_page_size = int(os.environ.get("PDCA_VEMORY_PAGE_SIZE", "50"))
+            self.vemory_page_size = _env_int("PDCA_VEMORY_PAGE_SIZE", "50")
         except ValueError:
             self.vemory_page_size = 50
         try:
-            self.vemory_max_pages = int(os.environ.get("PDCA_VEMORY_MAX_PAGES", "20"))
+            self.vemory_max_pages = _env_int("PDCA_VEMORY_MAX_PAGES", "20")
         except ValueError:
             self.vemory_max_pages = 20
         try:
-            self.vemory_audio_cache_ttl = int(
-                os.environ.get("PDCA_VEMORY_AUDIO_CACHE_TTL", "1800")
-            )
+            self.vemory_audio_cache_ttl = _env_int("PDCA_VEMORY_AUDIO_CACHE_TTL", "1800")
         except ValueError:
             self.vemory_audio_cache_ttl = 1800
         # Vemory 无截止待办：会议满该小时数后才进入催办（对齐 todo-tracker 语义）。
-        self.todo_remind_grace_hours = float(
-            os.environ.get("PDCA_TODO_REMIND_GRACE_HOURS", "48")
-        )
+        self.todo_remind_grace_hours = _env_float("PDCA_TODO_REMIND_GRACE_HOURS", "48")
         self.log_level = os.environ.get("PDCA_LOG_LEVEL", "INFO")
         self.environment = os.environ.get("PDCA_ENV", "development").strip().lower()
         # 独立 logistics-track 运营台的私网地址。留空时不启用同源挂载；
@@ -285,14 +434,12 @@ class Settings:
             raw_logistics_admin if valid_logistics_admin else ""
         )
         try:
-            self.logistics_admin_timeout_seconds = float(
-                os.environ.get("PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS", "15")
-            )
+            self.logistics_admin_timeout_seconds = _env_float("PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS", "15")
         except ValueError:
             self.logistics_admin_timeout_seconds = 15.0
         if self.logistics_admin_timeout_seconds <= 0:
             self.logistics_admin_timeout_seconds = 15.0
-        self.knowledge_hub_enabled = os.environ.get("PDCA_KNOWLEDGE_HUB_ENABLED", "0") == "1"
+        self.knowledge_hub_enabled = _env_flag("PDCA_KNOWLEDGE_HUB_ENABLED", "0")
         raw_knowledge_url = os.environ.get(
             "PDCA_KNOWLEDGE_HUB_URL", "http://127.0.0.1:8080"
         ).strip().rstrip("/")
@@ -318,9 +465,7 @@ class Settings:
         self.knowledge_hub_token_secret = os.environ.get(
             "PDCA_KNOWLEDGE_HUB_TOKEN_SECRET", ""
         ).strip()
-        self.knowledge_hub_timeout_seconds = float(
-            os.environ.get("PDCA_KNOWLEDGE_HUB_TIMEOUT_SECONDS", "45")
-        )
+        self.knowledge_hub_timeout_seconds = _env_float("PDCA_KNOWLEDGE_HUB_TIMEOUT_SECONDS", "45")
         try:
             team_map = json.loads(os.environ.get(
                 "PDCA_KNOWLEDGE_HUB_TEAM_MAP", '{"overseas":"overseas-sales"}'
@@ -343,7 +488,7 @@ class Settings:
         )
         self.acquisition_url = acquisition_url if valid_acquisition_url else ""
         self.acquisition_enabled = (
-            os.environ.get("PDCA_ACQUISITION_ENABLED", "1").strip() == "1"
+            _env_flag("PDCA_ACQUISITION_ENABLED", "1")
             and bool(self.acquisition_url)
         )
         self.acquisition_frame_origin = (
@@ -362,8 +507,8 @@ class Settings:
                 origin = f"{parsed.scheme}://{parsed.netloc}"
                 if origin not in self.frame_ancestors:
                     self.frame_ancestors.append(origin)
-        self.workers = int(os.environ.get("PDCA_WORKERS", "2"))
-        self.secure_cookies = os.environ.get("PDCA_SECURE_COOKIES", "0") == "1"
+        self.workers = _env_int("PDCA_WORKERS", "2")
+        self.secure_cookies = _env_flag("PDCA_SECURE_COOKIES", "0")
         raw_mode = os.environ.get("PDCA_AUTH_MODE", "local").strip().lower()
         if raw_mode not in ("local", "vps", "hybrid"):
             raw_mode = "local"
@@ -376,20 +521,20 @@ class Settings:
             "https://vps.vertu.cn",
         ).strip()
         # 信任反向代理注入的 X-VPS-User-* / X-Forwarded-User（多用户生产）
-        self.trust_proxy_headers = os.environ.get("PDCA_TRUST_PROXY_HEADERS", "0") == "1"
+        self.trust_proxy_headers = _env_flag("PDCA_TRUST_PROXY_HEADERS", "0")
         self.trusted_proxy_ips = {
             item.strip()
             for item in os.environ.get("PDCA_TRUSTED_PROXY_IPS", "").split(",")
             if item.strip()
         }
         self.trust_proxy_role_header = (
-            os.environ.get("PDCA_TRUST_PROXY_ROLE_HEADER", "0") == "1"
+            _env_flag("PDCA_TRUST_PROXY_ROLE_HEADER", "0")
         )
         self.allow_sqlite_fallback = (
-            os.environ.get("PDCA_ALLOW_SQLITE_FALLBACK", "0") == "1"
+            _env_flag("PDCA_ALLOW_SQLITE_FALLBACK", "0")
         )
         # 每次 VPS 同步是否覆盖本地 role（默认 0，保留手工调权）
-        self.vps_sync_role = os.environ.get("PDCA_VPS_SYNC_ROLE", "0") == "1"
+        self.vps_sync_role = _env_flag("PDCA_VPS_SYNC_ROLE", "0")
         # 精简部署（如五件套录入独立容器）没有经营首页数据时，把 "/" 重定向到指定路径，
         # 而不是显示"功能不可用"兜底页。留空则保持原有的经营首页行为。
         self.home_redirect = os.environ.get("PDCA_HOME_REDIRECT", "").strip()
@@ -417,20 +562,8 @@ class Settings:
         ).strip()
 
     def _resolve_vertu_command(self) -> str:
-        """解析 vertu-cli 可执行文件完整路径（Windows 需 .cmd 绝对路径）。"""
-        configured = os.environ.get("VERTU_COMMAND", "vertu-cli").strip()
-        if Path(configured).name.lower() in {"vertu", "vertu.cmd", "vertu.ps1"}:
-            configured = "vertu-cli"
-        configured_path = Path(configured)
-        if configured_path.exists():
-            return str(configured_path.resolve())
-        discovered = shutil.which(configured)
-        if discovered:
-            return discovered
-        npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
-        if npm_cmd.exists():
-            return str(npm_cmd)
-        return configured
+        """解析 CLI 路径。vertu-cli 已失效，默认 vps-work。"""
+        return resolve_cli_command()
 
     def _resolve_database_url(self) -> str:
         """解析 PostgreSQL 连接串。"""

@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 
 import httpx
+from loguru import logger
 
 from app.config import get_settings
 
@@ -111,8 +112,16 @@ def _push(
             timeout=15.0,
         )
         if resp.status_code != 200:
+            logger.warning(
+                "VPS 推送失败 status={} channel={}：{}",
+                resp.status_code,
+                (channel_id or "")[:8],
+                (resp.text or "")[:200],
+            )
             return False
         payload = resp.json()
         return bool(payload.get("ok"))
-    except Exception:  # noqa: BLE001 — 推送失败仅返回 False，由调用方降级
+    except Exception as exc:  # noqa: BLE001 — 推送失败仅返回 False，由调用方降级
+        # 必须留日志：否则运维无法区分密钥失效 / 网关 5xx / 网络超时（2026-09-20 审查发现）
+        logger.warning("VPS 推送异常 channel={}: {}", (channel_id or "")[:8], exc)
         return False

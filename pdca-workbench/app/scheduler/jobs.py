@@ -499,6 +499,241 @@ def kpi_refresh_job() -> None:
     return
 
 
+def campaign_wa_check_job() -> None:
+    """每天 08:00：按 wa_strategies.json 查前 24 小时 WhatsApp。
+
+    换策略改 data/runtime/wa_strategies.json（没有则用 app/wa_strategies.json），不改代码。
+    生成 HTML → 发共享名单（app/im_files）。失败不静默。
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.im_files import resolve_user_ids, send_files
+    from app.scheduler.run_ledger import claim_run, finish_run
+    from app.strategy_wa_brief import run_report
+
+    settings = get_settings()
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+    if not claim_run("campaign_wa_check", day):
+        logger.info("策略核查本日已出，跳过 {}", day)
+        return
+    try:
+        result = run_report(day)
+    except Exception as exc:  # noqa: BLE001 — 采集/渲染失败要留痕并告警
+        logger.exception("策略核查生成失败: {}", exc)
+        finish_run("campaign_wa_check", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("策略核查生成失败", str(exc)[:200])
+        return
+    try:
+        delivery = send_files(
+            html_path=result["html"],
+            user_ids=resolve_user_ids(settings, "campaign_wa_check_user_ids"),
+            channel_id=getattr(settings, "campaign_wa_check_channel_id", "") or "",
+            caption=result.get("body") or "",
+            idempotency_key="strategy-wa-" + day,
+        )
+    except Exception as exc:  # noqa: BLE001 — 发送异常必须记失败，08:30 才能补
+        logger.exception("策略核查发送异常: {}", exc)
+        finish_run("campaign_wa_check", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("策略核查发送异常", str(exc)[:200])
+        return
+    failed = delivery.get("failed") or []
+    sent = delivery.get("sent") or []
+    if failed or not sent:
+        detail = ",".join(failed) if failed else "无人收到"
+        logger.warning("策略核查发送失败: {}", detail)
+        finish_run("campaign_wa_check", day, "failed", detail[:200])
+        notify("策略核查发送失败", detail[:200])
+        return
+    finish_run("campaign_wa_check", day, "sent", ",".join(sent)[:200])
+    logger.info("策略核查完成 {}｜发送 {}", result.get("html"), sent)
+
+
+def evidence_report_job() -> None:
+    """每天 07:30：把前一日全部证据导成单文件 HTML（数据日=昨天），供人工核对。
+
+    只读采集（台账 + 群原话 + MTO 原图/OCR），写到 data/exports/evidence/，
+    由本机计划任务在 08:00 拉到桌面。失败不静默，只告警不发群。
+    """
+    import shutil
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.evidence_report import save_report
+    from app.scheduler.run_ledger import claim_run, finish_run
+
+    settings = get_settings()
+    day = (
+        datetime.now(ZoneInfo("Asia/Shanghai")) - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+    if not claim_run("evidence_report", day):
+        logger.info("证据日报本日已生成，跳过 {}", day)
+        return
+    out_dir = settings.data_dir / "exports" / "evidence"
+    try:
+        summary = save_report(
+            day, out_dir, int(getattr(settings, "evidence_report_images", 24) or 24)
+        )
+    except Exception as exc:  # noqa: BLE001 — 采集/渲染失败要留痕并告警
+        logger.exception("证据日报生成失败: {}", exc)
+        finish_run("evidence_report", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("督战证据日报生成失败", str(exc)[:200])
+        return
+    finish_run("evidence_report", day, "sent", f"{summary.get('bytes')} bytes")
+    logger.info(
+        "证据日报已生成 {}｜{} KB｜{} 人｜{} 张图｜{} 秒",
+        summary.get("html"),
+        round(int(summary.get("bytes") or 0) / 1024),
+        summary.get("people"),
+        summary.get("images"),
+        summary.get("elapsed_seconds"),
+    )
+    _prune_evidence_reports(out_dir)
+
+
+def _prune_evidence_reports(out_dir, keep: int | None = None) -> None:
+    """只保留最近 N 天产物（默认 14 天＝2 周），避免磁盘只涨不降。
+
+    老板 2026-09-20 拍板：发完当天继续留 2 周即可，不做压缩；
+    每周由 backup_reminder_job 提醒人工归档。删失败不影响主流程。
+    """
+    if keep is None:
+        settings = get_settings()
+        try:
+            keep = int(getattr(settings, "evidence_report_keep_days", 14) or 14)
+        except (TypeError, ValueError):
+            keep = 14
+    keep = max(1, keep)
+    try:
+        files = sorted(
+            (item for item in out_dir.glob("*.html") if item.is_file()),
+            key=lambda item: item.stat().st_mtime,
+        )
+        for stale in files[: max(len(files) - keep, 0)]:
+            stale.unlink(missing_ok=True)
+            stale.with_suffix(".json").unlink(missing_ok=True)
+    except OSError as exc:  # noqa: BLE001
+        logger.warning("证据日报清理旧文件失败: {}", exc)
+
+
+def backup_reminder_job() -> None:
+    """每周一 09:00：提醒人工做一次备份（老板 2026-09-20 要求「一周提醒一次」）。
+
+    证据 HTML 只留最近 14 天，归档动作必须由人做，所以这条提醒本身就是保留策略的一部分。
+    按 ISO 周做 claim，一周只提醒一次；用 IM 私聊（机器人身份），不打扰群。
+    """
+    import tempfile
+    from datetime import datetime
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    from app.im_files import resolve_user_ids
+    from app.scheduler.run_ledger import claim_run, finish_run
+    from app.vertu.client import run_vertu_sync
+
+    settings = get_settings()
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    week = now.strftime("%G-W%V")
+    if not claim_run("backup_reminder", week):
+        logger.info("本周备份提醒已发出，跳过 {}", week)
+        return
+    user_ids = resolve_user_ids(settings, "backup_reminder_user_ids")
+    if not user_ids:
+        logger.warning("备份提醒没配收件人（PDCA_BACKUP_REMINDER_USER_IDS / PDCA_MGMT_HTML_USER_IDS），跳过")
+        finish_run("backup_reminder", week, "failed", "no recipients")
+        return
+    evidence_dir = settings.data_dir / "exports" / "evidence"
+    keep_days = int(getattr(settings, "evidence_report_keep_days", 14) or 14)
+    try:
+        files = sorted(evidence_dir.glob("督战证据_*.html"))
+        newest = files[-1].name if files else "（还没有生成）"
+    except OSError:
+        newest = "（读取失败）"
+    body = (
+        f"【每周备份提醒｜{week}】\n"
+        "1) 证据 HTML：容器 data/exports/evidence/（保留最近 " + str(keep_days) + " 天）"
+        "→ 把桌面上的「督战证据_*.html」归档到 V Drive/网盘；最新一份：" + newest + "\n"
+        "2) 数据库：部署机 /opt/pdca/backups 的 pdca-before-*.dump（每次部署自动备份）→ 每周导出一份留档\n"
+        "3) 目标文件：pdca-workbench/app/monthly_sales_targets.json（每月更新后一并备份）\n"
+        "本提醒每周一 09:00 自动发出（一周一次）。"
+    )
+    bot_app_id = (
+        getattr(settings, "duzhan_bot_app_id", "") or getattr(settings, "todo_bot_app_id", "")
+    ).strip()
+    sent: list[str] = []
+    failed: list[str] = []
+    tmp_dir = Path(tempfile.mkdtemp(prefix="backup-reminder-"))
+    body_file = tmp_dir / "body.txt"
+    body_file.write_text(body, encoding="utf-8")
+    try:
+        for user_id in user_ids:
+            args = (
+                ["im", "+bot-send-user", "--app-id", bot_app_id]
+                if bot_app_id
+                else ["im", "+send-user"]
+            )
+            args += ["--user-id", str(user_id), "--body-file", str(body_file)]
+            args += ["--idempotency-key", f"backup-reminder-{week}-{user_id}"]
+            code, out, err = run_vertu_sync(args, timeout=60.0)
+            if code == 0:
+                sent.append(f"user:{user_id}")
+            else:
+                failed.append(f"user:{user_id}")
+                logger.warning("备份提醒发送失败 {}: {}", user_id, (err or out or "")[:160])
+    finally:
+        import shutil
+
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    if failed:
+        finish_run("backup_reminder", week, "failed", ",".join(failed)[:200])
+        notify("每周备份提醒发送失败", str(failed))
+        return
+    finish_run("backup_reminder", week, "sent", ",".join(sent)[:200])
+    logger.info("每周备份提醒已发出 {}｜{}", week, sent)
+
+
+def daily_digest_job() -> None:
+    """海外日报群总结（08:00）：过去 24 小时、总分结构；失败不静默。
+
+    频道与日报群 Agent 实例同源（PDCA_TODO_GROUP_CHANNEL_ID），只用
+    PDCA_DAILY_DIGEST_* 开关控制；claim_run 保证一天最多一次，推送失败
+    原地重试一次（与核心日报同款兜底），仍失败则告警留痕。
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.daily_digest import build_digest, push_digest
+    from app.scheduler.run_ledger import claim_run, finish_run
+
+    day = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    if not claim_run("daily_digest", day):
+        logger.info("海外日报群总结本日已发出，跳过重复外发 {}", day)
+        return
+    try:
+        body = build_digest(day)
+    except Exception as exc:  # noqa: BLE001 — 采集/渲染失败必须留痕并告警
+        logger.exception("海外日报群总结生成失败: {}", exc)
+        finish_run("daily_digest", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("海外日报群总结生成失败", str(exc)[:200])
+        return
+    result = push_digest(day, body=body)
+    if not result.get("sent"):
+        # 瞬时网络/机器人抖动：60 秒后重试一次，正文不变。
+        logger.warning(
+            "海外日报群总结首次未发出（{}），60 秒后重试 {}", result.get("reason"), day
+        )
+        time.sleep(60)
+        result = push_digest(day, body=body)
+    if result.get("sent"):
+        finish_run("daily_digest", day, "sent", f"{result.get('chars')} 字")
+        logger.info("海外日报群总结已推送 {}（{} 字）", day, result.get("chars"))
+        return
+    reason = str(result.get("reason") or "未发送")
+    finish_run("daily_digest", day, "failed", reason)
+    logger.warning("海外日报群总结未发出 {}: {}", day, reason)
+    notify("海外日报群总结未发出", f"{day}｜{reason}")
+
+
 def daily_report_job() -> None:
     """每日经营日报（08:30）：容器内直连生产库 → VPS IM 群。
 
@@ -572,19 +807,20 @@ def duzhan_job(tz_name: str, hour: int) -> None:
         logger.info("督战官已推送 {} {}", tz_name, hour)
 
 
-def ctob_job() -> None:
-    """工作日北京 20:00：16 个 C转B 群 WhatsApp 晚追（P2 封装）。"""
-    from app.agents.flow_controller import run_ctob_evening
+def ctob_job(hour: int = 20) -> None:
+    """工作日北京 10:00 / 15:00 / 20:00：16 个 C转B 群按档推送（P2 封装）。"""
+    from app.agents.flow_controller import run_ctob_slot
 
-    result = run_ctob_evening()
+    result = run_ctob_slot(hour)
+    label = f"{hour:02d}:00 C转B"
     if result.get("skipped"):
-        logger.info("C转B 晚追跳过 {}", result["skipped"])
+        logger.info("{}跳过 {}", label, result["skipped"])
     elif result.get("status") == "failed":
-        logger.error("C转B 晚追失败: {}", result.get("error"))
+        logger.error("{}失败: {}", label, result.get("error"))
     elif result.get("status") == "partial":
-        logger.error("C转B 晚追部分失败: {}", result.get("failed"))
+        logger.error("{}部分失败: {}", label, result.get("failed"))
     else:
-        logger.info("C转B 晚追已推送 {}", result.get("sent"))
+        logger.info("{}已推送 {}", label, result.get("sent"))
 
 
 def agent_slot_health_job() -> None:
@@ -644,6 +880,29 @@ def outbox_send_job() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.exception("Outbox 发送异常: {}", exc)
         notify("Outbox 发送异常", str(exc)[:200])
+
+
+def mto_temp_cleanup_job() -> None:
+    """每日 03:30 — MTO 图片下载残留隔日清理（只清理 temp/mto-ocr-* 前缀）。
+
+    正常路径 OCR 完即删；本任务兜底容器重启/进程崩溃留下的临时目录。
+    """
+    from app.mto_ocr import cleanup_temp_files
+
+    settings = get_settings()
+    if not getattr(settings, "mto_temp_cleanup_enabled", True):
+        logger.info("MTO 临时文件清理已关闭 (PDCA_MTO_TEMP_CLEANUP_ENABLED=0)")
+        return
+    try:
+        result = cleanup_temp_files(getattr(settings, "mto_temp_max_age_hours", 6.0))
+        logger.info(
+            "MTO 临时文件清理完成 removed={} freed_bytes={}",
+            result.get("removed"),
+            result.get("freed_bytes"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("MTO 临时文件清理异常: {}", exc)
+        notify("MTO 临时文件清理失败", str(exc)[:200])
 
 
 def duzhan_at_poll_job() -> None:
@@ -933,7 +1192,7 @@ def start_scheduler() -> BackgroundScheduler | None:
                     trigger="cron",
                     hour=collect_hour,
                     minute=collect_minute,
-                    day_of_week="mon-fri",
+                    day_of_week="mon-sun",
                     timezone=zone,
                     id=f"duzhan_collect_{tz_slug}_{hour:02d}",
                     max_instances=1,
@@ -946,9 +1205,26 @@ def start_scheduler() -> BackgroundScheduler | None:
                     trigger="cron",
                     hour=hour,
                     minute=0,
-                    day_of_week="mon-fri",
+                    day_of_week="mon-sun",
                     timezone=zone,
                     id=f"duzhan_{tz_slug}_{hour:02d}",
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+                # 补发兜底（对齐核心日报 08:30/09:30 双触发模式）：+30 分钟再触发
+                # 一次推送，共享 claim_run 台账——健康时跳过；崩溃/漏跑时补上，
+                # 且 VPS 幂等键保证绝不重复推给群。
+                backup_hour, backup_minute = collect_clock(hour, -30)
+                _scheduler.add_job(
+                    duzhan_job,
+                    args=[tz_name, hour],
+                    trigger="cron",
+                    hour=backup_hour,
+                    minute=backup_minute,
+                    day_of_week="mon-sun",
+                    timezone=zone,
+                    id=f"duzhan_backup_{tz_slug}_{hour:02d}",
                     max_instances=1,
                     coalesce=True,
                     misfire_grace_time=3600,
@@ -963,21 +1239,125 @@ def start_scheduler() -> BackgroundScheduler | None:
                 coalesce=True,
             )
 
+    # 08:00 — 策略核查（wa_strategies.json，前 24 小时）。08:30 备份共享 claim，不重复发。
+    if getattr(settings, "campaign_wa_check_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        campaign_time = str(getattr(settings, "campaign_wa_check_time", "08:00") or "08:00")
+        try:
+            campaign_hour, campaign_minute = (int(part) for part in campaign_time.split(":", 1))
+            campaign_backup = campaign_hour * 60 + campaign_minute + 30
+            for job_id, hour, minute in (
+                ("campaign_wa_check", campaign_hour, campaign_minute),
+                ("campaign_wa_check_backup", (campaign_backup // 60) % 24, campaign_backup % 60),
+            ):
+                _scheduler.add_job(
+                    campaign_wa_check_job,
+                    trigger="cron",
+                    hour=hour,
+                    minute=minute,
+                    day_of_week="mon-sun",
+                    timezone=ZoneInfo("Asia/Shanghai"),
+                    id=job_id,
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法策略核查时间: {}", campaign_time)
+
+    # 07:30 — 督战证据日报（前一日全部证据导 HTML）：PDCA_EVIDENCE_REPORT_ENABLED=1 才注册。
+    # 与本机计划任务配合：容器生成 → 08:00 拉到桌面，固定测试流程每天一份。
+    if getattr(settings, "evidence_report_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        evidence_time = str(getattr(settings, "evidence_report_time", "07:30") or "07:30")
+        try:
+            evidence_hour, evidence_minute = (
+                int(part) for part in evidence_time.split(":", 1)
+            )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法证据日报时间: {}", evidence_time)
+        else:
+            _scheduler.add_job(
+                evidence_report_job,
+                trigger="cron",
+                hour=evidence_hour,
+                minute=evidence_minute,
+                day_of_week="mon-sun",
+                timezone=ZoneInfo("Asia/Shanghai"),
+                id="evidence_report",
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=3600,
+            )
+
+    # 08:00 — 海外日报群总结（前 24 小时总分结构）：PDCA_DAILY_DIGEST_ENABLED=1 才注册。
+    # 08:30 备份触发共享 claim 台账：健康时跳过，漏跑时补上，绝不重复推群。
+    if getattr(settings, "daily_digest_enabled", False):
+        from zoneinfo import ZoneInfo
+
+        digest_time = str(getattr(settings, "daily_digest_time", "08:00") or "08:00")
+        try:
+            digest_hour, digest_minute = (int(part) for part in digest_time.split(":", 1))
+            total_minutes = digest_hour * 60 + digest_minute
+            slots = {"daily_digest": total_minutes, "daily_digest_backup": total_minutes + 30}
+            for job_id, minutes in slots.items():
+                _scheduler.add_job(
+                    daily_digest_job,
+                    trigger="cron",
+                    hour=(minutes // 60) % 24,
+                    minute=minutes % 60,
+                    day_of_week="mon-sun",
+                    timezone=ZoneInfo("Asia/Shanghai"),
+                    id=job_id,
+                    max_instances=1,
+                    coalesce=True,
+                    misfire_grace_time=3600,
+                )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法日报群总结时间: {}", digest_time)
+
     if getattr(settings, "ctob_enabled", False):
         from zoneinfo import ZoneInfo
 
-        _scheduler.add_job(
-            ctob_job,
-            trigger="cron",
-            hour=20,
-            minute=0,
-            day_of_week="mon-fri",
-            timezone=ZoneInfo("Asia/Shanghai"),
-            id="ctob_2000",
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=3600,
-        )
+        # C转B 与达标群同结构：10:00 定任务 / 15:00 追变化 / 20:00 验兑现。
+        raw_times = getattr(settings, "ctob_times", ["10:00", "15:00", "20:00"])
+        for slot in raw_times:
+            try:
+                hour_text, minute_text = str(slot).split(":", 1)
+                hour, minute = int(hour_text), int(minute_text)
+            except (ValueError, AttributeError):
+                logger.warning("忽略非法 C转B 档位时间: {}", slot)
+                continue
+            _scheduler.add_job(
+                ctob_job,
+                args=[hour],
+                trigger="cron",
+                hour=hour,
+                minute=minute,
+                day_of_week="mon-sun",
+                timezone=ZoneInfo("Asia/Shanghai"),
+                id=f"ctob_{hour:02d}{minute:02d}",
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=3600,
+            )
+            # 补发兜底（+30 分钟）：共享同档台账与幂等键，绝不重复推送。
+            backup = hour * 60 + minute + 30
+            _scheduler.add_job(
+                ctob_job,
+                args=[hour],
+                trigger="cron",
+                hour=(backup // 60) % 24,
+                minute=backup % 60,
+                day_of_week="mon-sun",
+                timezone=ZoneInfo("Asia/Shanghai"),
+                id=f"ctob_backup_{(backup // 60) % 24:02d}{backup % 60:02d}",
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=3600,
+            )
 
     # ── 多智能体督战运行时调度（全部默认关闭/影子，模型故障不阻断确定性任务）──
     # P0：档位健康检查，每 5 分钟扫窗口（各时区本地整点后 5 分钟内检查）。
@@ -1016,6 +1396,47 @@ def start_scheduler() -> BackgroundScheduler | None:
                     misfire_grace_time=3600,
                 )
 
+    # 每周一 09:00：提醒人工备份（证据 HTML 只留 14 天，归档靠人）。
+    if getattr(settings, "backup_reminder_enabled", True):
+        from zoneinfo import ZoneInfo as _TzBackup
+
+        try:
+            _bk_hour, _bk_minute = (
+                int(part)
+                for part in str(getattr(settings, "backup_reminder_time", "09:00") or "09:00").split(":", 1)
+            )
+        except (ValueError, AttributeError):
+            logger.warning("忽略非法备份提醒时间，回退 09:00")
+            _bk_hour, _bk_minute = 9, 0
+        _scheduler.add_job(
+            backup_reminder_job,
+            trigger="cron",
+            day_of_week="mon",
+            hour=_bk_hour,
+            minute=_bk_minute,
+            timezone=_TzBackup("Asia/Shanghai"),
+            id="backup_reminder",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=3600,
+        )
+
+    # MTO 图片下载残留清理：每小时 15 分（北京时间）+ 6 小时阈值。
+    # 报价图属敏感资料，进程被强杀会留下 mto-ocr-* 残图，等一天太久了。
+    if getattr(settings, "mto_temp_cleanup_enabled", True):
+        from zoneinfo import ZoneInfo as _TzCleanup
+
+        _scheduler.add_job(
+            mto_temp_cleanup_job,
+            trigger="cron",
+            minute=15,
+            timezone=_TzCleanup("Asia/Shanghai"),
+            id="mto_temp_cleanup",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=900,
+        )
+
     # P1：Outbox 发送轮（只发已批准消息）。
     if getattr(settings, "agent_outbox_enabled", False):
         _scheduler.add_job(
@@ -1031,14 +1452,29 @@ def start_scheduler() -> BackgroundScheduler | None:
     logger.info(
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
         "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00 "
-        "im_reply_poll=*/30 9-18 duzhan={} collect=-{}m at_poll={} ctob20={} "
-        "agent={} shadow={} health={} outbox={}",
+        "im_reply_poll=*/30 9-18 duzhan={}(+30m兜底) collect=-{}m at_poll={} "
+        "ctob={}(+30m兜底) digest={} strategy_wa={} evidence={} agent={} shadow={} health={} outbox={}",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
         getattr(settings, "duzhan_times", []) if getattr(settings, "duzhan_enabled", False) else "停用",
         getattr(settings, "duzhan_lead_minutes", 0) if getattr(settings, "duzhan_enabled", False) else 0,
         "1m" if getattr(settings, "duzhan_enabled", False) and getattr(settings, "duzhan_reply_enabled", False) else "停用",
-        "开" if getattr(settings, "ctob_enabled", False) else "停用",
+        getattr(settings, "ctob_times", []) if getattr(settings, "ctob_enabled", False) else "停用",
+        (
+            f"{getattr(settings, 'daily_digest_time', '08:00')}(+30m兜底)"
+            if getattr(settings, "daily_digest_enabled", False)
+            else "停用"
+        ),
+        (
+            f"{getattr(settings, 'campaign_wa_check_time', '08:00')}(+30m兜底)"
+            if getattr(settings, "campaign_wa_check_enabled", False)
+            else "停用"
+        ),
+        (
+            f"{getattr(settings, 'evidence_report_time', '07:30')}"
+            if getattr(settings, "evidence_report_enabled", False)
+            else "停用"
+        ),
         "开" if getattr(settings, "agent_enabled", False) else "停用",
         "开" if getattr(settings, "agent_shadow_mode", False) else "关",
         "开" if getattr(settings, "agent_healthcheck_enabled", False) else "停用",

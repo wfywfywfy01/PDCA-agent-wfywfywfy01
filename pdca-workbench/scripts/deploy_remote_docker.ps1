@@ -236,11 +236,11 @@ function Get-AgentCredential {
         return $existing
     }
     # 首次部署才取本机默认 Agent，失败再回退 cursor。
-    $lines = & vertu-cli agent env --shell powershell 2>&1
+    $lines = & vps-work agent env --shell powershell 2>&1
     if ($LASTEXITCODE -ne 0) {
-        $lines = & vertu-cli agent env --app-id cursor --shell powershell 2>&1
+        $lines = & vps-work agent env --app-id cursor --shell powershell 2>&1
     }
-    if ($LASTEXITCODE -ne 0) { throw "vertu-cli agent env failed" }
+    if ($LASTEXITCODE -ne 0) { throw "vps-work agent env failed" }
     $text = $lines -join "`n"
     $appMatch = [regex]::Match(
         $text, "(?m)^\`$env:VERTU_APP_ID='((?:''|[^'])*)'\s*$"
@@ -256,7 +256,7 @@ function Get-AgentCredential {
             $text,
             "(?m)^\`$env:$name='((?:''|[^'])*)'\s*$"
         )
-        if (-not $match.Success) { throw "vertu-cli did not return $name" }
+        if (-not $match.Success) { throw "vps-work did not return $name" }
         $result[$name] = $match.Groups[1].Value.Replace("''", "'")
     }
     return $result
@@ -382,7 +382,7 @@ function Start-PdcaContainer {
         "-e", "PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080",
         "-e", "PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE=/run/secrets/dealer-knowledge-jwt.key",
         "-e", 'PDCA_KNOWLEDGE_HUB_TEAM_MAP={"overseas":"overseas-sales"}',
-        "-e", "VERTU_COMMAND=vertu-cli",
+        "-e", "VERTU_COMMAND=vps-work",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
         "-e", "VERTU_APP_ID=$($script:AgentAppId)"
@@ -397,6 +397,7 @@ function Start-PdcaContainer {
         "PDCA_DUZHAN_TIMES",
         "PDCA_DUZHAN_LEAD_MINUTES",
         "PDCA_DUZHAN_REPLY_ENABLED",
+        "PDCA_DUZHAN_COMPACT", "PDCA_CTOB_COMPACT",
         "LOGIBOT_ENABLED", "LOGIBOT_ROOT", "LOGIBOT_DATA_DIR",
         "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_APP_TOKEN", "FEISHU_TABLE_ID",
         "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
@@ -412,6 +413,16 @@ function Start-PdcaContainer {
         "PDCA_TODO_LEDGER_DOC_ID",
         "PDCA_VEMORY_OPENAPI_URL", "PDCA_VEMORY_TODO_USERS",
         "PDCA_DAILY_REPORT_ENABLED",
+        # 海外经销商-日报群 08:00 总结 + C转B 三档（老板 2026-09-18 确认）
+        "PDCA_DAILY_DIGEST_ENABLED", "PDCA_DAILY_DIGEST_TIME",
+        "PDCA_EVIDENCE_REPORT_ENABLED", "PDCA_EVIDENCE_REPORT_TIME",
+        "PDCA_EVIDENCE_REPORT_IMAGES",
+        "PDCA_EVIDENCE_REPORT_USER_IDS", "PDCA_EVIDENCE_REPORT_CHANNEL_ID",
+        "PDCA_MGMT_HTML_USER_IDS",
+        "PDCA_CAMPAIGN_WA_CHECK_ENABLED", "PDCA_CAMPAIGN_WA_CHECK_TIME",
+        "PDCA_CAMPAIGN_WA_CHECK_DAYS", "PDCA_CAMPAIGN_WA_CHECK_USER_IDS",
+        "PDCA_CAMPAIGN_WA_CHECK_CHANNEL_ID",
+        "PDCA_CTOB_ENABLED", "PDCA_CTOB_TIMES",
         # 督战官 WhatsApp 户数/意向（AINativeSales MCP 个人令牌）
         "PDCA_AISALES_MCP_URL", "PDCA_AISALES_MCP_TOKEN",
         "PDCA_ODOO_SSO_SECRET", "PDCA_ODOO_BASE_URL", "PDCA_VPS_LOGIN_URL", "PDCA_VPS_SYNC_ROLE",
@@ -428,10 +439,14 @@ function Start-PdcaContainer {
         "PDCA_SUPERVISOR_API_KEY", "PDCA_SUPERVISOR_TIMEOUT_SECONDS",
         "PDCA_SUPERVISOR_MAX_TOOL_CALLS",
         "PDCA_QWEN_BASE_URL", "PDCA_QWEN_API_KEY", "PDCA_QWEN_MODEL",
+        "PDCA_QWEN_CA_BUNDLE", "PDCA_MTO_OCR_WORKERS",
         "PDCA_ASR_ENABLED", "PDCA_ASR_PROVIDER", "PDCA_DOUBAO_ASR_URL",
         "PDCA_DOUBAO_ASR_APP_KEY", "PDCA_DOUBAO_ASR_ACCESS_KEY", "PDCA_DOUBAO_ASR_API_KEY",
         "PDCA_DOUBAO_ASR_RESOURCE_ID", "PDCA_DOUBAO_ASR_TIMEOUT_SECONDS",
-        "PDCA_DOUBAO_ASR_MODE", "PDCA_MTO_VISION_ENABLED"
+        "PDCA_DOUBAO_ASR_MODE", "PDCA_MTO_VISION_ENABLED",
+        "PDCA_MTO_TEMP_MAX_AGE_HOURS", "PDCA_MTO_OCR_MAX_IMAGES", "PDCA_MTO_OCR_BUDGET_SECONDS",
+        "PDCA_EVIDENCE_REPORT_KEEP_DAYS", "PDCA_BACKUP_REMINDER_ENABLED",
+        "PDCA_BACKUP_REMINDER_TIME", "PDCA_BACKUP_REMINDER_USER_IDS"
     )) {
         $envValue = Read-OptionalDotEnvValue $envName
         if ($null -ne $envValue) {
