@@ -25,6 +25,9 @@ _CTOB_SLOT_FOCUS = {
     20: "核验今日汽车/转B 对话与交付；未完成写原因并结转明早第一动作。",
 }
 _CTOB_REPLY_FORMAT = "回复格式：客户名 / 汽车或转B / 几轮 / 进度 / 卡点 / 要中台什么。没聊写「无」。"
+# 10:00 是「定任务」档：回复格式必须和本档动作要的字段一致（客户名/品类/第一动作/截止时间），
+# 否则同一条推文里两处要的东西不一样（老板 2026-09-22 指出）。
+_CTOB_REPLY_FORMAT_MORNING = "回复格式：客户名 / 汽车或转B / 品类 / 第一动作 / 截止时间。没聊写「无」。"
 
 
 def slot_title(hour: int) -> str:
@@ -388,7 +391,7 @@ def render_brief(
         *chat_lines,
         "卡点：" + ("；".join(blockers) if blockers else "MCP 未见汽车/转B卡点，待群内确认。"),
         f"可能要的支持：{support}",
-        _CTOB_REPLY_FORMAT,
+        _CTOB_REPLY_FORMAT_MORNING,
     ]
     return "\n".join(lines)
 
