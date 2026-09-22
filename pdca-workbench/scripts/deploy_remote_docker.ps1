@@ -100,6 +100,8 @@ function Invoke-DockerProcess {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $startInfo.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $startInfo
@@ -397,7 +399,7 @@ function Start-PdcaContainer {
         "PDCA_DUZHAN_TIMES",
         "PDCA_DUZHAN_LEAD_MINUTES",
         "PDCA_DUZHAN_REPLY_ENABLED",
-        "PDCA_DUZHAN_COMPACT",
+        "PDCA_DUZHAN_COMPACT", "PDCA_CTOB_COMPACT",
         "PDCA_MCP_API_KEYS",
         "LOGIBOT_ENABLED", "LOGIBOT_ROOT", "LOGIBOT_DATA_DIR",
         "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_APP_TOKEN", "FEISHU_TABLE_ID",

@@ -46,25 +46,37 @@ def send_files(
             getattr(settings, "duzhan_bot_app_id", "")
             or getattr(settings, "todo_bot_app_id", "")
         ).strip()
+    # 附件走 +bot-send-user（生产 CLI 会把文件传到 OSS）。没配机器人再回退登录账号。
     body_file = html.with_suffix(".body.txt")
     body_file.write_text(caption or html.stem, encoding="utf-8")
     attach = [str(html)] + [str(Path(item)) for item in extra_paths if Path(item).exists()]
     sent: list[str] = []
     failed: list[str] = []
+
+    def _user_args(user_id: int, idem: str, *, use_bot: bool = True) -> list[str]:
+        if bot_app_id and use_bot:
+            args = [
+                "im", "+bot-send-user", "--app-id", bot_app_id,
+                "--user-id", str(user_id), "--body-file", str(body_file),
+            ]
+        else:
+            args = ["im", "+send-user", "--user-id", str(user_id), "--body-file", str(body_file)]
+        for path in attach:
+            args += ["--attach", path]
+        args += ["--message-type", "file"]
+        if idem:
+            args += ["--idempotency-key", idem]
+        return args
+
     try:
         for user_id in user_ids or ():
-            args = (
-                ["im", "+bot-send-user", "--app-id", bot_app_id]
-                if bot_app_id
-                else ["im", "+send-user"]
-            )
-            args += ["--user-id", str(user_id), "--body-file", str(body_file)]
-            for path in attach:
-                args += ["--attach", path]
-            args += ["--message-type", "file"]
-            if idempotency_key:
-                args += ["--idempotency-key", f"{idempotency_key}-{user_id}"]
-            code, out, err = run_vertu_sync(args, timeout=180.0)
+            idem = f"{idempotency_key}-{user_id}" if idempotency_key else ""
+            code, out, err = run_vertu_sync(_user_args(int(user_id), idem), timeout=180.0)
+            blob = f"{err or ''} {out or ''}".lower()
+            if code != 0 and bot_app_id and "unknown" in blob and "command" in blob:
+                code, out, err = run_vertu_sync(
+                    _user_args(int(user_id), idem, use_bot=False), timeout=180.0
+                )
             if code == 0:
                 sent.append(f"user:{user_id}")
             else:

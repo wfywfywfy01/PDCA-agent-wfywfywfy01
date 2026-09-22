@@ -500,142 +500,54 @@ def kpi_refresh_job() -> None:
 
 
 def campaign_wa_check_job() -> None:
-    """每天 08:00：查 MCP 前 24 小时，看谁把腕表闪购活动讲到了 WhatsApp 客户面前。
+    """每天 08:00：按 wa_strategies.json 查前 24 小时 WhatsApp。
 
-    只读 MCP（conversations/evidence）→ 生成 HTML → 发共享名单（app/im_files）。
-    失败不静默；未配收件人则只落盘。
+    换策略改 data/runtime/wa_strategies.json（没有则用 app/wa_strategies.json），不改代码。
+    生成 HTML → 发共享名单（app/im_files）。失败不静默。
     """
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     from app.im_files import resolve_user_ids, send_files
     from app.scheduler.run_ledger import claim_run, finish_run
-    from app.wa_campaign_check import run_check
+    from app.strategy_wa_brief import run_report
 
     settings = get_settings()
     day = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
     if not claim_run("campaign_wa_check", day):
-        logger.info("腕表闪购核查本日已出，跳过 {}", day)
+        logger.info("策略核查本日已出，跳过 {}", day)
         return
-    out_dir = settings.data_dir / "exports" / "campaign_wa"
     try:
-        result = run_check(
-            out_dir,
-            days=int(getattr(settings, "campaign_wa_check_days", 2) or 2),
-            end=day,
-        )
+        result = run_report(day)
     except Exception as exc:  # noqa: BLE001 — 采集/渲染失败要留痕并告警
-        logger.exception("腕表闪购核查生成失败: {}", exc)
+        logger.exception("策略核查生成失败: {}", exc)
         finish_run("campaign_wa_check", day, "failed", f"{type(exc).__name__}: {exc}")
-        notify("腕表闪购核查生成失败", str(exc)[:200])
+        notify("策略核查生成失败", str(exc)[:200])
         return
-    summary = result.get("summary") or {}
-    people = summary.get("people") or []
-    hit = [item for item in people if item.get("verdict") == "明确传达了活动"]
-    miss = [item for item in people if item.get("verdict") != "明确传达了活动"]
-    caption = (
-        "【腕表闪购 · WhatsApp 触达核查｜前 24 小时】\n"
-        "区间：" + " ~ ".join(summary.get("period") or []) + "\n"
-        "已传达：" + ("、".join(item["display"] for item in hit) or "无") + "\n"
-        "待跟进：" + ("、".join(item["display"] for item in miss) or "无") + "\n"
-        "明细见附件 HTML（逐条原文可核）"
-    )
-    delivery = send_files(
-        html_path=result["html"],
-        user_ids=resolve_user_ids(settings, "campaign_wa_check_user_ids"),
-        channel_id=getattr(settings, "campaign_wa_check_channel_id", "") or "",
-        extra_paths=[result.get("json") or ""],
-        caption=caption,
-        idempotency_key="campaign-wa-" + day,
-    )
-    if delivery.get("failed"):
-        logger.warning("腕表闪购核查发送失败: {}", delivery["failed"])
-        notify("腕表闪购核查发送失败", str(delivery.get("failed"))[:200])
-    finish_run("campaign_wa_check", day, "sent", ",".join(delivery.get("sent") or [])[:200])
-    logger.info(
-        "腕表闪购核查完成 {}｜已传达 {} 人｜待跟进 {} 人｜发送 {}",
-        result.get("html"),
-        len(hit),
-        len(miss),
-        delivery.get("sent"),
-    )
-    _prune_evidence_reports(out_dir)
-
-
-def backup_reminder_job() -> None:
-    """每周一 09:00：提醒人工做一次备份（老板 2026-09-20 要求「一周提醒一次」）。
-
-    证据 HTML 只留最近 14 天，归档动作必须由人做，所以这条提醒本身就是保留策略的一部分。
-    按 ISO 周做 claim，一周只提醒一次；用 IM 私聊（机器人身份），不打扰群。
-    """
-    import tempfile
-    from datetime import datetime
-    from pathlib import Path
-    from zoneinfo import ZoneInfo
-
-    from app.im_files import resolve_user_ids
-    from app.scheduler.run_ledger import claim_run, finish_run
-    from app.vertu.client import run_vertu_sync
-
-    settings = get_settings()
-    now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    week = now.strftime("%G-W%V")
-    if not claim_run("backup_reminder", week):
-        logger.info("本周备份提醒已发出，跳过 {}", week)
-        return
-    user_ids = resolve_user_ids(settings, "backup_reminder_user_ids")
-    if not user_ids:
-        logger.warning("备份提醒没配收件人（PDCA_BACKUP_REMINDER_USER_IDS / PDCA_MGMT_HTML_USER_IDS），跳过")
-        finish_run("backup_reminder", week, "failed", "no recipients")
-        return
-    evidence_dir = settings.data_dir / "exports" / "evidence"
-    keep_days = int(getattr(settings, "evidence_report_keep_days", 14) or 14)
     try:
-        files = sorted(evidence_dir.glob("督战证据_*.html"))
-        newest = files[-1].name if files else "（还没有生成）"
-    except OSError:
-        newest = "（读取失败）"
-    body = (
-        f"【每周备份提醒｜{week}】\n"
-        "1) 证据 HTML：容器 data/exports/evidence/（保留最近 " + str(keep_days) + " 天）"
-        "→ 把桌面上的「督战证据_*.html」归档到 V Drive/网盘；最新一份：" + newest + "\n"
-        "2) 数据库：部署机 /opt/pdca/backups 的 pdca-before-*.dump（每次部署自动备份）→ 每周导出一份留档\n"
-        "3) 目标文件：pdca-workbench/app/monthly_sales_targets.json（每月更新后一并备份）\n"
-        "本提醒每周一 09:00 自动发出（一周一次）。"
-    )
-    bot_app_id = (
-        getattr(settings, "duzhan_bot_app_id", "") or getattr(settings, "todo_bot_app_id", "")
-    ).strip()
-    sent: list[str] = []
-    failed: list[str] = []
-    tmp_dir = Path(tempfile.mkdtemp(prefix="backup-reminder-"))
-    body_file = tmp_dir / "body.txt"
-    body_file.write_text(body, encoding="utf-8")
-    try:
-        for user_id in user_ids:
-            args = (
-                ["im", "+bot-send-user", "--app-id", bot_app_id]
-                if bot_app_id
-                else ["im", "+send-user"]
-            )
-            args += ["--user-id", str(user_id), "--body-file", str(body_file)]
-            args += ["--idempotency-key", f"backup-reminder-{week}-{user_id}"]
-            code, out, err = run_vertu_sync(args, timeout=60.0)
-            if code == 0:
-                sent.append(f"user:{user_id}")
-            else:
-                failed.append(f"user:{user_id}")
-                logger.warning("备份提醒发送失败 {}: {}", user_id, (err or out or "")[:160])
-    finally:
-        import shutil
-
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-    if failed:
-        finish_run("backup_reminder", week, "failed", ",".join(failed)[:200])
-        notify("每周备份提醒发送失败", str(failed))
+        delivery = send_files(
+            html_path=result["html"],
+            user_ids=resolve_user_ids(settings, "campaign_wa_check_user_ids"),
+            channel_id=getattr(settings, "campaign_wa_check_channel_id", "") or "",
+            caption=result.get("body") or "",
+            idempotency_key="strategy-wa-" + day,
+        )
+    except Exception as exc:  # noqa: BLE001 — 发送异常必须记失败，08:30 才能补
+        logger.exception("策略核查发送异常: {}", exc)
+        finish_run("campaign_wa_check", day, "failed", f"{type(exc).__name__}: {exc}")
+        notify("策略核查发送异常", str(exc)[:200])
         return
-    finish_run("backup_reminder", week, "sent", ",".join(sent)[:200])
-    logger.info("每周备份提醒已发出 {}｜{}", week, sent)
+    failed = delivery.get("failed") or []
+    sent = delivery.get("sent") or []
+    if failed or not sent:
+        detail = ",".join(failed) if failed else "无人收到"
+        logger.warning("策略核查发送失败: {}", detail)
+        finish_run("campaign_wa_check", day, "failed", detail[:200])
+        notify("策略核查发送失败", detail[:200])
+        return
+    finish_run("campaign_wa_check", day, "sent", ",".join(sent)[:200])
+    logger.info("策略核查完成 {}｜发送 {}", result.get("html"), sent)
+
 
 def evidence_report_job() -> None:
     """每天 07:30：把前一日全部证据导成单文件 HTML（数据日=昨天），供人工核对。
@@ -714,6 +626,82 @@ def _prune_evidence_reports(out_dir, keep: int | None = None) -> None:
             stale.with_suffix(".json").unlink(missing_ok=True)
     except OSError as exc:  # noqa: BLE001
         logger.warning("证据日报清理旧文件失败: {}", exc)
+
+
+def backup_reminder_job() -> None:
+    """每周一 09:00：提醒人工做一次备份（老板 2026-09-20 要求「一周提醒一次」）。
+
+    证据 HTML 只留最近 14 天，归档动作必须由人做，所以这条提醒本身就是保留策略的一部分。
+    按 ISO 周做 claim，一周只提醒一次；用 IM 私聊（机器人身份），不打扰群。
+    """
+    import tempfile
+    from datetime import datetime
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    from app.im_files import resolve_user_ids
+    from app.scheduler.run_ledger import claim_run, finish_run
+    from app.vertu.client import run_vertu_sync
+
+    settings = get_settings()
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    week = now.strftime("%G-W%V")
+    if not claim_run("backup_reminder", week):
+        logger.info("本周备份提醒已发出，跳过 {}", week)
+        return
+    user_ids = resolve_user_ids(settings, "backup_reminder_user_ids")
+    if not user_ids:
+        logger.warning("备份提醒没配收件人（PDCA_BACKUP_REMINDER_USER_IDS / PDCA_MGMT_HTML_USER_IDS），跳过")
+        finish_run("backup_reminder", week, "failed", "no recipients")
+        return
+    evidence_dir = settings.data_dir / "exports" / "evidence"
+    keep_days = int(getattr(settings, "evidence_report_keep_days", 14) or 14)
+    try:
+        files = sorted(evidence_dir.glob("督战证据_*.html"))
+        newest = files[-1].name if files else "（还没有生成）"
+    except OSError:
+        newest = "（读取失败）"
+    body = (
+        f"【每周备份提醒｜{week}】\n"
+        "1) 证据 HTML：容器 data/exports/evidence/（保留最近 " + str(keep_days) + " 天）"
+        "→ 把桌面上的「督战证据_*.html」归档到 V Drive/网盘；最新一份：" + newest + "\n"
+        "2) 数据库：部署机 /opt/pdca/backups 的 pdca-before-*.dump（每次部署自动备份）→ 每周导出一份留档\n"
+        "3) 目标文件：pdca-workbench/app/monthly_sales_targets.json（每月更新后一并备份）\n"
+        "本提醒每周一 09:00 自动发出（一周一次）。"
+    )
+    bot_app_id = (
+        getattr(settings, "duzhan_bot_app_id", "") or getattr(settings, "todo_bot_app_id", "")
+    ).strip()
+    sent: list[str] = []
+    failed: list[str] = []
+    tmp_dir = Path(tempfile.mkdtemp(prefix="backup-reminder-"))
+    body_file = tmp_dir / "body.txt"
+    body_file.write_text(body, encoding="utf-8")
+    try:
+        for user_id in user_ids:
+            args = (
+                ["im", "+bot-send-user", "--app-id", bot_app_id]
+                if bot_app_id
+                else ["im", "+send-user"]
+            )
+            args += ["--user-id", str(user_id), "--body-file", str(body_file)]
+            args += ["--idempotency-key", f"backup-reminder-{week}-{user_id}"]
+            code, out, err = run_vertu_sync(args, timeout=60.0)
+            if code == 0:
+                sent.append(f"user:{user_id}")
+            else:
+                failed.append(f"user:{user_id}")
+                logger.warning("备份提醒发送失败 {}: {}", user_id, (err or out or "")[:160])
+    finally:
+        import shutil
+
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    if failed:
+        finish_run("backup_reminder", week, "failed", ",".join(failed)[:200])
+        notify("每周备份提醒发送失败", str(failed))
+        return
+    finish_run("backup_reminder", week, "sent", ",".join(sent)[:200])
+    logger.info("每周备份提醒已发出 {}｜{}", week, sent)
 
 
 def daily_digest_job() -> None:
@@ -1263,8 +1251,7 @@ def start_scheduler() -> BackgroundScheduler | None:
                 coalesce=True,
             )
 
-    # 08:00 — 腕表闪购 WhatsApp 核查（查 MCP 前 24 小时，谁把活动讲给客户了）。
-    # PDCA_CAMPAIGN_WA_CHECK_ENABLED=1 才注册；08:30 备份共享 claim 台账，绝不重复发。
+    # 08:00 — 策略核查（wa_strategies.json，前 24 小时）。08:30 备份共享 claim，不重复发。
     if getattr(settings, "campaign_wa_check_enabled", False):
         from zoneinfo import ZoneInfo
 
@@ -1289,7 +1276,7 @@ def start_scheduler() -> BackgroundScheduler | None:
                     misfire_grace_time=3600,
                 )
         except (ValueError, AttributeError):
-            logger.warning("忽略非法腕表闪购核查时间: {}", campaign_time)
+            logger.warning("忽略非法策略核查时间: {}", campaign_time)
 
     # 07:30 — 督战证据日报（前一日全部证据导 HTML）：PDCA_EVIDENCE_REPORT_ENABLED=1 才注册。
     # 与本机计划任务配合：容器生成 → 08:00 拉到桌面，固定测试流程每天一份。
@@ -1445,6 +1432,7 @@ def start_scheduler() -> BackgroundScheduler | None:
             coalesce=True,
             misfire_grace_time=3600,
         )
+
     # MTO 图片下载残留清理：每小时 15 分（北京时间）+ 6 小时阈值。
     # 报价图属敏感资料，进程被强杀会留下 mto-ocr-* 残图，等一天太久了。
     if getattr(settings, "mto_temp_cleanup_enabled", True):
@@ -1477,7 +1465,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
         "vps_sellin=20:00 kpi_refresh=停用(F1) todo_remind={} vemory_todo_sync=16:00 "
         "im_reply_poll=*/30 9-18 duzhan={}(+30m兜底) collect=-{}m at_poll={} "
-        "ctob={}(+30m兜底) digest={} evidence={} agent={} shadow={} health={} outbox={}",
+        "ctob={}(+30m兜底) digest={} strategy_wa={} evidence={} agent={} shadow={} health={} outbox={}",
         settings.sync_cron,
         settings.todo_remind_times if settings.todo_remind_enabled else "停用",
         getattr(settings, "duzhan_times", []) if getattr(settings, "duzhan_enabled", False) else "停用",
@@ -1487,6 +1475,11 @@ def start_scheduler() -> BackgroundScheduler | None:
         (
             f"{getattr(settings, 'daily_digest_time', '08:00')}(+30m兜底)"
             if getattr(settings, "daily_digest_enabled", False)
+            else "停用"
+        ),
+        (
+            f"{getattr(settings, 'campaign_wa_check_time', '08:00')}(+30m兜底)"
+            if getattr(settings, "campaign_wa_check_enabled", False)
             else "停用"
         ),
         (

@@ -503,6 +503,7 @@ def _full_person_body(
         "2. 核心客户催款与回款进展（百分比量化 + 预计打款时间）：\n"
         f"{core}\n"
         "3. 每日 4 款 MTO 高奢方案输出（≥30万）：\n"
+        f"   • 摘要：{_mto_summary(person, lang)}\n"
         f"   • {mto}\n"
         "   • 触达记录：WhatsApp 发送截图以群内原图为准，未标截图则待确认\n"
         "4. 今日过程留痕与工时消耗：\n"
@@ -514,8 +515,43 @@ def _full_person_body(
         "5. 今日卡点与需协同解决项：\n"
         f"{blockers}\n"
         f"6. 附件证据：{evidence}\n"
-        f"7. 海外日报群核对：{daily}"
+        f"7. 海外日报群核对：{daily}\n"
+        + ((person or {}).get("meeting_todos") or "")
     )
+
+
+def _mto_summary(person: dict | None, lang: str) -> str:
+    """MTO 摘要行（老板 2026-09-22 要求）：N 款达标 + 型号/金额，读不出写待确认。"""
+    person = person or {}
+    quotes = [q for q in (person.get("mto_quotes") or []) if isinstance(q, dict)]
+    if not quotes:
+        count = person.get("mto_count")
+        if count is None:
+            return "pending" if lang == "en" else "待确认"
+        text = str(count)
+        return text + " qualified" if lang == "en" else text + " 款达标"
+    ok, near, unread = [], [], 0
+    for q in quotes:
+        model = str(q.get("model") or "").strip()
+        wan = q.get("wan")
+        label = model or ("model pending" if lang == "en" else "型号待确认")
+        if wan is None:
+            unread += 1
+            continue
+        money = f"{wan:g} wan" if lang == "en" else f"{wan:g}万"
+        (ok if q.get("qualifies") else near).append(f"{label} {money}")
+    parts = []
+    if ok:
+        parts.append((f"{len(ok)} qualified: " if lang == "en" else f"{len(ok)} 款达标：") + "、".join(ok[:3]))
+    elif lang == "zh":
+        parts.append("0 款达标")
+    else:
+        parts.append("0 qualified")
+    if near:
+        parts.append((f"{len(near)} under 300k" if lang == "en" else f"{len(near)} 款未满 30 万") + "（" + "、".join(near[:2]) + "）")
+    if unread:
+        parts.append(f"{unread} " + ("unreadable" if lang == "en" else "张读不出金额"))
+    return "｜".join(parts)
 
 
 def _perf_text(person: dict | None, lang: str) -> str:

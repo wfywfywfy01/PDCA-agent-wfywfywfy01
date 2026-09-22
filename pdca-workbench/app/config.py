@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import pathlib
+
+from loguru import logger
 import json
 import shutil
 from functools import lru_cache
@@ -15,6 +18,42 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(APP_ROOT / ".env")
 DEFAULT_MVP = APP_ROOT.parent / "data_platform" / "data_role_pdca_mvp"
 DEFAULT_REPO = APP_ROOT.parent
+
+
+# vertu-cli / vertu 是旧二进制。VERTU_COMMAND 还写着这些名字时忽略，去找 vps-work。
+_STALE_CLI_NAMES = {
+    "vertu-cli",
+    "vertu-cli.cmd",
+    "vertu-cli.ps1",
+    "vertu",
+    "vertu.cmd",
+    "vertu.ps1",
+}
+
+
+def resolve_cli_command() -> str:
+    """找 vps-work。显式 VERTU_COMMAND 指向别的文件时照用。都没有才退回 vertu-cli。"""
+    configured = os.environ.get("VERTU_COMMAND", "").strip()
+    name = Path(configured).name.lower()
+    if configured and name not in _STALE_CLI_NAMES:
+        path = Path(configured)
+        if path.exists():
+            return str(path.resolve())
+        discovered = shutil.which(configured)
+        if discovered:
+            return discovered
+    for candidate in ("vps-work", "vps-work.cmd"):
+        discovered = shutil.which(candidate)
+        if discovered:
+            return discovered
+    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vps-work.cmd"
+    if npm_cmd.exists():
+        return str(npm_cmd)
+    legacy = shutil.which("vertu-cli") or shutil.which("vertu-cli.cmd")
+    if legacy:
+        logger.warning("未找到 vps-work，暂用 vertu-cli: {}", legacy)
+        return legacy
+    return configured or "vps-work"
 
 
 def _env_flag(name: str, default: str = "0") -> bool:
@@ -70,6 +109,14 @@ class Settings:
         self.data_dir = APP_ROOT / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.database_url = self._resolve_database_url()
+        # 2026-09-21：本机进程直连生产库是事故源（本机跑任务会占生产档位、甚至真外发）。
+        # 这里判定「非容器 + 连的不是本机库」，由 run_ledger 拒绝占用档位。
+        _db = self.database_url
+        _local_db = any(_h in _db for _h in ("localhost", "127.0.0.1", "@db:", "host.docker.internal"))
+        _in_container = pathlib.Path("/.dockerenv").exists() or bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
+        self.remote_db_from_host = (not _local_db) and (not _in_container)
+        if self.remote_db_from_host:
+            logger.warning("本机进程直连远程数据库：默认禁止占用生产档位，放行请设 PDCA_ALLOW_REMOTE_DB=1")
         self.vertu_command = self._resolve_vertu_command()
         self.require_vertu = _env_flag(
             "PDCA_REQUIRE_VERTU",
@@ -102,6 +149,19 @@ class Settings:
             _env_flag("PDCA_DAILY_DIGEST_ENABLED", "0")
         )
         self.daily_digest_time = os.environ.get("PDCA_DAILY_DIGEST_TIME", "08:00").strip()
+        # 策略核查挂在 08:00 campaign 任务上，读 wa_strategies.json。这个开关不再单独注册任务。
+        self.strategy_wa_brief_enabled = (
+            _env_flag("PDCA_STRATEGY_WA_BRIEF_ENABLED", "0")
+        )
+        self.strategy_wa_brief_time = os.environ.get(
+            "PDCA_STRATEGY_WA_BRIEF_TIME", "08:00"
+        ).strip()
+        try:
+            self.strategy_wa_brief_user_id = int(
+                os.environ.get("PDCA_STRATEGY_WA_BRIEF_USER_ID", "13102") or 13102
+            )
+        except ValueError:
+            self.strategy_wa_brief_user_id = 13102
         # 督战证据日报（每天一份 HTML 落 data/exports/evidence，08:00 前生成）
         self.evidence_report_enabled = (
             _env_flag("PDCA_EVIDENCE_REPORT_ENABLED", "1")
@@ -121,7 +181,7 @@ class Settings:
             for item in os.environ.get("PDCA_BACKUP_REMINDER_USER_IDS", "").split(",")
             if item.strip().isdigit()
         ]
-        # 腕表闪购 WhatsApp 核查（每天 08:00 查 MCP 前 24 小时；默认开）
+        # 策略 WhatsApp 核查（每天 08:00，前 24 小时；策略见 wa_strategies.json）
         self.campaign_wa_check_enabled = (
             _env_flag("PDCA_CAMPAIGN_WA_CHECK_ENABLED", "1")
         )
@@ -523,20 +583,8 @@ class Settings:
         ).strip()
 
     def _resolve_vertu_command(self) -> str:
-        """解析 vertu-cli 可执行文件完整路径（Windows 需 .cmd 绝对路径）。"""
-        configured = os.environ.get("VERTU_COMMAND", "vertu-cli").strip()
-        if Path(configured).name.lower() in {"vertu", "vertu.cmd", "vertu.ps1"}:
-            configured = "vertu-cli"
-        configured_path = Path(configured)
-        if configured_path.exists():
-            return str(configured_path.resolve())
-        discovered = shutil.which(configured)
-        if discovered:
-            return discovered
-        npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
-        if npm_cmd.exists():
-            return str(npm_cmd)
-        return configured
+        """解析 CLI 路径。vertu-cli 已失效，默认 vps-work。"""
+        return resolve_cli_command()
 
     def _resolve_database_url(self) -> str:
         """解析 PostgreSQL 连接串。"""

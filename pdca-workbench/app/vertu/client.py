@@ -12,21 +12,12 @@ from pathlib import Path
 
 from loguru import logger
 
-from app.config import get_settings
-
 
 def resolve_vertu_command() -> str:
-    """解析 vertu-cli 可执行路径。"""
-    settings = get_settings()
-    if settings.vertu_command and Path(settings.vertu_command).exists():
-        return settings.vertu_command
-    discovered = shutil.which(settings.vertu_command)
-    if discovered:
-        return discovered
-    npm_cmd = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
-    if npm_cmd.exists():
-        return str(npm_cmd)
-    return settings.vertu_command
+    """解析 CLI 路径。实际命令是 vps-work，见 app.config.resolve_cli_command。"""
+    from app.config import resolve_cli_command
+
+    return resolve_cli_command()
 
 
 async def run_vertu(
@@ -168,7 +159,15 @@ async def run_vertu_json(
     vertu sandbox 命令在有 permission notices 时返回 exit code 255（非错误），
     因此优先尝试解析 stdout JSON，仅在 stdout 为空时才把非零 exit code 视为失败。
     """
+    command = args[0] if args else ""
+    if command and command in _MISSING_COMMANDS:
+        return None
     code, stdout, stderr = await run_vertu(args, timeout=timeout)
+    err = stderr or ""
+    if code != 0 and command and "unknown command" in err.lower():
+        _MISSING_COMMANDS.add(command)
+        logger.warning("vps-work 没有子命令 {}，本进程不再调用", command)
+        return None
     text = stdout.strip()
     if text:
         try:
@@ -189,6 +188,12 @@ async def run_vertu_json(
 
 
 _HEALTH_CACHE: dict = {"ts": 0.0, "value": None}
+_MISSING_COMMANDS: set[str] = set()
+
+
+def cli_command_missing(name: str) -> bool:
+    """本进程里已经确认 vertu-cli 没有的子命令。"""
+    return name in _MISSING_COMMANDS
 
 
 async def vertu_health(force: bool = False) -> dict:
@@ -201,7 +206,7 @@ async def vertu_health(force: bool = False) -> dict:
     command = resolve_vertu_command()
     resolved = Path(command).is_file() or bool(shutil.which(command))
     if not resolved:
-        value = {"ok": False, "installed": False, "auth_mode": None, "detail": "vertu-cli 未安装"}
+        value = {"ok": False, "installed": False, "auth_mode": None, "detail": "vps-work 未安装"}
     else:
         # `auth status` in vertu-cli 2.1.x still requires a local
         # ~/.vertu/vps-service.json even when complete Agent credentials are
@@ -221,7 +226,7 @@ async def vertu_health(force: bool = False) -> dict:
             "installed": True,
             "auth_mode": "agent" if agent_app_id else "session",
             "never_expires": bool(agent_app_id),
-            "detail": None if authorized else "vertu-cli 凭据不可用",
+            "detail": None if authorized else "vps-work 凭据不可用",
         }
         if code != 0:
             logger.warning("vertu-cli auth scopes 失败: {}", (stderr or "")[:200])

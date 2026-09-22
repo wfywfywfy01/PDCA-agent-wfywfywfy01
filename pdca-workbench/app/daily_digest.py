@@ -285,6 +285,12 @@ def build_digest(
     lines.append(
         "口径：已录单（开单额）=系统 sales 视图，非银行回款｜水单=已付款未到账｜意向=明确意向额；读不出写待确认。"
     )
+    from app.meeting_todos import block_for_mgmt
+
+    _mgmt_todos = block_for_mgmt(str(ledger_day or day))
+    if _mgmt_todos:
+        lines.append("")
+        lines.append(_mgmt_todos.rstrip())
     return chr(10).join(lines)
 
 

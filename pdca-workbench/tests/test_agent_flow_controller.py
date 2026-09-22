@@ -31,8 +31,17 @@ class FlowControllerTests(unittest.TestCase):
         # flow_controller 模块级导入 notify，patch 使用方模块。
         self.patch_notify = patch("app.agents.flow_controller.notify", self.notify_mock)
         self.patch_notify.start()
+        # 本机 .env 指向生产库时 claim_run 会直接拒档，测例走的是内存 sqlite。
+        from app.config import get_settings
+
+        settings = get_settings()
+        self._remote_db_backup = settings.remote_db_from_host
+        settings.remote_db_from_host = False
 
     def tearDown(self):
+        from app.config import get_settings
+
+        get_settings().remote_db_from_host = self._remote_db_backup
         self.patch_notify.stop()
         self.patch_ledger.stop()
         self.patch_events.stop()

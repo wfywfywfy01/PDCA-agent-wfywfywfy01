@@ -232,7 +232,7 @@ class CampaignJobTests(unittest.TestCase):
         ), mock.patch(
             "app.scheduler.run_ledger.finish_run"
         ), mock.patch(
-            "app.wa_campaign_check.run_check", return_value=fake_result
+            "app.strategy_wa_brief.run_report", return_value=fake_result
         ), mock.patch(
             "app.config.get_settings", return_value=settings
         ), mock.patch(
@@ -241,6 +241,45 @@ class CampaignJobTests(unittest.TestCase):
             scheduler_jobs.campaign_wa_check_job()
         self.assertEqual(len(sent), 3, "共享名单三个人都要发")
         self.assertEqual(len({call[2] for call in sent}), 1, "都发到同一个 user-id 位置")
+
+    def test_send_failure_is_failed_so_backup_can_retry(self):
+        """发出去失败必须记 failed，08:30 同一天台账才会再认领。"""
+        from app.scheduler import jobs as scheduler_jobs
+
+        settings = SimpleNamespace(
+            data_dir=Path(tempfile.mkdtemp()),
+            campaign_wa_check_user_ids=[13102],
+            campaign_wa_check_channel_id="",
+            mgmt_html_user_ids=[],
+            duzhan_bot_app_id="vbot",
+            todo_bot_app_id="",
+        )
+        html = Path(settings.data_dir) / "x.html"
+        html.write_text("<html>x</html>", encoding="utf-8")
+        finishes: list[tuple] = []
+
+        def finish(*args, **kwargs):
+            finishes.append(args)
+
+        with mock.patch.object(
+            scheduler_jobs, "get_settings", return_value=settings
+        ), mock.patch(
+            "app.scheduler.run_ledger.claim_run", return_value=True
+        ), mock.patch(
+            "app.scheduler.run_ledger.finish_run", side_effect=finish
+        ), mock.patch(
+            "app.strategy_wa_brief.run_report",
+            return_value={"html": str(html), "body": "策略核查"},
+        ), mock.patch(
+            "app.config.get_settings", return_value=settings
+        ), mock.patch(
+            "app.vertu.client.run_vertu_sync", return_value=(1, "", "network")
+        ), mock.patch(
+            "app.scheduler.jobs.notify"
+        ):
+            scheduler_jobs.campaign_wa_check_job()
+        self.assertTrue(finishes)
+        self.assertEqual(finishes[-1][2], "failed")
 
 
 if __name__ == "__main__":

@@ -320,7 +320,9 @@ def _vps_auth() -> tuple[str, dict]:
             "x-vertu-agent-app-id": env_id,
             "x-vertu-user-login": env_login,
         }
-    cfg_path = Path.home() / ".vertu" / "vps-service.json"
+    cfg_path = Path.home() / ".vps-work" / "vps-service.json"
+    if not cfg_path.is_file():
+        cfg_path = Path.home() / ".vertu" / "vps-service.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     base = str(cfg.get("baseUrl") or "https://vps-service.vertu.cn").rstrip("/")
     headers = {

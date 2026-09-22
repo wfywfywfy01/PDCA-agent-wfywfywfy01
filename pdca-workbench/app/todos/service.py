@@ -284,16 +284,18 @@ def send_direct_message(
     user_id: int | str,
     body: str,
     client_message_id: str,
+    attach: str | None = None,
 ) -> tuple[bool, str, str]:
     """给本人发私聊；返回 (成功, 失败原因, 消息 id)。
 
     配置 PDCA_TODO_BOT_APP_ID 时走机器人身份（im +bot-send-user），
     否则回退登录账号身份（im +send-user）。
+    带附件时一律 +send-user --attach（CLI 文档化的文件通道）。
     多行正文一律经 --body-file 传递（--body 参数在换行处会被截断）。
     """
     bot_app_id = get_settings().todo_bot_app_id
     args = ["im"]
-    if bot_app_id:
+    if bot_app_id and not attach:
         args += [
             "+bot-send-user",
             "--app-id", bot_app_id,
@@ -305,7 +307,11 @@ def send_direct_message(
             "--user-id", str(user_id),
         ]
     args += ["--client-message-id", client_message_id]
-    code, stdout, stderr = _send_with_body_file(args, body, timeout=30.0)
+    if attach:
+        args += ["--attach", attach]
+    code, stdout, stderr = _send_with_body_file(
+        args, body, timeout=60.0 if attach else 30.0
+    )
     if code == 0:
         message_id = ""
         try:

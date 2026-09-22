@@ -240,7 +240,10 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertFalse(result["from_snapshot"])
 
     def test_run_duzhan_paris_only_hits_lina(self):
-        with patch("app.duzhan.push_duzhan_message", return_value=True) as push:
+        empty = {"day": "2026-09-15", "people": [], "red": [], "black": []}
+        with patch("app.duzhan.push_duzhan_message", return_value=True) as push, patch(
+            "app.duzhan.collect_ledger", return_value=empty
+        ):
             result = run_duzhan(
                 TZ_PARIS,
                 10,
@@ -1171,7 +1174,10 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertTrue(any("ULTAVO" in item["title"] for item in haiwen))
 
     def test_run_duzhan_passes_idempotency_key(self):
-        with patch("app.duzhan.push_duzhan_message", return_value=True) as push:
+        empty = {"day": "2026-09-15", "people": [], "red": [], "black": []}
+        with patch("app.duzhan.push_duzhan_message", return_value=True) as push, patch(
+            "app.duzhan.collect_ledger", return_value=empty
+        ):
             run_duzhan(
                 TZ_PARIS,
                 10,
@@ -1184,6 +1190,19 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
 
 class DuzhanCompactSlotTests(unittest.TestCase):
     """2026-09-19 起三档只出总结性内容（明细走每天 08:00 的证据 HTML）。"""
+
+    def setUp(self):
+        from app.config import get_settings
+
+        settings = get_settings()
+        self._compact_backup = settings.duzhan_compact
+        settings.duzhan_compact = True
+        self.addCleanup(self._restore_compact)
+
+    def _restore_compact(self):
+        from app.config import get_settings
+
+        get_settings().duzhan_compact = self._compact_backup
 
     def _person(self, **over: object) -> dict:
         row = {

@@ -170,6 +170,8 @@ class MtoOcrTests(unittest.TestCase):
         self.assertEqual(headers["Authorization"], "Bearer env-key")
         self.assertEqual(headers["x-vertu-agent-app-id"], "env-app")
         self.assertEqual(headers["x-vertu-user-login"], "env@vertu.cn")
+        self.assertEqual(headers["x-vertu-auth-channel"], "vps-work")
+        self.assertEqual(headers["user-agent"], "vps-work")
 
     def test_webp_converted_to_png_before_ocr(self):
         """回归：本地 Qwen 网关 webp 直传读不出，须先转 PNG。

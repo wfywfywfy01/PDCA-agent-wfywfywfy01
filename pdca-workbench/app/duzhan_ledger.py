@@ -182,6 +182,8 @@ class PersonRow:
     daily_report: dict = field(default_factory=dict)
     # 日报群取数是否成功：失败时必须写「待确认」，不能渲染成「未见日报」并据此扣分。
     daily_report_ok: bool = True
+    # 第 8 节「今日早会待办」正文（按群分流，空串表示当天没有、不出这一节）
+    meeting_todos: str = ""
     collections: list[dict] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
@@ -1911,6 +1913,10 @@ def collect_ledger(day: str) -> dict:
     # 月度目标单一来源：文件缺当月条目时告警（每月一次），仅兜底不静默。
     warn_target_fallback(day, monthly_targets)
     period = {"start_date": day, "end_date": day}
+    # 早会待办：按天+群渲染一次，逐人带进台账（数据源 app/meeting_todos.json）
+    from app.meeting_todos import block_for_group as _todos_for_group
+    _todo_cache: dict[str, str] = {}
+
     settings = get_settings()
     report_channel = settings.todo_group_channel_id
     # 四个互不依赖的源并发抓（原来串行，一轮白等几十秒）；失败各自兜底。
@@ -2021,6 +2027,9 @@ def collect_ledger(day: str) -> dict:
         row.vemory, row.vemory_ok = match_vemory(owner, vemory_rows)
         row.daily_report = match_daily_report(owner, daily_reports)
         row.daily_report_ok = daily_reports_ok
+        if owner.group not in _todo_cache:
+            _todo_cache[owner.group] = _todos_for_group(day, owner.group)
+        row.meeting_todos = _todo_cache[owner.group]
         msgs: list[dict] = owner_msgs.get(owner.display, [])
         try:
             if owner.im_user_id:

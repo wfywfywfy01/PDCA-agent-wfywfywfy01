@@ -3,27 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
 
 def vertu_exe() -> str:
-    """找 vertu-cli。服务器用 VERTU_COMMAND，Windows 再找 .cmd。
+    """找 vps-work。VERTU_COMMAND 仍写 vertu-cli 时忽略。
     @returns {str}
     """
-    configured = os.environ.get("VERTU_COMMAND", "").strip()
-    if configured:
-        found = shutil.which(configured) or (configured if Path(configured).exists() else "")
-        if found:
-            return found
-    exe = shutil.which("vertu-cli") or shutil.which("vertu-cli.cmd")
-    npm = Path.home() / "AppData" / "Roaming" / "npm" / "vertu-cli.cmd"
-    if not exe and npm.exists():
-        exe = str(npm)
-    if not exe:
-        raise RuntimeError("找不到 vertu-cli")
+    from app.config import resolve_cli_command
+
+    exe = resolve_cli_command()
+    if not exe or not (shutil.which(exe) or Path(exe).exists()):
+        raise RuntimeError("找不到 vps-work")
     return str(exe)
 
 
