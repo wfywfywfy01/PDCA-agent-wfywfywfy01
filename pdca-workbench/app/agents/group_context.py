@@ -51,7 +51,7 @@ def performance_group_configs(day: str) -> list[GroupConfig]:
 
 
 def ctob_group_configs(day: str) -> list[GroupConfig]:
-    """十六个 C转B 群实例（复用 ctob.OWNERS）。"""
+    """当前参与督战的 C转B 群实例（复用 ctob.OWNERS）。"""
     from app.ctob import OWNERS as CTOB_OWNERS
 
     groups = []

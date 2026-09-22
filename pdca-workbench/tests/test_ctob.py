@@ -19,6 +19,29 @@ from app.ctob import (
 
 OWNER = CtobOwner("张心言", "776e2a94-884a-45dd-aab5-566e15e6b521", 31)
 
+
+class RetiredGroupTests(unittest.TestCase):
+    def test_xiahuan_group_is_not_collected_registered_or_sent(self):
+        from app.agents.group_context import ctob_group_configs
+        from app.ctob import OWNERS
+
+        retired_channel = "363667ae-1a05-4927-8cc5-883332b23ac6"
+        self.assertNotIn(retired_channel, {g.channel_id for g in ctob_group_configs("2026-09-22")})
+        self.assertEqual(len(OWNERS), 15)
+        for hour in (10, 15, 20):
+            with self.subTest(hour=hour), patch("app.ctob.is_duzhan_workday", return_value=True), patch(
+                "app.ctob.collect_owner", return_value={"summary": {}, "chats": [], "cohort": {}}
+            ) as collect, patch("app.ctob.save_snapshot"), patch(
+                "app.ctob.load_snapshot", return_value={}
+            ), patch("app.ctob.render_brief", return_value="test-only"), patch(
+                "app.ctob.push_duzhan_message", return_value=True
+            ) as push:
+                result = run_ctob("2026-09-22", hour=hour)
+            self.assertNotIn("夏欢", result["sent"])
+            self.assertEqual(len(result["sent"]), 15)
+            self.assertNotIn(retired_channel, {call.args[0].channel_id for call in collect.call_args_list})
+            self.assertNotIn(retired_channel, {call.args[1] for call in push.call_args_list})
+
 CUSTOMERS = {
     "rows": [
         {

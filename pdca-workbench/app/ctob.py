@@ -137,7 +137,7 @@ class CtobOwner:
     employee_id: int
 
 
-# 仅督战官 bot 已在群内的 16 个 C转B 跟进群。
+# 当前参与督战的 C转B 跟进群；移除配置即停止该群采集与推送，保留历史记录。
 OWNERS: tuple[CtobOwner, ...] = (
     CtobOwner("张心言", "776e2a94-884a-45dd-aab5-566e15e6b521", 31),
     CtobOwner("刘佳鑫", "4a816327-286b-47c2-b7be-a9475929a9c7", 34),
@@ -151,7 +151,6 @@ OWNERS: tuple[CtobOwner, ...] = (
     CtobOwner("贾梦林", "f58bc611-2751-469c-a37d-6066caecdf2d", 9),
     CtobOwner("李晓悦", "d6e8555f-6112-4507-82ee-7f8a329d2ac3", 10),
     CtobOwner("向俞金", "8151eb75-e355-4fc7-bc58-bc61d31419b2", 35),
-    CtobOwner("夏欢", "363667ae-1a05-4927-8cc5-883332b23ac6", 24),
     CtobOwner("宋依亭", "21416579-5648-4ec9-a098-a2aed9f684bf", 11),
     CtobOwner("何川", "f1293c01-55b2-4155-b5e7-c13f531f08f4", 23),
     CtobOwner("陈玉霞", "9bce6f79-27bf-4730-bcbc-5ae3bf05948c", 30),
@@ -602,7 +601,7 @@ def run_ctob(
     now: datetime | None = None,
     hour: int = 20,
 ) -> dict:
-    """工作日按档向 16 个 C转B 群各推一条（10:00 / 15:00 / 20:00）。"""
+    """工作日按档向已配置的 C转B 群各推一条（10:00 / 15:00 / 20:00）。"""
     clock = now or datetime.now(ZoneInfo(TZ_SHANGHAI))
     if not is_duzhan_workday(TZ_SHANGHAI, clock):
         logger.info("周末不推 C转B {}", slot_title(hour))
