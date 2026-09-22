@@ -32,6 +32,7 @@ class MigrationEntrypointTests(unittest.TestCase):
                     [
                         ("2026-09-20", "same-id", "old", "2026-09-20 01:00:00"),
                         ("2026-09-21", "same-id", "new", "2026-09-21 01:00:00"),
+                        ("2026-09-19", "same-id", "undated", None),
                     ],
                 )
                 connection.commit()

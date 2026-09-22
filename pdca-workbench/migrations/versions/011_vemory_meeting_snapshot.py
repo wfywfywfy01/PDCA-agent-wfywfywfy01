@@ -46,7 +46,8 @@ def upgrade() -> None:
     rows = bind.execute(
         sa.text(
             "SELECT id, external_id FROM meeting_records "
-            "ORDER BY external_id, synced_at DESC, id DESC"
+            "ORDER BY external_id, CASE WHEN synced_at IS NULL THEN 1 ELSE 0 END, "
+            "synced_at DESC, id DESC"
         )
     ).mappings()
     seen: set[str] = set()

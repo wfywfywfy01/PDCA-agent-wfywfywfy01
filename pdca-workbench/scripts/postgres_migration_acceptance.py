@@ -69,7 +69,8 @@ def main() -> None:
             connection.execute(text("""INSERT INTO meeting_records
                 (meeting_date, external_id, title, synced_at) VALUES
                 ('2026-09-20', 'same-id', 'old', '2026-09-20 01:00:00'),
-                ('2026-09-21', 'same-id', 'new', '2026-09-21 01:00:00')"""))
+                ('2026-09-21', 'same-id', 'new', '2026-09-21 01:00:00'),
+                ('2026-09-19', 'same-id', 'undated', NULL)"""))
         for _ in range(2):
             run(history, "scripts/migrate.py")
             verify(history)

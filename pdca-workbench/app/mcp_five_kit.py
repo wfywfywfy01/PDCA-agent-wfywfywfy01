@@ -325,6 +325,8 @@ def five_kit_summary(start_date: str, end_date: str = "", dealer_id: str = "") -
                 item["deal_amount_usd"] += float(getattr(row, "deal_amount_yuan", 0) or 0)
         for item in buckets.values():
             item["visits_total"] = sum(item[f] for f in VISIT_FIELDS)
+            if item["excluded_amount_count"] == item["days"]:
+                item["deal_amount_usd"] = None
         return {
             "start_date": start,
             "end_date": end,
@@ -392,6 +394,9 @@ def five_kit_trend(months: int = 3, dealer_id: str = "") -> dict:
                 item["excluded_amount_count"] += 1
             else:
                 item["deal_amount_usd"] += float(getattr(row, "deal_amount_yuan", 0) or 0)
+        for item in buckets.values():
+            if item["excluded_amount_count"] == item["days"]:
+                item["deal_amount_usd"] = None
         return {"months": sorted(buckets.values(), key=lambda i: i["month"])}
 
 
