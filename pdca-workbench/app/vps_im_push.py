@@ -34,12 +34,13 @@ def _file_channel(relative_path: str) -> str:
         return ""
 
 
-def push_vps_message(message: str) -> bool:
+def push_vps_message(message: str, *, idempotency_key: str = "") -> bool:
     """推日报/业务消息到日报目标群。"""
     channel_id = _file_channel(_PUSH_CHANNEL_OVERRIDE) or os.environ.get(
         "PDCA_VPS_BOT_CHANNEL_ID", ""
     ).strip()
-    return _push(message, channel_id)
+    scoped_key = f"{idempotency_key}:{channel_id}" if idempotency_key else ""
+    return _push(message, channel_id, idempotency_key=scoped_key)
 
 
 def push_vps_alert(message: str) -> bool:

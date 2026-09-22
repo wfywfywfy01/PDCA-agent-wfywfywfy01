@@ -33,5 +33,6 @@ class TodoReply(SQLModel, table=True):
     at: datetime = Field(default_factory=datetime.utcnow)
     signal: str = Field(default="", max_length=32)  # done/progress/blocker/''
     status: str = Field(default="unreviewed", max_length=32)  # unreviewed/applied/ignored
+    remind_send_id: Optional[int] = Field(default=None, index=True)
     target_task_id: Optional[int] = Field(default=None)
     target_project_id: Optional[int] = Field(default=None)

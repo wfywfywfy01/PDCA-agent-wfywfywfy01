@@ -128,14 +128,23 @@ def _set_run(
         logger.warning("更新运行状态失败 run={}: {}", run_id, exc)
 
 
-def _tool_task_stats(target: str = "all") -> dict:
+def _tool_task_stats(target: str = "all", allowed_owners: set[str] | None = None) -> dict:
     """工具：每人待办统计（谁有多少待办、闭环没有）。"""
     from sqlmodel import Session as DbSession
 
+    from app.auth.scope import normalize_scope_key
     from app.models.pdca_task import PdcaTask
+    from app.todos.scope import owner_allowed
 
     with DbSession(get_engine()) as session:
         rows = session.exec(select(PdcaTask).order_by(PdcaTask.id)).all()
+    if allowed_owners is not None:
+        allowed = {
+            normalize_scope_key(owner)
+            for owner in allowed_owners
+            if normalize_scope_key(owner)
+        }
+        rows = [row for row in rows if owner_allowed(row.owner, allowed)]
     by_owner: dict[str, dict] = {}
     for row in rows:
         owner = (row.owner or "").strip() or "未指定"
@@ -165,7 +174,7 @@ def _tool_task_stats(target: str = "all") -> dict:
     return {"owners": stats, "total_tasks": len(rows)}
 
 
-def _tool_group_state(target: str = "all") -> dict:
+def _tool_group_state(target: str = "all", allowed_owners: set[str] | None = None) -> dict:
     """工具：全部群实例状态快照。"""
     from datetime import datetime as _dt
     from zoneinfo import ZoneInfo
@@ -182,6 +191,12 @@ def _tool_group_state(target: str = "all") -> dict:
     report = daily_report_group_config(day)
     if report:
         configs.append(report)
+    if allowed_owners is not None:
+        allowed = {owner.casefold() for owner in allowed_owners}
+        configs = [
+            config for config in configs
+            if config.owners and all(owner.casefold() in allowed for owner in config.owners)
+        ]
     states = []
     for config in configs:
         try:
@@ -191,7 +206,7 @@ def _tool_group_state(target: str = "all") -> dict:
     return {"groups": states, "count": len(states)}
 
 
-def _tool_slot_health(target: str = "all") -> dict:
+def _tool_slot_health(target: str = "all", allowed_owners: set[str] | None = None) -> dict:
     """工具：当日全部档位健康状态（只读，不告警侧查）。"""
     from datetime import datetime as _dt
     from zoneinfo import ZoneInfo
@@ -199,14 +214,27 @@ def _tool_slot_health(target: str = "all") -> dict:
     from app.agents.flow_controller import all_slot_health_today
 
     day = _dt.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
-    return {"day": day, "reports": all_slot_health_today(day)}
+    reports = all_slot_health_today(day)
+    if allowed_owners is not None:
+        groups = _tool_group_state(target, allowed_owners)["groups"]
+        channels = {row.get("channel_id") for row in groups if row.get("channel_id")}
+        reports = [row for row in reports if row.get("channel_id") in channels]
+    return {"day": day, "reports": reports}
 
 
-def _tool_outbox_list(target: str = "pending") -> dict:
+def _tool_outbox_list(target: str = "pending", allowed_owners: set[str] | None = None) -> dict:
     """工具：Outbox 列表。"""
     from app.agents.outbox import list_outbox
 
-    return {"items": list_outbox(approval_status=target if target != "all" else "", limit=50)}
+    channels = None
+    if allowed_owners is not None:
+        groups = _tool_group_state("all", allowed_owners)["groups"]
+        channels = {row.get("channel_id") for row in groups if row.get("channel_id")}
+    return {"items": list_outbox(
+        approval_status=target if target != "all" else "",
+        limit=50,
+        allowed_channel_ids=channels,
+    )}
 
 
 _TOOLS = {
@@ -217,7 +245,7 @@ _TOOLS = {
 }
 
 
-def execute_run(run_id: int) -> dict:
+def execute_run(run_id: int, *, allowed_owners: set[str] | None = None) -> dict:
     """执行一次根运行：确定性路由优先，LLM 决策兜底，最后过事实校验。"""
     with Session(get_engine()) as session:
         run = session.get(AgentRun, run_id)
@@ -239,6 +267,32 @@ def execute_run(run_id: int) -> dict:
             action for action in decision.actions
             if action.action_type in _ALLOWED_ACTIONS
         ]
+        if allowed_owners is not None and (
+            decision.intent == "department_summary"
+            or any(action.action_type == "draft_summary" for action in actions)
+        ):
+            detail = "部门总结仅管理员可用"
+            _set_run(
+                run_id,
+                status="failed",
+                current_node="complete",
+                error_code="forbidden",
+                error_detail=detail,
+            )
+            write_event(
+                "task.blocked",
+                producer="supervisor",
+                run_id=run_id,
+                event_key=f"supervisor:forbidden:{run_id}",
+                payload={"intent": decision.intent, "error": detail},
+            )
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "status": "failed",
+                "error_code": "forbidden",
+                "error": detail,
+            }
         if decision.intent == "risky_action" and not decision.approval_required:
             decision.approval_required = True
         results: dict[str, object] = {"decision": decision.model_dump()}
@@ -247,15 +301,11 @@ def execute_run(run_id: int) -> dict:
             tool = _TOOLS.get(action.action_type)
             if tool is not None:
                 try:
-                    results[action.action_type] = tool(action.target)
+                    results[action.action_type] = tool(action.target, allowed_owners)
                 except Exception as exc:  # noqa: BLE001 — 单工具失败写待确认
                     results[action.action_type] = {"error": str(exc)[:200], "status": "待确认"}
             elif action.action_type == "collect":
-                from app.agents.group_service import run_group_slot
-
-                results["collect"] = {
-                    "performance": run_group_slot(group_type="performance", hour=10),
-                }
+                results["collect"] = _tool_group_state(action.target, allowed_owners)
             elif action.action_type == "draft_summary":
                 from datetime import datetime as _dt
                 from zoneinfo import ZoneInfo
@@ -275,7 +325,7 @@ def execute_run(run_id: int) -> dict:
         if decision.intent == "known_readonly_query" and not actions:
             for tool_name in ("task_stats", "group_state", "slot_health"):
                 try:
-                    results[tool_name] = _TOOLS[tool_name]("all")
+                    results[tool_name] = _TOOLS[tool_name]("all", allowed_owners)
                 except Exception as exc:  # noqa: BLE001
                     results[tool_name] = {"error": str(exc)[:200], "status": "待确认"}
         if decision.intent == "department_summary" and "draft_summary" not in results:
@@ -349,12 +399,13 @@ def department_summary_run(day: str, requested_by: str) -> dict:
         return {"ok": False, "run_id": run.id, "error": str(exc)[:300]}
 
 
-def list_runs(limit: int = 50) -> list[dict]:
+def list_runs(limit: int = 50, *, requested_by: str = "") -> list[dict]:
     """运行列表（后台展示，倒序）。"""
     with Session(get_engine()) as session:
-        rows = session.exec(
-            select(AgentRun).order_by(AgentRun.id.desc()).limit(min(limit, 200))
-        ).all()
+        statement = select(AgentRun).order_by(AgentRun.id.desc()).limit(min(limit, 200))
+        if requested_by:
+            statement = statement.where(AgentRun.requested_by == requested_by)
+        rows = session.exec(statement).all()
     return [
         {
             "id": row.id,

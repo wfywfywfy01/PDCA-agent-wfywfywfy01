@@ -211,6 +211,7 @@ def poll_replies(hours_back: int = 48) -> dict:
                 )
                 if target_send is None:
                     target_send = last_send
+                reply.remind_send_id = target_send.id
                 session.add(reply)
                 if parsed["signal"] == "done":
                     if parsed["explicit"]:

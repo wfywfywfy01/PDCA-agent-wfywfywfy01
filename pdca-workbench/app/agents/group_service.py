@@ -129,7 +129,10 @@ def persist_draft(
         return row.id or 0
 
 
-def list_drafts(*, day: str = "", channel_id: str = "", limit: int = 100) -> list[dict]:
+def list_drafts(
+    *, day: str = "", channel_id: str = "", limit: int = 100,
+    allowed_channel_ids: set[str] | None = None,
+) -> list[dict]:
     """后台草稿列表（倒序）。"""
     from sqlmodel import Session, select
 
@@ -141,6 +144,8 @@ def list_drafts(*, day: str = "", channel_id: str = "", limit: int = 100) -> lis
         statement = statement.where(AgentDraft.day == day)
     if channel_id:
         statement = statement.where(AgentDraft.channel_id == channel_id)
+    if allowed_channel_ids is not None:
+        statement = statement.where(AgentDraft.channel_id.in_(sorted(allowed_channel_ids)))
     with Session(get_engine()) as session:
         rows = session.exec(statement).all()
     return [

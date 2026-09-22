@@ -19,6 +19,11 @@ for _ in $(seq 1 30); do
   if docker exec "$DB" pg_isready -U pdca -d pdca_review >/dev/null 2>&1; then break; fi
   sleep 1
 done
+docker run --rm --network "$NETWORK" \
+  -e PDCA_ENV=development -e PDCA_SCHEDULER_ENABLED=0 -e PDCA_REQUIRE_VERTU=0 \
+  -e "PDCA_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@$DB:5432/pdca_review" \
+  -e PDCA_SECRET_KEY=isolated-ci-only-key-at-least-32-characters \
+  "$IMAGE" python -m scripts.postgres_migration_acceptance
 docker run -d --name "$APP" --network "$NETWORK" \
   -e PDCA_ENV=development -e TZ=Asia/Shanghai -e PDCA_SCHEDULER_ENABLED=0 \
   -e "PDCA_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@$DB:5432/pdca_review" \

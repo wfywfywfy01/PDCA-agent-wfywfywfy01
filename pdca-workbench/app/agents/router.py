@@ -39,6 +39,7 @@ from app.agents.supervisor_service import (
 )
 from app.auth.deps import require_role
 from app.auth.models import User
+from app.auth.scope import DataScope, normalize_scope_key, resolve_data_scope
 from app.audit import log_action
 from app.validation import require_iso_date
 
@@ -50,6 +51,38 @@ def _today() -> str:
     from zoneinfo import ZoneInfo
 
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+
+
+def _scope(user: User) -> DataScope:
+    from app.database import get_engine
+
+    with Session(get_engine()) as session:
+        return resolve_data_scope(user, session)
+
+
+def _all_group_configs(day: str):
+    configs = performance_group_configs(day) + ctob_group_configs(day)
+    report = daily_report_group_config(day)
+    if report:
+        configs.append(report)
+    return configs
+
+
+def _visible_group_configs(user: User, day: str):
+    scope = _scope(user)
+    configs = _all_group_configs(day)
+    if scope.unrestricted:
+        return configs
+    owners = {normalize_scope_key(value) for value in scope.owner_keys}
+    return [
+        config for config in configs
+        if config.owners and all(normalize_scope_key(owner) in owners for owner in config.owners)
+    ]
+
+
+def _allowed_owners(user: User) -> set[str] | None:
+    scope = _scope(user)
+    return None if scope.unrestricted else set(scope.owner_keys)
 
 
 
@@ -86,9 +119,10 @@ async def create_agent_task(
         input_text=text[:4000],
         source_type="api",
     )
-    result = execute_run(run.id)
+    result = execute_run(run.id, allowed_owners=_allowed_owners(user))
     if not result.get("ok"):
-        raise HTTPException(status_code=502, detail=result.get("error") or "执行失败")
+        status_code = 403 if result.get("error_code") == "forbidden" else 502
+        raise HTTPException(status_code=status_code, detail=result.get("error") or "执行失败")
     log_action(user.username, "agent.task", f"run:{run.id}", {"text": text[:200]})
     return result
 
@@ -98,7 +132,8 @@ async def runs_list(
     limit: int = Query(50, ge=1, le=200),
     user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    return {"runs": list_runs(limit=limit)}
+    requested_by = "" if _scope(user).unrestricted else user.username
+    return {"runs": list_runs(limit=limit, requested_by=requested_by)}
 
 
 @router.get("/runs/{run_id}")
@@ -111,7 +146,7 @@ async def run_detail(
 
     with Session(get_engine()) as session:
         row = session.get(AgentRun, run_id)
-    if row is None:
+    if row is None or (not _scope(user).unrestricted and row.requested_by != user.username):
         raise HTTPException(status_code=404, detail="运行不存在")
     return _run_dict(row)
 
@@ -131,7 +166,7 @@ async def run_execute(
 @router.post("/department-summary")
 async def department_summary(
     payload: dict,
-    user: Annotated[User, Depends(require_role("manager"))],
+    user: Annotated[User, Depends(require_role("admin"))],
 ):
     """生成部门总结（聚合 + 事实校验；有争议问题会写 waiting_approval）。"""
     day = require_iso_date(str(payload.get("date") or _today()))
@@ -146,10 +181,7 @@ async def groups_state(
 ):
     """全部群实例状态（达标 5 群 + C转B 16 群 + 日报群）。"""
     day = _today()
-    configs = performance_group_configs(day) + ctob_group_configs(day)
-    report = daily_report_group_config(day)
-    if report:
-        configs.append(report)
+    configs = _visible_group_configs(user, day)
     states = []
     for config in configs:
         try:
@@ -168,10 +200,7 @@ async def group_state(
 ):
     """单群状态（channel_id 隔离，不允许串群读取）。"""
     day = _today()
-    configs = performance_group_configs(day) + ctob_group_configs(day)
-    report = daily_report_group_config(day)
-    if report:
-        configs.append(report)
+    configs = _visible_group_configs(user, day)
     for config in configs:
         if config.channel_id == channel_id:
             return group_state_summary(config)
@@ -184,7 +213,12 @@ async def outbox_list(
     limit: int = Query(100, ge=1, le=300),
     user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
-    return {"items": list_outbox(approval_status=approval_status, limit=limit)}
+    channels = {config.channel_id for config in _visible_group_configs(user, _today())}
+    allowed_channels = None if _scope(user).unrestricted else channels
+    return {"items": list_outbox(
+        approval_status=approval_status, limit=limit,
+        allowed_channel_ids=allowed_channels,
+    )}
 
 
 @router.post("/outbox/{outbox_id}/approve")
@@ -238,11 +272,25 @@ async def stats(
     user: Annotated[User, Depends(require_role("manager"))] = None,
 ):
     """管理后台核心统计：每人待办数/闭环率 + 运行与审批概览。"""
+    scope = _scope(user)
+    owners = None if scope.unrestricted else set(scope.owner_keys)
+    channels = {config.channel_id for config in _visible_group_configs(user, _today())}
+    allowed_channels = None if scope.unrestricted else channels
+    slot_health = all_slot_health_today(_today())
+    if allowed_channels is not None:
+        slot_health = [
+            row for row in slot_health if row.get("channel_id") in allowed_channels
+        ]
     return {
-        "task_stats": _tool_task_stats(),
-        "pending_outbox": list_outbox(approval_status="pending", limit=50),
-        "recent_runs": list_runs(limit=10),
-        "slot_health": all_slot_health_today(_today()),
+        "task_stats": _tool_task_stats(allowed_owners=owners),
+        "pending_outbox": list_outbox(
+            approval_status="pending", limit=50,
+            allowed_channel_ids=allowed_channels,
+        ),
+        "recent_runs": list_runs(
+            limit=10, requested_by="" if scope.unrestricted else user.username
+        ),
+        "slot_health": slot_health,
     }
 
 
@@ -255,7 +303,14 @@ async def agent_health(
     from app.database import get_db_mode
 
     settings = get_settings()
+    scope = _scope(user)
+    channels = {config.channel_id for config in _visible_group_configs(user, _today())}
+    allowed_channels = None if scope.unrestricted else channels
     slot_reports = all_slot_health_today(_today())
+    if allowed_channels is not None:
+        slot_reports = [
+            row for row in slot_reports if row.get("channel_id") in allowed_channels
+        ]
     problems = [item for item in slot_reports if not item.get("ok")]
     return {
         "enabled": settings.agent_enabled,
@@ -271,7 +326,10 @@ async def agent_health(
         "db_mode": get_db_mode(),
         "slot_problems": problems,
         "slot_problem_count": len(problems),
-        "pending_outbox_count": len(list_outbox(approval_status="pending", limit=200)),
+        "pending_outbox_count": len(list_outbox(
+            approval_status="pending", limit=200,
+            allowed_channel_ids=allowed_channels,
+        )),
         "ok": not problems,
     }
 
@@ -286,7 +344,14 @@ async def drafts_list(
     """群 Agent 草稿列表（影子与正式都可见）。"""
     if day:
         day = require_iso_date(day)
-    return {"items": list_drafts(day=day, channel_id=channel_id, limit=limit)}
+    channels = {config.channel_id for config in _visible_group_configs(user, day or _today())}
+    allowed_channels = None if _scope(user).unrestricted else channels
+    if channel_id and allowed_channels is not None and channel_id not in allowed_channels:
+        raise HTTPException(status_code=404, detail="群不在授权范围内")
+    return {"items": list_drafts(
+        day=day, channel_id=channel_id, limit=limit,
+        allowed_channel_ids=allowed_channels,
+    )}
 
 
 @router.post("/groups/{channel_id}/run")
@@ -369,6 +434,11 @@ async def mto_detail(
     口径：单款报价 ≥30 万（汇率 7.1）算达标；读不出写“待确认”，不编造金额。
     """
     day = require_iso_date(day or _today())
+    owners = _allowed_owners(user)
+    if owners is not None and normalize_scope_key(owner) not in {
+        normalize_scope_key(value) for value in owners
+    }:
+        raise HTTPException(status_code=404, detail="负责人不在授权范围内")
     result = review_owner_detail(owner, day, force=force)
     if result.get("error"):
         raise HTTPException(status_code=409, detail=result["error"])

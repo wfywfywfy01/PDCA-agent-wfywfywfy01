@@ -112,7 +112,12 @@ class Settings:
         # 2026-09-21：本机进程直连生产库是事故源（本机跑任务会占生产档位、甚至真外发）。
         # 这里判定「非容器 + 连的不是本机库」，由 run_ledger 拒绝占用档位。
         _db = self.database_url
-        _local_db = any(_h in _db for _h in ("localhost", "127.0.0.1", "@db:", "host.docker.internal"))
+        _parsed_db = urlparse(_db)
+        _base_scheme = _parsed_db.scheme.partition("+")[0].casefold()
+        _local_db = _base_scheme == "sqlite" or (
+            (_parsed_db.hostname or "").casefold()
+            in {"localhost", "127.0.0.1", "::1", "db", "host.docker.internal"}
+        )
         _in_container = pathlib.Path("/.dockerenv").exists() or bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
         self.remote_db_from_host = (not _local_db) and (not _in_container)
         if self.remote_db_from_host:

@@ -27,7 +27,7 @@ def upgrade() -> None:
     if not sa.inspect(op.get_bind()).has_table("pdca_tasks"):
         return
     if "owner_locked" not in _column_names("pdca_tasks"):
-        op.add_column("pdca_tasks", sa.Column("owner_locked", sa.Boolean(), server_default=sa.text("0")))
+        op.add_column("pdca_tasks", sa.Column("owner_locked", sa.Boolean(), server_default=sa.false()))
 
 
 def downgrade() -> None:

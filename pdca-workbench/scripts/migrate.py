@@ -22,10 +22,12 @@ def main() -> int:
     config.set_main_option("script_location", str(ROOT / "migrations"))
 
     if "alembic_version" not in tables and tables:
-        # 历史生产库先用当前幂等补丁补齐，再建立正式迁移基线。
+        # 历史库先由幂等补丁补齐 010 之前的结构，再实际执行后续迁移。
+        # 不能直接 stamp head：011 包含会议唯一约束与历史去重。
         init_db()
-        command.stamp(config, "head")
-        print("历史数据库已补齐并标记到 Alembic head")
+        command.stamp(config, "010")
+        command.upgrade(config, "head")
+        print("历史数据库已补齐并迁移到 Alembic head")
         return 0
 
     command.upgrade(config, "head")

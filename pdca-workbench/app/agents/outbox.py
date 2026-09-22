@@ -160,6 +160,7 @@ def retry_outbox(outbox_id: int, username: str) -> dict:
             row.approved_by = "retry:" + username[:120]
             row.approved_at = utcnow()
         row.send_status = "pending"
+        row.send_attempts = 0
         row.last_error = ""
         row.updated_at = utcnow()
         session.add(row)
@@ -188,7 +189,10 @@ def send_due(limit: int = 40) -> dict:
         rows = session.exec(
             select(AgentOutbox)
             .where(AgentOutbox.approval_status == "approved")
-            .where(AgentOutbox.send_status.in_(["pending", "failed"]))
+            .where(
+                AgentOutbox.send_status.in_(["pending", "failed"]),
+                AgentOutbox.send_attempts < 2,
+            )
             .order_by(AgentOutbox.id)
             .limit(limit)
         ).all()
@@ -225,12 +229,17 @@ def list_outbox(
     *,
     approval_status: str = "",
     limit: int = 100,
+    allowed_channel_ids: set[str] | None = None,
 ) -> list[dict]:
     """后台审批列表（倒序）。"""
     with Session(get_engine()) as session:
         statement = select(AgentOutbox).order_by(AgentOutbox.id.desc()).limit(min(limit, 300))
         if approval_status:
             statement = statement.where(AgentOutbox.approval_status == approval_status)
+        if allowed_channel_ids is not None:
+            statement = statement.where(
+                AgentOutbox.channel_id.in_(sorted(allowed_channel_ids))
+            )
         rows = session.exec(statement).all()
         return [
             {

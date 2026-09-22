@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
+import { audioHref, meetingAudioFor, meetingDate } from './meetingAudio'
 
 interface MeetingItem {
   meeting_date?: string
@@ -56,6 +57,8 @@ const detail = ref<Record<string, unknown> | null>(null)
 const detailLoading = ref(false)
 const detailError = ref('')
 const audioLinks = ref<Record<string, unknown>[]>([])
+let vemoryLoadId = 0
+let detailLoadId = 0
 
 function asText(value: unknown): string {
   if (value == null) return ''
@@ -72,24 +75,31 @@ function asEntries(value: unknown): { key: string; value: string }[] {
 }
 
 async function loadVemory() {
+  const id = ++vemoryLoadId
   vemoryLoading.value = true
   vemoryError.value = ''
+  vemory.value = null
   try {
     const params = new URLSearchParams({ start: startDate.value })
     if (endDate.value) params.set('end', endDate.value)
-    vemory.value = await apiGet<{ total: number; meetings: Record<string, unknown>[]; warning?: string | null }>(
+    const result = await apiGet<{ total: number; meetings: Record<string, unknown>[]; warning?: string | null }>(
       '/api/meeting-center/vemory/dealer-meetings?' + params.toString(),
     )
+    if (id !== vemoryLoadId) return
+    vemory.value = result
   } catch (err) {
+    if (id !== vemoryLoadId) return
     vemoryError.value = err instanceof HttpError ? err.detail : '经销商会议加载失败'
   } finally {
-    vemoryLoading.value = false
+    if (id === vemoryLoadId) vemoryLoading.value = false
   }
 }
 
 async function openVemoryDetail(row: Record<string, unknown>) {
   const meetingId = String(row.meeting_id ?? row.id ?? '')
   if (!meetingId) return
+  const id = ++detailLoadId
+  const day = meetingDate(row, startDate.value)
   detailOpen.value = true
   detail.value = null
   detailError.value = ''
@@ -99,18 +109,42 @@ async function openVemoryDetail(row: Record<string, unknown>) {
     const res = await apiGet<{ meeting: Record<string, unknown> }>(
       '/api/meeting-center/vemory/detail?meeting_id=' + encodeURIComponent(meetingId),
     )
+    if (id !== detailLoadId) return
     detail.value = res.meeting
   } catch (err) {
+    if (id !== detailLoadId) return
     detailError.value = err instanceof HttpError ? err.detail : '会议详情加载失败'
+    return
   } finally {
-    detailLoading.value = false
+    if (id === detailLoadId) detailLoading.value = false
+  }
+  const directAudio = detail.value ? audioHref(detail.value) : ''
+  if (directAudio) {
+    audioLinks.value = [{
+      meeting_id: meetingId,
+      name: row.name ?? row.title ?? '会议音频',
+      audio_url: directAudio,
+    }]
+    return
   }
   try {
-    const audio = await apiGet<{ links?: Record<string, unknown>[] }>('/api/meeting-center/vemory/audio-links')
-    audioLinks.value = audio.links ?? []
+    const params = new URLSearchParams({ start: day, end: day })
+    const audio = await apiGet<{ links?: Record<string, unknown>[] }>(
+      '/api/meeting-center/vemory/audio-links?' + params.toString(),
+    )
+    if (id !== detailLoadId) return
+    audioLinks.value = meetingAudioFor(audio.links ?? [], meetingId)
   } catch {
-    audioLinks.value = []
+    if (id === detailLoadId) audioLinks.value = []
   }
+}
+
+function closeVemoryDetail() {
+  ++detailLoadId
+  detailOpen.value = false
+  detailLoading.value = false
+  detail.value = null
+  audioLinks.value = []
 }
 
 const showDispatch = ref(false)
@@ -137,12 +171,17 @@ async function load() {
   loading.value = true
   error.value = ''
   payload.value = null
-  loadVemory()
+  ++vemoryLoadId
+  vemory.value = null
+  vemoryError.value = ''
+  vemoryLoading.value = false
+  closeVemoryDetail()
   if (!startDate.value || (endDate.value && endDate.value < startDate.value)) {
     error.value = '请选择有效日期范围，结束日期不能早于开始日期'
     loading.value = false
     return
   }
+  loadVemory()
   try {
     const result = await apiGet<MeetingsPayload>(`/api/meeting-center/meetings?${qs()}`)
     if (id !== loadId) return
@@ -388,19 +427,19 @@ watch([startDate, endDate], load)
       <p v-if="vemory?.warning" class="hint-warn">数据源提示：{{ vemory.warning }}</p>
     </section>
 
-    <div v-if="detailOpen" class="overlay" @click.self="detailOpen = false">
+    <div v-if="detailOpen" class="overlay" @click.self="closeVemoryDetail">
       <section class="card modal" role="dialog" aria-modal="true" aria-labelledby="vemory-detail-title">
         <header class="modal-head">
           <div>
             <h2 id="vemory-detail-title">会议详情</h2>
             <p>Vemory 纪要、章节与音频入口</p>
           </div>
-          <button class="btn btn-sm" type="button" @click="detailOpen = false">关闭</button>
+          <button class="btn btn-sm" type="button" @click="closeVemoryDetail">关闭</button>
         </header>
 
         <div v-if="detailError" class="alert" role="alert">
           <span>{{ detailError }}</span>
-          <button class="btn btn-sm" type="button" @click="detailOpen = false">关闭</button>
+          <button class="btn btn-sm" type="button" @click="closeVemoryDetail">关闭</button>
         </div>
 
         <div v-else-if="detailLoading" class="skeleton-rows" aria-busy="true">
@@ -418,7 +457,7 @@ watch([startDate, endDate], load)
             <h3>音频</h3>
             <ul>
               <li v-for="(link, index) in audioLinks" :key="index">
-                <a :href="asText(link.url) || asText(link.play_url)" target="_blank" rel="noopener">
+                <a :href="audioHref(link)" target="_blank" rel="noopener">
                   {{ asText(link.name) || asText(link.title) || ('音频 ' + (index + 1)) }}
                 </a>
               </li>

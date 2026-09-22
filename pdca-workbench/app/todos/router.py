@@ -16,7 +16,7 @@ import re
 from datetime import date
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.audit import log_action
@@ -250,15 +250,16 @@ async def update_project_status(
         row.status = status
         row.updated_at = datetime.utcnow()
         session.add(row)
+        row_id, row_key = row.id, row.key
         session.commit()
     log_action(
         username=user.username,
         action="todo_project_status",
-        resource=row.key,
+        resource=row_key,
         detail={"status": status},
         ip=request.client.host if request.client else "",
     )
-    return {"ok": True, "id": row.id, "status": status}
+    return {"ok": True, "id": row_id, "status": status}
 
 
 @router.patch("/api/todos/projects/{project_id}")
@@ -296,11 +297,12 @@ async def update_project(
             row.coordinator = (payload.coordinator or "").strip()[:128]
         row.updated_at = datetime.utcnow()
         session.add(row)
+        row_id, row_key, row_name, row_status = row.id, row.key, row.name, row.status
         session.commit()
     log_action(
         username=user.username,
         action="todo_project_update",
-        resource=row.key,
+        resource=row_key,
         detail={
             "name": payload.name,
             "coordinator": payload.coordinator,
@@ -308,7 +310,7 @@ async def update_project(
         },
         ip=request.client.host if request.client else "",
     )
-    return {"ok": True, "id": row.id, "name": row.name, "status": row.status}
+    return {"ok": True, "id": row_id, "name": row_name, "status": row_status}
 
 
 @router.post("/api/todos/projects")
@@ -395,17 +397,19 @@ async def merge_project(
         source.status = "已闭环"
         source.updated_at = datetime.utcnow()
         session.add(source)
+        source_key = source.key
+        target_id, target_name = target.id, target.name
         session.commit()
         refresh_meeting_project_members(session)
         session.commit()
     log_action(
         username=user.username,
         action="todo_project_merge",
-        resource=source.key,
-        detail={"target_id": target.id, "target": target.name, "moved": moved},
+        resource=source_key,
+        detail={"target_id": target_id, "target": target_name, "moved": moved},
         ip=request.client.host if request.client else "",
     )
-    return {"ok": True, "moved": moved, "target_id": target.id, "target": target.name}
+    return {"ok": True, "moved": moved, "target_id": target_id, "target": target_name}
 
 
 @router.patch("/api/todos/tasks/{task_id}")
@@ -794,14 +798,21 @@ async def apply_reply_all(
         row = session.get(TodoReply, reply_id)
         allowed = allowed_owner_keys(user, session)
         if row is None or not owner_allowed(row.person, allowed):
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=404, detail="回复不存在")
-        send = session.exec(
-            select(ImRemindSend)
-            .where(ImRemindSend.person == row.person)
-            .order_by(ImRemindSend.sent_at.desc())
-        ).first()
+        if row.status == "applied":
+            return {"ok": True, "tasks_closed": 0}
+        if row.status != "unreviewed":
+            raise HTTPException(status_code=409, detail="回复已处理")
+        send = session.get(ImRemindSend, row.remind_send_id) if row.remind_send_id else None
+        if send is None:
+            send = session.exec(
+                select(ImRemindSend)
+                .where(
+                    ImRemindSend.person == row.person,
+                    ImRemindSend.sent_at <= row.at,
+                )
+                .order_by(ImRemindSend.sent_at.desc())
+            ).first()
         count = 0
         if send is not None:
             import json as _json
@@ -822,11 +833,12 @@ async def apply_reply_all(
                 count += 1
         row.status = "applied"
         session.add(row)
+        person = row.person
         session.commit()
     log_action(
         username=user.username,
         action="todo_reply_apply_all",
-        resource=row.person,
+        resource=person,
         detail={"reply_id": reply_id, "tasks": count},
         ip=request.client.host if request.client else "",
     )
@@ -849,16 +861,19 @@ async def ignore_reply(
         row = session.get(TodoReply, reply_id)
         allowed = allowed_owner_keys(user, session)
         if row is None or not owner_allowed(row.person, allowed):
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=404, detail="回复不存在")
+        if row.status == "ignored":
+            return {"ok": True}
+        if row.status != "unreviewed":
+            raise HTTPException(status_code=409, detail="回复已处理")
         row.status = "ignored"
         session.add(row)
+        person = row.person
         session.commit()
     log_action(
         username=user.username,
         action="todo_reply_ignore",
-        resource=row.person,
+        resource=person,
         detail={"reply_id": reply_id},
         ip=request.client.host if request.client else "",
     )

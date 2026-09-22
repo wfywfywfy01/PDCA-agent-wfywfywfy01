@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlmodel import Session, SQLModel, create_engine
@@ -74,6 +75,29 @@ class ScopeUnitTests(unittest.TestCase):
                 set(),
             )
 
+    def test_user_subject_with_service_prefix_stays_user(self):
+        from app.mcp_five_kit import _authorized_user
+
+        with Session(self.engine) as session:
+            session.add(User(
+                username="service:admin:review",
+                hashed_password="unused-test-hash",
+                role="viewer",
+                is_active=True,
+                must_change_password=False,
+            ))
+            session.commit()
+        access = SimpleNamespace(
+            subject="service:admin:review",
+            client_id="pdca-user",
+        )
+        with patch("app.mcp_five_kit.get_access_token", return_value=access), patch(
+            "app.mcp_five_kit.get_engine", return_value=self.engine
+        ):
+            with _authorized_user() as (identity, session):
+                self.assertEqual(identity.kind, "user")
+                self.assertEqual(identity.role, "viewer")
+                self.assertEqual(_allowed_store_ids(identity, session), set())
 
 class ToolScopeTests(unittest.TestCase):
     """工具层：权限过滤落到 SQL，越权显式拒绝。"""
@@ -136,6 +160,57 @@ class ToolScopeTests(unittest.TestCase):
             result = five_kit_missing("2026-09-16")
         self.assertEqual(result["reported"], 2)
         self.assertEqual(result["missing_count"], 0)
+
+    def test_summary_uses_latest_store_day_revision(self):
+        from app.mcp_five_kit import five_kit_summary
+
+        self.session.add(WalkinDailyReport(
+            report_date="2026-09-17", dealer_id="sea01a", dealer_name="新加坡店",
+            walkin_visits=10, deal_amount_yuan=100,
+        ))
+        self.session.add(WalkinDailyReport(
+            report_date="2026-09-17", dealer_id="sea01a", dealer_name="新加坡店",
+            walkin_visits=12, deal_amount_yuan=120,
+        ))
+        self.session.commit()
+        with patch("app.mcp_five_kit._authorized_user", lambda: self._auth("admin", ())):
+            result = five_kit_summary("2026-09-17")
+        self.assertEqual(result["stores"][0]["days"], 1)
+        self.assertEqual(result["stores"][0]["walkin_visits"], 12)
+        self.assertEqual(result["stores"][0]["deal_amount_usd"], 120)
+
+    def test_summary_excludes_revenue_waiting_for_review(self):
+        from app.mcp_five_kit import five_kit_summary
+
+        self.session.add(WalkinDailyReport(
+            report_date="2026-09-18", dealer_id="sea01a", dealer_name="新加坡店",
+            walkin_visits=1, deal_amount_yuan=2_000_000,
+        ))
+        self.session.commit()
+        with patch("app.mcp_five_kit._authorized_user", lambda: self._auth("admin", ())):
+            result = five_kit_summary("2026-09-18")
+        self.assertIsNone(result["stores"][0]["deal_amount_usd"])
+        self.assertEqual(result["stores"][0]["excluded_amount_count"], 1)
+
+    def test_summary_and_trend_distinguish_unknown_from_valid_zero(self):
+        from datetime import datetime
+        from app.mcp_five_kit import five_kit_summary, five_kit_trend
+
+        for amounts, expected in (([2_000_000], None), ([0], 0), ([2_000_000, 0], 0), ([2_000_000, 120], 120)):
+            with self.subTest(amounts=amounts):
+                store_id = "quality-" + str(amounts)
+                for day, amount in enumerate(amounts, start=1):
+                    self.session.add(WalkinDailyReport(
+                        report_date=f"2026-09-{day:02d}", dealer_id=store_id,
+                        dealer_name="quality-test", deal_amount_yuan=amount,
+                    ))
+                self.session.commit()
+                with patch("app.mcp_five_kit._authorized_user", lambda: self._auth("admin", ())), patch("app.mcp_five_kit.datetime") as clock:
+                    clock.now.return_value = datetime(2026, 9, 22)
+                    summary = five_kit_summary("2026-09-01", "2026-09-22", store_id)
+                    trend = five_kit_trend(dealer_id=store_id)
+                self.assertEqual(summary["stores"][0]["deal_amount_usd"], expected)
+                self.assertEqual(trend["months"][0]["deal_amount_usd"], expected)
 
 
 if __name__ == "__main__":

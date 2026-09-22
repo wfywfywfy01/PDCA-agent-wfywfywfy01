@@ -31,7 +31,11 @@ from app.auth.security import decode_access_token, is_token_revoked
 from app.config import get_settings
 from app.database import get_engine
 from app.models.dealer_store import DealerStore
-from app.models.walkin_daily_report import WalkinDailyReport
+from app.models.walkin_daily_report import (
+    WalkinDailyReport,
+    latest_walkin_reports,
+    revenue_requires_review,
+)
 
 _READ_SCOPE = "pdca:read"
 VISIT_FIELDS = (
@@ -178,10 +182,14 @@ def _authorized_user():
             return
         raise PermissionError("需要 PDCA 身份认证")
     with Session(get_engine()) as session:
-        if subject.startswith("service:"):
+        if access.client_id == "pdca-service":
+            if not subject.startswith("service:"):
+                raise PermissionError("服务身份格式无效")
             _, role, owner_key = subject.split(":", 2)
             yield _Identity(kind="service", role=role, owner_key=owner_key), session
             return
+        if access.client_id != "pdca-user":
+            raise PermissionError("未知的 MCP 身份类型")
         user = session.exec(select(User).where(User.username == subject)).first()
         if not user or not user.is_active or getattr(user, "must_change_password", False):
             raise PermissionError("PDCA 账号不可用")
@@ -229,6 +237,7 @@ def _row(row: WalkinDailyReport) -> dict:
     for field in FUNNEL_FIELDS:
         payload[field] = int(getattr(row, field, 0) or 0)
     payload["deal_amount_usd"] = float(getattr(row, "deal_amount_yuan", 0) or 0)
+    payload["amount_requires_review"] = revenue_requires_review(row.deal_amount_yuan)
     return payload
 
 
@@ -244,7 +253,7 @@ def _reports(
         stmt = stmt.where(WalkinDailyReport.dealer_id == dealer_id)
     elif allowed is not None:
         stmt = stmt.where(WalkinDailyReport.dealer_id.in_(sorted(allowed)))
-    return list(session.exec(stmt).all())
+    return latest_walkin_reports(session.exec(stmt).all())
 
 
 @five_kit_mcp.tool(
@@ -305,14 +314,19 @@ def five_kit_summary(start_date: str, end_date: str = "", dealer_id: str = "") -
                 row.dealer_id,
                 {"dealer_id": row.dealer_id, "dealer_name": row.dealer_name, "days": 0,
                  **{f: 0 for f in VISIT_FIELDS}, **{f: 0 for f in FUNNEL_FIELDS},
-                 "deal_amount_usd": 0.0},
+                 "deal_amount_usd": 0.0, "excluded_amount_count": 0},
             )
             item["days"] += 1
             for field in VISIT_FIELDS + FUNNEL_FIELDS:
                 item[field] += int(getattr(row, field, 0) or 0)
-            item["deal_amount_usd"] += float(getattr(row, "deal_amount_yuan", 0) or 0)
+            if revenue_requires_review(row.deal_amount_yuan):
+                item["excluded_amount_count"] += 1
+            else:
+                item["deal_amount_usd"] += float(getattr(row, "deal_amount_yuan", 0) or 0)
         for item in buckets.values():
             item["visits_total"] = sum(item[f] for f in VISIT_FIELDS)
+            if item["excluded_amount_count"] == item["days"]:
+                item["deal_amount_usd"] = None
         return {
             "start_date": start,
             "end_date": end,
@@ -370,12 +384,19 @@ def five_kit_trend(months: int = 3, dealer_id: str = "") -> dict:
         for row in rows:
             month = row.report_date[:7]
             item = buckets.setdefault(
-                month, {"month": month, "days": 0, "visits": 0, "deals": 0, "deal_amount_usd": 0.0}
+                month, {"month": month, "days": 0, "visits": 0, "deals": 0,
+                        "deal_amount_usd": 0.0, "excluded_amount_count": 0}
             )
             item["days"] += 1
             item["visits"] += sum(int(getattr(row, f, 0) or 0) for f in VISIT_FIELDS)
             item["deals"] += int(getattr(row, "deal_count", 0) or 0)
-            item["deal_amount_usd"] += float(getattr(row, "deal_amount_yuan", 0) or 0)
+            if revenue_requires_review(row.deal_amount_yuan):
+                item["excluded_amount_count"] += 1
+            else:
+                item["deal_amount_usd"] += float(getattr(row, "deal_amount_yuan", 0) or 0)
+        for item in buckets.values():
+            if item["excluded_amount_count"] == item["days"]:
+                item["deal_amount_usd"] = None
         return {"months": sorted(buckets.values(), key=lambda i: i["month"])}
 
 
