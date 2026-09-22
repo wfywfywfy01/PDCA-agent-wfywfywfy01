@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import asyncio
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -92,6 +93,19 @@ class LogisticsAdminProxyTests(unittest.TestCase):
         ):
             rejected = Settings()
         self.assertEqual(rejected.logistics_admin_upstream, "")
+
+    def test_production_deploy_defaults_to_private_logistics_network(self):
+        root = Path(__file__).resolve().parents[1]
+        compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+        deploy = (root / "scripts" / "deploy_remote_docker.ps1").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "PDCA_LOGISTICS_ADMIN_UPSTREAM: ${PDCA_LOGISTICS_ADMIN_UPSTREAM:-http://logistics-track:8080}",
+            compose,
+        )
+        self.assertIn("name: dealer-knowledge", compose)
+        self.assertIn('$logisticsAdminUpstream = "http://logistics-track:8080"', deploy)
+        self.assertIn('"-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$logisticsAdminUpstream"', deploy)
 
     def test_proxy_forwards_html_with_same_origin_rewrites(self):
         from app.logistics import admin_proxy

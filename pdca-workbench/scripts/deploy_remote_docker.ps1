@@ -342,6 +342,11 @@ function Start-PdcaContainer {
     $secretEnvFile = New-SecretEnvFile -Secrets $Secrets -Agent $Agent
     try {
 
+    $logisticsAdminUpstream = Read-OptionalDotEnvValue "PDCA_LOGISTICS_ADMIN_UPSTREAM"
+    if ([string]::IsNullOrWhiteSpace($logisticsAdminUpstream)) {
+        $logisticsAdminUpstream = "http://logistics-track:8080"
+    }
+
     $dockerArgs = @(
         "run", "-d", "--name", "pdca-workbench",
         "--restart", "unless-stopped",
@@ -384,6 +389,7 @@ function Start-PdcaContainer {
         "-e", "PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080",
         "-e", "PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE=/run/secrets/dealer-knowledge-jwt.key",
         "-e", 'PDCA_KNOWLEDGE_HUB_TEAM_MAP={"overseas":"overseas-sales"}',
+        "-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$logisticsAdminUpstream",
         "-e", "VERTU_COMMAND=vps-work",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
@@ -433,7 +439,7 @@ function Start-PdcaContainer {
         "PDCA_ACQUISITION_ENABLED", "PDCA_ACQUISITION_URL",
         "PDCA_KNOWLEDGE_HUB_TEAM_MAP", "PDCA_KNOWLEDGE_HUB_ENABLED", "PDCA_KNOWLEDGE_HUB_TIMEOUT_SECONDS",
         "PDCA_FRAME_ANCESTORS", "PDCA_TOKEN_EXPIRE_MINUTES",
-        "PDCA_LOGISTICS_ADMIN_UPSTREAM", "PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS",
+        "PDCA_LOGISTICS_ADMIN_TIMEOUT_SECONDS",
         # 多智能体督战运行时（部署默认全部关闭/影子；密钥只在日志中自动脱敏）
         "PDCA_AGENT_ENABLED", "PDCA_AGENT_SHADOW_MODE", "PDCA_AGENT_OUTBOX_ENABLED",
         "PDCA_AGENT_AUTO_TEMPLATE_PUSH", "PDCA_AGENT_TASK_WRITE", "PDCA_AGENT_LLM_DRAFT",
