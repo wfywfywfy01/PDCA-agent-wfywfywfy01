@@ -41,6 +41,7 @@ from app.walkin.router import router as walkin_router
 from app.acquisition.router import router as acquisition_router
 from app.knowledge.router import router as knowledge_router
 from app.knowledge.mcp import knowledge_mcp, knowledge_mcp_app
+from app.mcp_five_kit import five_kit_mcp, five_kit_mcp_app
 from app.agents.router import router as agents_router
 
 PUBLIC_PATHS = {
@@ -111,7 +112,8 @@ async def lifespan(app: FastAPI):
     )
     try:
         async with knowledge_mcp.session_manager.run():
-            yield
+            async with five_kit_mcp.session_manager.run():
+                yield
     finally:
         stop_scheduler()
     logger.info("PDCA 工作台已关闭")
@@ -320,6 +322,8 @@ app.include_router(agents_router)
 app.include_router(pages_router)
 app.include_router(spa_router)
 app.mount("/mcp", knowledge_mcp_app)
+# 门店五件套只读 MCP（独立路径与独立 scope；权限复用工作台 DataScope）
+app.mount("/mcp-five-kit", five_kit_mcp_app)
 
 
 def _daily_report_status() -> dict:

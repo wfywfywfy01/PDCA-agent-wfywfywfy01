@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Sha = "",
     [string]$DockerHost = "",
@@ -398,6 +398,7 @@ function Start-PdcaContainer {
         "PDCA_DUZHAN_LEAD_MINUTES",
         "PDCA_DUZHAN_REPLY_ENABLED",
         "PDCA_DUZHAN_COMPACT",
+        "PDCA_MCP_API_KEYS",
         "LOGIBOT_ENABLED", "LOGIBOT_ROOT", "LOGIBOT_DATA_DIR",
         "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_APP_TOKEN", "FEISHU_TABLE_ID",
         "PDCA_TODO_REMIND_ENABLED", "PDCA_TODO_REMIND_TIMES", "PDCA_WORKBENCH_URL",
