@@ -147,8 +147,8 @@ class Settings:
         self.max_reported_revenue_usd = _env_float("PDCA_MAX_REPORTED_REVENUE_USD", "5000000")
         self.revenue_review_threshold_usd = _env_float("PDCA_REVENUE_REVIEW_THRESHOLD_USD", "1000000")
         self.scheduler_enabled = _env_flag("PDCA_SCHEDULER_ENABLED", "1")
-        # 每日经营日报推送（08:30，服务器自跑）；走 VPS IM 机器人通道
-        self.daily_report_enabled = _env_flag("PDCA_DAILY_REPORT_ENABLED", "1")
+        # 每日经营日报已停用；仅显式配置为 1 时注册 08:30/09:30 推送任务。
+        self.daily_report_enabled = _env_flag("PDCA_DAILY_REPORT_ENABLED", "0")
         # 海外日报群总结（默认 08:00，前 24 小时总分结构）；文案确认前默认关闭
         self.daily_digest_enabled = (
             _env_flag("PDCA_DAILY_DIGEST_ENABLED", "0")
