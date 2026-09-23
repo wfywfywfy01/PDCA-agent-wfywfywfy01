@@ -1447,6 +1447,38 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("【明日预告】", text)
         self.assertIn("迪拜 Billionaire 订单确认", text)
 
+    def test_evening_slot_shows_mto_scoring(self):
+        """MTO 打分放在 20:00 验兑现（2026-09-23 老板要求：10:00 那档早上没图必然 0）。"""
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(
+            mto_quotes=[
+                {"model": "VertuAlphafold", "wan": 63.3, "qualifies": True},
+                {"model": "VertuQuantum", "wan": 20.2, "qualifies": False},
+                {"model": "", "wan": None, "qualifies": False},
+            ]
+        )
+        text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
+        self.assertIn("• MTO 今日达标：1/3 款达标（VertuAlphafold 63.3万）", text)
+        self.assertIn("1 款未满 30 万（VertuQuantum 20.2万）", text)
+        self.assertIn("1 张读不出金额", text)
+
+    def test_evening_slot_mto_pending_when_no_data(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(mto_count=None, mto_quotes=None)
+        text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
+        self.assertIn("• MTO 今日达标：待确认", text)
+
+    def test_morning_slot_keeps_summary_without_wrapup_line(self):
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        text = render_brief(
+            group, 10, now, self._ledger(self._person()), self._ledger(self._person())
+        )
+        self.assertIn("• 摘要：", text)
+        self.assertNotIn("• MTO 今日达标：", text)
+
     def test_evening_slot_gives_first_action_when_nothing_open(self):
         group = groups_for_tz(TZ_SHANGHAI)[1]
         now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
