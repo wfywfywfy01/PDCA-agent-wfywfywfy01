@@ -110,10 +110,19 @@ class StrategyExpiryTests(unittest.TestCase):
             )
             self.assertEqual([item.id for item in strategies_for("2026-10-01")], ["clear"])
 
-    def test_all_expired_falls_back(self):
+    def test_all_expired_produces_no_active_strategies(self):
         items = [Strategy(id="old", label="旧", strong=[], weak=[], until="2026-01-01")]
         with self._with(items):
-            self.assertEqual([item.id for item in strategies_for("2026-10-01")], ["old"])
+            self.assertEqual(strategies_for("2026-10-01"), [])
+
+    def test_all_expired_stops_report_before_scanning_messages(self):
+        from app.strategy_wa_brief import run_report
+
+        items = [Strategy(id="old", label="旧", strong=[], weak=[], until="2026-01-01")]
+        with self._with(items), mock.patch("app.strategy_wa_brief.scan_owners") as scan:
+            with self.assertRaisesRegex(RuntimeError, "没有有效策略"):
+                run_report("2026-10-01")
+        scan.assert_not_called()
 
     def test_bundled_file_has_agentq_until_sep30(self):
         import json

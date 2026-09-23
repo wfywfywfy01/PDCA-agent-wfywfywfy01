@@ -5,19 +5,18 @@
 
 每日轻清（只动 PDCA 自己的东西，不碰其他项目）：
 - 仅回收 PDCA 仓库中 7 天以上未被任何容器引用的镜像，保留最新两份
-- 停止超过 24 小时的 pdca-* 历史回滚容器
 - 发布前备份保留策略（各保留最新 7 份 .dump）
-
-每周深清（每 7 次运行触发一次，计数持久化）：
-- buildkit 构建缓存全清——纯可再生缓存，却是压满磁盘的头号元凶
 
 安全红线：
 - 不清理其他项目的镜像/容器/卷；
+- 不清理共享 Docker builder 缓存；
 - 绝不执行 volumes prune：数据库等业务数据在数据卷里，数据本体不碰。
 
 容器启动方式（由部署/运维脚本创建，挂载 docker.sock 与 backups 目录）：
     docker run -d --name pdca-docker-cleanup --restart unless-stopped \
+      --health-cmd 'python /app/scripts/server_cleanup.py --healthcheck' \
       -v /var/run/docker.sock:/var/run/docker.sock \
+      -v /:/host:ro \
       -v /opt/PDCA-agent/pdca-workbench/backups:/backups:rw \
       <app-image> python /app/scripts/server_cleanup.py
 """
@@ -37,8 +36,6 @@ INTERVAL = int(os.environ.get("PDCA_CLEANUP_INTERVAL_SECONDS", "86400"))
 KEEP = 7
 HEARTBEAT = Path("/tmp/pdca-cleanup-ok")
 IMAGE_PREFIXES = ("ghcr.io/wfywfywfy01/pdca-workbench:", "ghcr.io/frankie-foo/pdca-workbench:")
-DEEP_EVERY = int(os.environ.get("PDCA_CLEANUP_DEEP_EVERY", "7"))
-STATE_FILE = Path(os.environ.get("PDCA_CLEANUP_STATE_FILE", "/tmp/pdca-cleanup-runs"))
 
 
 def host_free_pct() -> float:
@@ -81,30 +78,6 @@ def cleanup_images(client: httpx.Client, max_age_hours: int = 168) -> int:
     return deleted
 
 
-def cleanup_stale_containers(client: httpx.Client, max_age_hours: int = 24) -> int:
-    """只清停止超过阈值的 pdca-* 容器（历史回滚容器）；其他项目不碰。"""
-    containers = client.get("/containers/json", params={"all": "true"}).raise_for_status().json()
-    cutoff = time.time() - max_age_hours * 3600
-    removed = 0
-    for container in containers:
-        name = (container.get("Names") or [""])[0].lstrip("/")
-        if not name.startswith("pdca-") or container.get("State") != "exited":
-            continue
-        if container.get("Created", 0) >= cutoff:
-            continue
-        try:
-            client.delete("/containers/" + container["Id"], params={"force": "true"})
-            removed += 1
-        except Exception:  # noqa: BLE001
-            pass
-    return removed
-
-
-def cleanup_build_cache(client: httpx.Client) -> int:
-    resp = client.post("/build/prune", params={"keep-storage": "0"})
-    return int(resp.json().get("SpaceReclaimed", 0) or 0)
-
-
 def _cleanup_backups() -> int:
     removed = 0
     for pattern in ("pdca-before-*.dump", "pdca-walkin-before-*.dump"):
@@ -118,58 +91,31 @@ def _cleanup_backups() -> int:
     return removed
 
 
-def _run_counter() -> int:
-    try:
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        return int(STATE_FILE.read_text().strip() or "0") if STATE_FILE.exists() else 0
-    except OSError:
-        return getattr(_run_counter, "_mem", 0)
-
-
-def _bump_counter() -> None:
-    try:
-        STATE_FILE.write_text(str(_run_counter() + 1))
-    except OSError:
-        _run_counter._mem = getattr(_run_counter, "_mem", 0) + 1
-
-
-def run_once(deep: bool = False) -> None:
+def run_once() -> None:
     free_pct = host_free_pct()
-    # 水位升级：低于 20% 立即深清构建缓存；低于 12% 收紧镜像/容器年龄
+    # 磁盘低于 12% 时，仅缩短 PDCA 自有旧镜像保留期。
     if free_pct < 0.12:
-        deep = True
         image_age_hours = 24
-        container_age_hours = 1
-        print(f"[cleanup] 磁盘紧急水位 {free_pct * 100:.0f}%：升级清理力度", flush=True)
     elif free_pct < 0.20:
-        deep = True
         image_age_hours = 168
-        container_age_hours = 24
-        print(f"[cleanup] 磁盘低水位 {free_pct * 100:.0f}%：立即深清构建缓存", flush=True)
     else:
         image_age_hours = 168
-        container_age_hours = 24
     with _client() as client:
         removed_images = cleanup_images(client, max_age_hours=image_age_hours)
-        removed_containers = cleanup_stale_containers(client, max_age_hours=container_age_hours)
-        reclaimed_cache = cleanup_build_cache(client) if deep else 0
     removed_files = _cleanup_backups()
     HEARTBEAT.touch()
     print(
         f"[cleanup] free={free_pct * 100:.0f}% pdca_images_removed={removed_images} "
-        f"containers_removed={removed_containers} "
-        f"cache_reclaimed_mb={reclaimed_cache / 1e6:.1f} deep={deep} backups_removed={removed_files}",
+        f"backups_removed={removed_files}",
         flush=True,
     )
 
 
 def main() -> None:
-    print(f"[cleanup] started interval={INTERVAL}s deep_every={DEEP_EVERY}", flush=True)
+    print(f"[cleanup] started interval={INTERVAL}s", flush=True)
     while True:
         try:
-            count = _run_counter()
-            run_once(deep=count % DEEP_EVERY == 0)
-            _bump_counter()
+            run_once()
         except Exception as exc:  # Keep retrying, but do not refresh the success heartbeat.
             print(f"[cleanup] FAILED: {exc}", flush=True)
         time.sleep(INTERVAL)

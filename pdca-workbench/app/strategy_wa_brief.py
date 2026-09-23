@@ -98,15 +98,15 @@ def load_strategies() -> tuple[list[Strategy], list]:
 
 
 def strategies_for(push_day: str) -> list[Strategy]:
-    """按 until 过滤当期策略；全都过期时回落到全部，避免出空报告。"""
+    """按 until 过滤当期策略；全部过期时返回空，绝不复用旧策略。"""
     strategies, _noise = load_strategies()
     day = (push_day or "").strip()
     if not day:
         return strategies
     live = [item for item in strategies if not item.until or day <= item.until]
     if not live:
-        logger.warning("策略全部已过期（截至 {}），回落到全部策略", day)
-        return strategies
+        logger.warning("策略全部已过期（截至 {}），停止策略核查", day)
+        return []
     return live
 
 
@@ -553,9 +553,11 @@ def save_html(push_day: str, html_text: str) -> Path:
 
 def run_report(push_day: str) -> dict:
     """采集并写 HTML，不发送。策略来自 wa_strategies.json。"""
+    strategies = strategies_for(push_day)
+    if not strategies:
+        raise RuntimeError(f"截至 {push_day} 没有有效策略；策略核查已停止")
     start, end = window_for(push_day)
     scans = scan_owners(start, end)
-    strategies = strategies_for(push_day)
     path = save_html(push_day, build_html(push_day, start, end, scans))
     body = build_im_body(push_day, start, end, scans)
     return {

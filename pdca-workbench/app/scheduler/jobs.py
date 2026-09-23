@@ -660,6 +660,12 @@ def meeting_todos_job() -> None:
         notify("早会待办取数失败", str(exc)[:200])
         return
     items = result.get("items") or []
+    if not items:
+        detail = "当天没有读到有效待办（图片 {} 张）".format(result.get("images") or 0)
+        finish_run("meeting_todos", bucket, "failed", detail)
+        logger.warning("早会待办为空，标记失败并告警 {}｜{}", day, detail)
+        notify("早会待办为空，未纳入今日推送", f"{day}｜{detail}")
+        return
     finish_run(
         "meeting_todos",
         bucket,
