@@ -138,5 +138,22 @@ class FetchDayTests(unittest.TestCase):
         self.assertEqual(result["images"], 0)
 
 
+class MeetingTodosScheduleTests(unittest.TestCase):
+    def test_empty_source_is_reported_as_failed_instead_of_sent(self):
+        from app.scheduler.jobs import meeting_todos_job
+
+        with (
+            mock.patch("app.duzhan.is_duzhan_workday", return_value=True),
+            mock.patch("app.meeting_todos_fetch.run_day", return_value={"items": [], "images": 0}),
+            mock.patch("app.scheduler.run_ledger.claim_run", return_value=True),
+            mock.patch("app.scheduler.run_ledger.finish_run") as finish_run,
+            mock.patch("app.scheduler.jobs.notify") as notify,
+        ):
+            meeting_todos_job()
+
+        self.assertEqual(finish_run.call_args.args[2], "failed")
+        notify.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

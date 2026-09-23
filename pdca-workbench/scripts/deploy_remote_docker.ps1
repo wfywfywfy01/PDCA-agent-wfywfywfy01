@@ -286,6 +286,82 @@ function Wait-ContainerHealthy {
     throw "pdca-workbench did not become healthy within $TimeoutSeconds seconds"
 }
 
+function Wait-ServerCleanupHealthy {
+    param([int]$TimeoutSeconds = 300)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $inspect = Invoke-DockerProcess -DockerArgs @(
+            "inspect", "pdca-docker-cleanup",
+            "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}"
+        ) -TimeoutSeconds ([Math]::Min($DockerCommandTimeoutSeconds, 30))
+        $state = if ($inspect.ExitCode -eq 0) { $inspect.StdOut } else { "" }
+        if ($state -eq "healthy") { return }
+        if ($state -eq "unhealthy" -or $state -eq "exited" -or $state -eq "restarting") {
+            throw "pdca-docker-cleanup entered state: $state"
+        }
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+    throw "pdca-docker-cleanup did not become healthy within $TimeoutSeconds seconds"
+}
+
+function Update-ServerCleanup {
+    param([string]$Image, [string]$Revision)
+
+    $existing = Invoke-DockerProcess -DockerArgs @(
+        "ps", "-a", "--filter", "name=^/pdca-docker-cleanup$", "--format", "{{.Names}}"
+    )
+    if ($existing.ExitCode -ne 0) {
+        throw "Unable to inspect the PDCA cleanup container: $($existing.StdErr)"
+    }
+    $oldExists = $existing.StdOut -eq "pdca-docker-cleanup"
+    $rollbackName = "pdca-docker-cleanup-rollback-$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
+    $oldId = ""
+
+    if ($oldExists) {
+        $oldObject = ((Invoke-Docker -DockerArgs @("inspect", "pdca-docker-cleanup")) | ConvertFrom-Json)[0]
+        $oldId = $oldObject.Id
+        if ($oldObject.State.Running) {
+            Invoke-Docker -DockerArgs @("stop", "--time", "20", $oldId) | Out-Null
+        }
+        Invoke-Docker -DockerArgs @("rename", $oldId, $rollbackName) | Out-Null
+    }
+
+    try {
+        Invoke-Docker -DockerArgs @(
+            "run", "-d", "--name", "pdca-docker-cleanup", "--restart", "unless-stopped",
+            "--label", "com.vertu.pdca.revision=$Revision",
+            "--health-cmd", "python /app/scripts/server_cleanup.py --healthcheck",
+            "--health-interval", "30s", "--health-timeout", "10s", "--health-retries", "3",
+            "--health-start-period", "5m",
+            "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock",
+            "--mount", "type=bind,src=/opt/PDCA-agent/pdca-workbench/backups,dst=/backups",
+            "--mount", "type=bind,src=/,dst=/host,readonly",
+            $Image, "python", "/app/scripts/server_cleanup.py"
+        ) | Out-Null
+        Wait-ServerCleanupHealthy
+        if ($oldExists) {
+            # The cleanup helper stores no data in its anonymous image volumes; backups are a separate bind mount.
+            Invoke-Docker -DockerArgs @("rm", "-v", $oldId) | Out-Null
+        }
+        Write-Output "PDCA cleanup helper healthy: $Revision"
+    } catch {
+        try {
+            $candidate = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-docker-cleanup")
+            if ($candidate.ExitCode -eq 0) {
+                # The helper does not use the image's anonymous data volumes.
+                Invoke-Docker -DockerArgs @("rm", "-fv", "pdca-docker-cleanup") | Out-Null
+            }
+        } catch { Write-Warning "Unable to remove failed PDCA cleanup candidate: $($_.Exception.Message)" }
+        if ($oldExists) {
+            try {
+                Invoke-Docker -DockerArgs @("rename", $oldId, "pdca-docker-cleanup") | Out-Null
+                Invoke-Docker -DockerArgs @("start", $oldId) | Out-Null
+            } catch { Write-Warning "Unable to restore previous PDCA cleanup container: $($_.Exception.Message)" }
+        }
+        throw
+    }
+}
+
 function Test-ActivationSource {
     # P0/F6 决策：激活数据暂无可自动拉取的数据源（vertu-cli 2.x 已不支持
     # odoo data sandbox，dealer_activation_stats 属已死亡查询），UI 诚实
@@ -728,6 +804,12 @@ try {
         Wait-ContainerHealthy
     }
     throw
+}
+
+try {
+    Update-ServerCleanup -Image $image -Revision $Sha
+} catch {
+    Write-Warning "PDCA application is healthy; cleanup helper update failed: $($_.Exception.Message)"
 }
 
 # Keep one exact rollback configuration, not an unbounded chain of old images.

@@ -1,6 +1,7 @@
 """Production review regressions: honest health, bounded metrics, scoped cleanup."""
 import asyncio
 import json
+import tempfile
 import unittest
 from collections import defaultdict
 from types import SimpleNamespace
@@ -93,3 +94,33 @@ class RuntimeReviewTests(unittest.TestCase):
                           base_url="http://docker") as client:
             with self.assertRaises(httpx.HTTPStatusError):
                 server_cleanup.cleanup_images(client)
+
+    def test_cleanup_never_prunes_shared_build_cache_when_disk_is_low(self):
+        requests = []
+
+        def handler(request):
+            requests.append((request.method, request.url.path))
+            if request.url.path == "/images/json":
+                return httpx.Response(200, json=[])
+            if request.url.path == "/containers/json":
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json={"SpaceReclaimed": 1024})
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            heartbeat = server_cleanup.Path(temp_dir) / "cleanup-ok"
+            with (
+                patch.object(
+                    server_cleanup,
+                    "_client",
+                    side_effect=lambda: httpx.Client(
+                        transport=httpx.MockTransport(handler), base_url="http://docker"
+                    ),
+                ),
+                patch.object(server_cleanup, "host_free_pct", return_value=0.1),
+                patch.object(server_cleanup, "_cleanup_backups", return_value=0),
+                patch.object(server_cleanup, "HEARTBEAT", heartbeat),
+            ):
+                server_cleanup.run_once()
+
+        self.assertFalse(any(method == "POST" and path == "/build/prune" for method, path in requests))
+        self.assertFalse(any(method == "DELETE" and path.startswith("/containers/") for method, path in requests))
