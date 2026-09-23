@@ -37,6 +37,7 @@ class Strategy:
     strong: list
     weak: list
     skip_if_noise: bool = False
+    until: str = ""  # 到期日（含当天）；填了就在这之后不再出现在报告里
 
 
 def strategies_path() -> Path:
@@ -87,12 +88,26 @@ def load_strategies() -> tuple[list[Strategy], list]:
                 strong=strong,
                 weak=weak,
                 skip_if_noise=bool(item.get("skip_if_noise")),
+                until=str(item.get("until") or "").strip(),
             )
         )
     if not strategies:
         raise RuntimeError(f"策略文件没有可用 strategies: {path}")
     _loaded = (key, mtime, strategies, noise)
     return strategies, noise
+
+
+def strategies_for(push_day: str) -> list[Strategy]:
+    """按 until 过滤当期策略；全都过期时回落到全部，避免出空报告。"""
+    strategies, _noise = load_strategies()
+    day = (push_day or "").strip()
+    if not day:
+        return strategies
+    live = [item for item in strategies if not item.until or day <= item.until]
+    if not live:
+        logger.warning("策略全部已过期（截至 {}），回落到全部策略", day)
+        return strategies
+    return live
 
 
 def _mark(index: int, label: str) -> str:
@@ -339,7 +354,7 @@ def topic_verdict(scan: OwnerScan, topic: str) -> str:
 
 def build_im_body(push_day: str, start: datetime, end: datetime, scans: list[OwnerScan]) -> str:
     """私聊短正文；明细在 HTML 附件。条数跟策略文件走。"""
-    strategies, _noise = load_strategies()
+    strategies = strategies_for(push_day)
     lines = [
         f"【策略核查 WhatsApp｜{push_day} 08:00】",
         f"窗口 {window_text(start, end)}｜对象 {' / '.join(TARGETS)}",
@@ -371,7 +386,7 @@ def build_html(
     push_day: str, start: datetime, end: datetime, scans: list[OwnerScan]
 ) -> str:
     """金黑单文件 HTML。栏目跟策略文件走。"""
-    strategies, _noise = load_strategies()
+    strategies = strategies_for(push_day)
     labels = {item.id: _mark(index, item.label) for index, item in enumerate(strategies)}
     kpis = []
     for scan in scans:
@@ -540,7 +555,7 @@ def run_report(push_day: str) -> dict:
     """采集并写 HTML，不发送。策略来自 wa_strategies.json。"""
     start, end = window_for(push_day)
     scans = scan_owners(start, end)
-    strategies, _noise = load_strategies()
+    strategies = strategies_for(push_day)
     path = save_html(push_day, build_html(push_day, start, end, scans))
     body = build_im_body(push_day, start, end, scans)
     return {
