@@ -628,6 +628,50 @@ def _prune_evidence_reports(out_dir, keep: int | None = None) -> None:
         logger.warning("证据日报清理旧文件失败: {}", exc)
 
 
+def meeting_todos_job() -> None:
+    """早会待办取数：从张洪姣私聊取当天图 -> 本地 Qwen OCR -> 落 runtime。
+
+    老板 2026-09-23：不用手动发图，去张洪姣私聊里取；每天会有一条待办。
+    取不到不编造：当天第 8 节自然不出现。
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.duzhan import is_duzhan_workday
+    from app.meeting_todos_fetch import run_day
+    from app.scheduler.run_ledger import claim_run, finish_run
+
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    day = now.strftime("%Y-%m-%d")
+    if not is_duzhan_workday("Asia/Shanghai", now):
+        logger.info("早会待办：非工作日跳过 {}", day)
+        return
+    bucket = day + "-" + now.strftime("%H%M")
+    if not claim_run("meeting_todos", bucket):
+        logger.info("早会待办本档已取过，跳过 {}", bucket)
+        return
+    try:
+        result = run_day(day)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("早会待办取数失败: {}", exc)
+        finish_run("meeting_todos", bucket, "failed", str(exc)[:200])
+        notify("早会待办取数失败", str(exc)[:200])
+        return
+    items = result.get("items") or []
+    finish_run(
+        "meeting_todos",
+        bucket,
+        "sent",
+        "items=" + str(len(items)) + " images=" + str(result.get("images") or 0),
+    )
+    logger.info(
+        "早会待办完成 {}｜图片 {} 张｜条目 {} 条｜落盘 {}",
+        day,
+        result.get("images"),
+        len(items),
+        result.get("saved") or "(空)",
+    )
+
 def backup_reminder_job() -> None:
     """每周一 09:00：提醒人工做一次备份（老板 2026-09-20 要求「一周提醒一次」）。
 
@@ -1409,6 +1453,28 @@ def start_scheduler() -> BackgroundScheduler | None:
                     misfire_grace_time=3600,
                 )
 
+    # 早会待办取数：每天 09:30 / 11:30（北京时间）各取一次（张洪姣私聊的早会待办图）。
+    if getattr(settings, "meeting_todos_enabled", False):
+        from zoneinfo import ZoneInfo as _TzTodos
+
+        for _slot in getattr(settings, "meeting_todos_times", ["09:30"]) or ["09:30"]:
+            try:
+                _h, _m = (int(part) for part in str(_slot).split(":", 1))
+            except (ValueError, AttributeError):
+                logger.warning("忽略非法早会待办时间: {}", _slot)
+                continue
+            _scheduler.add_job(
+                meeting_todos_job,
+                trigger="cron",
+                hour=_h,
+                minute=_m,
+                day_of_week="mon-sun",
+                timezone=_TzTodos("Asia/Shanghai"),
+                id="meeting_todos_%02d%02d" % (_h, _m),
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=1800,
+            )
     # 每周一 09:00：提醒人工备份（证据 HTML 只留 14 天，归档靠人）。
     if getattr(settings, "backup_reminder_enabled", True):
         from zoneinfo import ZoneInfo as _TzBackup

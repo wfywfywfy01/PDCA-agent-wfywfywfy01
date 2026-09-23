@@ -14,10 +14,29 @@ from pathlib import Path
 
 from loguru import logger
 
+from app.config import get_settings
+
 TODOS_FILE = Path(__file__).with_name("meeting_todos.json")
 
 
+def _runtime_items(day: str) -> list[dict]:
+    """当天运行时文件（每天从张洪姣私聊自动取图 OCR 后落盘）优先。"""
+    path = get_settings().data_dir / "runtime" / "meeting_todos" / (day + ".json")
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("早会待办运行时文件读取失败（{}）：{}", path, exc)
+        return []
+    items = payload.get("items") if isinstance(payload, dict) else None
+    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
 def _load(day: str) -> list[dict]:
+    runtime = _runtime_items(day)
+    if runtime:
+        return runtime
     try:
         payload = json.loads(TODOS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
