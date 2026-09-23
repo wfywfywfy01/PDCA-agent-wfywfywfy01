@@ -110,7 +110,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("门店五件套回执（09-08）", text)
         self.assertIn("系统收到 1 家必报门店填报", text)
         self.assertIn("应报 6 家", text)
-        self.assertIn("目标 1,228.0 万", text)
+        self.assertIn("目标 1,328.0 万", text)
         self.assertIn("新部（邓琳莹、Safae、王宇彤、张月馨合计） 100 万", text)
 
     def test_required_store_owner_keys_match_production_accounts(self):
