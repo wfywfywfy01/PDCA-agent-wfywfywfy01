@@ -27,10 +27,13 @@ from app.main import app
 
 class LogisticsAdminProxyTests(unittest.TestCase):
     def test_rewrites_root_links_and_adds_return_link(self):
-        source = "<nav><a href='/orders'>订单</a></nav><script src='/admin.js'></script>".encode()
+        source = ("<nav><a href='/orders'>订单</a></nav>"
+                  "<link rel='stylesheet' href='/admin.css'>"
+                  "<script src='/admin.js'></script>").encode()
         result = _rewrite_html(source, "text/html; charset=utf-8").decode()
         self.assertIn("href='/logistics-admin/orders'", result)
         self.assertIn("src='/logistics-admin/admin.js'", result)
+        self.assertIn("href='/logistics-admin/admin.css'", result)
         self.assertIn('href="/app/logistics"', result)
 
     def test_non_html_is_untouched(self):

@@ -91,7 +91,7 @@ def _rewrite_html(body: bytes, content_type: str) -> bytes:
     if marker in text and "/app/logistics" not in text:
         text = text.replace(
             marker,
-            '<a href="/app/logistics">返回 PDCA 物流中心</a></nav>',
+            '<a href="/app/logistics" class="sidenav__item">返回 PDCA 物流中心</a></nav>',
             1,
         )
     return text.encode("utf-8")
