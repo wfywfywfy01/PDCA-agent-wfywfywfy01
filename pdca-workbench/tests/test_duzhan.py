@@ -1447,6 +1447,14 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("【明日预告】", text)
         self.assertIn("迪拜 Billionaire 订单确认", text)
 
+    def test_meeting_todos_block_is_appended_once(self):
+        """回归：第 8 节早会待办只允许拼一次（工作区曾出现重复的一行）。"""
+        group = groups_for_tz(TZ_SHANGHAI)[1]
+        now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        person = self._person(meeting_todos="\n【第 8 节｜早会待办】\n   • 事项A")
+        text = render_brief(group, 10, now, self._ledger(person), self._ledger(person))
+        self.assertEqual(text.count("【第 8 节｜早会待办】"), 1)
+
     def test_evening_slot_shows_mto_scoring(self):
         """MTO 打分放在 20:00 验兑现（2026-09-23 老板要求：10:00 那档早上没图必然 0）。"""
         group = groups_for_tz(TZ_SHANGHAI)[1]

@@ -29,9 +29,13 @@ PROMPT = (
 )
 # 型号读不出时的定向二次识别：只抄型号，避免被金额/客户名分散注意力。
 MODEL_PROMPT = (
-    "只做一件事：把这张 VERTU 报价图里的机型/型号原文逐字抄出来（含系列与配置后缀，"
-    "如 Vertu Signature S+ / Vertu Alphafold / 机械表型号）。"
-    "只输出 JSON：{\"model\": \"...\"}；看不清就输出 {\"model\": \"\"}，不要猜。"
+    "只做一件事：把这张报价图里的机型/型号原文逐字抄出来（含系列与配置后缀，"
+    "如 Vertu Signature S+ / Vertu Alphafold / Vertu Agent Q / 机械表型号）。"
+    "图里可能同时有多台机器或多个型号：能看清几个就抄几个，用「 / 」分隔。"
+    "先看图片大标题，再看每台机器下方或参数栏的小字；型号通常以 Vertu 开头。"
+    "只输出 JSON：{\"model\": \"...\"}；"
+    "只有在整张图确实没有任何型号文字时才输出 {\"model\": \"\"}；"
+    "能看清一部分就照抄那一部分，不要因为看不清全部而留空。"
 )
 # 不贪婪：逐个匹配「不含嵌套花括号」的片段，最后取能解析成 dict 的那个。
 # 推理模型常见的输出是「先给示例 JSON，再给最终 JSON」，贪婪匹配会把两段一起吃进来 → json.loads 失败、字段全丢。
@@ -267,13 +271,39 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
 
 
 def _retry_model_only(payload: dict, url: str, key: str, row: dict) -> dict:
-    """型号读不出时的定向重试：只让模型抄型号，成功则补进结果。"""
+    """型号读不出时的定向重试：**同一轮里保留原图**，只让它抄型号。
+
+    2026-09-23 修复：原来是在「图片 + 完整提示词」之后再追加一条纯文字 user 指令，
+    两条 user 指令互相干扰，且 max_tokens 被砍到 600（推理模型 reasoning 就吃完了），
+    实测连续多张图回 {"model": ""}。现在改成「原图 + 只抄型号」单轮，并沿用原预算。
+    """
+    messages = list(payload.get("messages") or [])
+    retry_messages: list[dict] = []
+    for message in messages:
+        content = message.get("content")
+        if isinstance(content, list):
+            images = [
+                part
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "image_url"
+            ]
+            retry_messages.append(
+                {
+                    "role": message.get("role") or "user",
+                    "content": [{"type": "text", "text": MODEL_PROMPT}, *images],
+                }
+            )
+        else:
+            retry_messages.append(message)
+    if not retry_messages:
+        retry_messages = [{"role": "user", "content": MODEL_PROMPT}]
     retry_payload = dict(payload)
-    retry_payload["messages"] = [
-        payload["messages"][0],
-        {"role": "user", "content": MODEL_PROMPT},
-    ]
-    retry_payload["max_tokens"] = 600
+    retry_payload["messages"] = retry_messages
+    try:
+        budget = int(payload.get("max_tokens") or 0)
+    except (TypeError, ValueError):
+        budget = 0
+    retry_payload["max_tokens"] = max(budget, 1500)
     try:
         resp = httpx.post(
             url,
@@ -283,7 +313,8 @@ def _retry_model_only(payload: dict, url: str, key: str, row: dict) -> dict:
             verify=_tls_verify(),
         )
         resp.raise_for_status()
-        text = (resp.json().get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        choice = (resp.json().get("choices") or [{}])[0]
+        text = choice.get("message", {}).get("content") or ""
         found = parse_quote_text(text)
         if found.get("model"):
             logger.info("MTO 型号二次识别成功: {}", found["model"])
@@ -291,7 +322,12 @@ def _retry_model_only(payload: dict, url: str, key: str, row: dict) -> dict:
             row["model_missing"] = False
             row["raw_ok"] = True
         else:
-            logger.warning("MTO 型号二次识别仍失败: {}", (text or "")[:120])
+            # 带上 finish_reason：截断(length)与「模型真的说没有型号」是两种问题。
+            logger.warning(
+                "MTO 型号二次识别仍失败（finish={}）: {}",
+                choice.get("finish_reason"),
+                (text or "（空响应）")[:200],
+            )
     except Exception as exc:  # noqa: BLE001 — 二次识别失败不影响其它字段
         logger.warning("MTO 型号二次识别异常: {}", exc)
     return row

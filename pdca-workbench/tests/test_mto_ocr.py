@@ -95,7 +95,56 @@ class MtoOcrTests(unittest.TestCase):
         self.assertEqual(row["model"], "Vertu Signature S+")
         self.assertFalse(row["model_missing"])
         self.assertEqual(len(payloads), 2, "型号为空必须再问一次")
-        self.assertIn("只做一件事", payloads[1]["messages"][1]["content"])
+        retry = payloads[1]
+        # 2026-09-23 修复回归：二次识别必须「同一轮带原图 + 只抄型号」，
+        # 且不能把预算砍到 600（推理模型会被 reasoning 吃光 → 连续回 {"model": ""}）。
+        self.assertEqual(len(retry["messages"]), 1, "二次识别用单轮，不再追加纯文字 user 指令")
+        parts = retry["messages"][0]["content"]
+        self.assertTrue(
+            any(part.get("type") == "image_url" for part in parts), "二次识别必须带原图"
+        )
+        texts = " ".join(part.get("text", "") for part in parts if part.get("type") == "text")
+        self.assertIn("只做一件事", texts)
+        self.assertGreaterEqual(retry["max_tokens"], 1500, "预算不能比首轮小")
+
+    def test_model_retry_keeps_missing_when_model_really_absent(self):
+        """二次识别仍读不出：保持 model_missing，不编型号（回归）。"""
+        bodies = ['{"model": "", "total_usd": 28430}', '{"model": ""}']
+
+        class FakeResponse:
+            def __init__(self, body: str) -> None:
+                self._body = body
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "choices": [
+                        {"message": {"content": self._body}, "finish_reason": "stop"}
+                    ]
+                }
+
+        def fake_post(url, json=None, headers=None, timeout=None, verify=None):
+            return FakeResponse(bodies.pop(0))
+
+        fake_settings = type(
+            "S",
+            (),
+            {
+                "qwen_base_url": "https://qwen.example/v1",
+                "qwen_api_key": "test-key",
+                "qwen_model": "qwen3.8-27b",
+                "qwen_ca_bundle": "",
+            },
+        )()
+        with patch("app.mto_ocr.get_settings", return_value=fake_settings), patch(
+            "app.mto_ocr.httpx.post", side_effect=fake_post
+        ):
+            row = ocr_image_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32, "image/png")
+        self.assertEqual(row["model"], "")
+        self.assertTrue(row["model_missing"])
+        self.assertEqual(row["usd"], 28430.0)
 
     def test_garbage_is_unread(self):
         row = parse_quote_text("not json")
