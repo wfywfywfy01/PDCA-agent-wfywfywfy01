@@ -517,7 +517,6 @@ def _full_person_body(
         f"6. 附件证据：{evidence}\n"
         f"7. 海外日报群核对：{daily}\n"
         + ((person or {}).get("meeting_todos") or "")
-        + ((person or {}).get("meeting_todos") or "")
     )
 
 

@@ -6,6 +6,16 @@ import unittest
 
 
 class MeetingTodosTests(unittest.TestCase):
+    def test_full_report_includes_meeting_todos_exactly_once(self):
+        from app.duzhan import GROUPS, _full_person_body
+
+        block = "8. 早会待办：\n- 确认客户方案与截止时间\n"
+        for hour in (10, 15, 20):
+            with self.subTest(hour=hour):
+                text = _full_person_body(GROUPS[0], hour, {"meeting_todos": block}, "zh")
+                self.assertEqual(text.count(block), 1)
+                self.assertNotIn("8. 早会待办", _full_person_body(GROUPS[0], hour, None, "zh"))
+
     def test_group_items_are_isolated(self):
         from app.meeting_todos import block_for_group
 
