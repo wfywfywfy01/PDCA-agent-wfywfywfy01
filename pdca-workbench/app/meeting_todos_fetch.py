@@ -16,7 +16,9 @@ import json
 import re
 import shutil
 import tempfile
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -131,6 +133,9 @@ def resolve_channel(peer_user_id: int | None = None) -> str:
 
 def day_images(channel_id: str, day: str) -> list[dict]:
     """当天该会话里的图片消息（按时间升序）。"""
+    wanted = date.fromisoformat(day)
+    peer_id = str(getattr(get_settings(), "meeting_todos_peer_user_id", PEER_USER_ID_DEFAULT))
+    local_tz = ZoneInfo("Asia/Shanghai")
     payload = _cli_json(
         [
             "im",
@@ -139,6 +144,8 @@ def day_images(channel_id: str, day: str) -> list[dict]:
             channel_id,
             "--date-from",
             day + "T00:00:00+08:00",
+            "--date-to",
+            (wanted + timedelta(days=1)).isoformat() + "T00:00:00+08:00",
             "--limit",
             "60",
         ]
@@ -146,6 +153,15 @@ def day_images(channel_id: str, day: str) -> list[dict]:
     out: list[dict] = []
     for msg in (payload or {}).get("messages") or []:
         if not isinstance(msg, dict) or str(msg.get("message_type") or "") != "image":
+            continue
+        if str(msg.get("sender_user_id") or "") != peer_id:
+            continue
+        raw_time = str(msg.get("created_at") or "")
+        try:
+            created = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if created.tzinfo is None or created.astimezone(local_tz).date() != wanted:
             continue
         for att in msg.get("attachments") or []:
             if not isinstance(att, dict):

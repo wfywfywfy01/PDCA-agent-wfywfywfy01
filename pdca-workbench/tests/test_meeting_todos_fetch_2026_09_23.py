@@ -75,6 +75,30 @@ class RuntimeFileTests(unittest.TestCase):
 
 
 class FetchDayTests(unittest.TestCase):
+    def test_day_images_only_accepts_peer_messages_on_requested_local_day(self):
+        from app import meeting_todos_fetch as fetch
+
+        messages = [
+            {"id": "valid", "sender_user_id": 13271, "message_type": "image", "created_at": "2026-09-23T02:00:00Z", "attachments": [{"url": "/valid"}]},
+            {"id": "other", "sender_user_id": 999, "message_type": "image", "created_at": "2026-09-23T02:01:00Z", "attachments": [{"url": "/other"}]},
+            {"id": "tomorrow", "sender_user_id": 13271, "message_type": "image", "created_at": "2026-09-23T16:01:00Z", "attachments": [{"url": "/tomorrow"}]},
+            {"id": "undated", "sender_user_id": 13271, "message_type": "image", "attachments": [{"url": "/undated"}]},
+        ]
+        calls = []
+
+        def fake_cli(args, timeout=30.0):
+            calls.append(args)
+            return {"messages": messages}
+
+        with mock.patch.object(fetch, "_cli_json", fake_cli), mock.patch.object(
+            fetch, "get_settings", return_value=mock.Mock(meeting_todos_peer_user_id=13271)
+        ):
+            images = fetch.day_images("channel", "2026-09-23")
+
+        self.assertEqual([image["id"] for image in images], ["valid"])
+        self.assertIn("--date-to", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--date-to") + 1], "2026-09-24T00:00:00+08:00")
+
     def test_uses_latest_image_and_falls_back(self):
         from app import meeting_todos_fetch as fetch
 
