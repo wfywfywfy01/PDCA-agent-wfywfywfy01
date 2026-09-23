@@ -145,6 +145,38 @@ class SharedRecipientTests(unittest.TestCase):
         self.assertEqual(result["sent"], ["user:13365", "user:13102", "user:12564"])
         self.assertEqual(len(calls), 3)
 
+    def test_deliver_prefers_group_over_private_ids(self):
+        """配了 PDCA_MGMT_HTML_CHANNEL_ID 就只发群，不再私发（2026-09-23 用户要求）。"""
+        import tempfile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        html = Path(tmp.name) / "督战证据_2026-09-18.html"
+        html.write_text("<html>x</html>", encoding="utf-8")
+        calls: list[list[str]] = []
+
+        def fake_run(args, timeout=None):
+            calls.append(args)
+            return 0, "{}", ""
+
+        shared = SimpleNamespace(
+            duzhan_bot_app_id="vbot_duzhan",
+            todo_bot_app_id="",
+            mgmt_html_user_ids=[13365, 13102, 12564],
+            mgmt_html_channel_id="chan-mgmt",
+            evidence_report_user_ids=[],
+        )
+        with mock.patch("app.config.get_settings", return_value=shared), mock.patch(
+            "app.vertu.client.run_vertu_sync", side_effect=fake_run
+        ):
+            result = evidence_report.deliver_report(
+                {"day": "2026-09-18", "html": str(html), "bytes": 10, "people": 1, "images": 0}
+            )
+        self.assertEqual(result["sent"], ["channel"])
+        self.assertEqual(len(calls), 1, "只发群，不能再私发")
+        self.assertIn("+send", calls[0])
+        self.assertIn("chan-mgmt", calls[0])
+
     def test_send_files_skips_missing_html(self):
         from app.im_files import send_files
 

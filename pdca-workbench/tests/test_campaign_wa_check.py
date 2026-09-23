@@ -242,6 +242,46 @@ class CampaignJobTests(unittest.TestCase):
         self.assertEqual(len(sent), 3, "共享名单三个人都要发")
         self.assertEqual(len({call[2] for call in sent}), 1, "都发到同一个 user-id 位置")
 
+    def test_job_sends_to_group_when_configured(self):
+        """配了管理群就只发群：一条群消息，不再私发共享名单。"""
+        from app.scheduler import jobs as scheduler_jobs
+
+        settings = SimpleNamespace(
+            data_dir=Path(tempfile.mkdtemp()),
+            campaign_wa_check_days=2,
+            campaign_wa_check_user_ids=[],
+            campaign_wa_check_channel_id="chan-mgmt",
+            mgmt_html_user_ids=[13365, 13102, 12564],
+            duzhan_bot_app_id="vbot",
+            todo_bot_app_id="",
+        )
+        sent: list[list[str]] = []
+
+        def fake_run(args, timeout=None):
+            sent.append(args)
+            return 0, "{}", ""
+
+        html = Path(settings.data_dir) / "x.html"
+        html.write_text("<html>x</html>", encoding="utf-8")
+        with mock.patch.object(
+            scheduler_jobs, "get_settings", return_value=settings
+        ), mock.patch(
+            "app.scheduler.run_ledger.claim_run", return_value=True
+        ), mock.patch(
+            "app.scheduler.run_ledger.finish_run"
+        ), mock.patch(
+            "app.strategy_wa_brief.run_report",
+            return_value={"html": str(html), "body": "正文"},
+        ), mock.patch(
+            "app.config.get_settings", return_value=settings
+        ), mock.patch(
+            "app.vertu.client.run_vertu_sync", side_effect=fake_run
+        ):
+            scheduler_jobs.campaign_wa_check_job()
+        self.assertEqual(len(sent), 1, "只发一条群消息")
+        self.assertIn("+send", sent[0])
+        self.assertIn("chan-mgmt", sent[0])
+
     def test_send_failure_is_failed_so_backup_can_retry(self):
         """发出去失败必须记 failed，08:30 同一天台账才会再认领。"""
         from app.scheduler import jobs as scheduler_jobs
