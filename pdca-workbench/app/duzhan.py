@@ -554,6 +554,51 @@ def _mto_summary(person: dict | None, lang: str) -> str:
     return "｜".join(parts)
 
 
+def _mto_wrapup_line(person: dict | None, lang: str) -> str:
+    """20:00 验兑现里的 MTO 打分一行（2026-09-23 老板要求）。
+
+    10:00 那档的「摘要」是早上采集的，当天还没人发 MTO 图，必然是 0 款；
+    交付物核验放在 20:00 才有意义：几款、达标了哪几款、几张读不出。
+    """
+    person = person or {}
+    quotes = [q for q in (person.get("mto_quotes") or []) if isinstance(q, dict)]
+    if not quotes:
+        count = person.get("mto_count")
+        if count is None:
+            return "pending" if lang == "en" else "待确认"
+        return f"{count} " + ("proposal(s) recorded" if lang == "en" else "款")
+    ok: list[str] = []
+    near: list[str] = []
+    unread = 0
+    for quote in quotes:
+        label = str(quote.get("model") or "").strip() or (
+            "model pending" if lang == "en" else "型号待确认"
+        )
+        wan = quote.get("wan")
+        if wan is None:
+            unread += 1
+            continue
+        money = f"{wan:g} wan" if lang == "en" else f"{wan:g}万"
+        (ok if quote.get("qualifies") else near).append(f"{label} {money}")
+    if lang == "en":
+        parts = [
+            f"{len(ok)}/{len(quotes)} qualified" + ((" (" + ", ".join(ok[:3]) + ")") if ok else "")
+        ]
+        if near:
+            parts.append(f"{len(near)} under 300k (" + ", ".join(near[:2]) + ")")
+        if unread:
+            parts.append(f"{unread} unreadable")
+    else:
+        parts = [
+            f"{len(ok)}/{len(quotes)} 款达标" + (("（" + "、".join(ok[:3]) + "）") if ok else "")
+        ]
+        if near:
+            parts.append(f"{len(near)} 款未满 30 万（" + "、".join(near[:2]) + "）")
+        if unread:
+            parts.append(f"{unread} 张读不出金额")
+    return "｜".join(parts)
+
+
 def _perf_text(person: dict | None, lang: str) -> str:
     """业绩三关键词：已录单（开单额，系统口径）/ 水单（已付款未到账）/ 意向（明确意向金额）。"""
     person = person or {}
@@ -917,6 +962,10 @@ def _slot_sections(
     if hour == 20:
         lines.append("【Day wrap-up | Performance check】" if english else "【当天总结｜业绩核对】")
         lines.append(_perf_text(person, lang))
+        lines.append(
+            ("   • MTO today: " if english else "   • MTO 今日达标：")
+            + _mto_wrapup_line(person, lang)
+        )
         wa_text = count_text(
             person.get("wa_reached"),
             lower_bound=bool(person.get("wa_lower_bound")),
