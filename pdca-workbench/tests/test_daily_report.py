@@ -79,13 +79,13 @@ class DailyReportTests(unittest.TestCase):
         self.assertNotIn("会议", text)
         self.assertNotIn("待办", text)
 
-    def test_confirmed_september_targets_total_1228_wan_without_splitting_new_team(self):
+    def test_confirmed_september_targets_total_1328_wan_without_splitting_new_team(self):
         target_yuan, details = _configured_sales_target("2026-09")
 
-        self.assertEqual(target_yuan, 12_280_000)
+        self.assertEqual(target_yuan, 13_280_000)
         self.assertEqual(details, [
             "Lina 400 万",
-            "尤文静 100 万",
+            "尤文静 200 万",
             "何海文 95 万",
             "杨晶晶 333 万",
             "于冰 200 万",

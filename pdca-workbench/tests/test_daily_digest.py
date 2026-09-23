@@ -78,8 +78,8 @@ class DigestStructureTests(unittest.TestCase):
     def test_department_and_group_target_use_ledger_day(self):
         led = _ledger([_person("于冰", "于冰业绩达标群")])
         text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
-        # 部门月目标 1228 万 ÷ 30 天 = 40.93 万/天，第 18 天累计应达 736.8 万
-        self.assertIn("月目标 1228 万", text)
+        # 部门月目标 1328 万 ÷ 30 天 = 44.27 万/天，第 18 天累计应达 796.8 万
+        self.assertIn("月目标 1328 万", text)
         self.assertIn("第 18/30 天", text)
 
     def test_bucket_amounts_pending_when_unreadable(self):
@@ -165,7 +165,7 @@ class DigestStructureTests(unittest.TestCase):
         text = build_digest("2026-09-19", _ledger([]), ledger_day="2026-09-18")
         self.assertIn("未检索到未闭环事项", text)
         self.assertIn("未见卡点上报", text)
-        self.assertIn("月目标 1228 万", text)      # 部门目标来自目标文件，与人数无关
+        self.assertIn("月目标 1328 万", text)      # 部门目标来自目标文件，与人数无关
         self.assertIn("已录单 待确认", text)          # 没有一人出数，不编 0
         self.assertIn("未取到人员台账", text)
 
