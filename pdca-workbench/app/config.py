@@ -186,6 +186,21 @@ class Settings:
             for item in os.environ.get("PDCA_BACKUP_REMINDER_USER_IDS", "").split(",")
             if item.strip().isdigit()
         ]
+        # 早会待办（第 8 节）：每天从张洪姣私聊取图 -> 本地 Qwen OCR -> 落当日待办
+        self.meeting_todos_enabled = _env_flag("PDCA_MEETING_TODOS_ENABLED", "1")
+        self.meeting_todos_times = [
+            item.strip()
+            for item in os.environ.get("PDCA_MEETING_TODOS_TIMES", "09:30,11:30").split(",")
+            if item.strip()
+        ]
+        try:
+            self.meeting_todos_peer_user_id = int(
+                os.environ.get("PDCA_MEETING_TODOS_PEER_USER_ID", "13271") or 13271
+            )
+        except ValueError:
+            self.meeting_todos_peer_user_id = 13271
+        self.meeting_todos_channel_id = os.environ.get("PDCA_MEETING_TODOS_CHANNEL_ID", "").strip()
+        self.meeting_todos_max_images = _env_int("PDCA_MEETING_TODOS_MAX_IMAGES", "3")
         # 策略 WhatsApp 核查（每天 08:00，前 24 小时；策略见 wa_strategies.json）
         self.campaign_wa_check_enabled = (
             _env_flag("PDCA_CAMPAIGN_WA_CHECK_ENABLED", "1")
