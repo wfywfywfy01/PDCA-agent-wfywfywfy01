@@ -534,7 +534,14 @@ def run(
             for p in people
         ],
     }
-    out_path = Path(out) if out else Path.home() / "Desktop" / ("机械腕表闪购_WhatsApp核查_" + end + ".html")
+    _month = datetime.now().month
+    _env_drop = os.environ.get("PDCA_DROP_DIR", "").strip()
+    _drop = (
+        Path(_env_drop.replace("{month}", str(_month)))
+        if _env_drop
+        else Path(r"D:\Vertu\data\excel\26年数据") / f"{_month}月" / "部门工作画像" / "督战官文件"
+    )
+    out_path = Path(out) if out else _drop / ("机械腕表闪购_WhatsApp核查_" + end + ".html")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(render(payload), encoding="utf-8")
     json_path = out_path.with_suffix(".json")

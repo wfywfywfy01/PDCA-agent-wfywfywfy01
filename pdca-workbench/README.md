@@ -115,10 +115,11 @@ python scripts/backfill_meeting_projects.py --dry-run # 只统计不动库
 ## 督战证据日报（固定测试流程）
 
 老板 2026-09-18 定的固定测试流程：**先收集他们当天被系统读到的全部证据 →
-生成单文件 HTML 到桌面 → 人工逐人核对「系统读到的 = 群里真实发生的」→ 读错的进问题清单改完再跑**。
+生成单文件 HTML 到「督战官文件」目录 → 人工逐人核对「系统读到的 = 群里真实发生的」→ 读错的进问题清单改完再跑**。
 
 **每天 07:30 自动生成一份**（容器任务 `evidence_report`，落 `data/exports/evidence/`，
-保留最近 45 天），**08:00 由本机计划任务「PDCA Evidence Daily」拉到桌面**
+保留最近 45 天），**08:00 由本机计划任务「PDCA Evidence Daily」拉到
+`D:\Vertu\data\excel\26年数据\<月>月\部门工作画像\督战官文件`（用户 2026-09-23 要求：不准放桌面）**
 （`scripts/pull_evidence_to_desktop.ps1`：先 `docker cp`，容器没有才本机现场生成）。
 开关：`PDCA_EVIDENCE_REPORT_ENABLED` / `PDCA_EVIDENCE_REPORT_TIME`（默认 07:30）/
 `PDCA_EVIDENCE_REPORT_IMAGES`（默认内嵌 24 张）。
