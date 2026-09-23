@@ -79,13 +79,13 @@ class DailyReportTests(unittest.TestCase):
         self.assertNotIn("会议", text)
         self.assertNotIn("待办", text)
 
-    def test_confirmed_september_targets_total_1228_wan_without_splitting_new_team(self):
+    def test_confirmed_september_targets_total_1328_wan_without_splitting_new_team(self):
         target_yuan, details = _configured_sales_target("2026-09")
 
-        self.assertEqual(target_yuan, 12_280_000)
+        self.assertEqual(target_yuan, 13_280_000)
         self.assertEqual(details, [
             "Lina 400 万",
-            "尤文静 100 万",
+            "尤文静 200 万",
             "何海文 95 万",
             "杨晶晶 333 万",
             "于冰 200 万",
@@ -110,7 +110,7 @@ class DailyReportTests(unittest.TestCase):
         self.assertIn("门店五件套回执（09-08）", text)
         self.assertIn("系统收到 1 家必报门店填报", text)
         self.assertIn("应报 6 家", text)
-        self.assertIn("目标 1,228.0 万", text)
+        self.assertIn("目标 1,328.0 万", text)
         self.assertIn("新部（邓琳莹、Safae、王宇彤、张月馨合计） 100 万", text)
 
     def test_required_store_owner_keys_match_production_accounts(self):
