@@ -23,6 +23,13 @@ def resolve_user_ids(settings, primary: str, fallback: str = "mgmt_html_user_ids
     return [int(item) for item in (getattr(settings, fallback, []) or [])]
 
 
+def resolve_channel(settings, primary: str, fallback: str = "mgmt_html_channel_id") -> str:
+    """群收件人优先级：功能自己的 channel > 共享管理群（都没配返回空）。"""
+    return str(
+        getattr(settings, primary, "") or getattr(settings, fallback, "") or ""
+    ).strip()
+
+
 def send_files(
     *,
     html_path: Path | str,

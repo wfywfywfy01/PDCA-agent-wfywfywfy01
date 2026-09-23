@@ -222,6 +222,11 @@ class Settings:
         self.evidence_report_images = int(
             os.environ.get("PDCA_EVIDENCE_REPORT_IMAGES", "24") or 24
         )
+        # 2026-09-23：早上固定输出的 HTML 从私聊改为发「督战官管理群」：
+        # 配了群就只发群，私聊名单只在没配群时兜底。
+        self.mgmt_html_channel_id = os.environ.get(
+            "PDCA_MGMT_HTML_CHANNEL_ID", ""
+        ).strip()
         # 所有「早上固定输出」的 HTML（证据日报 / 三策略简报）共用这一份收件人名单
         self.mgmt_html_user_ids = [
             int(item.strip())

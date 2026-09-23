@@ -508,7 +508,7 @@ def campaign_wa_check_job() -> None:
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from app.im_files import resolve_user_ids, send_files
+    from app.im_files import resolve_channel, resolve_user_ids, send_files
     from app.scheduler.run_ledger import claim_run, finish_run
     from app.strategy_wa_brief import run_report
 
@@ -525,10 +525,12 @@ def campaign_wa_check_job() -> None:
         notify("策略核查生成失败", str(exc)[:200])
         return
     try:
+        # 2026-09-23：改发「督战官管理群」——配了群就只发群，不再私发管理名单。
+        channel = resolve_channel(settings, "campaign_wa_check_channel_id")
         delivery = send_files(
             html_path=result["html"],
-            user_ids=resolve_user_ids(settings, "campaign_wa_check_user_ids"),
-            channel_id=getattr(settings, "campaign_wa_check_channel_id", "") or "",
+            user_ids=[] if channel else resolve_user_ids(settings, "campaign_wa_check_user_ids"),
+            channel_id=channel,
             caption=result.get("body") or "",
             idempotency_key="strategy-wa-" + day,
         )

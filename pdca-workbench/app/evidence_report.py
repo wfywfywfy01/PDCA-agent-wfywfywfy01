@@ -464,20 +464,25 @@ def deliver_report(
 ) -> dict:
     """把生成的 HTML（+JSON）发给管理层。
 
-    发送走共享发送器 app/im_files.py（与三策略简报同一套框架、同一份收件人名单）：
-    user_ids 为空时自动用共享名单 PDCA_MGMT_HTML_USER_IDS；
-    channel_id 默认空 → **绝不发群**；只发文件，不改任何数据。
+    发送走共享发送器 app/im_files.py（与策略核查同一套框架）：
+    配了 PDCA_EVIDENCE_REPORT_CHANNEL_ID / PDCA_MGMT_HTML_CHANNEL_ID 就**只发群**；
+    没配群时 user_ids 为空才回落私聊名单 PDCA_MGMT_HTML_USER_IDS。只发文件，不改任何数据。
     """
     from app.config import get_settings
-    from app.im_files import resolve_user_ids, send_files
+    from app.im_files import resolve_channel, resolve_user_ids, send_files
 
     settings = get_settings()
     html_path = Path(str(summary.get("html") or ""))
     if not html_path.exists():
         return {"sent": [], "failed": [str(html_path)], "reason": "文件不存在"}
-    recipients = list(user_ids or ()) or resolve_user_ids(
-        settings, "evidence_report_user_ids"
+    channel = str(channel_id or "").strip() or resolve_channel(
+        settings, "evidence_report_channel_id"
     )
+    recipients: list[int] = []
+    if not channel:
+        recipients = list(user_ids or ()) or resolve_user_ids(
+            settings, "evidence_report_user_ids"
+        )
     body = caption or (
         "【督战证据日报｜数据日 " + str(summary.get("day")) + "】\n"
         f"- {summary.get('people')} 人｜{summary.get('images')} 张报价图"
@@ -488,7 +493,7 @@ def deliver_report(
     return send_files(
         html_path=html_path,
         user_ids=recipients,
-        channel_id=channel_id,
+        channel_id=channel,
         extra_paths=[html_path.with_suffix(".json")],
         caption=body,
         idempotency_key=f"evidence-{summary.get('day')}",
