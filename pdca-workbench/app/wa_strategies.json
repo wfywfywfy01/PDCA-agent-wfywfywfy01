@@ -3,14 +3,34 @@
   "noise": ["apple\\s*watch", "苹果表", "维修", "repair"],
   "strategies": [
     {
+      "id": "agentq",
+      "label": "Agent Q 碳纤维首发配额",
+      "until": "2026-09-30",
+      "strong": [
+        "3[,.]?763(?:\\.20)?",
+        "配额价|allocation\\s*price",
+        "(?:全球|worldwide|globally|only)[^。\\n]{0,20}50\\s*(?:套|sets?|pcs|units)|50\\s*(?:套|sets?|pcs|units)[^。\\n]{0,20}(?:全球|worldwide|globally|only)",
+        "(?:定金|deposit)[^。\\n]{0,20}(?:锁定?|预留|确认|lock|secure|reserve|confirm)",
+        "(?:截止|deadline|closing|cut[- ]?off)[^。\\n]{0,25}(?:9\\s*月\\s*30|sep\\.?\\s*30|september\\s*30)",
+        "(?:9\\s*月\\s*30|sep\\.?\\s*30|september\\s*30)[^。\\n]{0,25}(?:截止|deadline|closing|24:?00)"
+      ],
+      "weak": [
+        "agent\\s*q",
+        "carbon\\s*fib(?:er|re)|碳纤维",
+        "全球首发|first\\s*(?:release|launch)",
+        "5[,.]?880",
+        "50\\s*(?:套|sets?|pcs|units)"
+      ]
+    },
+    {
       "id": "mto",
       "label": "BESPOKE MTO +5% 返点",
       "strong": [
         "5\\s*%\\s*rebate|\\+5\\s*%|profit rebate",
         "bespoke\\s*mto",
-        "agent\\s*q|himalaya|full[- ]?diamond|72\\s*hours"
+        "himalaya|full[- ]?diamond|72\\s*hours"
       ],
-      "weak": ["bespoke|\\+5\\s*%|rebate|agent\\s*q|himalaya"]
+      "weak": ["bespoke|\\+5\\s*%|rebate|himalaya"]
     },
     {
       "id": "watch",

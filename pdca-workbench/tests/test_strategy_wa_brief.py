@@ -9,10 +9,12 @@ from unittest import mock
 
 from app.strategy_wa_brief import (
     OwnerScan,
+    Strategy,
     TZ,
     build_html,
     build_im_body,
     classify,
+    strategies_for,
     topic_verdict,
     window_for,
     window_text,
@@ -49,6 +51,81 @@ class ClassifyTests(unittest.TestCase):
     def test_not_meta1_not_watch_strategy(self):
         labels = dict(classify("not meta 1"))
         self.assertEqual(labels, {})
+
+
+class AgentQPolicyTests(unittest.TestCase):
+    """新政策：Agent Q 碳纤维套装全球首发配额（9/30 截止）。"""
+
+    def test_allocation_price_is_strong(self):
+        labels = dict(
+            classify(
+                "Agent Q carbon fibre set, allocation price USD 3,763.20 per set, "
+                "deposit to lock your allocation."
+            )
+        )
+        self.assertEqual(labels["agentq"], "strong")
+
+    def test_50_sets_worldwide_is_strong(self):
+        labels = dict(classify("全球限量 50 套，仅限海外经销商，定金锁配额"), )
+        self.assertEqual(labels["agentq"], "strong")
+
+    def test_deadline_is_strong(self):
+        labels = dict(
+            classify("Deadline: Sep 30, 2026 24:00 GMT+8. Deposit confirms the allocation.")
+        )
+        self.assertEqual(labels["agentq"], "strong")
+
+    def test_mention_only_is_weak(self):
+        labels = dict(classify("Agent Q 到货了，可以下单"))
+        self.assertEqual(labels["agentq"], "weak")
+
+    def test_agent_q_no_longer_counts_as_mto(self):
+        labels = dict(classify("Agent Q carbon fibre set, allocation price USD 3,763.20"))
+        self.assertNotIn("mto", labels)
+
+    def test_unrelated_text_not_matched(self):
+        labels = dict(classify("not meta 1"))
+        self.assertNotIn("agentq", labels)
+
+
+class StrategyExpiryTests(unittest.TestCase):
+    """until 到期后不再出现在报告里；老策略没写 until 就一直查。"""
+
+    def _with(self, items):
+        return mock.patch(
+            "app.strategy_wa_brief.load_strategies", return_value=(items, [])
+        )
+
+    def test_until_filters_expired_only(self):
+        items = [
+            Strategy(id="agentq", label="新政策", strong=[], weak=[], until="2026-09-30"),
+            Strategy(id="clear", label="清库", strong=[], weak=[]),
+        ]
+        with self._with(items):
+            self.assertEqual(
+                [item.id for item in strategies_for("2026-09-23")], ["agentq", "clear"]
+            )
+            self.assertEqual(
+                [item.id for item in strategies_for("2026-09-30")], ["agentq", "clear"]
+            )
+            self.assertEqual([item.id for item in strategies_for("2026-10-01")], ["clear"])
+
+    def test_all_expired_falls_back(self):
+        items = [Strategy(id="old", label="旧", strong=[], weak=[], until="2026-01-01")]
+        with self._with(items):
+            self.assertEqual([item.id for item in strategies_for("2026-10-01")], ["old"])
+
+    def test_bundled_file_has_agentq_until_sep30(self):
+        import json
+        from pathlib import Path
+
+        raw = json.loads(
+            Path(__file__).resolve().parents[1].joinpath("app/wa_strategies.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        entry = next(s for s in raw["strategies"] if s["id"] == "agentq")
+        self.assertEqual(entry["until"], "2026-09-30")
 
 
 class WindowTests(unittest.TestCase):
