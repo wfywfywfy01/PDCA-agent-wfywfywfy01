@@ -399,7 +399,7 @@ async def health():
         }
     ok = db_ok and backup["ok"] and vertu["ok"]
     daily_report_required = getattr(settings, "scheduler_enabled", True) and getattr(
-        settings, "daily_report_enabled", True
+        settings, "daily_report_enabled", False
     )
     daily_report = (
         await asyncio.to_thread(_daily_report_status)

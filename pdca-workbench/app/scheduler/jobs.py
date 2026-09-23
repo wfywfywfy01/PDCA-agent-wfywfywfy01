@@ -1017,7 +1017,7 @@ def start_scheduler() -> BackgroundScheduler | None:
     # 08:30 — 每日经营日报推送（服务器自跑，不依赖部署机网络）
     # misfire_grace_time=3600：容器在 08:30 前后重启时仍补发；
     # 09:30 兜底轮：claim_run 去重，08:30 崩溃/漏发时二次机会。
-    if getattr(settings, "daily_report_enabled", True):
+    if getattr(settings, "daily_report_enabled", False):
         _scheduler.add_job(
             daily_report_job,
             trigger="cron",
