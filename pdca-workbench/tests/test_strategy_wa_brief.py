@@ -79,6 +79,16 @@ class ClassifyTests(unittest.TestCase):
         scan.theme_ids["smartjewel"] = {"price", "deadline"}
         self.assertEqual(topic_verdict(scan, "smartjewel"), "有")
 
+    def test_html_shows_both_sources(self):
+        """2026-09-24 老板看不到 VPS：报告里要明写数据源与每人分源条数。"""
+        from app.strategy_wa_brief import build_html, window_for
+
+        start, end = window_for("2026-09-24")
+        scan = OwnerScan("邓琳莹", 36, message_count=7, wa_count=2, im_count=5)
+        html_text = build_html("2026-09-24", start, end, [scan])
+        self.assertIn("VPS IM 全域聊天记录", html_text)
+        self.assertIn("（WhatsApp 2 · VPS IM 5）", html_text)
+
     def test_vps_im_messages_are_scanned(self):
         """2026-09-24 老板：不只查 WhatsApp，VPS IM（达标群/跟进群）本人的发言也要算。"""
         from app.duzhan_ledger import Owner

@@ -192,6 +192,8 @@ class OwnerScan:
     hits: list[Hit] = field(default_factory=list)
     note: str = ""
     theme_ids: dict = field(default_factory=dict)  # topic -> {要点 id}，窗口内累计
+    wa_count: int = 0  # 窗口内 WhatsApp 消息数
+    im_count: int = 0  # 窗口内 VPS IM 本人发言数
 
 
 def window_for(push_day: str) -> tuple[datetime, datetime]:
@@ -538,6 +540,8 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
                 scan.complete = False
         rows = rows + im_rows
         scan.message_count = len(rows)
+        scan.wa_count = wa_count
+        scan.im_count = len(im_rows)
         scan.complete = complete and scan.complete and im_complete
         scan.note = note
         if note == "未配置 WhatsApp" or (complete and wa_count == 0 and not note):
@@ -680,6 +684,7 @@ def build_html(
             f'<div class="kpi"><div class="who">{_esc(scan.display)}</div>'
             f'<div class="verdict">{_esc(cells)}</div>'
             f'<div class="sub">窗口内 {scan.message_count} 条'
+            f"（WhatsApp {scan.wa_count} · VPS IM {scan.im_count}）"
             f'{" · 同步未完" if not scan.complete else ""}'
             f'{" · " + _esc(scan.note[:80]) if scan.note else ""}</div></div>'
         )
@@ -800,8 +805,8 @@ blockquote {{ margin:0; padding:10px 12px; background:#121821; border:1px solid 
 </head>
 <body>
 <header class="top">
-  <h1>{_esc(title)} WhatsApp</h1>
-  <p>对象：{' / '.join(TARGETS)} · 窗口 { _esc(window_text(start, end)) } · 推送日 { _esc(push_day) } 08:00 北京 · 来源 AINativeSales MCP messages（无 keyword，本地 regex）· 策略文件 { _esc(strategies_path().name) }</p>
+  <h1>{_esc(title)}（WhatsApp + VPS IM）</h1>
+  <p>对象：{' / '.join(TARGETS)} · 窗口 { _esc(window_text(start, end)) } · 推送日 { _esc(push_day) } 08:00 北京 · 数据源：WhatsApp（AINativeSales MCP messages）+ VPS IM 全域聊天记录（vps-work im +all-chat-records，只取本人发言）· 策略文件 { _esc(strategies_path().name) }</p>
 </header>
 <nav>
   <a href="#summary">总览</a>
@@ -810,7 +815,7 @@ blockquote {{ margin:0; padding:10px 12px; background:#121821; border:1px solid 
 <main>
 <section id="summary">
   <h2>总览</h2>
-  <p class="note">对照：{_esc(joined)}。结论按已同步聊天正文。换策略改 wa_strategies.json。</p>
+  <p class="note">对照：{_esc(joined)}。结论按已同步聊天正文（每人卡片括号内为 WhatsApp / VPS IM 各自扫到的条数）。换策略改 wa_strategies.json。</p>
   <div class="grid5">{''.join(kpis)}</div>
 </section>
 {''.join(tables)}
