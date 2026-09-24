@@ -55,6 +55,18 @@ class ClassifyTests(unittest.TestCase):
         labels = dict(classify("一代一次提 30 台赠 3 台，二代 20 万元赠 1 台，可提前锁定第三代 5 台认购权"))
         self.assertEqual(labels["smartjewel"], "strong")
 
+    def test_smart_jewelry_english_policy_is_strong(self):
+        """2026-09-24 实测漏判：英文版政策（40% of retail price / buy 30 get 3 free）必须算「有」。"""
+        labels = dict(
+            classify(
+                "H1 Smart Watch: Available at 40% of the retail price (60% off); buy 30 units, "
+                "get 3 free - limited to 200 pieces. S1: 50% of the retail price; order worth "
+                "RMB 200,000 and get 1 free. Lock in 5 units of the third-generation watch "
+                "launching in November."
+            )
+        )
+        self.assertEqual(labels["smartjewel"], "strong")
+
     def test_smart_jewelry_ring_mention_only_is_weak(self):
         labels = dict(classify("AI RING 到货了，有兴趣的看看"))
         self.assertEqual(labels["smartjewel"], "weak")
