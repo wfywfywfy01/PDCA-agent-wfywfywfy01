@@ -46,3 +46,67 @@
 3. `gh`（GitHub CLI）走 api.github.com，通常**可直连**，一般不需要代理；需要时可临时设 `HTTPS_PROXY`。
 
 注意事项：代理是临时工具，用完即停；固化到 `git config --global http.https://github.com/.proxy` 会导致代理未启动时 git 全部失败。
+
+### 2026-09-24 补充：三种"看起来不一样、其实是同一个坑"的表现
+
+同一天实测，push 失败会伪装成下面几种样子，别被带偏：
+
+| 看到的报错 | 其实是什么 |
+| --- | --- |
+| `fatal: unable to access ...: getaddrinfo() thread failed to start` | 连接阶段就挂了，不是解析器坏了 |
+| `TLS connect error: error:00000000:lib(0)::reason(0)` / `SSL_ERROR_SYSCALL`（卡约 20 秒） | 命中不可达 IP，TLS ClientHello 发出去没有回应 |
+| **exit 128 且一行日志都没有** | 多半是凭据助手没跑起来（见下节），git 把子进程的失败吞掉了 |
+
+**关键**：读操作（`ls-remote` / `fetch`）可能成功而 push 失败 —— DNS 每次返回的 IP 可能不同，
+读到的是可达 IP、写撞上不可达 IP。所以"能 fetch 就说明网络没问题"是错的：**写操作一律先挂代理试**。
+
+**抓不到报错时**：用 `ProcessStartInfo` 把 git 输出接到管道里会丢（实测 stdout/stderr 全空），
+改成批处理落盘 + 打开跟踪：
+
+```bat
+set GIT_TRACE=1
+set GIT_CURL_VERBOSE=1
+cd /d <工作树>
+git push -u origin HEAD 1> out.txt 2> err.txt
+```
+
+`err.txt` 里能看到 `Trying <ip>:443` → `TLS Client hello` → 超时，一眼定位。
+
+### 凭据助手路径写坏会静默失败（2026-09-24 实测并修复）
+
+`gh auth setup-git` 写进 `~/.gitconfig` 的是单引号包路径：
+
+```ini
+[credential "https://github.com"]
+	helper =
+	helper = !'C:\Program Files\GitHub CLI\gh.exe' auth git-credential
+```
+
+**坑**：单引号内 git 不做转义，一旦路径被写成 `C:\\Program Files\\...`（双反斜杠），
+`\\` 会原样交给 sh，"可执行文件路径"就不存在了 → 助手静默不返回凭据 →
+push 直接 exit 128、**没有任何输出**。修法：路径改成正斜杠
+（`C:/Program Files/GitHub CLI/gh.exe`），改完用
+
+```powershell
+git credential fill    # 依次输入 protocol=https / host=github.com / 空行
+```
+
+验证能返回 `username=` 和 `password=`（40 位）即可。改前先备份 `~/.gitconfig`。
+
+**还要确认账号对不对**：`gh` 助手返回的是**当前激活账号**的凭据。若该账号对目标仓库没有写权限，
+push 会**又一次静默 128**（没有任何 remote 报错）。用 `gh auth status` 看激活账号，
+必要时 `gh auth switch`，或直接用下面的应急推法指定有权限的账号。
+
+### 助手暂时修不了时的应急推法（不改任何配置）
+
+把 token 当成一次性 HTTP 头，绕开凭据助手：
+
+```powershell
+$token = gh auth token            # 只进内存，不要打印
+$b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$token"))
+git -c http.proxy=http://127.0.0.1:8899 -c credential.helper= `
+    -c "http.https://github.com/.extraHeader=Authorization: Basic $b64" `
+    push -u origin HEAD
+```
+
+用完自检：代理进程已杀、8899 端口没有监听、临时凭据文件已删、`git` 进程无残留。
