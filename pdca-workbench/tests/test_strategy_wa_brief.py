@@ -79,6 +79,49 @@ class ClassifyTests(unittest.TestCase):
         scan.theme_ids["smartjewel"] = {"price", "deadline"}
         self.assertEqual(topic_verdict(scan, "smartjewel"), "有")
 
+    def test_vps_im_messages_are_scanned(self):
+        """2026-09-24 老板：不只查 WhatsApp，VPS IM（达标群/跟进群）本人的发言也要算。"""
+        from app.duzhan_ledger import Owner
+        from app.strategy_wa_brief import fetch_owner_im_messages, im_channels
+
+        owner = Owner(
+            "新人小组业绩达标群",
+            "邓琳莹",
+            im_user_id=14247,
+            follow_channel_id="chan-follow",
+        )
+        labels = [label for label, _cid in im_channels(owner)]
+        self.assertIn("客户跟进群", labels)
+        messages = [
+            {
+                "id": "m1",
+                "sender_user_id": 14247,
+                "created_at": "2026-09-24T09:30:00Z",
+                "body": "METAWATCH S1 拿货 5 折，单笔利润 15,015，9月25日截止",
+                "message_type": "text",
+            },
+            {
+                "id": "m2",
+                "sender_user_id": 999,
+                "created_at": "2026-09-24T09:31:00Z",
+                "body": "别人说的话",
+                "message_type": "text",
+            },
+        ]
+        def fake_history(channel_id, date_from, limit=100):
+            # 目标群与跟进群各返回一次，验证只算本人发言、且两个会话都会扫
+            return messages if channel_id == "chan-follow" else []
+
+        with mock.patch("app.strategy_wa_brief._im_history", side_effect=fake_history):
+            rows = fetch_owner_im_messages(
+                owner,
+                datetime(2026, 9, 24, 8, tzinfo=TZ),
+                datetime(2026, 9, 25, 8, tzinfo=TZ),
+            )
+        self.assertEqual(len(rows), 1, "只算本人发言")
+        self.assertEqual(rows[0]["_platform"], "VPS IM")
+        self.assertIn("5 折", rows[0]["content"])
+
     def test_new_group_added_to_targets(self):
         """老板 2026-09-24：策略核查对象加入新人组（江旭即 Sana）。"""
         from app.strategy_wa_brief import TARGETS

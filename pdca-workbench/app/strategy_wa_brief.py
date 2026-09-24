@@ -176,6 +176,7 @@ class Hit:
     text: str
     complete: bool = True
     themes: tuple[str, ...] = ()  # 这条消息命中的语义要点 id
+    platform: str = "WhatsApp"  # WhatsApp / VPS IM
 
 
 @dataclass
@@ -333,8 +334,79 @@ def fetch_owner_messages(
     return kept, complete, note
 
 
+def _im_history(channel_id: str, date_from: str, limit: int = 100) -> list[dict]:
+    """VPS IM 某会话从 date_from 起的消息（走 CLI，与督战官同一套身份）。"""
+    from app.vertu.client import run_vertu_sync_json
+
+    payload = run_vertu_sync_json(
+        [
+            "im",
+            "+history",
+            "--channel-id",
+            channel_id,
+            "--date-from",
+            date_from,
+            "--limit",
+            str(limit),
+        ],
+        timeout=30.0,
+    )
+    if not isinstance(payload, dict):
+        return []
+    return [item for item in (payload.get("messages") or []) if isinstance(item, dict)]
+
+
+def im_channels(owner) -> list[tuple[str, str]]:
+    """该成员要扫的 VPS IM 会话：达标群 + 客户跟进群（2026-09-24 老板：不只查 WhatsApp）。"""
+    out: list[tuple[str, str]] = []
+    try:
+        from app.duzhan import GROUPS
+
+        for group in GROUPS:
+            if group.name == owner.group and group.channel_id:
+                out.append((group.name, group.channel_id))
+                break
+    except Exception as exc:  # noqa: BLE001 — 配置读不到就只扫跟进群
+        logger.debug("读达标群配置失败: {}", exc)
+    follow = str(getattr(owner, "follow_channel_id", "") or "")
+    if follow:
+        out.append(("客户跟进群", follow))
+    return out
+
+
+def fetch_owner_im_messages(owner, start: datetime, end: datetime) -> list[dict]:
+    """VPS IM 里**该成员本人**发的消息，转成与 WhatsApp 同形的行（带 _platform 标记）。"""
+    date_from = start.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    rows: list[dict] = []
+    for label, channel_id in im_channels(owner):
+        try:
+            messages = _im_history(channel_id, date_from)
+        except Exception as exc:  # noqa: BLE001 — 一个会话失败不影响另一个
+            logger.warning("VPS IM 取数失败 {} {}: {}", owner.display, label, exc)
+            continue
+        for msg in messages:
+            sender = msg.get("sender_user_id")
+            if owner.im_user_id and sender != owner.im_user_id:
+                continue
+            body = str(msg.get("body") or "").strip()
+            if not body:
+                continue
+            rows.append(
+                {
+                    "id": str(msg.get("id") or ""),
+                    "time": str(msg.get("created_at") or "")[:19].replace("T", " "),
+                    "content": body,
+                    "direction": "群发言",
+                    "message_kind": str(msg.get("message_type") or "text"),
+                    "customer_display": label,
+                    "_platform": "VPS IM",
+                }
+            )
+    return rows
+
+
 def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
-    """扫五人。"""
+    """扫全部核查对象：WhatsApp（MCP）+ VPS IM（达标群 / 客户跟进群）。"""
     wanted = [o for o in OWNERS if o.display in TARGETS]
     out: list[OwnerScan] = []
     for owner in wanted:
@@ -352,10 +424,18 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
             scan.note = f"采集失败: {exc}"[:180]
             out.append(scan)
             continue
+        wa_count = len(rows)
+        im_rows: list[dict] = []
+        try:
+            im_rows = fetch_owner_im_messages(owner, start, end)
+        except Exception as exc:  # noqa: BLE001 — VPS IM 失败不影响 WhatsApp 口径
+            logger.warning("策略核查 VPS IM 采集失败 {}: {}", owner.display, exc)
+            scan.complete = False
+        rows = rows + im_rows
         scan.message_count = len(rows)
-        scan.complete = complete
+        scan.complete = complete and scan.complete
         scan.note = note
-        if note == "未配置 WhatsApp" or (complete and len(rows) == 0 and not note):
+        if note == "未配置 WhatsApp" or (complete and wa_count == 0 and not note):
             try:
                 cust = mcp_call(
                     "business.query",
@@ -411,6 +491,7 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
                         text=text[:800],
                         complete=complete,
                         themes=tuple(hit_themes),
+                        platform=str(row.get("_platform") or "WhatsApp"),
                     )
                 )
         out.append(scan)
@@ -522,7 +603,7 @@ def build_html(
                     "<tr>"
                     f"<td>{_esc(scan.display)}</td>"
                     f"<td>{_esc(hit.time)}</td>"
-                    f"<td>{_esc(hit.customer)} / { _esc(hit.direction)}</td>"
+                    f"<td>{_esc(hit.platform)} · {_esc(hit.customer)} / { _esc(hit.direction)}</td>"
                     f'<td class="{_verdict_class(verdict)}">{_esc(verdict_cell)}（{ _esc(hit.strength)}{_esc(theme_tag)}）</td>'
                     f"<td>{_esc(hit.text)}</td>"
                     "</tr>"
