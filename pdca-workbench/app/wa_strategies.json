@@ -31,30 +31,6 @@
         "himalaya|full[- ]?diamond|72\\s*hours"
       ],
       "weak": ["bespoke|\\+5\\s*%|rebate|himalaya"]
-    },
-    {
-      "id": "watch",
-      "label": "机械腕表配给",
-      "skip_if_noise": true,
-      "strong": [
-        "mechanical\\s+watch\\s+allocation|watch\\s+allocation",
-        "complimentary.{0,40}watch|赠.{0,8}(腕表|机械表)",
-        "加提.{0,12}(腕表|手表)|机械腕表",
-        "today\\s+only.{0,40}(42,?000|watch)|42,?000.{0,40}watch|300,?000.{0,80}mechanical\\s+watch"
-      ],
-      "weak": ["加提|complimentary|today\\s+only|mechanical\\s+watch"]
-    },
-    {
-      "id": "clear",
-      "label": "Q4 清库 30% 现金拿货",
-      "strong": [
-        "q4\\s*liquidation|liquidation\\s*facility",
-        "30\\s*%\\s*(down|upfront|定金|首付).{0,80}(goods|inventory|拿货|70%|Q4|three months)",
-        "pay\\s*30%.{0,80}(goods|three months|full[- ]price)",
-        "interest[- ]free|100\\s*%\\s*(goods|inventory)",
-        "(清库|clearance|clearence).{0,40}(30\\s*%|meta\\s*1|watch)"
-      ],
-      "weak": ["清库|liquidation|clearance|clearence|30\\s*%\\s*(down|upfront)"]
     }
   ]
 }

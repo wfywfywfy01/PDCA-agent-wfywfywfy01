@@ -22,27 +22,29 @@ from app.strategy_wa_brief import (
 
 
 class ClassifyTests(unittest.TestCase):
-    def test_watch_strong(self):
+    def test_removed_watch_strategy_no_longer_matches(self):
+        """2026-09-24 老板要求：机械腕表配给策略已删，不应再判分。"""
         labels = dict(classify("本单满30万可加提腕表资格"))
-        self.assertEqual(labels["watch"], "strong")
+        self.assertNotIn("watch", labels)
 
     def test_apple_watch_repair_ignored(self):
         labels = dict(classify("欢迎来到 SPR。我们维修 Apple Watch、AirPods"))
         self.assertNotIn("watch", labels)
 
-    def test_clearance_strong(self):
-        labels = dict(
-            classify("pay 30%, get full- price goods, 70% rest payment by three months.")
+    def test_removed_clearance_strategy_no_longer_matches(self):
+        """2026-09-24 老板要求：Q4 清库策略已删，相关话术不再判分。"""
+        self.assertNotIn(
+            "clear",
+            dict(classify("pay 30%, get full- price goods, 70% rest payment by three months.")),
         )
-        self.assertEqual(labels["clear"], "strong")
-
-    def test_clearance_upfront_q4(self):
-        labels = dict(
-            classify(
-                "the company accepts a 30% upfront payment, with the remaining 70% to be settled in Q4."
-            )
+        self.assertNotIn(
+            "clear",
+            dict(
+                classify(
+                    "the company accepts a 30% upfront payment, with the remaining 70% to be settled in Q4."
+                )
+            ),
         )
-        self.assertEqual(labels["clear"], "strong")
 
     def test_mto_rebate(self):
         labels = dict(classify("BESPOKE MTO +5% rebate within 72 hours"))
@@ -157,27 +159,27 @@ class RenderTests(unittest.TestCase):
         scans[0].hits.append(
             Hit(
                 "杨晶晶",
-                "clear",
+                "agentq",
                 "strong",
                 "2026-09-18 12:00:00",
                 "919***4798",
                 "outbound",
                 "text",
-                "pay 30%, get full- price goods",
+                "Agent Q 碳纤维套装，配额价 USD 3,763.20，定金锁配额",
             )
         )
         html_text = build_html("2026-09-19", start, end, scans)
-        self.assertIn("Q4 清库", html_text)
-        self.assertIn("pay 30%", html_text)
+        self.assertIn("Agent Q", html_text)
+        self.assertIn("3,763.20", html_text)
         self.assertIn("无WA", html_text)
         body = build_im_body("2026-09-19", start, end, scans)
         self.assertIn("①", body)
         self.assertIn("杨晶晶有", body)
         self.assertIn("Lina无WA", body)
-        self.assertEqual(topic_verdict(scans[0], "clear"), "有")
-        self.assertEqual(topic_verdict(scans[1], "watch"), "无WA")
+        self.assertEqual(topic_verdict(scans[0], "agentq"), "有")
+        self.assertEqual(topic_verdict(scans[1], "mto"), "无WA")
         empty_incomplete = OwnerScan("杨晶晶", 47, message_count=0, complete=False)
-        self.assertEqual(topic_verdict(empty_incomplete, "clear"), "待确认")
+        self.assertEqual(topic_verdict(empty_incomplete, "agentq"), "待确认")
         scanned = OwnerScan("Viki", 216, message_count=40, complete=False)
         self.assertEqual(topic_verdict(scanned, "mto"), "无")
 
