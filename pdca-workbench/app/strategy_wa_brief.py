@@ -334,6 +334,86 @@ def fetch_owner_messages(
     return kept, complete, note
 
 
+IM_RECORD_PAGE_SIZE = 100
+IM_RECORD_MAX_PAGES = 250  # 实测约 13k 条/天，250 页足够覆盖一个 24h 窗口
+
+
+def _im_records_page(day_from: str, day_to: str, page: int) -> dict:
+    """vps-work im +all-chat-records 的一页（凭独立权限的全域聊天记录）。"""
+    from app.vertu.client import run_vertu_sync_json
+
+    payload = run_vertu_sync_json(
+        [
+            "im",
+            "+all-chat-records",
+            "--start-date",
+            day_from,
+            "--end-date",
+            day_to,
+            "--page",
+            str(page),
+            "--page-size",
+            str(IM_RECORD_PAGE_SIZE),
+        ],
+        timeout=45.0,
+    )
+    return payload if isinstance(payload, dict) else {}
+
+
+def fetch_window_im_messages(
+    start: datetime, end: datetime, owners: list
+) -> dict[str, list[dict]]:
+    """全域 VPS IM 记录 → {成员显示名: 行列表}，只留核查对象本人发的。
+
+    2026-09-24 老板：VPS 的聊天用 vps-work 拿。一次性分页拉窗口内全量，
+    再按 sender_user_id 过滤（比按会话逐个扫更全：私聊、各类群都覆盖）。
+    """
+    by_user = {
+        int(owner.im_user_id): owner.display
+        for owner in owners
+        if getattr(owner, "im_user_id", None)
+    }
+    out: dict[str, list[dict]] = {}
+    if not by_user:
+        return out
+    day_from, day_to = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+    for page in range(1, IM_RECORD_MAX_PAGES + 1):
+        payload = _im_records_page(day_from, day_to, page)
+        messages = payload.get("messages") or []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            sender = msg.get("sender_user_id")
+            if sender is None or int(sender) not in by_user:
+                continue
+            when = _msg_time({"time": str(msg.get("created_at") or "").replace("T", " ")})
+            if when is not None and not (start <= when < end):
+                continue
+            body = str(msg.get("body") or "").strip()
+            if not body:
+                continue
+            channel = msg.get("channel") if isinstance(msg.get("channel"), dict) else {}
+            label = str(channel.get("name") or "").strip()
+            is_direct = str(channel.get("type") or "") == "direct"
+            if not label:
+                label = "私聊" if is_direct else "群聊"
+            out.setdefault(by_user[int(sender)], []).append(
+                {
+                    "id": str(msg.get("id") or ""),
+                    "time": str(msg.get("created_at") or "")[:19].replace("T", " "),
+                    "content": body,
+                    "direction": "私聊发言" if is_direct else "群发言",
+                    "message_kind": str(msg.get("message_type") or "text"),
+                    "customer_display": label,
+                    "_platform": "VPS IM",
+                }
+            )
+        paging = payload.get("pagination") or {}
+        if not messages or not paging.get("has_next"):
+            break
+    return out
+
+
 def _im_history(channel_id: str, date_from: str, limit: int = 100) -> list[dict]:
     """VPS IM 某会话从 date_from 起的消息（走 CLI，与督战官同一套身份）。"""
     from app.vertu.client import run_vertu_sync_json
@@ -406,8 +486,20 @@ def fetch_owner_im_messages(owner, start: datetime, end: datetime) -> list[dict]
 
 
 def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
-    """扫全部核查对象：WhatsApp（MCP）+ VPS IM（达标群 / 客户跟进群）。"""
+    """扫全部核查对象：WhatsApp（MCP）+ VPS IM（vps-work 全域聊天记录）。"""
     wanted = [o for o in OWNERS if o.display in TARGETS]
+    im_by_owner: dict[str, list[dict]] = {}
+    im_ok = False
+    try:
+        im_by_owner = fetch_window_im_messages(start, end, wanted)
+        im_ok = True
+        logger.info(
+            "VPS IM 全域记录：{} 人窗口内有发言（共 {} 条）",
+            len(im_by_owner),
+            sum(len(items) for items in im_by_owner.values()),
+        )
+    except Exception as exc:  # noqa: BLE001 — 全域拿不到就按会话兜底
+        logger.warning("VPS IM 全域记录失败，回落按会话扫: {}", exc)
     out: list[OwnerScan] = []
     for owner in wanted:
         scan = OwnerScan(display=owner.display, employee_id=owner.employee_id)
@@ -425,12 +517,13 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
             out.append(scan)
             continue
         wa_count = len(rows)
-        im_rows: list[dict] = []
-        try:
-            im_rows = fetch_owner_im_messages(owner, start, end)
-        except Exception as exc:  # noqa: BLE001 — VPS IM 失败不影响 WhatsApp 口径
-            logger.warning("策略核查 VPS IM 采集失败 {}: {}", owner.display, exc)
-            scan.complete = False
+        im_rows: list[dict] = list(im_by_owner.get(owner.display) or [])
+        if not im_ok:
+            try:
+                im_rows = fetch_owner_im_messages(owner, start, end)
+            except Exception as exc:  # noqa: BLE001 — VPS IM 失败不影响 WhatsApp 口径
+                logger.warning("策略核查 VPS IM 采集失败 {}: {}", owner.display, exc)
+                scan.complete = False
         rows = rows + im_rows
         scan.message_count = len(rows)
         scan.complete = complete and scan.complete
