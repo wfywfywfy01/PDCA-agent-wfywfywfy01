@@ -158,7 +158,7 @@ class ClassifyTests(unittest.TestCase):
             "pagination": {"has_next": False},
         }
         with mock.patch("app.strategy_wa_brief._im_records_page", return_value=page):
-            got = fetch_window_im_messages(
+            got, complete = fetch_window_im_messages(
                 datetime(2026, 9, 24, 8, tzinfo=TZ),
                 datetime(2026, 9, 25, 8, tzinfo=TZ),
                 owners,
@@ -167,6 +167,37 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(len(got["邓琳莹"]), 1, "只留本人 + 窗口内")
         self.assertEqual(got["邓琳莹"][0]["_platform"], "VPS IM")
         self.assertEqual(got["邓琳莹"][0]["customer_display"], "客户跟进群")
+        self.assertTrue(complete, "首页有数据 → 视为完整")
+
+    def test_window_im_mid_pagination_failure_marks_incomplete(self):
+        """中途某页拿不到 → 标不完整（不静默当作扫完）。"""
+        from app.duzhan_ledger import Owner
+        from app.strategy_wa_brief import fetch_window_im_messages
+
+        owners = [Owner("新人小组业绩达标群", "邓琳莹", im_user_id=14247)]
+        first = {
+            "messages": [
+                {
+                    "id": "m1",
+                    "sender_user_id": 14247,
+                    "created_at": "2026-09-24T09:00:00Z",
+                    "body": "METAWATCH S1 5 折",
+                    "message_type": "text",
+                    "channel": {"id": "c1", "name": "客户跟进群", "type": "group"},
+                }
+            ],
+            "pagination": {"has_next": True},
+        }
+        with mock.patch(
+            "app.strategy_wa_brief._im_records_page", side_effect=[first, {}, {}]
+        ), mock.patch("app.strategy_wa_brief.time.sleep"):
+            got, complete = fetch_window_im_messages(
+                datetime(2026, 9, 24, 8, tzinfo=TZ),
+                datetime(2026, 9, 25, 8, tzinfo=TZ),
+                owners,
+            )
+        self.assertEqual(len(got["邓琳莹"]), 1)
+        self.assertFalse(complete, "中途断页必须标不完整")
 
     def test_new_group_added_to_targets(self):
         """老板 2026-09-24：策略核查对象加入新人组（江旭即 Sana）。"""
