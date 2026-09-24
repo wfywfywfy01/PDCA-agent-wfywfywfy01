@@ -56,6 +56,64 @@
         "metawatch|meta\\s*watch|vertu\\s*watch|智能腕表|智能珠宝|smart\\s*(?:watch|jewel)",
         "ai\\s*ring|crystal\\s*ring|智能戒指",
         "h1\\s*一代|s1\\s*二代|第一代腕表|第二代腕表|清仓"
+      ],
+      "themes": [
+        {
+          "id": "price",
+          "label": "历史最低价、利润空间",
+          "patterns": [
+            "[45]0\\s*%\\s*of\\s*(?:the\\s*)?(?:overseas\\s*)?(?:website\\s*)?(?:list|retail|official)\\s*price",
+            "[56]0\\s*%\\s*off",
+            "(?:list|retail|official|website)\\s*price[^.\\n]{0,30}[45]0\\s*%",
+            "(?:拿货|进货|提货|采购)[^。\\n]{0,16}[45]\\s*折",
+            "[45]\\s*折[^。\\n]{0,16}(?:拿货|进货|提货|腕表|手表|watch)",
+            "利润空间|单台利润|价差|利差|more\\s+room\\s+for\\s+profit|profit\\s+(?:margin|opportunit)|resale\\s+spread"
+          ]
+        },
+        {
+          "id": "gift",
+          "label": "批量赠表、摊薄单台成本",
+          "patterns": [
+            "buy\\s*30[^.\\n]{0,40}get\\s*3\\s*free",
+            "提\\s*30\\s*台[^。\\n]{0,12}(?:赠|送)\\s*3\\s*台",
+            "30\\s*台[^。\\n]{0,8}(?:赠|送)[^。\\n]{0,6}3\\s*台",
+            "(?:free|complimentary)\\s+(?:watch|watches)",
+            "(?:赠|送)[^。\\n]{0,6}(?:表|腕表|watch)",
+            "12,?500\\s*(?:元|CNY|per\\s*unit)|effective\\s+cost|摊薄|单台成本",
+            "(?:RMB|CNY|¥|￥)?\\s*200,?000[^.\\n]{0,30}(?:get|free|赠)|20\\s*万[^。\\n]{0,14}(?:15\\s*台|赠\\s*1\\s*台)",
+            "33\\s*units|16\\s*units"
+          ]
+        },
+        {
+          "id": "gen3",
+          "label": "提前锁定第三代认购权",
+          "patterns": [
+            "third[- ]generation|gen\\s*3\\b|第三代",
+            "advance\\s+purchase\\s+(?:rights?|allocation)|认购权|优先(?:购买|订购|认购)",
+            "提前锁定|锁定[^。\\n]{0,10}(?:认购|配额|额度|名额)",
+            "reserve\\s+your\\s+allocation|抢占配额",
+            "(?:5\\s*)?(?:gen\\s*3|第三代)[^.\\n]{0,12}5\\s*(?:units|台)|5\\s*(?:units|台)[^.\\n]{0,12}(?:gen\\s*3|第三代)"
+          ]
+        },
+        {
+          "id": "stable",
+          "label": "官网稳价、撑住渠道利润",
+          "patterns": [
+            "official\\s+website\\s+prices?[^.\\n]{0,30}(?:remain|unchanged|full\\s*price|no\\s*discount)",
+            "(?:website|retail|list)\\s+price[^.\\n]{0,20}(?:unchanged|full\\s*price|stable|remain)",
+            "官网(?:标准)?价[^。\\n]{0,12}(?:不变|维持|不降)|稳价|不降价|价格保护",
+            "full\\s+price\\s+on\\s+the\\s+overseas\\s+website|wider\\s+resale\\s+spread"
+          ]
+        },
+        {
+          "id": "deadline",
+          "label": "9/25 截止、本轮窗口",
+          "patterns": [
+            "(?:9\\s*月\\s*25|sep(?:t|tember)?\\.?\\s*25)[^。\\n]{0,24}(?:截止|deadline|closing|ends?|order)",
+            "(?:截止|deadline|ends?|order\\s+by|offer\\s+ends)[^。\\n]{0,24}(?:9\\s*月\\s*25|sep(?:t|tember)?\\.?\\s*25)",
+            "this\\s+offer\\s+ends"
+          ]
+        }
       ]
     }
   ]
