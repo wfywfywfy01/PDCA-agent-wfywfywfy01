@@ -122,6 +122,52 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(rows[0]["_platform"], "VPS IM")
         self.assertIn("5 折", rows[0]["content"])
 
+    def test_window_im_records_filter_by_sender_and_window(self):
+        """2026-09-24 老板：VPS 聊天用 vps-work 全域记录拿，只留核查对象本人。"""
+        from app.duzhan_ledger import Owner
+        from app.strategy_wa_brief import fetch_window_im_messages
+
+        owners = [Owner("新人小组业绩达标群", "邓琳莹", im_user_id=14247)]
+        page = {
+            "messages": [
+                {
+                    "id": "m1",
+                    "sender_user_id": 14247,
+                    "created_at": "2026-09-24T09:00:00Z",
+                    "body": "METAWATCH S1 拿货 5 折，9月25日截止",
+                    "message_type": "text",
+                    "channel": {"id": "c1", "name": "客户跟进群", "type": "group"},
+                },
+                {
+                    "id": "m2",
+                    "sender_user_id": 999,
+                    "created_at": "2026-09-24T09:01:00Z",
+                    "body": "别人的发言",
+                    "message_type": "text",
+                    "channel": {"id": "c1", "name": "客户跟进群", "type": "group"},
+                },
+                {
+                    "id": "m3",
+                    "sender_user_id": 14247,
+                    "created_at": "2026-09-20T09:00:00Z",
+                    "body": "窗口外的旧消息",
+                    "message_type": "text",
+                    "channel": {"id": "c2", "name": "私聊", "type": "direct"},
+                },
+            ],
+            "pagination": {"has_next": False},
+        }
+        with mock.patch("app.strategy_wa_brief._im_records_page", return_value=page):
+            got = fetch_window_im_messages(
+                datetime(2026, 9, 24, 8, tzinfo=TZ),
+                datetime(2026, 9, 25, 8, tzinfo=TZ),
+                owners,
+            )
+        self.assertEqual(list(got), ["邓琳莹"])
+        self.assertEqual(len(got["邓琳莹"]), 1, "只留本人 + 窗口内")
+        self.assertEqual(got["邓琳莹"][0]["_platform"], "VPS IM")
+        self.assertEqual(got["邓琳莹"][0]["customer_display"], "客户跟进群")
+
     def test_new_group_added_to_targets(self):
         """老板 2026-09-24：策略核查对象加入新人组（江旭即 Sana）。"""
         from app.strategy_wa_brief import TARGETS
