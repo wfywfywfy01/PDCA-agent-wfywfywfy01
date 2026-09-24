@@ -637,7 +637,7 @@ def build_im_body(push_day: str, start: datetime, end: datetime, scans: list[Own
     """私聊短正文；明细在 HTML 附件。条数跟策略文件走。"""
     strategies = strategies_for(push_day)
     lines = [
-        f"【策略核查 WhatsApp｜{push_day} 08:00】",
+        f"【策略核查（WhatsApp + VPS IM）｜{push_day} 08:00】",
         f"窗口 {window_text(start, end)}｜对象 {' / '.join(TARGETS)}",
         "",
     ]
