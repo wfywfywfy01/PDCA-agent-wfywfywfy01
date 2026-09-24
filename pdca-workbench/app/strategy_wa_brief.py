@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -362,7 +363,7 @@ def _im_records_page(day_from: str, day_to: str, page: int) -> dict:
 
 def fetch_window_im_messages(
     start: datetime, end: datetime, owners: list
-) -> dict[str, list[dict]]:
+) -> tuple[dict[str, list[dict]], bool]:
     """全域 VPS IM 记录 → {成员显示名: 行列表}，只留核查对象本人发的。
 
     2026-09-24 老板：VPS 的聊天用 vps-work 拿。一次性分页拉窗口内全量，
@@ -375,11 +376,21 @@ def fetch_window_im_messages(
     }
     out: dict[str, list[dict]] = {}
     if not by_user:
-        return out
+        return out, True
+    complete = True
     day_from, day_to = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
     for page in range(1, IM_RECORD_MAX_PAGES + 1):
-        payload = _im_records_page(day_from, day_to, page)
+        payload: dict = {}
+        for attempt in range(2):  # 单页抖动重试一次，避免静默截断（2026-09-24 实测踩到）
+            payload = _im_records_page(day_from, day_to, page)
+            if payload.get("messages"):
+                break
+            if attempt == 0:
+                time.sleep(1.5)
         messages = payload.get("messages") or []
+        if not messages:
+            complete = page == 1  # 首页就空=窗口内本来没记录；中途空=不完整
+            break
         for msg in messages:
             if not isinstance(msg, dict):
                 continue
@@ -409,9 +420,9 @@ def fetch_window_im_messages(
                 }
             )
         paging = payload.get("pagination") or {}
-        if not messages or not paging.get("has_next"):
+        if not paging.get("has_next"):
             break
-    return out
+    return out, complete
 
 
 def _im_history(channel_id: str, date_from: str, limit: int = 100) -> list[dict]:
@@ -490,8 +501,9 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
     wanted = [o for o in OWNERS if o.display in TARGETS]
     im_by_owner: dict[str, list[dict]] = {}
     im_ok = False
+    im_complete = True
     try:
-        im_by_owner = fetch_window_im_messages(start, end, wanted)
+        im_by_owner, im_complete = fetch_window_im_messages(start, end, wanted)
         im_ok = True
         logger.info(
             "VPS IM 全域记录：{} 人窗口内有发言（共 {} 条）",
@@ -526,7 +538,7 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
                 scan.complete = False
         rows = rows + im_rows
         scan.message_count = len(rows)
-        scan.complete = complete and scan.complete
+        scan.complete = complete and scan.complete and im_complete
         scan.note = note
         if note == "未配置 WhatsApp" or (complete and wa_count == 0 and not note):
             try:
