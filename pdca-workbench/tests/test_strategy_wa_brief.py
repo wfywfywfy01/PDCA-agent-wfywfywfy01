@@ -46,6 +46,23 @@ class ClassifyTests(unittest.TestCase):
             ),
         )
 
+    def test_smart_jewelry_discount_is_strong(self):
+        """2026-09-24 新政策：智能珠宝（METAWATCH H1/S1、AI RING、Crystal RING），至 9/30。"""
+        labels = dict(classify("METAWATCH S1 拿货 5 折，单台利润 15,015，9月25日截止"))
+        self.assertEqual(labels["smartjewel"], "strong")
+
+    def test_smart_jewelry_order_gift_is_strong(self):
+        labels = dict(classify("一代一次提 30 台赠 3 台，二代 20 万元赠 1 台，可提前锁定第三代 5 台认购权"))
+        self.assertEqual(labels["smartjewel"], "strong")
+
+    def test_smart_jewelry_ring_mention_only_is_weak(self):
+        labels = dict(classify("AI RING 到货了，有兴趣的看看"))
+        self.assertEqual(labels["smartjewel"], "weak")
+
+    def test_smart_jewelry_apple_watch_noise_ignored(self):
+        labels = dict(classify("Apple Watch 维修可以找他"))
+        self.assertNotIn("smartjewel", labels)
+
     def test_mto_rebate(self):
         labels = dict(classify("BESPOKE MTO +5% rebate within 72 hours"))
         self.assertEqual(labels["mto"], "strong")
@@ -136,6 +153,20 @@ class StrategyExpiryTests(unittest.TestCase):
             )
         )
         entry = next(s for s in raw["strategies"] if s["id"] == "agentq")
+        self.assertEqual(entry["until"], "2026-09-30")
+
+    def test_bundled_file_has_smart_jewelry_until_sep30(self):
+        import json
+        from pathlib import Path
+
+        raw = json.loads(
+            Path(__file__).resolve().parents[1].joinpath("app/wa_strategies.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        ids = [s["id"] for s in raw["strategies"]]
+        self.assertEqual(ids, ["agentq", "mto", "smartjewel"], "9/24 起只剩这三条")
+        entry = next(s for s in raw["strategies"] if s["id"] == "smartjewel")
         self.assertEqual(entry["until"], "2026-09-30")
 
 
