@@ -34,7 +34,7 @@
     },
     {
       "id": "smartjewel",
-      "label": "智能珠宝政策（METAWATCH H1/S1、AI RING）",
+      "label": "智能珠宝政策（METAWATCH H1/S1、AI RING / Crystal RING）",
       "until": "2026-09-30",
       "skip_if_noise": true,
       "strong": [
