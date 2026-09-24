@@ -44,3 +44,12 @@ artifacts/
 
 # ffmpeg 工具与临时验证产物（不提交）
 .st/
+
+# 桌面督战官（clippy-pet）：只入库源码。
+# Electron 内核 188MB、运行时数据、构建产物、以及第三方（腾讯）游戏素材都不入库。
+clippy-pet/host/
+clippy-pet/data/
+clippy-pet/dist/
+clippy-pet/assets-qqpet/
+clippy-pet/_pack/
+clippy-pet/penguin/sheets/*.webp

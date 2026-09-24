@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>sprite sheet builder</title>
+  </head>
+  <body>
+    <div id="log" style="font: 12px monospace"></div>
+    <script>
+      const fs = require("fs");
+      const path = require("path");
+      const COLS = 10; // 每行帧数
+
+      const logEl = document.getElementById("log");
+      function log(m) {
+        logEl.textContent += m + "\n";
+        console.log(m);
+      }
+
+      function loadImg(file) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("load fail " + file));
+          img.src = "file:///" + file.replace(/\\/g, "/");
+        });
+      }
+
+      // 画到离屏 canvas 上取像素，算非透明包围盒
+      function bboxOf(img, tmp, tctx) {
+        tmp.width = img.width;
+        tmp.height = img.height;
+        tctx.clearRect(0, 0, img.width, img.height);
+        tctx.drawImage(img, 0, 0);
+        const d = tctx.getImageData(0, 0, img.width, img.height).data;
+        let x0 = img.width, y0 = img.height, x1 = -1, y1 = -1;
+        for (let y = 0; y < img.height; y++) {
+          for (let x = 0; x < img.width; x++) {
+            if (d[(y * img.width + x) * 4 + 3] > 8) {
+              if (x < x0) x0 = x;
+              if (y < y0) y0 = y;
+              if (x > x1) x1 = x;
+              if (y > y1) y1 = y;
+            }
+          }
+        }
+        return x1 < 0 ? null : { x0, y0, x1, y1 };
+      }
+
+      // 抠背景：先看四条边是不是"同一种颜色"（白/灰/纯色底都算），是的话就以那个颜色
+      // 为背景做容差泛洪，只吃和边界连通的部分（企鹅自己的白肚皮不受影响）；
+      // 边缘按与背景色的距离给半透明，避免生硬的白边/灰边。
+      // 场景类动作（浴缸、房间）四边颜色不统一 -> uniform=false，原样保留场景。
+      function cutout(c, w, h) {
+        const id = c.getImageData(0, 0, w, h);
+        const d = id.data;
+        const N = w * h;
+        const border = [];
+        for (let x = 0; x < w; x++) {
+          border.push(x, (h - 1) * w + x);
+        }
+        for (let y = 0; y < h; y++) {
+          border.push(y * w, y * w + w - 1);
+        }
+        const rs = [], gs = [], bs = [];
+        for (const p of border) {
+          rs.push(d[p * 4]);
+          gs.push(d[p * 4 + 1]);
+          bs.push(d[p * 4 + 2]);
+        }
+        rs.sort((a, b) => a - b);
+        gs.sort((a, b) => a - b);
+        bs.sort((a, b) => a - b);
+        const med = (a) => a[Math.floor(a.length / 2)];
+        const br = med(rs), bgc = med(gs), bb = med(bs);
+        let close = 0;
+        for (const p of border) {
+          const dd = Math.abs(d[p * 4] - br) + Math.abs(d[p * 4 + 1] - bgc) + Math.abs(d[p * 4 + 2] - bb);
+          if (dd <= 30) close++;
+        }
+        const uniform = close / border.length > 0.9;
+        if (!uniform) return { uniform: false, removed: 0, edges: 0, bg: [br, bgc, bb] };
+
+        const TOL = 34;
+        const near = (p) => {
+          if (d[p * 4 + 3] === 0) return true;
+          return (
+            Math.abs(d[p * 4] - br) <= TOL &&
+            Math.abs(d[p * 4 + 1] - bgc) <= TOL &&
+            Math.abs(d[p * 4 + 2] - bb) <= TOL
+          );
+        };
+        const bg = new Uint8Array(N);
+        const stack = border.slice();
+        while (stack.length) {
+          const p = stack.pop();
+          if (p < 0 || p >= N || bg[p] || !near(p)) continue;
+          bg[p] = 1;
+          const x = p % w;
+          const y = (p - x) / w;
+          if (x > 0) stack.push(p - 1);
+          if (x < w - 1) stack.push(p + 1);
+          if (y > 0) stack.push(p - w);
+          if (y < h - 1) stack.push(p + w);
+        }
+        let edges = 0;
+        for (let p = 0; p < N; p++) {
+          if (bg[p]) {
+            d[p * 4 + 3] = 0;
+            continue;
+          }
+          const x = p % w;
+          const y = (p - x) / w;
+          const nb =
+            (x > 0 && bg[p - 1]) || (x < w - 1 && bg[p + 1]) ||
+            (y > 0 && bg[p - w]) || (y < h - 1 && bg[p + w]);
+          if (!nb) continue;
+          const dist = Math.max(
+            Math.abs(d[p * 4] - br),
+            Math.abs(d[p * 4 + 1] - bgc),
+            Math.abs(d[p * 4 + 2] - bb),
+          );
+          d[p * 4 + 3] = Math.max(0, Math.min(255, Math.round((dist * 255) / 70)));
+          edges++;
+        }
+        c.putImageData(id, 0, 0);
+        let removed = 0;
+        for (let p = 0; p < N; p++) removed += bg[p];
+        return { uniform: true, removed, edges, bg: [br, bgc, bb] };
+      }
+
+      window.__build = async function () {
+        // 这些是主进程在页面加载完之后才注入的，必须在这里读，不能在脚本顶层读
+        const OUT = window.__OUT;
+        const FRAMES = window.__FRAMES || [];
+        const SAMPLE_STEP = 4;
+        const SCALE = Number(window.__SCALE) || 1;
+        const QUALITY = Number(window.__QUALITY) || 0.92;
+        const tmp = document.createElement("canvas");
+        const tctx = tmp.getContext("2d", { willReadFrequently: true });
+
+        // ---- 第一遍：全局包围盒（所有动作所有帧取并集，保证不同动作之间位置一致）
+        let bx0 = 1e9, by0 = 1e9, bx1 = -1, by1 = -1;
+        let sampled = 0;
+        for (const anim of FRAMES) {
+          for (let i = 0; i < anim.files.length; i += SAMPLE_STEP) {
+            const img = await loadImg(anim.files[i]);
+            const b = bboxOf(img, tmp, tctx);
+            sampled++;
+            if (!b) continue;
+            if (b.x0 < bx0) bx0 = b.x0;
+            if (b.y0 < by0) by0 = b.y0;
+            if (b.x1 > bx1) bx1 = b.x1;
+            if (b.y1 > by1) by1 = b.y1;
+          }
+        }
+        log("全局包围盒(抽样 " + sampled + " 帧): " + bx0 + "," + by0 + " - " + bx1 + "," + by1);
+        // 各留 2px 余量，避免某些帧被切掉边缘
+        const PAD = 2;
+        bx0 = Math.max(0, bx0 - PAD);
+        by0 = Math.max(0, by0 - PAD);
+        bx1 = Math.min(139, bx1 + PAD);
+        by1 = Math.min(139, by1 + PAD);
+        const cw = bx1 - bx0 + 1;
+        const ch = by1 - by0 + 1;
+        log("裁切尺寸: " + cw + "x" + ch + "  缩放=" + SCALE);
+
+        const meta = { cell: [Math.round(cw * SCALE), Math.round(ch * SCALE)], cols: COLS, anims: {} };
+        fs.mkdirSync(OUT, { recursive: true });
+
+        for (const anim of FRAMES) {
+          const n = anim.files.length;
+          const rows = Math.ceil(n / COLS);
+          const cv = document.createElement("canvas");
+          cv.width = Math.round(cw * SCALE) * COLS;
+          cv.height = Math.round(ch * SCALE) * rows;
+          const ctx = cv.getContext("2d");
+          ctx.imageSmoothingQuality = "high";
+          const t2 = document.createElement("canvas");
+          t2.width = 140;
+          t2.height = 140;
+          const t2c = t2.getContext("2d", { willReadFrequently: true });
+          let edgeTotal = 0;
+          let removedTotal = 0;
+          let sceneCount = 0;
+          for (let i = 0; i < n; i++) {
+            const img = await loadImg(anim.files[i]);
+            t2c.clearRect(0, 0, 140, 140);
+            t2c.drawImage(img, 0, 0);
+            const r = cutout(t2c, 140, 140);
+            edgeTotal += r.edges;
+            removedTotal += r.removed;
+            if (!r.uniform) sceneCount++;
+            const col = i % COLS;
+            const row = Math.floor(i / COLS);
+            ctx.drawImage(
+              t2, bx0, by0, cw, ch,
+              col * Math.round(cw * SCALE), row * Math.round(ch * SCALE),
+              Math.round(cw * SCALE), Math.round(ch * SCALE),
+            );
+          }
+          const url = cv.toDataURL("image/webp", QUALITY);
+          const b64 = url.split(",")[1];
+          const buf = Buffer.from(b64, "base64");
+          fs.writeFileSync(path.join(OUT, anim.name + ".webp"), buf);
+          meta.anims[anim.name] = { frames: n, rows: rows, file: anim.name + ".webp" };
+          log("  " + anim.name.padEnd(14) + String(n).padStart(4) + " 帧  " + (buf.length / 1024).toFixed(0).padStart(5) + " KB" +
+            "  抠掉 " + Math.round((removedTotal / (n * 140 * 140)) * 100) + "%" +
+            (sceneCount ? "  (有场景底 " + sceneCount + " 帧)" : ""));
+        }
+        fs.writeFileSync(path.join(OUT, "sheets.json"), JSON.stringify(meta, null, 1));
+        let total = 0;
+        for (const k of Object.keys(meta.anims)) total += fs.statSync(path.join(OUT, meta.anims[k].file)).size;
+        log("总计 " + (total / 1048576).toFixed(2) + " MB -> " + OUT);
+        return { ok: true, cell: meta.cell, total: total };
+      };
+    </script>
+  </body>
+</html>
