@@ -55,6 +55,37 @@ class ClassifyTests(unittest.TestCase):
         labels = dict(classify("一代一次提 30 台赠 3 台，二代 20 万元赠 1 台，可提前锁定第三代 5 台认购权"))
         self.assertEqual(labels["smartjewel"], "strong")
 
+    def test_smart_jewelry_theme_coverage(self):
+        """2026-09-24：话术后 5 点做语义匹配，五个要点都要能命中。"""
+        from app.strategy_wa_brief import _strategy_by_id, theme_hits
+
+        strategy = _strategy_by_id("smartjewel")
+        text = (
+            "H1: 40% of the retail price (60% off); buy 30 units, get 3 free. "
+            "Your order secures advance purchase rights for 5 Gen 3 smartwatches. "
+            "Website prices remain unchanged. Order by September 25."
+        )
+        self.assertEqual(
+            sorted(theme_hits(strategy, text)), ["deadline", "gen3", "gift", "price", "stable"]
+        )
+
+    def test_smart_jewelry_semantic_verdict_needs_two_points(self):
+        """讲清 ≥2 个重点算「有」，只讲 1 个算「部分」。"""
+        from app.strategy_wa_brief import OwnerScan, topic_verdict
+
+        scan = OwnerScan(display="测试", employee_id=1, message_count=10)
+        scan.theme_ids["smartjewel"] = {"price"}
+        self.assertEqual(topic_verdict(scan, "smartjewel"), "部分")
+        scan.theme_ids["smartjewel"] = {"price", "deadline"}
+        self.assertEqual(topic_verdict(scan, "smartjewel"), "有")
+
+    def test_new_group_added_to_targets(self):
+        """老板 2026-09-24：策略核查对象加入新人组（江旭即 Sana）。"""
+        from app.strategy_wa_brief import TARGETS
+
+        for name in ("邓琳莹", "Safae", "王宇彤", "张月馨", "江旭"):
+            self.assertIn(name, TARGETS)
+
     def test_smart_jewelry_english_policy_is_strong(self):
         """2026-09-24 实测漏判：英文版政策（40% of retail price / buy 30 get 3 free）必须算「有」。"""
         labels = dict(

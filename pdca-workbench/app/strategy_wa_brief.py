@@ -20,12 +20,33 @@ from app.config import get_settings
 from app.duzhan_ledger import OWNERS, mcp_call
 
 TZ = ZoneInfo("Asia/Shanghai")
-TARGETS = ("于冰", "杨晶晶", "Lina", "何海文", "Viki")
+# 2026-09-24 老板要求：策略核查新增新人组（江旭即 Sana）
+TARGETS = (
+    "于冰",
+    "杨晶晶",
+    "Lina",
+    "何海文",
+    "Viki",
+    "邓琳莹",
+    "Safae",
+    "王宇彤",
+    "张月馨",
+    "江旭",
+)
 MAX_PAGES = 8
 PAGE_SIZE = 50
 _MARKS = "①②③④⑤⑥⑦⑧⑨"
 _BUNDLED = Path(__file__).with_name("wa_strategies.json")
 _loaded: tuple[str, float, list, list] | None = None
+
+
+@dataclass
+class Theme:
+    """策略下的一个语义要点（老板 2026-09-24：话术后 5 点是重点，按语义匹配）。"""
+
+    id: str
+    label: str
+    patterns: list
 
 
 @dataclass
@@ -38,6 +59,7 @@ class Strategy:
     weak: list
     skip_if_noise: bool = False
     until: str = ""  # 到期日（含当天）；填了就在这之后不再出现在报告里
+    themes: list = field(default_factory=list)  # 语义要点；填了按「讲清几点」判定
 
 
 def strategies_path() -> Path:
@@ -81,6 +103,30 @@ def load_strategies() -> tuple[list[Strategy], list]:
         if not strong and not weak:
             logger.warning("策略 {} 没有可用正则，已跳过", item.get("id"))
             continue
+        themes: list[Theme] = []
+        for raw_theme in item.get("themes") or []:
+            if not isinstance(raw_theme, dict) or not raw_theme.get("id"):
+                continue
+            compiled: list[re.Pattern[str]] = []
+            for pat in raw_theme.get("patterns") or []:
+                try:
+                    compiled.append(re.compile(str(pat), re.I))
+                except re.error as exc:
+                    logger.warning(
+                        "策略 {} 主题 {} 正则无效，已跳过 {}: {}",
+                        item.get("id"),
+                        raw_theme.get("id"),
+                        pat,
+                        exc,
+                    )
+            if compiled:
+                themes.append(
+                    Theme(
+                        id=str(raw_theme["id"]),
+                        label=str(raw_theme.get("label") or raw_theme["id"]),
+                        patterns=compiled,
+                    )
+                )
         strategies.append(
             Strategy(
                 id=str(item["id"]),
@@ -89,6 +135,7 @@ def load_strategies() -> tuple[list[Strategy], list]:
                 weak=weak,
                 skip_if_noise=bool(item.get("skip_if_noise")),
                 until=str(item.get("until") or "").strip(),
+                themes=themes,
             )
         )
     if not strategies:
@@ -128,6 +175,7 @@ class Hit:
     kind: str
     text: str
     complete: bool = True
+    themes: tuple[str, ...] = ()  # 这条消息命中的语义要点 id
 
 
 @dataclass
@@ -141,6 +189,7 @@ class OwnerScan:
     wa_configured: bool = True
     hits: list[Hit] = field(default_factory=list)
     note: str = ""
+    theme_ids: dict = field(default_factory=dict)  # topic -> {要点 id}，窗口内累计
 
 
 def window_for(push_day: str) -> tuple[datetime, datetime]:
@@ -194,6 +243,35 @@ def classify(text: str) -> list[tuple[str, str]]:
         elif any(pat.search(blob) for pat in item.weak):
             out.append((item.id, "weak"))
     return out
+
+
+def _strategy_by_id(topic: str) -> Strategy | None:
+    """按 id 取策略对象（带编译好的正则与主题）。"""
+    strategies, _noise = load_strategies()
+    return next((item for item in strategies if item.id == topic), None)
+
+
+def theme_hits(strategy: Strategy | None, text: str) -> list[str]:
+    """一条消息命中了该策略的哪几个语义要点（主题）。"""
+    if strategy is None or not strategy.themes:
+        return []
+    blob = text or ""
+    return [
+        theme.id
+        for theme in strategy.themes
+        if any(pattern.search(blob) for pattern in theme.patterns)
+    ]
+
+
+def theme_note(scan: OwnerScan, topic: str) -> str:
+    """要点覆盖情况，如 3/5 点；没配主题或没命中就返回空串。"""
+    strategy = _strategy_by_id(topic)
+    if strategy is None or not strategy.themes:
+        return ""
+    hit = len(scan.theme_ids.get(topic) or ())
+    if not hit:
+        return ""
+    return f"{hit}/{len(strategy.themes)} 点"
 
 
 def _in_window(row: dict, start: datetime, end: datetime) -> bool:
@@ -313,6 +391,10 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
                 if key in seen:
                     continue
                 seen.add(key)
+                strategy = _strategy_by_id(topic)
+                hit_themes = theme_hits(strategy, text)
+                if hit_themes:
+                    scan.theme_ids.setdefault(topic, set()).update(hit_themes)
                 scan.hits.append(
                     Hit(
                         owner=owner.display,
@@ -328,6 +410,7 @@ def scan_owners(start: datetime, end: datetime) -> list[OwnerScan]:
                         kind=str(row.get("message_kind") or row.get("message_type") or ""),
                         text=text[:800],
                         complete=complete,
+                        themes=tuple(hit_themes),
                     )
                 )
         out.append(scan)
@@ -343,10 +426,18 @@ def topic_verdict(scan: OwnerScan, topic: str) -> str:
     if not scan.wa_configured:
         return "无WA"
     hits = [h for h in scan.hits if h.topic == topic]
-    if any(h.strength == "strong" for h in hits):
-        return "有"
-    if hits:
-        return "部分"
+    keyword = "有" if any(h.strength == "strong" for h in hits) else ("部分" if hits else "")
+    strategy = _strategy_by_id(topic)
+    if strategy is not None and strategy.themes:
+        # 语义要点口径（2026-09-24 老板要求）：讲清 ≥2 个重点算「有」，只讲 1 个算「部分」
+        covered = len(scan.theme_ids.get(topic) or ())
+        semantic = "有" if covered >= 2 else ("部分" if covered == 1 else "")
+        if semantic == "有" or keyword == "有":
+            return "有"
+        if semantic == "部分" or keyword == "部分":
+            return "部分"
+    elif keyword:
+        return keyword
     if scan.message_count == 0 and not scan.complete:
         return "待确认"
     return "无"
@@ -361,7 +452,11 @@ def build_im_body(push_day: str, start: datetime, end: datetime, scans: list[Own
         "",
     ]
     for index, item in enumerate(strategies):
-        bits = [f"{scan.display}{topic_verdict(scan, item.id)}" for scan in scans]
+        bits = [
+            f"{scan.display}{topic_verdict(scan, item.id)}"
+            + (f"（{theme_note(scan, item.id)}）" if theme_note(scan, item.id) else "")
+            for scan in scans
+        ]
         lines.append(f"{_mark(index, item.label)}：{' · '.join(bits)}")
     lines.append("")
     lines.append("明细见 HTML 附件。未检出 ≠ 没发过图（file/image 无 OCR）。")
@@ -391,7 +486,9 @@ def build_html(
     kpis = []
     for scan in scans:
         cells = " / ".join(
-            f"{labels[item.id][0]}{topic_verdict(scan, item.id)}" for item in strategies
+            f"{labels[item.id][0]}{topic_verdict(scan, item.id)}"
+            + (f"·{theme_note(scan, item.id)}" if theme_note(scan, item.id) else "")
+            for item in strategies
         )
         kpis.append(
             f'<div class="kpi"><div class="who">{_esc(scan.display)}</div>'
@@ -407,23 +504,26 @@ def build_html(
         rows = []
         for scan in scans:
             verdict = topic_verdict(scan, topic)
+            note = theme_note(scan, topic)
+            verdict_cell = verdict + (f"（{note}）" if note else "")
             hits = [h for h in scan.hits if h.topic == topic]
             if not hits:
                 rows.append(
                     "<tr>"
                     f"<td>{_esc(scan.display)}</td><td>—</td><td>—</td>"
-                    f'<td class="{_verdict_class(verdict)}">{_esc(verdict)}</td>'
+                    f'<td class="{_verdict_class(verdict)}">{_esc(verdict_cell)}</td>'
                     f"<td>{_esc(scan.note[:120] if verdict in ('无WA', '待确认') else '未检出正文')}</td>"
                     "</tr>"
                 )
                 continue
             for hit in hits:
+                theme_tag = ("·" + "/".join(hit.themes)) if hit.themes else ""
                 rows.append(
                     "<tr>"
                     f"<td>{_esc(scan.display)}</td>"
                     f"<td>{_esc(hit.time)}</td>"
                     f"<td>{_esc(hit.customer)} / { _esc(hit.direction)}</td>"
-                    f'<td class="{_verdict_class(verdict)}">{_esc(verdict)}（{ _esc(hit.strength)}）</td>'
+                    f'<td class="{_verdict_class(verdict)}">{_esc(verdict_cell)}（{ _esc(hit.strength)}{_esc(theme_tag)}）</td>'
                     f"<td>{_esc(hit.text)}</td>"
                     "</tr>"
                 )
