@@ -263,7 +263,7 @@ class RealtimeSessionTests(unittest.TestCase):
                     self.queue.put_nowait(json.dumps({"type": "input_audio_buffer.committed"}))
                     for item in (
                         {"type": "conversation.item.input_audio_transcription.completed",
-                         "item_id": "sales-1", "transcript": "请确认付款时间。"},
+                         "item_id": "sales-1", "text": "请确认付款时间。"},
                         {"type": "response.output_text.delta", "response_id": "reply-1",
                          "delta": "周五"},
                         {"type": "response.output_text.done", "response_id": "reply-1",
