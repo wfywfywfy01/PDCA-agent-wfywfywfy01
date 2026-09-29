@@ -8,9 +8,6 @@ from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from websockets.asyncio.client import connect
-
-from app.omega.realtime import _provider_url, configured as realtime_configured, provider_name
 
 
 INSTRUCTIONS = """你是销售谈判任务的信息提取器。只依据用户描述生成草稿，不补造客户事实、金额、日期、私有底线或承诺。
@@ -92,58 +89,18 @@ def parse_extraction(content: str) -> dict:
 
 
 def available() -> bool:
-    return (provider_name() == "qwen" and realtime_configured()) or bool(
-        os.environ.get("PDCA_SUPERVISOR_PROVIDER", "").startswith("https://")
+    return bool(
+        os.environ.get("PDCA_SUPERVISOR_PROVIDER", "").strip().startswith("https://")
         and os.environ.get("PDCA_SUPERVISOR_MODEL", "").strip()
         and os.environ.get("PDCA_SUPERVISOR_API_KEY", "").strip()
     )
 
 
-async def _realtime_text(description: str) -> str:
-    async with connect(_provider_url(), additional_headers={
-        "Authorization": "Bearer " + os.environ["PDCA_QWEN_REALTIME_API_KEY"].strip()
-    }, open_timeout=10, max_size=1_000_000) as provider:
-        async with asyncio.timeout(50):
-            if json.loads(await provider.recv()).get("type") != "session.created":
-                raise RuntimeError("模型连接初始化失败")
-            await provider.send(json.dumps({"type": "session.update", "session": {
-                "modalities": ["text"], "instructions": INSTRUCTIONS,
-                "turn_detection": {"type": "server_vad"},
-            }}, ensure_ascii=False))
-            if json.loads(await provider.recv()).get("type") != "session.updated":
-                raise RuntimeError("模型会话初始化失败")
-            await provider.send(json.dumps({"type": "conversation.item.create", "item": {
-                "type": "message", "role": "user",
-                "content": [{"type": "input_text", "text": description}],
-            }}, ensure_ascii=False))
-            await provider.send(json.dumps({"type": "response.create", "response": {
-                "modalities": ["text"],
-            }}))
-            answer = ""
-            while True:
-                event = json.loads(await provider.recv())
-                if event.get("type") == "error":
-                    raise RuntimeError("模型返回错误")
-                if event.get("type") == "response.text.done":
-                    answer = event.get("text", "")
-                if event.get("type") == "response.done":
-                    if event.get("response", {}).get("status") != "completed":
-                        raise RuntimeError("模型输出未完成")
-                    if not answer:
-                        for item in event.get("response", {}).get("output", []):
-                            answer += "".join(part.get("text", "") for part in item.get("content", []))
-                    if not answer or len(answer) > 12000:
-                        raise ValueError("模型草稿为空或过长")
-                    return answer
-
-
 async def analyze(description: str) -> dict:
-    if provider_name() == "qwen" and realtime_configured():
-        content = await _realtime_text(description)
-    else:
-        from app.omega.jobs import _default_generate
-        content = await asyncio.to_thread(_default_generate, "draft", [
-            {"role": "system", "content": INSTRUCTIONS},
-            {"role": "user", "content": description},
-        ], 1800)
+    from app.omega.jobs import _default_generate
+
+    content = await asyncio.to_thread(_default_generate, "draft", [
+        {"role": "system", "content": INSTRUCTIONS},
+        {"role": "user", "content": description},
+    ], 1800)
     return {"draft": parse_extraction(content)}

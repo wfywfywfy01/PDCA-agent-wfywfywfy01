@@ -26,7 +26,7 @@ Omega 作为 PDCA 的认证页面 `/app/omega`、API `/api/omega/*` 和独立 `o
 
 本机独立试用可在 `pdca-workbench` 目录运行 `python scripts/run_omega_local.py PATH_TO_VOICE_ENV`（支持现有 Qwen 文件或单行 `豆包语音key: ...` 文件），打开 `http://127.0.0.1:8769/app/omega`。首次运行会在当前用户的 `%LOCALAPPDATA%/VertuOmega/local/login.json` 生成本机测试账号，数据保存在同目录的独立 SQLite，不连接正式 PDCA 数据库；密钥只从提供的文件读入进程。这个入口只绑定 `127.0.0.1`，适合在当前电脑试语音，不是生产部署。文字回合和报告需另配文本模型。
 
-新建谈判任务先输入自然语言描述，点击 `AI 分析`。使用百炼实时模型时，可通过其文本接口生成草稿；切到豆包实时语音后，草稿使用已配置的文本模型。分析请求经过登录与同源校验，最多 6000 字；结果只返回浏览器，不自动创建或确认任务。缺失信息须由销售补充，保存草稿后仍要人工确认目标版本。此功能不依赖文字报告 worker，不能代替报告模型配置。
+新建谈判任务先输入自然语言描述，点击 `AI 分析`。草稿、文字演练和报告始终使用 `PDCA_SUPERVISOR_*` 配置的文本模型（当前生产为 DeepSeek），不随实时语音供应商切换。分析请求经过登录与同源校验，最多 6000 字；结果只返回浏览器，不自动创建或确认任务。缺失信息须由销售补充，保存草稿后仍要人工确认目标版本。此功能不依赖文字报告 worker，不能代替报告模型配置。
 
 当前电脑已注册 Windows 登录任务 `VertuOmegaLocal`，无需保持 Codex 会话运行。可用 PowerShell 的 `Get-ScheduledTask -TaskName VertuOmegaLocal` 查看状态，`Start-ScheduledTask -TaskName VertuOmegaLocal` 启动；服务日志在 `%LOCALAPPDATA%/VertuOmega/local/server.out.log` 和 `server.err.log`。本机登录文件与会话签名密钥都在该目录，需按本机账号凭据保护。浏览器挂断语音时先发送 WebSocket `stop`，等待服务端完成尾部逐字稿保存后关闭；超时再调用同源认证接口释放租约。
 

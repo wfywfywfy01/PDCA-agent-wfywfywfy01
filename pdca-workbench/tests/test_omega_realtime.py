@@ -7,7 +7,7 @@ import json
 import tempfile
 import asyncio
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -476,11 +476,34 @@ class RealtimeSessionTests(unittest.TestCase):
             self.assertTrue(configured())
             self.assertFalse(available())
             with patch.dict("os.environ", {
-                "PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
+                "PDCA_SUPERVISOR_PROVIDER": "  https://api.deepseek.com  ",
                 "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
                 "PDCA_SUPERVISOR_API_KEY": "test-only",
             }):
                 self.assertTrue(available())
+
+    def test_qwen_voice_does_not_replace_deepseek_draft_model(self):
+        from app.omega import draft_assist
+
+        voice = {"PDCA_OMEGA_REALTIME_PROVIDER": "qwen",
+                 "PDCA_QWEN_REALTIME_WORKSPACE_ID": "old-space",
+                 "PDCA_QWEN_REALTIME_API_KEY": "old-key"}
+        with patch.dict("os.environ", voice, clear=True):
+            self.assertFalse(draft_assist.available())
+            with patch.dict("os.environ", {
+                "PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
+                "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
+                "PDCA_SUPERVISOR_API_KEY": "test-only",
+            }), patch("app.omega.draft_assist._realtime_text", new_callable=AsyncMock,
+                     create=True) as qwen_text, patch("app.omega.jobs.httpx.post") as post:
+                post.return_value.json.return_value = {"choices": [{
+                    "finish_reason": "stop", "message": {"content": '{"title":"回款谈判"}'},
+                }]}
+                result = asyncio.run(draft_assist.analyze("客户希望延期付款"))
+                self.assertEqual(result["draft"]["title"], "回款谈判")
+                self.assertEqual(post.call_args.args[0],
+                                 "https://api.deepseek.com/v1/chat/completions")
+                qwen_text.assert_not_awaited()
 
     def test_reconnect_replays_recent_completed_turns(self):
         job_id, token, _ = _acquire(self.engine, self.user, self.session_id)
