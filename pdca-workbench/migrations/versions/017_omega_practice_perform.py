@@ -37,8 +37,11 @@ def upgrade():
         if index_name not in assignment_indexes:
             op.create_index(index_name, "omega_assignments", [name])
     if "assignment_id" not in {column["name"] for column in inspector.get_columns("omega_sessions")}:
-        op.add_column("omega_sessions", sa.Column("assignment_id", sa.String(36),
-                                                     sa.ForeignKey("omega_assignments.id")))
+        # SQLite cannot add a foreign key without rebuilding the existing table; production uses PostgreSQL.
+        column = (sa.Column("assignment_id", sa.String(36)) if bind.dialect.name == "sqlite"
+                  else sa.Column("assignment_id", sa.String(36),
+                                 sa.ForeignKey("omega_assignments.id")))
+        op.add_column("omega_sessions", column)
     if "ix_omega_sessions_assignment_id" not in {
         index["name"] for index in sa.inspect(bind).get_indexes("omega_sessions")
     }:
