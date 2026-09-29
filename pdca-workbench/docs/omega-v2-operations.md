@@ -16,7 +16,7 @@ Omega 作为 PDCA 的认证页面 `/app/omega`、API `/api/omega/*` 和独立 `o
 | `PDCA_QWEN_REALTIME_WORKSPACE_ID`、`PDCA_QWEN_REALTIME_API_KEY` | 阿里云百炼北京地域 `qwen-audio-3.1-realtime-plus`；业务空间 ID 来自专属域名最左侧一段，API Key 只放服务端。独立于录音文件 ASR |
 | 既有 Vemory/Vertu 凭据 | 仅真实会议来源读取使用，浏览器不接触凭据 |
 
-实时语音默认仍使用 `qwen-audio-3.1-realtime-plus`。设置 `PDCA_OMEGA_REALTIME_PROVIDER=doubao` 后使用豆包 `1.2.6.1`；接入协议见[火山引擎全双工 API](https://docs.volcengine.com/docs/DoubaoVoice/endtoend-realtime-voice-full-duplex-version?lang=zh)和[接入必读](https://docs.volcengine.com/docs/DoubaoVoice/access-mustread?lang=zh)。豆包 API Key 不等于资源权限；握手返回 `45000030 requested resource not granted` 时，需在豆包语音控制台开通 `volc.speech.dialog` 并授权该 Key，再切换生产变量。文字草稿、文字演练和报告仍由已配置的文本模型处理。
+实时语音默认仍使用 `qwen-audio-3.1-realtime-plus`。设置 `PDCA_OMEGA_REALTIME_PROVIDER=doubao` 后使用豆包 `1.2.6.1`；接入协议见[火山引擎全双工 API](https://docs.volcengine.com/docs/DoubaoVoice/endtoend-realtime-voice-full-duplex-version?lang=zh)和[接入必读](https://docs.volcengine.com/docs/DoubaoVoice/access-mustread?lang=zh)。豆包 API Key 不等于资源权限；握手返回 `45000030 requested resource not granted` 时，需在豆包语音控制台开通 `volc.speech.dialog` 并授权该 Key，再切换生产变量。远程部署有豆包 Key 时必须使用 SSH 或本地 Docker socket，脚本拒绝经 `tcp://` 传输；从 `.env` 删除该变量即可撤销后续部署注入。文字草稿、文字演练和报告仍由已配置的文本模型处理。
 
 “语音输入”沿用短句录音：浏览器 TTS 使用设备自带语音引擎，最长 30 秒单声道 WAV，用户核对转写后发送。“开始实时对话”使用浏览器同源 WebSocket 发送持续 16 kHz PCM16；服务端连接所选实时模型，返回 24 kHz PCM16 分片并保存双方最终逐字稿。浏览器不接触供应商密钥；音频不保存。实时对话依赖 HTTPS 页面和浏览器麦克风授权；挂断、切换演练或离开页面会停止本地音轨。
 

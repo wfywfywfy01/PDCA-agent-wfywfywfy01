@@ -208,7 +208,7 @@ function Read-OptionalDotEnvValue {
     $line = Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
         Where-Object { $_ -match "^$([regex]::Escape($Name))=" } |
         Select-Object -Last 1
-    if (-not $line -and $currentObject) {
+    if (-not $line -and $currentObject -and $Name -ne "PDCA_DOUBAO_REALTIME_API_KEY") {
         $line = $currentObject.Config.Env | Where-Object { $_.StartsWith("$Name=") } | Select-Object -Last 1
     }
     if (-not $line) { return $null }
@@ -746,6 +746,9 @@ $secrets = @{
     PDCA_SUPERVISOR_API_KEY = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_API_KEY"
     PDCA_QWEN_REALTIME_API_KEY = Read-OptionalDotEnvValue "PDCA_QWEN_REALTIME_API_KEY"
     PDCA_DOUBAO_REALTIME_API_KEY = Read-OptionalDotEnvValue "PDCA_DOUBAO_REALTIME_API_KEY"
+}
+if ($secrets.PDCA_DOUBAO_REALTIME_API_KEY -and $DockerHost -match '^tcp://') {
+    throw "Refusing to send the Doubao realtime key over Docker TCP; use SSH or a local Docker socket"
 }
 if (-not $secrets.VERTU_BOT_INBOUND_KEY) {
     Write-Output "VERTU_BOT_INBOUND_KEY is not set; using the persisted pdca-vertu-session login"
