@@ -408,6 +408,9 @@ function New-SecretEnvFile {
     if ($Secrets.PDCA_QWEN_REALTIME_API_KEY) {
         $lines += "PDCA_QWEN_REALTIME_API_KEY=$($Secrets.PDCA_QWEN_REALTIME_API_KEY)"
     }
+    if ($Secrets.PDCA_DOUBAO_REALTIME_API_KEY) {
+        $lines += "PDCA_DOUBAO_REALTIME_API_KEY=$($Secrets.PDCA_DOUBAO_REALTIME_API_KEY)"
+    }
     [System.IO.File]::WriteAllLines($path, $lines)
     return $path
 }
@@ -482,7 +485,7 @@ function Start-PdcaContainer {
     $envExcluded = @(
         "PDCA_DATABASE_URL",        # 容器库地址由 compose 注入，透传会把容器指向生产库
         "PDCA_SECRET_KEY",          # 由 compose/密钥文件管理
-        "PDCA_SUPERVISOR_API_KEY", "PDCA_QWEN_REALTIME_API_KEY", # 通过临时密钥文件传入
+        "PDCA_SUPERVISOR_API_KEY", "PDCA_QWEN_REALTIME_API_KEY", "PDCA_DOUBAO_REALTIME_API_KEY", # 通过临时密钥文件传入
         "PDCA_CUSTOMER_MGMT_ROOT",  # 以下都是本机路径/命令，容器里不存在
         "PDCA_COLLECT_XLSX", "PDCA_VN_XLSX", "PDCA_PG_DUMP_COMMAND"
     )
@@ -742,6 +745,7 @@ $secrets = @{
     VEMORY_OPENAPI_KEY = Read-OptionalDotEnvValue "VEMORY_OPENAPI_KEY"
     PDCA_SUPERVISOR_API_KEY = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_API_KEY"
     PDCA_QWEN_REALTIME_API_KEY = Read-OptionalDotEnvValue "PDCA_QWEN_REALTIME_API_KEY"
+    PDCA_DOUBAO_REALTIME_API_KEY = Read-OptionalDotEnvValue "PDCA_DOUBAO_REALTIME_API_KEY"
 }
 if (-not $secrets.VERTU_BOT_INBOUND_KEY) {
     Write-Output "VERTU_BOT_INBOUND_KEY is not set; using the persisted pdca-vertu-session login"
@@ -757,7 +761,8 @@ $script:SensitiveValues = @(
     $secrets.VERTU_BOT_INBOUND_KEY,
     $secrets.VEMORY_OPENAPI_KEY,
     $secrets.PDCA_SUPERVISOR_API_KEY,
-    $secrets.PDCA_QWEN_REALTIME_API_KEY
+    $secrets.PDCA_QWEN_REALTIME_API_KEY,
+    $secrets.PDCA_DOUBAO_REALTIME_API_KEY
 )
 
 Write-Output "Ensuring writable PDCA runtime directories"
