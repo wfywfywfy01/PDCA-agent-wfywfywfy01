@@ -136,6 +136,33 @@ class DuzhanAgentApiTests(unittest.TestCase):
         )
         self.assertFalse(off.json()["enabled"])
 
+    def test_render_preview_returns_real_body(self):
+        agent_id = self.client.post(
+            "/api/duzhan-agents", headers=self.headers, json={"name": "真实试跑官", "blocks": GOOD_BLOCKS}
+        ).json()["id"]
+        response = self.client.post(
+            f"/api/duzhan-agents/{agent_id}/preview",
+            headers=self.headers,
+            json={"mode": "render", "day": "2026-09-29", "hour": 10},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["mode"], "render")
+        self.assertEqual(body["source"], "empty_ledger")  # 测试环境没有组表快照
+        self.assertIn("海外渠道业绩达标群", body["body"])
+        self.assertGreater(body["chars"], 100)
+        self.assertEqual(body["renderer"], "duzhan.render_brief")
+
+    def test_render_preview_rejects_unknown_mode(self):
+        agent_id = self.client.post(
+            "/api/duzhan-agents", headers=self.headers, json={"name": "坏模式官", "blocks": GOOD_BLOCKS}
+        ).json()["id"]
+        response = self.client.post(
+            f"/api/duzhan-agents/{agent_id}/preview", headers=self.headers, json={"mode": "send"}
+        )
+        self.assertEqual(response.status_code, 422)
+
     def test_timezone_case_is_normalised(self):
         body = self.client.post(
             "/api/duzhan-agents",
