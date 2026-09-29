@@ -62,7 +62,7 @@ class MigrationEntrypointTests(unittest.TestCase):
                 rows = connection.execute(
                     "SELECT title FROM meeting_records WHERE external_id='same-id'"
                 ).fetchall()
-            self.assertEqual(version, "017")
+            self.assertEqual(version, "018")
             self.assertIn("uq_meeting_records_external_id", {row[1] for row in indexes})
             self.assertEqual(rows, [("new",)])
 

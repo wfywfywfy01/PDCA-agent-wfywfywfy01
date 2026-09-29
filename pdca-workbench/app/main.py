@@ -45,6 +45,7 @@ from app.knowledge.router import router as knowledge_router
 from app.knowledge.mcp import knowledge_mcp, knowledge_mcp_app
 from app.mcp_five_kit import five_kit_mcp, five_kit_mcp_app
 from app.agents.router import router as agents_router
+from app.duzhan_admin.router import router as duzhan_admin_router
 from app.omega.router import router as omega_router
 from app.omega.voice import router as omega_voice_router
 from app.omega.real import router as omega_real_router
@@ -335,6 +336,7 @@ app.include_router(admin_router)
 app.include_router(agent_admin_router)
 app.include_router(export_router)
 app.include_router(agents_router)
+app.include_router(duzhan_admin_router)
 app.include_router(omega_router)
 app.include_router(omega_voice_router)
 app.include_router(omega_real_router)
