@@ -1,5 +1,11 @@
 # Progress
 
+## 2026-09-29: Omega Doubao live voice cutover and transcription repair
+
+- After the `volc.speech.dialog` grant, deployed commit `a6ec5a6a8f52277e8ff79405a60eedb859e91f00` with `PDCA_OMEGA_REALTIME_PROVIDER=doubao`; the same production container uses `https://api.deepseek.com` / `deepseek-flash` for text. A dedicated SSH Docker account now carries deployment secrets instead of the unauthenticated TCP 2375 transport. Public `/health` returned 200 at that revision; Web and Omega worker were running.
+- A real 16 kHz synthetic Chinese speech clip sent from the production container produced a completed input transcription, a text reply, and 298,558 PCM output bytes. This exposed a provider event mismatch: Doubao puts the final sales transcription in `text`, while the adapter read `transcript`. The adapter now accepts the actual `text` field and retains the older fallback. A regression test with the real event shape failed before the fix and passed after it.
+- Patched application WebSocket acceptance with the same real provider and speech clip returned `ready`, 26 live captions, two persisted sales/counterparty segments and 326,714 forwarded audio bytes, with no error event. Full backend: **915 passed, 6 skipped, 47 subtests passed**; frontend typecheck/build, Compose config and `git diff --check` passed. Physical phone microphone, headset echo, interruption timing and long-session stability still need device acceptance.
+
 ## 2026-09-29: Omega natural-language case intake
 
 - Replaced the new-case form entry with one free-text description and `AI 分析`. The authenticated server uses the already configured `qwen-audio-3.1-realtime-plus` connection in text-only mode (or the configured supervisor text model) to extract a reviewable case draft. It does not write a case during analysis. Missing goals, dates, amounts and hard limits stay missing; the UI lists gaps and lets the seller add detail or expand the editable fields before saving. Existing cases retain manual editing and confirmed-version rules.

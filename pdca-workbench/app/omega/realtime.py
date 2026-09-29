@@ -411,7 +411,7 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
         elif kind == "conversation.item.input_audio_transcription.completed":
             item_id = str(event.get("item_id") or "")
             sales_text.pop(item_id, None)
-            content = str(event.get("transcript") or "").strip()
+            content = str(event.get("text") or event.get("transcript") or "").strip()
             if content and item_id not in saved_sales:
                 part = _append(engine, session_id, job_id, token, "sales", content)
                 saved_sales.add(item_id)
