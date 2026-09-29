@@ -136,9 +136,10 @@ class GenerateRetryTests(unittest.TestCase):
 
             def chat(self, messages, *, max_tokens, temperature):
                 self.calls.append(max_tokens)
+                # 真实客户端返回的是归一化后的 {content, usage}
                 if len(self.calls) == 1:
-                    return {"choices": [{"message": {"content": "", "reasoning_content": "想了很多"}}]}
-                return {"choices": [{"message": {"content": "先补三条未闭环"}}]}
+                    return {"content": "", "usage": {"reasoning_tokens": 1200}}
+                return {"content": "先补三条未闭环", "usage": {}}
 
         fake = FakeClient()
         with patch("app.agents.llm_client.supervisor_client", return_value=fake):
@@ -149,13 +150,21 @@ class GenerateRetryTests(unittest.TestCase):
     def test_returns_empty_when_still_empty(self):
         class FakeClient:
             def chat(self, messages, *, max_tokens, temperature):
-                return {"choices": [{"message": {"content": "", "reasoning_content": "只会想"}}]}
+                return {"content": "", "usage": {"reasoning_tokens": 4800}}
 
         with patch("app.agents.llm_client.supervisor_client", return_value=FakeClient()):
             self.assertEqual(ai_rules._generate([{"role": "user", "content": "x"}]), "")
 
     def test_budget_covers_reasoning_models(self):
         self.assertGreaterEqual(ai_rules.DEFAULT_MAX_TOKENS, 1000)
+
+    def test_accepts_openai_shaped_payload_too(self):
+        class FakeClient:
+            def chat(self, messages, *, max_tokens, temperature):
+                return {"choices": [{"message": {"content": "标准形状也能取到"}}]}
+
+        with patch("app.agents.llm_client.supervisor_client", return_value=FakeClient()):
+            self.assertEqual(ai_rules._generate([{"role": "user", "content": "x"}]), "标准形状也能取到")
 
 
 class RenderOverrideTests(unittest.TestCase):
