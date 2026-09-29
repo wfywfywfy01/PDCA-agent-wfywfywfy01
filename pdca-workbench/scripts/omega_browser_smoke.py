@@ -196,7 +196,8 @@ def main() -> None:
         dialog = page.get_by_role("dialog", name="实时语音对话")
         expect(dialog).to_be_visible(timeout=5000)
         expect(dialog.get_by_role("heading", name="正在听")).to_be_visible(timeout=5000)
-        expect(dialog.get_by_role("slider", name="对手音量")).to_have_value("2")
+        expect(dialog.get_by_role("slider", name="对手音量")).to_have_value("2.5")
+        page.wait_for_function("window.__voiceGains.some(gain => gain.gain.value > 2.4)")
         assert page.evaluate("""() => {
           const rect = document.querySelector('dialog').getBoundingClientRect()
           return rect.width === innerWidth && rect.height === innerHeight
@@ -209,8 +210,8 @@ def main() -> None:
         }""")
         expect(dialog.get_by_text("你：测试实时发言")).to_be_visible()
         expect(dialog.get_by_role("heading", name="对手正在说话")).to_be_visible()
-        dialog.get_by_role("slider", name="对手音量").fill("2.5")
-        page.wait_for_function("window.__voiceGains.some(gain => gain.gain.value > 2.4)")
+        dialog.get_by_role("slider", name="对手音量").fill("1.5")
+        page.wait_for_function("window.__voiceGains.some(gain => gain.gain.value > 1.4 && gain.gain.value < 1.6)")
         page.evaluate("window.__voiceSocket.onmessage({ data: JSON.stringify({ type: 'interrupt' }) })")
         expect(dialog.get_by_role("heading", name="正在听")).to_be_visible()
         dialog.get_by_role("button", name="结束通话").click()
