@@ -123,11 +123,12 @@ export function installOmegaDemo() {
       if (assignment) { assignment.attempts.push({ session_id: game.id, status: 'active', result: null, passed: false }); assignment.status = 'in_progress' }
       return json(game, 201)
     }
-    const sessionMatch = /^\/api\/omega\/sessions\/([^/]+)(?:\/(turns|finish|reports))?$/.exec(path)
+    const sessionMatch = /^\/api\/omega\/sessions\/([^/]+)(?:\/(turns|finish|reports|realtime\/stop))?$/.exec(path)
     if (sessionMatch) {
       const game = sessions.find((item) => item.id === sessionMatch[1])
       if (!game) return json({ detail: '演示会话不存在' }, 404)
       if (!sessionMatch[2]) return json(game)
+      if (sessionMatch[2] === 'realtime/stop') return json({ ok: true })
       if (sessionMatch[2] === 'turns') {
         if (game.status !== 'active') return json({ detail: '演练已结束' }, 409)
         addSegment(game, 'sales', String(body.text))
@@ -228,8 +229,8 @@ export function installOmegaDemo() {
         addSegment(game, 'counterparty', answer)
         this.emit({ type: 'caption', speaker: 'counterparty', text: answer })
         for (let part = 0; part < 4; part++) {
-          const tone = new Float32Array(2400)
-          for (let i = 0; i < tone.length; i++) tone[i] = Math.sin(2 * Math.PI * 660 * (i + part * 2400) / 24000) * 0.04
+          const tone = new Int16Array(2400)
+          for (let i = 0; i < tone.length; i++) tone[i] = Math.round(Math.sin(2 * Math.PI * 660 * (i + part * 2400) / 24000) * 0.04 * 32767)
           this.emit(tone.buffer)
         }
         this.emit({ type: 'segment' })
