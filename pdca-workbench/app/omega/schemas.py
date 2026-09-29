@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.omega.reports import WEIGHTS
 
 
@@ -67,7 +67,15 @@ class CaseUpdate(CaseCreate):
 
 class DraftAnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: str = Field(min_length=20, max_length=6000)
+    text: str = Field(min_length=1, max_length=6000)
+
+    @field_validator("text")
+    @classmethod
+    def nonblank_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("谈判描述不能为空")
+        return value
 
 
 class TurnRequest(BaseModel):

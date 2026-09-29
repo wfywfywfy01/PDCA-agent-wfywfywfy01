@@ -790,8 +790,8 @@ onBeforeUnmount(() => {
             <p class="omega-kicker">新建谈判任务</p><h2>用自己的话描述这场谈判</h2>
             <p class="sub">说清楚对方是谁、要谈什么、你想达成什么，以及不能接受什么。信息不全也可以先分析。</p>
             <label for="omega-case-brief">谈判描述</label>
-            <textarea id="omega-case-brief" v-model="caseBriefInput" rows="7" minlength="20" maxlength="6000" placeholder="例如：我要和经销商谈一笔到期货款。对方希望延期，我想确认书面付款时间表；最低接受先付一半，未经批准不能降价。"></textarea>
-            <div class="omega-intake-actions"><span>描述会发送给已配置的 AI 模型，只生成草稿，不会自动保存。</span><button class="btn btn-primary" type="button" :disabled="analysisBusy || caseBriefInput.trim().length < 20" @click="analyzeCaseDraft">{{ analysisBusy ? '分析中…' : analysisReady ? '重新分析' : 'AI 分析' }}</button></div>
+            <textarea id="omega-case-brief" v-model="caseBriefInput" rows="7" minlength="1" maxlength="6000" placeholder="例如：我要和经销商谈一笔到期货款。对方希望延期，我想确认书面付款时间表；最低接受先付一半，未经批准不能降价。"></textarea>
+            <div class="omega-intake-actions"><span>描述会发送给已配置的 AI 模型，只生成草稿，不会自动保存。</span><button class="btn btn-primary" type="button" :disabled="analysisBusy || !caseBriefInput.trim()" @click="analyzeCaseDraft">{{ analysisBusy ? '分析中…' : analysisReady ? '重新分析' : 'AI 分析' }}</button></div>
           </template>
           <template v-else><h2>编辑任务草稿</h2><p class="sub">修改后需重新确认目标版本，既有演练仍使用原版本。</p></template>
           <section v-if="!chosenCase && analysisReady" class="omega-analysis" aria-label="AI 生成的任务草稿">
