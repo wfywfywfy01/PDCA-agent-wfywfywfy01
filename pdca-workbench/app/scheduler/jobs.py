@@ -837,7 +837,13 @@ def daily_report_job() -> None:
         notify("每日经营日报推送失败", day)
 
 
-def duzhan_collect_job(tz_name: str, hour: int) -> None:
+def duzhan_collect_job(
+    tz_name: str,
+    hour: int,
+    *,
+    ledger_job: str = "duzhan_collect",
+    channel_ids: list[str] | None = None,
+) -> None:
     """每轮提前 15 分钟踩点采集（群/MCP/Vemory/VPS/WhatsApp），不发群。
 
     P2：Cron 与 Agent 共用 flow_controller 业务入口；行为与原实现一致
@@ -845,7 +851,7 @@ def duzhan_collect_job(tz_name: str, hour: int) -> None:
     """
     from app.agents.flow_controller import prepare_performance_slot
 
-    result = prepare_performance_slot(tz_name, hour)
+    result = prepare_performance_slot(tz_name, hour, ledger_job=ledger_job, channel_ids=channel_ids)
     if result.get("skipped"):
         logger.info("督战官本档跳过组表 {} {} {}", tz_name, hour, result["skipped"])
     elif result.get("status") == "failed":
@@ -854,14 +860,20 @@ def duzhan_collect_job(tz_name: str, hour: int) -> None:
         logger.info("督战官组表完成 {} {}", tz_name, hour)
 
 
-def duzhan_job(tz_name: str, hour: int) -> None:
+def duzhan_job(
+    tz_name: str,
+    hour: int,
+    *,
+    ledger_job: str = "duzhan",
+    channel_ids: list[str] | None = None,
+) -> None:
     """督战官按群时区推送：北京群 10/15/20，Lina 群巴黎 10/15/20。
 
     P2：走 flow_controller 封装；单群失败不阻断其他群，文案不变。
     """
     from app.agents.flow_controller import push_performance_slot
 
-    result = push_performance_slot(tz_name, hour)
+    result = push_performance_slot(tz_name, hour, ledger_job=ledger_job, channel_ids=channel_ids)
     if result.get("skipped"):
         logger.info("督战官本档跳过推送 {} {} {}", tz_name, hour, result["skipped"])
     elif result.get("status") == "failed":
@@ -872,11 +884,14 @@ def duzhan_job(tz_name: str, hour: int) -> None:
         logger.info("督战官已推送 {} {}", tz_name, hour)
 
 
-def ctob_job(hour: int = 20) -> None:
-    """工作日北京 10:00 / 15:00 / 20:00：16 个 C转B 群按档推送（P2 封装）。"""
+def ctob_job(hour: int = 20, *, owners: tuple | None = None, ledger_job: str = "ctob") -> None:
+    """工作日北京 10:00 / 15:00 / 20:00：C转B 群按档推送（P2 封装）。
+
+    db 源下每个子 Agent 注册一条，`owners` 只带自己那个群、台账也各记各的。
+    """
     from app.agents.flow_controller import run_ctob_slot
 
-    result = run_ctob_slot(hour)
+    result = run_ctob_slot(hour, owners=owners, ledger_job=ledger_job)
     label = f"{hour:02d}:00 C转B"
     if result.get("skipped"):
         logger.info("{}跳过 {}", label, result["skipped"])
@@ -1240,7 +1255,19 @@ def start_scheduler() -> BackgroundScheduler | None:
     # kpi_refresh（09:00/12:00/21:00 重建静态 chart_data.json）已停用（F1）：
     # 看板数据由 /api/dashboard/* 实时查库，不再运行子进程生成静态文件。
 
-    if getattr(settings, "duzhan_enabled", False):
+    # 督战官配置来源：code = 写死的群（现状）；db = 读 duzhan_agents 里启用的子 Agent。
+    # 两条分支互斥，同一档绝不双跑（run 台账的 job 名也按子 Agent 分档）。
+    from app.duzhan_admin import runtime as duzhan_runtime
+
+    config_from_db = duzhan_runtime.using_db()
+    if config_from_db:
+        logger.info("督战官配置源=db：群清单改由配置页决定（PDCA_DUZHAN_CONFIG_SOURCE）")
+
+    if getattr(settings, "duzhan_enabled", False) and config_from_db:
+        registered = duzhan_runtime.register_agent_jobs(_scheduler)
+        logger.info("督战官按库注册完成：{} 个子 Agent", len(registered))
+
+    if getattr(settings, "duzhan_enabled", False) and not config_from_db:
         from zoneinfo import ZoneInfo
 
         from app.duzhan import collect_clock, cron_timezones, parse_hours
@@ -1383,7 +1410,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         except (ValueError, AttributeError):
             logger.warning("忽略非法日报群总结时间: {}", digest_time)
 
-    if getattr(settings, "ctob_enabled", False):
+    if getattr(settings, "ctob_enabled", False) and not config_from_db:
         from zoneinfo import ZoneInfo
 
         # C转B 与达标群同结构：10:00 定任务 / 15:00 追变化 / 20:00 验兑现。
