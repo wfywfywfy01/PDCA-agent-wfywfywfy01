@@ -110,14 +110,14 @@ class OmegaFlowTests(unittest.TestCase):
             return_value={"draft": extracted},
         ) as generator:
             response = self.client.post("/api/omega/case-draft/analyze", json={
-                "text": "经销商希望延期付款，我要确认这笔货款的书面付款时间表。"
+                "text": "明天和客户谈回款"
             })
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()["draft"], extracted)
             generator.assert_awaited_once()
         self.assertEqual(self.client.get("/api/omega/cases").json(), [])
         self.assertEqual(self.client.post("/api/omega/case-draft/analyze",
-                                          json={"text": "太短"}).status_code, 422)
+                                          json={"text": "  "}).status_code, 422)
         self.assertEqual(self.client.post("/api/omega/case-draft/analyze",
                                           json={"text": "虚构场景：经销商希望延期付款，需要确认书面付款时间。"},
                                           headers={"Origin": "https://outside.example"}).status_code, 403)

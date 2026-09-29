@@ -113,7 +113,7 @@ def main() -> None:
         page.goto("http://127.0.0.1:5173/omega")
         expect(page.get_by_role("heading", name="谈判陪练")).to_be_visible()
         page.get_by_role("button", name="新建任务").click()
-        page.get_by_label("谈判描述").fill("明天和经销商讨论一笔到期货款，我想确认付款日期和金额，不能降价。")
+        page.get_by_label("谈判描述").fill("明天和客户谈回款")
         page.get_by_role("button", name="AI 分析").click()
         expect(page.get_by_role("heading", name="核对任务草稿")).to_be_visible()
         page.get_by_role("button", name="核对并修改全部字段").click()
