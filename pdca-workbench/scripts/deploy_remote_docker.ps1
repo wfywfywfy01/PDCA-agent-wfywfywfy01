@@ -532,7 +532,7 @@ function Start-OmegaWorker {
             Invoke-Docker -DockerArgs @("rename", $oldWorker.Id, $backupName) | Out-Null
         }
         Invoke-Docker -DockerArgs @(
-            "run", "-d", "--name", $name, "--restart", "unless-stopped",
+            "run", "-d", "--no-healthcheck", "--name", $name, "--restart", "unless-stopped",
             "--label", "com.vertu.pdca.revision=$Revision",
             "--network", $KnowledgeNetwork, "--env-file", $secretEnvFile,
             "-e", "PDCA_ENV=production", "-e", "PDCA_OMEGA_ENABLED=1",

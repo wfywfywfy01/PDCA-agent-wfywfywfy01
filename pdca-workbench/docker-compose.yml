@@ -128,6 +128,8 @@ services:
     image: ${PDCA_IMAGE:-pdca-workbench:local}
     profiles: ["omega"]
     command: ["python", "-m", "app.omega.worker"]
+    healthcheck:
+      disable: true
     env_file:
       - path: env.docker
         required: true
