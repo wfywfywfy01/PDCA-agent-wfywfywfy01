@@ -78,6 +78,9 @@ services:
       PDCA_AGENT_HEALTHCHECK_ENABLED: ${PDCA_AGENT_HEALTHCHECK_ENABLED:-1}
       PDCA_AGENT_HEALTHCHECK_DELAY_MINUTES: ${PDCA_AGENT_HEALTHCHECK_DELAY_MINUTES:-5}
       PDCA_SUPERVISOR_ENABLED: ${PDCA_SUPERVISOR_ENABLED:-0}
+      PDCA_OMEGA_ENABLED: ${PDCA_OMEGA_ENABLED:-0}
+      PDCA_QWEN_REALTIME_WORKSPACE_ID: ${PDCA_QWEN_REALTIME_WORKSPACE_ID:-}
+      PDCA_QWEN_REALTIME_API_KEY: ${PDCA_QWEN_REALTIME_API_KEY:-}
       PDCA_SUPERVISOR_PROVIDER: ${PDCA_SUPERVISOR_PROVIDER:-}
       PDCA_SUPERVISOR_MODEL: ${PDCA_SUPERVISOR_MODEL:-}
       PDCA_SUPERVISOR_API_KEY: ${PDCA_SUPERVISOR_API_KEY:-}
@@ -120,6 +123,31 @@ services:
     networks:
       - pdca-net
       - logistics-private
+
+  omega-worker:
+    image: ${PDCA_IMAGE:-pdca-workbench:local}
+    profiles: ["omega"]
+    command: ["python", "-m", "app.omega.worker"]
+    env_file:
+      - path: env.docker
+        required: true
+      - path: .env
+        required: false
+    environment:
+      PDCA_ENV: production
+      PDCA_DATABASE_URL: ${PDCA_DATABASE_URL:?请在未跟踪的 .env 中设置 PDCA_DATABASE_URL}
+      PDCA_SECRET_KEY: ${PDCA_SECRET_KEY:?请在未跟踪的 .env 中设置 PDCA_SECRET_KEY}
+      PDCA_OMEGA_ENABLED: ${PDCA_OMEGA_ENABLED:-0}
+      PDCA_SUPERVISOR_PROVIDER: ${PDCA_SUPERVISOR_PROVIDER:-}
+      PDCA_SUPERVISOR_MODEL: ${PDCA_SUPERVISOR_MODEL:-}
+      PDCA_SUPERVISOR_API_KEY: ${PDCA_SUPERVISOR_API_KEY:-}
+      PDCA_KNOWLEDGE_HUB_TEAM_MAP: ${PDCA_KNOWLEDGE_HUB_TEAM_MAP:-{"overseas":"overseas-sales"}}
+    depends_on:
+      pdca-app:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pdca-net
 
   nginx:
     image: nginx:alpine

@@ -62,6 +62,7 @@ export const router = createRouter({
       name: 'onboarding',
       component: () => import('@/pages/OnboardingPage.vue'),
     },
+    { path: '/omega', name: 'omega', component: () => import('@/pages/OmegaPage.vue') },
     { path: '/login', name: 'login', component: LoginPage },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

@@ -160,6 +160,7 @@ def init_db(apply_patches: bool = True) -> None:
         AgentRun,
         MeetingAsrArtifact,
     )
+    from app.omega import models as omega_models  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     if apply_patches:

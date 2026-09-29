@@ -18,10 +18,11 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
-      proxy: {
+      proxy: mode === 'omega-demo' ? {} : {
         '/api': {
           target: 'http://127.0.0.1:8767',
           changeOrigin: false,
+          ws: true,
         },
       },
     },

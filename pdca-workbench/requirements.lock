@@ -174,5 +174,7 @@ uvicorn==0.51.0
     # via
     #   -r requirements.txt
     #   mcp
+websockets==15.0.1
+    # via -r requirements.txt
 win32-setctime==1.2.0
     # via loguru

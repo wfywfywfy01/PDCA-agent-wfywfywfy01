@@ -26,6 +26,7 @@ from app.models.todo_project import TodoProject  # noqa: F401
 from app.models.todo_group_state import TodoGroupState  # noqa: F401
 from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
 from app.models.scheduled_job_run import ScheduledJobRun  # noqa: F401
+from app.omega import models as omega_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
