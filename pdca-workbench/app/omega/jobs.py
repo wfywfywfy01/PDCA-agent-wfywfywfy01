@@ -6,6 +6,7 @@ import os
 import time
 import threading
 from datetime import timedelta, timezone
+from urllib.parse import urlsplit
 
 import httpx
 from loguru import logger
@@ -29,11 +30,16 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
     key = os.environ.get("PDCA_SUPERVISOR_API_KEY", "").strip()
     if not (provider.startswith("https://") and model and key):
         raise RuntimeError("Omega 文本模型未配置")
+    payload = {"model": model, "messages": messages, "max_tokens": max_tokens,
+               "temperature": 0.3 if kind in {"report", "draft"} else 0.8}
+    if (kind == "report" and urlsplit(provider).hostname == "api.deepseek.com"
+            and model.startswith("deepseek-")):
+        payload.pop("temperature")
+        payload.update(thinking={"type": "disabled"}, response_format={"type": "json_object"})
     response = httpx.post(
         provider.rstrip("/") + "/v1/chat/completions",
         headers={"Authorization": "Bearer " + key},
-        json={"model": model, "messages": messages, "max_tokens": max_tokens,
-              "temperature": 0.3 if kind in {"report", "draft"} else 0.8},
+        json=payload,
         timeout=90 if kind == "report" else 20,
     )
     response.raise_for_status()

@@ -609,3 +609,33 @@ class OmegaFlowTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/omega/sessions/{repeat.json()['id']}").status_code, 404)
         self.assertEqual(self.client.post("/api/omega/sessions", json={
             "case_id": case["id"], "assignment_id": assigned.json()["id"]}).status_code, 404)
+
+
+class OmegaReportGenerationTests(unittest.TestCase):
+    def test_coach_supplies_exact_quote_candidates(self):
+        from app.omega.context import coach_messages
+        from app.omega.reports import WEIGHTS
+
+        segment = {"id": "segment-1", "speaker": "sales", "text": "请确认培训时间。"}
+        messages = coach_messages({}, [segment], WEIGHTS)
+        prompt = json.loads(messages[1]["content"])
+        self.assertEqual(prompt["quote_candidates"], [{
+            "segment_id": segment["id"], "speaker": "sales",
+            "start": 0, "end": len(segment["text"]), "text": segment["text"],
+        }])
+        self.assertIn("quote_candidates", messages[0]["content"])
+
+    def test_deepseek_report_uses_json_without_thinking(self):
+        from app.omega.jobs import _default_generate
+
+        settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
+                    "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
+                    "PDCA_SUPERVISOR_API_KEY": "test-only"}
+        with patch.dict("os.environ", settings), patch("app.omega.jobs.httpx.post") as post:
+            post.return_value.json.return_value = {
+                "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}
+            self.assertEqual(_default_generate("report", [{"role": "user", "content": "JSON"}], 8000), "{}")
+            payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertNotIn("temperature", payload)
