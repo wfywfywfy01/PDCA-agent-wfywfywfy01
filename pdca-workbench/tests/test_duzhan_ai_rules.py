@@ -126,6 +126,38 @@ class FocusForTests(unittest.TestCase):
         self.assertIn(DAY, text)
 
 
+class GenerateRetryTests(unittest.TestCase):
+    """推理模型可能把预算全花在 reasoning 上：content 为空要重试一次（4 倍预算）。"""
+
+    def test_retries_with_bigger_budget(self):
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            def chat(self, messages, *, max_tokens, temperature):
+                self.calls.append(max_tokens)
+                if len(self.calls) == 1:
+                    return {"choices": [{"message": {"content": "", "reasoning_content": "想了很多"}}]}
+                return {"choices": [{"message": {"content": "先补三条未闭环"}}]}
+
+        fake = FakeClient()
+        with patch("app.agents.llm_client.supervisor_client", return_value=fake):
+            text = ai_rules._generate([{"role": "user", "content": "x"}])
+        self.assertEqual(text, "先补三条未闭环")
+        self.assertEqual(fake.calls, [ai_rules.DEFAULT_MAX_TOKENS, ai_rules.DEFAULT_MAX_TOKENS * 4])
+
+    def test_returns_empty_when_still_empty(self):
+        class FakeClient:
+            def chat(self, messages, *, max_tokens, temperature):
+                return {"choices": [{"message": {"content": "", "reasoning_content": "只会想"}}]}
+
+        with patch("app.agents.llm_client.supervisor_client", return_value=FakeClient()):
+            self.assertEqual(ai_rules._generate([{"role": "user", "content": "x"}]), "")
+
+    def test_budget_covers_reasoning_models(self):
+        self.assertGreaterEqual(ai_rules.DEFAULT_MAX_TOKENS, 1000)
+
+
 class RenderOverrideTests(unittest.TestCase):
     def test_override_replaces_only_the_action_line(self):
         ledger = empty_ledger(DAY)
