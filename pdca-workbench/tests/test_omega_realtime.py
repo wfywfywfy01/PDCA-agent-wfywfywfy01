@@ -20,7 +20,7 @@ from app.config import get_settings
 from app.database import get_session
 from app.main import app
 from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession
-from app.omega.realtime import _acquire, _append, _receive_audio, _release, _renew
+from app.omega.realtime import _acquire, _append, _receive_audio, _receive_doubao_audio, _release, _renew
 from app.omega.realtime import _provider_url
 
 
@@ -241,6 +241,246 @@ class RealtimeSessionTests(unittest.TestCase):
         with patch.dict("os.environ", {"PDCA_QWEN_REALTIME_WORKSPACE_ID": "other.host/path"}):
             with self.assertRaisesRegex(ValueError, "业务空间 ID"):
                 _provider_url()
+
+    def test_doubao_full_duplex_stream_uses_server_key_and_persists_transcript(self):
+        class Provider:
+            def __init__(self):
+                self.queue = asyncio.Queue()
+                self.sent = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return None
+
+            async def send(self, raw):
+                event = json.loads(raw)
+                self.sent.append(event)
+                if event["type"] == "session.create":
+                    self.queue.put_nowait(json.dumps({"type": "session.created", "session": {"id": "one"}}))
+                elif event["type"] == "input_audio_buffer.commit":
+                    self.queue.put_nowait(json.dumps({"type": "input_audio_buffer.committed"}))
+                    for item in (
+                        {"type": "conversation.item.input_audio_transcription.completed",
+                         "item_id": "sales-1", "transcript": "请确认付款时间。"},
+                        {"type": "response.output_text.delta", "response_id": "reply-1",
+                         "delta": "周五"},
+                        {"type": "response.output_text.done", "response_id": "reply-1",
+                         "text": "周五可以付款。"},
+                        {"type": "response.output_audio.delta", "response_id": "reply-1",
+                         "delta": base64.b64encode(b"\x00\x20").decode()},
+                        {"type": "response.output_audio.done", "response_id": "reply-1"},
+                    ):
+                        self.queue.put_nowait(json.dumps(item))
+                elif event["type"] == "session.close":
+                    self.queue.put_nowait(json.dumps({"type": "session.closed"}))
+
+            async def recv(self):
+                return await self.queue.get()
+
+        async def authorize(*_):
+            return self.user
+
+        provider = Provider()
+        with patch("app.omega.realtime.is_enabled", return_value=True), \
+             patch("app.omega.realtime.ws_user", side_effect=authorize), \
+             patch("app.omega.realtime.connect", return_value=provider) as connect_mock, \
+             patch.dict("os.environ", {"PDCA_OMEGA_REALTIME_PROVIDER": "doubao",
+                                    "PDCA_DOUBAO_REALTIME_API_KEY": "test-only"}):
+            with self.client.websocket_connect(
+                f"/api/omega/sessions/{self.session_id}/realtime",
+                headers={"Origin": "http://testserver"},
+            ) as socket:
+                self.assertEqual(socket.receive_json(), {"type": "ready"})
+                socket.send_bytes(b"\x00\x00" * 320)
+                socket.send_text("stop")
+                segments, audio = [], None
+                for _ in range(8):
+                    message = socket.receive()
+                    if message.get("bytes"):
+                        audio = message["bytes"]
+                    elif message.get("text"):
+                        event = json.loads(message["text"])
+                        if event.get("type") == "segment":
+                            segments.append(event["segment"])
+                        if event.get("type") == "closed":
+                            break
+                self.assertEqual([part["speaker"] for part in segments],
+                                 ["sales", "counterparty"])
+                self.assertEqual(audio, b"\x00\x20")
+        self.assertIn("/api/v3/duplex/realtime/dialogue", connect_mock.call_args.args[0])
+        self.assertEqual(connect_mock.call_args.kwargs["additional_headers"],
+                         {"X-Api-Key": "test-only"})
+        self.assertEqual(provider.sent[0]["session"]["model"], "1.2.6.1")
+        self.assertEqual(provider.sent[0]["session"]["audio"]["output"]["format"]["type"],
+                         "pcm_s16le")
+        self.assertIn("input_audio_buffer.commit", [item["type"] for item in provider.sent])
+        self.assertEqual(provider.sent[-1]["type"], "session.close")
+        with Session(self.engine) as db:
+            self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 2)
+
+    def test_doubao_interrupted_reply_is_not_saved_or_played(self):
+        job_id, token, _ = _acquire(self.engine, self.user, self.session_id)
+
+        class Browser:
+            def __init__(self):
+                self.events, self.audio = [], []
+
+            async def send_json(self, event):
+                self.events.append(event)
+
+            async def send_bytes(self, audio):
+                self.audio.append(audio)
+
+        class Provider:
+            def __init__(self):
+                self.events = iter([
+                    {"type": "conversation.item.input_audio_transcription.completed",
+                     "item_id": "sales-1", "transcript": "请确认付款时间。"},
+                    {"type": "response.output_audio.started", "response_id": "",
+                     "question_id": "question-1"},
+                    {"type": "conversation.item.input_audio_transcription.started",
+                     "item_id": "sales-2"},
+                    {"type": "response.output_text.delta", "response_id": "reply-1",
+                     "question_id": "question-1", "delta": "周五"},
+                    {"type": "response.output_audio.delta", "response_id": "reply-1",
+                     "question_id": "question-1",
+                     "delta": base64.b64encode(b"\x00\x20").decode()},
+                    {"type": "response.output_text.done", "response_id": "reply-1",
+                     "question_id": "question-1", "text": "周五可以付款。"},
+                    {"type": "response.output_audio.done", "response_id": "reply-1",
+                     "question_id": "question-1"},
+                ])
+
+            async def recv(self):
+                try:
+                    return json.dumps(next(self.events))
+                except StopIteration:
+                    raise EOFError from None
+
+        browser = Browser()
+        with self.assertRaises(EOFError):
+            asyncio.run(_receive_doubao_audio(browser, Provider(), self.engine,
+                                             self.session_id, job_id, token))
+        self.assertIn({"type": "interrupt"}, browser.events)
+        self.assertEqual(browser.audio, [])
+        with Session(self.engine) as db:
+            self.assertEqual([part.speaker for part in db.exec(select(OmegaSegment)).all()],
+                             ["sales"])
+
+    def test_doubao_browser_disconnect_flushes_transcript_and_closes_provider(self):
+        class Provider:
+            def __init__(self):
+                self.queue = asyncio.Queue()
+                self.sent = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return None
+
+            async def send(self, raw):
+                event = json.loads(raw)
+                self.sent.append(event["type"])
+                if event["type"] == "session.create":
+                    self.queue.put_nowait(json.dumps({"type": "session.created"}))
+                elif event["type"] == "input_audio_buffer.commit":
+                    for item in (
+                        {"type": "input_audio_buffer.committed"},
+                        {"type": "conversation.item.input_audio_transcription.completed",
+                         "item_id": "sales-1", "transcript": "请确认付款时间。"},
+                        {"type": "response.output_text.done", "response_id": "reply-1",
+                         "text": "周五可以付款。"},
+                        {"type": "response.output_audio.done", "response_id": "reply-1"},
+                    ):
+                        self.queue.put_nowait(json.dumps(item))
+                elif event["type"] == "session.close":
+                    self.queue.put_nowait(json.dumps({"type": "session.closed"}))
+
+            async def recv(self):
+                return await self.queue.get()
+
+        async def authorize(*_):
+            return self.user
+
+        provider = Provider()
+        with patch("app.omega.realtime.is_enabled", return_value=True), \
+             patch("app.omega.realtime.ws_user", side_effect=authorize), \
+             patch("app.omega.realtime.connect", return_value=provider), \
+             patch.dict("os.environ", {"PDCA_OMEGA_REALTIME_PROVIDER": "doubao",
+                                    "PDCA_DOUBAO_REALTIME_API_KEY": "test-only"}):
+            with self.client.websocket_connect(
+                f"/api/omega/sessions/{self.session_id}/realtime",
+                headers={"Origin": "http://testserver"},
+            ) as socket:
+                self.assertEqual(socket.receive_json(), {"type": "ready"})
+                socket.send_bytes(b"\x00\x00" * 320)
+        self.assertIn("input_audio_buffer.commit", provider.sent)
+        self.assertEqual(provider.sent[-1], "session.close")
+        with Session(self.engine) as db:
+            self.assertEqual([part.speaker for part in db.exec(select(OmegaSegment)
+                             .order_by(OmegaSegment.seq))], ["sales", "counterparty"])
+
+    def test_doubao_reply_completed_before_asr_is_saved_after_sales(self):
+        job_id, token, _ = _acquire(self.engine, self.user, self.session_id)
+
+        class Browser:
+            def __init__(self):
+                self.events, self.audio = [], []
+
+            async def send_json(self, event):
+                self.events.append(event)
+
+            async def send_bytes(self, audio):
+                self.audio.append(audio)
+
+        class Provider:
+            def __init__(self):
+                self.events = iter([
+                    {"type": "response.output_text.done", "response_id": "reply-1",
+                     "question_id": "question-1", "text": "周五可以付款。"},
+                    {"type": "response.output_audio.done", "response_id": "reply-1",
+                     "question_id": "question-1"},
+                    {"type": "conversation.item.input_audio_transcription.completed",
+                     "item_id": "sales-1", "transcript": "请确认付款时间。"},
+                ])
+
+            async def recv(self):
+                try:
+                    return json.dumps(next(self.events))
+                except StopIteration:
+                    raise EOFError from None
+
+        browser = Browser()
+        with self.assertRaises(EOFError):
+            asyncio.run(_receive_doubao_audio(browser, Provider(), self.engine,
+                                             self.session_id, job_id, token))
+        with Session(self.engine) as db:
+            self.assertEqual([(part.speaker, part.text)
+                              for part in db.exec(select(OmegaSegment).order_by(OmegaSegment.seq))],
+                             [("sales", "请确认付款时间。"),
+                              ("counterparty", "周五可以付款。")])
+
+    def test_doubao_voice_does_not_route_draft_to_qwen(self):
+        from app.omega.draft_assist import available
+        from app.omega.realtime import configured
+
+        with patch.dict("os.environ", {
+            "PDCA_OMEGA_REALTIME_PROVIDER": "doubao",
+            "PDCA_DOUBAO_REALTIME_API_KEY": "test-only",
+            "PDCA_QWEN_REALTIME_WORKSPACE_ID": "old-space",
+            "PDCA_QWEN_REALTIME_API_KEY": "old-key",
+        }, clear=True):
+            self.assertTrue(configured())
+            self.assertFalse(available())
+            with patch.dict("os.environ", {
+                "PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
+                "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
+                "PDCA_SUPERVISOR_API_KEY": "test-only",
+            }):
+                self.assertTrue(available())
 
     def test_reconnect_replays_recent_completed_turns(self):
         job_id, token, _ = _acquire(self.engine, self.user, self.session_id)

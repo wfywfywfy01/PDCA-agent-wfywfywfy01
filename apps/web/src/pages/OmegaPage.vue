@@ -498,15 +498,17 @@ async function hangupVoice() {
   voiceGain = undefined
   voiceConnected.value = false
   voiceSpeaking.value = false
-  try {
-    await apiPost(`/api/omega/sessions/${encodeURIComponent(sessionId)}/realtime/stop`)
-    if (voiceSocket === socket) stopVoice()
-  } catch (err) {
-    if (voiceSocket !== socket) return
-    error.value = `挂断确认失败：${detail(err)}`
-    if (socket.readyState === WebSocket.OPEN) socket.send('stop')
-    setTimeout(() => { if (voiceSocket === socket) stopVoice() }, 20000)
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send('stop')
+    setTimeout(async () => {
+      if (voiceSocket !== socket) return
+      try { await apiPost(`/api/omega/sessions/${encodeURIComponent(sessionId)}/realtime/stop`) }
+      catch (err) { error.value = `挂断确认失败：${detail(err)}` }
+      if (voiceSocket === socket) stopVoice()
+    }, 20000)
+    return
   }
+  stopVoice()
 }
 function stopVoicePlayback() {
   for (const source of voiceSources) {
@@ -578,7 +580,7 @@ async function startVoice() {
       try {
         const message = JSON.parse(event.data) as { type: string; message?: string; speaker?: string; text?: string }
         if (message.type === 'error') { if (!voiceClosing.value) { error.value = message.message || '实时语音连接失败'; stopVoice() } return }
-        if (message.type === 'closed') { if (!voiceClosing.value) stopVoice(); return }
+        if (message.type === 'closed') { stopVoice(); return }
         if (message.type === 'interrupt') { stopVoicePlayback(); return }
         if (message.type === 'caption') { voiceCaption.value = `${message.speaker === 'sales' ? '你' : '对手'}：${message.text || ''}`; return }
         if (message.type === 'segment') { await refreshSession(); return }
@@ -606,7 +608,7 @@ async function startVoice() {
       } catch (err) { if (token === voiceToken) { error.value = detail(err); stopVoice() } }
     }
     socket.onerror = () => { if (token === voiceToken && !voiceClosing.value) error.value = '实时语音网络连接失败' }
-    socket.onclose = () => { if (voiceSocket === socket && token === voiceToken && !voiceClosing.value) stopVoice() }
+    socket.onclose = () => { if (voiceSocket === socket && token === voiceToken) stopVoice() }
   } catch (err) { if (token === voiceToken) { error.value = detail(err); stopVoice() } }
 }
 function closeAudioContext(context: AudioContext) {
