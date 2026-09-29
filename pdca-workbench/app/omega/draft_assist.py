@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from websockets.asyncio.client import connect
 
-from app.omega.realtime import _provider_url, configured as realtime_configured
+from app.omega.realtime import _provider_url, configured as realtime_configured, provider_name
 
 
 INSTRUCTIONS = """你是销售谈判任务的信息提取器。只依据用户描述生成草稿，不补造客户事实、金额、日期、私有底线或承诺。
@@ -92,7 +92,7 @@ def parse_extraction(content: str) -> dict:
 
 
 def available() -> bool:
-    return realtime_configured() or bool(
+    return (provider_name() == "qwen" and realtime_configured()) or bool(
         os.environ.get("PDCA_SUPERVISOR_PROVIDER", "").startswith("https://")
         and os.environ.get("PDCA_SUPERVISOR_MODEL", "").strip()
         and os.environ.get("PDCA_SUPERVISOR_API_KEY", "").strip()
@@ -138,7 +138,7 @@ async def _realtime_text(description: str) -> str:
 
 
 async def analyze(description: str) -> dict:
-    if realtime_configured():
+    if provider_name() == "qwen" and realtime_configured():
         content = await _realtime_text(description)
     else:
         from app.omega.jobs import _default_generate

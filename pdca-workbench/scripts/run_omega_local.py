@@ -1,6 +1,6 @@
-"""Run an isolated localhost Omega trial with a user-supplied Qwen credential file.
+"""Run an isolated localhost Omega trial with a user-supplied voice credential file.
 
-Usage: python scripts/run_omega_local.py C:/Users/frank/Desktop/qwen.env
+Usage: python scripts/run_omega_local.py PATH_TO_VOICE_ENV
 The provider key stays in this process; the SQLite database and login file live
 under the current user's LocalAppData directory.
 """
@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import sys
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,16 +22,29 @@ def main() -> None:
     sys.stdout = (local / "server.out.log").open("a", encoding="utf-8", buffering=1)
     sys.stderr = (local / "server.err.log").open("a", encoding="utf-8", buffering=1)
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: python scripts/run_omega_local.py PATH_TO_QWEN_ENV")
+        raise SystemExit("Usage: python scripts/run_omega_local.py PATH_TO_VOICE_ENV")
     lines = Path(sys.argv[1]).read_text(encoding="utf-8-sig").splitlines()
     endpoints = [line.strip() for line in lines if line.strip().startswith("https://")]
     keys = [line.strip() for line in lines if line.strip().startswith("sk-")]
-    if len(endpoints) != 1 or len(keys) != 1:
-        raise SystemExit("Credential file must contain one Beijing workspace URL and one API Key")
-    endpoint = urlsplit(endpoints[0])
-    match = re.fullmatch(r"([a-z0-9-]+)\.cn-beijing\.maas\.aliyuncs\.com", endpoint.hostname or "")
-    if endpoint.scheme != "https" or not match or endpoint.username or endpoint.password:
-        raise SystemExit("Credential file must contain a Beijing workspace HTTPS URL")
+    doubao = [line.split(":", 1)[1].strip() for line in lines
+              if line.strip().startswith("豆包语音key:")]
+    if len(doubao) == 1 and not endpoints and not keys:
+        try:
+            uuid.UUID(doubao[0])
+        except ValueError:
+            raise SystemExit("Doubao API Key format is invalid") from None
+        voice_settings = {"PDCA_OMEGA_REALTIME_PROVIDER": "doubao",
+                          "PDCA_DOUBAO_REALTIME_API_KEY": doubao[0]}
+    elif len(endpoints) == 1 and len(keys) == 1 and not doubao:
+        endpoint = urlsplit(endpoints[0])
+        match = re.fullmatch(r"([a-z0-9-]+)\.cn-beijing\.maas\.aliyuncs\.com", endpoint.hostname or "")
+        if endpoint.scheme != "https" or not match or endpoint.username or endpoint.password:
+            raise SystemExit("Credential file must contain a Beijing workspace HTTPS URL")
+        voice_settings = {"PDCA_OMEGA_REALTIME_PROVIDER": "qwen",
+                          "PDCA_QWEN_REALTIME_WORKSPACE_ID": match.group(1),
+                          "PDCA_QWEN_REALTIME_API_KEY": keys[0]}
+    else:
+        raise SystemExit("Credential file must contain one supported voice API Key")
     login_path = local / "login.json"
     if login_path.exists():
         password = json.loads(login_path.read_text(encoding="utf-8"))["password"]
@@ -52,8 +66,7 @@ def main() -> None:
         "PDCA_AUTH_MODE": "local",
         "PDCA_SECURE_COOKIES": "0",
         "PDCA_OMEGA_ENABLED": "1",
-        "PDCA_QWEN_REALTIME_WORKSPACE_ID": match.group(1),
-        "PDCA_QWEN_REALTIME_API_KEY": keys[0],
+        **voice_settings,
         "PDCA_SCHEDULER_ENABLED": "0",
         "PDCA_ACQUISITION_ENABLED": "0",
         "PDCA_KNOWLEDGE_HUB_ENABLED": "0",

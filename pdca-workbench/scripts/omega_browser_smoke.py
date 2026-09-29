@@ -16,6 +16,7 @@ def main() -> None:
     cases = []
     sessions = []
     reviews = []
+    stop_requests = []
     report = {
         "id": "report-1", "content": {
             "outcome": {"status": "unverified", "reason": "尚无书面确认", "quotes": []},
@@ -71,6 +72,7 @@ def main() -> None:
         elif path == "/api/omega/sessions/game-1" and method == "GET":
             result = sessions[0]
         elif path == "/api/omega/sessions/game-1/realtime/stop" and method == "POST":
+            stop_requests.append(True)
             result = {"ok": True}
         elif path == "/api/omega/sessions/game-1/turns":
             sessions[0]["segments"].append({"id": "sales-1", "seq": 1,
@@ -160,6 +162,7 @@ def main() -> None:
         page.locator(".omega-side .omega-link").first.click()
         page.evaluate("""() => {
           window.__voicePackets = 0
+          window.__voiceStops = 0
           window.__voiceGains = []
           const originalCreateGain = AudioContext.prototype.createGain
           AudioContext.prototype.createGain = function () {
@@ -185,7 +188,16 @@ def main() -> None:
                 this.onmessage({ data: JSON.stringify({ type: 'ready' }) })
               }, 0)
             }
-            send(bytes) { if (bytes instanceof ArrayBuffer) window.__voicePackets++ }
+            send(bytes) {
+              if (bytes instanceof ArrayBuffer) window.__voicePackets++
+              if (bytes === 'stop') {
+                window.__voiceStops++
+                setTimeout(() => {
+                  this.onmessage({ data: JSON.stringify({ type: 'closed' }) })
+                  this.close()
+                }, 50)
+              }
+            }
             close() { this.readyState = 3; this.onclose?.() }
           }
         }""")
@@ -216,6 +228,8 @@ def main() -> None:
         expect(dialog.get_by_role("heading", name="正在听")).to_be_visible()
         dialog.get_by_role("button", name="结束通话").click()
         expect(dialog).to_be_hidden()
+        assert page.evaluate("window.__voiceStops") == 1
+        assert not stop_requests, "normal hangup must preserve lease until WebSocket closes"
         page.wait_for_function("window.__voiceStream.getAudioTracks()[0].readyState === 'ended'")
         page.set_viewport_size({"width": 1280, "height": 900})
         page.evaluate("""() => { window.__voiceOscillator.stop(); return window.__voiceContext.close() }""")
