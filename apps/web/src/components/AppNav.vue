@@ -46,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/onboarding', label: '新人培训' },
   { to: '/omega', label: '谈判陪练', roles: ['sales', 'manager', 'admin'] },
   { to: '/admin/agents', label: 'Agent 管理', roles: ['manager', 'admin'] },
+  { to: '/admin/duzhan-agents', label: '督战官配置', roles: ['admin'] },
   { to: '/admin/sync', label: '数据同步', roles: ['manager', 'admin'] },
   { to: '/admin/permissions', label: '权限管理', roles: ['admin'] },
 ]

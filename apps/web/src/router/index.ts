@@ -43,6 +43,11 @@ export const router = createRouter({
       component: () => import('@/pages/AgentAdminPage.vue'),
     },
     {
+      path: '/admin/duzhan-agents',
+      name: 'admin-duzhan-agents',
+      component: () => import('@/pages/DuzhanAgentsPage.vue'),
+    },
+    {
       path: '/signalseller',
       name: 'signalseller',
       component: () => import('@/pages/SignalsellerPage.vue'),
