@@ -70,9 +70,23 @@ class ToggleIn(BaseModel):
     enabled: bool = Field(description="true=启用；false=停用")
 
 
+PREVIEW_MODES = ("structure", "render")
+
+
 class PreviewIn(BaseModel):
     day: Optional[str] = Field(default=None, max_length=10, description="试跑日期 YYYY-MM-DD")
     hour: Optional[int] = Field(default=None, ge=0, le=23, description="试跑档位（整点）")
+    mode: Optional[str] = Field(default=None, description="structure=结构试跑；render=真实内容试跑")
+
+    @field_validator("mode")
+    @classmethod
+    def _mode_known(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        text = value.strip().lower()
+        if text not in PREVIEW_MODES:
+            raise ValueError("mode 只能是 structure / render")
+        return text
 
     @field_validator("day")
     @classmethod
@@ -217,7 +231,7 @@ async def toggle_agent(
     return service.agent_out(row)
 
 
-@router.post("/{agent_id}/preview", summary="结构试跑（不发消息）")
+@router.post("/{agent_id}/preview", summary="试跑：结构（不发消息）/ 真实内容（用快照渲染，也不发消息）")
 async def preview_agent(
     agent_id: int,
     payload: PreviewIn | None = None,
@@ -226,6 +240,8 @@ async def preview_agent(
 ) -> dict:
     row = _get_agent(session, agent_id)
     body = payload or PreviewIn()
+    if body.mode == "render":
+        return service.render_preview(row, day=body.day, hour=body.hour)
     return service.preview_agent(row, day=body.day, hour=body.hour)
 
 

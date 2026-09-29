@@ -228,6 +228,103 @@ def preview_agent(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Option
     }
 
 
+def _pick_hour(agent: DuzhanAgent, hour: Optional[int], now) -> int:
+    """没指定档位时，选"最近一个已经到点的档"，都没有就取第一档。"""
+    from app.duzhan_admin import runtime
+
+    slots = runtime.slots_of(agent) or [10, 15, 20]
+    if hour in slots:
+        return int(hour)
+    passed = [item for item in slots if item <= now.hour]
+    return passed[-1] if passed else slots[0]
+
+
+def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optional[int] = None) -> dict:
+    """真实内容试跑：渲染这条配置到点**实际会发出去的那条正文**。
+
+    数据来源是最近一次组表快照（调度在整点前 15 分钟已经采过），**不重新取数、不发消息**：
+    快照里有这条群的消息体就直接用（最忠实），没有就用快照里的台账重渲染，
+    连台账都没有（今天还没跑过组表）就按空表渲染并明确标注。
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app import ctob as ctob_module
+    from app import duzhan as duzhan_module
+    from app.duzhan_admin import runtime
+    from app.duzhan_ledger import empty_ledger
+
+    tz_name = (agent.timezone or "Asia/Shanghai").strip() or "Asia/Shanghai"
+    now = datetime.now(ZoneInfo(tz_name))
+    day = day or now.strftime("%Y-%m-%d")
+    hour = _pick_hour(agent, hour, now)
+
+    group = runtime.group_of(agent)
+    if group is None:
+        return {"mode": "render", "ok": False, "error": "配置里没有可用的 group 块", "day": day, "hour": hour}
+
+    owner = next((item for item in ctob_module.OWNERS if item.channel_id == group.channel_id), None)
+
+    if owner is not None:
+        # 跟进群：快照在 app.ctob 那边，按群存
+        collected = ctob_module.load_snapshot(day, hour) or {}
+        data = collected.get(group.channel_id) or {"summary": {}, "chats": [], "cohort": {}}
+        prev_slot = ctob_module._prev_slot(day, hour)  # noqa: SLF001 — 同包内复用既有档位计算
+        prev_data = None
+        if prev_slot:
+            prev_data = (ctob_module.load_snapshot(prev_slot[0], prev_slot[1]) or {}).get(group.channel_id)
+        body = ctob_module.render_brief(
+            owner, day, data["summary"], data["chats"], data["cohort"], hour=hour, prev=prev_data
+        )
+        source = "snapshot" if group.channel_id in collected else "empty_ledger"
+        renderer = "ctob.render_brief"
+    else:
+        # 达标群：快照按（时区, 日期, 档位）存；db 源下还有按群分的快照
+        slot_key = group.channel_id[:8]
+        snapshot = duzhan_module.load_prepared(tz_name, hour, day, slot_key) or duzhan_module.load_prepared(
+            tz_name, hour, day
+        )
+        ledger = snapshot.get("ledger") if isinstance(snapshot, dict) else None
+        prev_hour = duzhan_module.prev_slot_hour(hour)
+        prev = duzhan_module.load_prepared(tz_name, prev_hour, day) if prev_hour else None
+        prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+        body = ""
+        if isinstance(snapshot, dict):
+            body = str((snapshot.get("messages") or {}).get(group.channel_id) or "")
+        if body:
+            source = "snapshot"
+        elif ledger is not None:
+            body = duzhan_module.render_brief(group, hour, now.astimezone(ZoneInfo(group.tz)), ledger, prev_ledger)
+            source = "snapshot_ledger"
+        else:
+            body = duzhan_module.render_brief(
+                group, hour, now.astimezone(ZoneInfo(group.tz)), empty_ledger(day), prev_ledger
+            )
+            source = "empty_ledger"
+        renderer = "duzhan.render_brief"
+
+    notes = {
+        "snapshot": "快照原文：这就是本档到点会发出去的那条（正文一字未改）。",
+        "snapshot_ledger": "按本档快照里的台账重新渲染（快照里没有这条群的消息体）。",
+        "empty_ledger": "今天还没有这个档位的组表快照，按空台账渲染：正文结构真实、数字会显示待确认。",
+    }
+    return {
+        "mode": "render",
+        "ok": True,
+        "agent": {"id": agent.id, "name": agent.name, "enabled": bool(agent.enabled)},
+        "day": day,
+        "hour": hour,
+        "timezone": tz_name,
+        "channel_id": group.channel_id,
+        "group": group.name,
+        "renderer": renderer,
+        "source": source,
+        "chars": len(body),
+        "body": body,
+        "note": notes.get(source, ""),
+    }
+
+
 def agent_out(agent: DuzhanAgent) -> dict:
     """接口返回体：配置 + 当前错误（前端据此禁掉「启用」）。"""
     blocks = blocks_of(agent)

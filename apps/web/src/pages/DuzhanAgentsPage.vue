@@ -11,7 +11,9 @@ import {
   type Block,
   type BlockTypeSpec,
   type DuzhanAgentItem,
+  type PreviewMode,
   type PreviewResult,
+  type RenderPreviewResult,
 } from '@/api/duzhanAgents'
 
 const specs = ref<BlockTypeSpec[]>([])
@@ -25,6 +27,8 @@ const enabled = ref(false)
 const jsonText = ref('{"blocks": []}')
 const jsonError = ref('')
 const preview = ref<PreviewResult | null>(null)
+const rendered = ref<RenderPreviewResult | null>(null)
+const previewMode = ref<PreviewMode>('structure')
 const day = ref(new Date().toISOString().slice(0, 10))
 const hour = ref('')
 const busy = ref(false)
@@ -54,6 +58,7 @@ function fill(item: DuzhanAgentItem) {
   enabled.value = item.enabled
   blocks.value = item.blocks.blocks.map((block) => ({ ...block }))
   preview.value = null
+  rendered.value = null
   pendingDelete.value = false
   jsonError.value = ''
 }
@@ -66,6 +71,7 @@ function startDraft() {
   enabled.value = false
   blocks.value = []
   preview.value = null
+  rendered.value = null
   message.value = ''
   error.value = ''
   pendingDelete.value = false
@@ -158,7 +164,19 @@ async function runPreview() {
   busy.value = true
   error.value = ''
   try {
-    preview.value = await previewAgent(selectedId.value, day.value, hour.value === '' ? undefined : Number(hour.value))
+    const result = await previewAgent(
+    selectedId.value,
+    day.value,
+    hour.value === '' ? undefined : Number(hour.value),
+    previewMode.value,
+  )
+  if (previewMode.value === 'render') {
+    rendered.value = result as RenderPreviewResult
+    preview.value = null
+  } else {
+    preview.value = result as PreviewResult
+    rendered.value = null
+  }
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -312,8 +330,12 @@ onMounted(load)
         <p v-if="jsonError" class="alert">{{ jsonError }}</p>
         <button class="btn btn-sm" type="button" @click="applyJson">按 JSON 覆盖</button>
 
-        <h3>结构试跑</h3>
+        <h3>试跑</h3>
         <div class="preview-row">
+          <select v-model="previewMode">
+            <option value="structure">结构</option>
+            <option value="render">真实内容</option>
+          </select>
           <input v-model="day" type="date" />
           <select v-model="hour">
             <option value="">全部档位</option>
@@ -331,6 +353,18 @@ onMounted(load)
           <ul v-if="preview.errors.length" class="errors">
             <li v-for="(item, index) in preview.errors" :key="index">{{ item }}</li>
           </ul>
+        </template>
+
+        <template v-if="rendered">
+          <p v-if="!rendered.ok" class="alert">{{ rendered.error }}</p>
+          <template v-else>
+            <p class="hint">{{ rendered.note }}</p>
+            <p class="meta-line">
+              {{ rendered.day }} {{ String(rendered.hour).padStart(2, '0') }}:00 ·
+              {{ rendered.group }} · {{ rendered.renderer }} · {{ rendered.chars }} 字
+            </p>
+            <pre class="body">{{ rendered.body }}</pre>
+          </template>
         </template>
       </aside>
     </div>
@@ -365,6 +399,12 @@ onMounted(load)
 .preview-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .preview-row input, .preview-row select { padding: 5px 6px; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; font-size: 12px; }
 .summary { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
+.meta-line { margin: 0; color: var(--text-muted, #667085); font-size: 11px; }
+.body {
+  margin: 0; padding: 10px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  background: #0f172a0d; border: 1px solid var(--border, #e4e7ec); border-radius: 8px;
+  font-family: inherit; font-size: 12px; line-height: 1.7;
+}
 .hint { color: var(--text-muted, #667085); font-size: 12px; line-height: 1.6; margin: 0; }
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
 </style>

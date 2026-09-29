@@ -61,8 +61,33 @@ export function toggleAgent(id: number, enabled: boolean): Promise<DuzhanAgentIt
   return apiPost('/api/duzhan-agents/' + id + '/toggle', { enabled })
 }
 
-export function previewAgent(id: number, day?: string, hour?: number): Promise<PreviewResult> {
-  return apiPost('/api/duzhan-agents/' + id + '/preview', { day, hour })
+/** 真实内容试跑：用最近一次组表快照渲染出"到点实际会发的那条正文"。 */
+export interface RenderPreviewResult {
+  mode: 'render'
+  ok: boolean
+  error?: string
+  agent?: { id: number | null; name: string; enabled: boolean }
+  day?: string | null
+  hour?: number | null
+  timezone?: string
+  channel_id?: string
+  group?: string
+  renderer?: string
+  source?: 'snapshot' | 'snapshot_ledger' | 'empty_ledger'
+  chars?: number
+  body?: string
+  note?: string
+}
+
+export type PreviewMode = 'structure' | 'render'
+
+export function previewAgent(
+  id: number,
+  day?: string,
+  hour?: number,
+  mode: PreviewMode = 'structure',
+): Promise<PreviewResult | RenderPreviewResult> {
+  return apiPost('/api/duzhan-agents/' + id + '/preview', { day, hour, mode })
 }
 
 export function seedFromCode(): Promise<{ created: DuzhanAgentItem[]; skipped: string[] }> {
