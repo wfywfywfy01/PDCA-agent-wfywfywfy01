@@ -154,13 +154,19 @@ def _generate(messages: list[dict[str, str]]) -> str:
     content = _content_of(client.chat(messages, max_tokens=budget, temperature=0.3))
     if content.strip():
         return content
-    # 推理模型偶尔把预算全用在 reasoning 上（finish_reason=length），content 为空：
-    # 再给一次 4 倍预算，还是空就让调用方回落固定文案。
+    # 推理模型偶尔把预算全花在 reasoning 上（finish_reason=length），content 为空：
+    # 再给一次 4 倍预算；还是空就让调用方回落固定文案。
     logger.warning("AI 规则首次返回为空（max_tokens={}），用 4 倍预算重试一次", budget)
     return _content_of(client.chat(messages, max_tokens=budget * 4, temperature=0.3))
 
 
 def _content_of(data: dict) -> str:
+    """兼容两种返回：`supervisor_client().chat()` 归一化后的 {content, usage}，
+    以及标准 OpenAI 形状的 {choices: [{message: {content}}]}。"""
+    if not isinstance(data, dict):
+        return ""
+    if "content" in data:
+        return str(data.get("content") or "")
     choice = (data.get("choices") or [{}])[0]
     message = choice.get("message") or {}
     return str(message.get("content") or "")
