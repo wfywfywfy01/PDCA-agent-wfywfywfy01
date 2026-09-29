@@ -212,6 +212,9 @@ class DuzhanAgentApiTests(unittest.TestCase):
         self.assertEqual(len(body["created"]), expected)
         self.assertEqual(body["skipped"], [])
         self.assertTrue(all(item["enabled"] is False for item in body["created"]))
+        # 导入的配置本身不该带校验问题：C转B 群主也要算进督战名单
+        problems = [(item["name"], item["errors"]) for item in body["created"] if item["errors"]]
+        self.assertEqual(problems, [])
         names = [item["name"] for item in body["created"]]
         self.assertIn(f"{GROUPS[0].name}督战官", names)
         self.assertIn(f"{CTOB_OWNERS[0].display}C转B跟进群督战官", names)
