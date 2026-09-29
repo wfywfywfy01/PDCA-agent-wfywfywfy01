@@ -45,7 +45,18 @@ def roster_by_group() -> dict[str, list[str]]:
 
 
 def roster_names() -> list[str]:
-    return [name for names in roster_by_group().values() for name in names]
+    """督战名单：达标群成员 + C转B 群主。
+
+    C转B 群主只在 ctob.OWNERS 里，不在 duzhan_ledger 里；不并进来，导入的
+    C转B 配置会全部被判「不在督战名单内」而无法启用。
+    """
+    names = [name for names in roster_by_group().values() for name in names]
+    from app.ctob import OWNERS as CTOB_OWNERS
+
+    for owner in CTOB_OWNERS:
+        if owner.display and owner.display not in names:
+            names.append(owner.display)
+    return names
 
 
 def strategy_ids() -> list[str]:
