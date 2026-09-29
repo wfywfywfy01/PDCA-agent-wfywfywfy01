@@ -94,6 +94,71 @@ class ValidateTests(unittest.TestCase):
         self.assertTrue(any("ghost" in item for item in errors))
         self.assertEqual(validate_blocks(blocks, strategies=["mto", "ghost"]), [])
 
+    def test_duplicate_slots_rejected(self):
+        errors = validate_blocks(_with(times={"slots": ["10:00", "10:00"]}))
+        self.assertTrue(any("重复" in item for item in errors), errors)
+
+    def test_only_one_group_block_allowed(self):
+        blocks = parse_blocks({"blocks": [
+            {"type": "group", "channel_id": "850d06d0-5dd8-4a43-ad35-1cb3fcf6d484", "label": "群一"},
+            {"type": "group", "channel_id": "776e2a94-884a-45dd-aab5-566e15e6b521", "label": "群二"},
+            {"type": "times", "slots": ["10:00"]},
+        ]})
+        errors = validate_blocks(blocks)
+        self.assertTrue(any("只能有一个 group" in item for item in errors), errors)
+
+    def test_singleton_blocks_are_capped(self):
+        blocks = parse_blocks({"blocks": [
+            {"type": "group", "channel_id": "850d06d0-5dd8-4a43-ad35-1cb3fcf6d484"},
+            {"type": "times", "slots": ["10:00"]},
+            {"type": "times", "slots": ["15:00"]},
+            {"type": "style", "lang": "zh"},
+            {"type": "style", "lang": "en"},
+        ]})
+        errors = validate_blocks(blocks)
+        self.assertTrue(any("只能有一个 times" in item for item in errors), errors)
+        self.assertTrue(any("只能有一个 style" in item for item in errors), errors)
+
+    def test_empty_people_means_everyone(self):
+        blocks = parse_blocks({"blocks": [
+            {"type": "group", "channel_id": "850d06d0-5dd8-4a43-ad35-1cb3fcf6d484"},
+            {"type": "times", "slots": ["10:00"]},
+            {"type": "people", "names": []},
+        ]})
+        self.assertEqual(validate_blocks(blocks, owners=["于冰"]), [])
+
+    def test_schema_marks_repeatable_blocks(self):
+        schema = {item["type"]: item for item in block_schema()}
+        for kind in ("group", "times", "people", "style"):
+            self.assertFalse(schema[kind]["multiple"], kind)
+        for kind in ("source", "rule", "strategy", "recipient", "condition"):
+            self.assertTrue(schema[kind]["multiple"], kind)
+
+    def test_expired_strategy_is_flagged(self):
+        def with_until(until):
+            return parse_blocks({"blocks": [
+                {"type": "group", "channel_id": "850d06d0-5dd8-4a43-ad35-1cb3fcf6d484"},
+                {"type": "times", "slots": ["10:00"]},
+                {"type": "strategy", "id": "agentq", "until": until},
+            ]})
+
+        expired = validate_blocks(with_until("2020-01-01"), strategies=["agentq"])
+        self.assertTrue(any("到期" in item for item in expired), expired)
+        self.assertEqual(validate_blocks(with_until("2099-01-01"), strategies=["agentq"]), [])
+        # 用 today 注入，确认比较的是注入的那一天
+        blocks = with_until("2026-01-01")
+        self.assertTrue(any("到期" in item for item in validate_blocks(blocks, today="2026-06-01")))
+        self.assertEqual(validate_blocks(blocks, today="2025-12-31"), [])
+
+    def test_is_valid_day_and_today(self):
+        from app.duzhan_blocks import is_valid_day, today_in_shanghai
+
+        self.assertTrue(is_valid_day("2026-09-29"))
+        self.assertFalse(is_valid_day("26-09-29"))
+        self.assertFalse(is_valid_day("不是日期"))
+        self.assertFalse(is_valid_day(""))
+        self.assertRegex(today_in_shanghai(), r"^\d{4}-\d{2}-\d{2}$")
+
     def test_ai_rule_needs_prompt(self):
         blocks = parse_blocks({"blocks": [
             {"type": "group", "channel_id": "850d06d0-5dd8-4a43-ad35-1cb3fcf6d484"},

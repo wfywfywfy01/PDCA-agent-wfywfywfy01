@@ -35,6 +35,12 @@ SOURCE_KEYS: dict[str, str] = {
     "vemory": "Vemory 会议/纪要",
 }
 
+#: 只能出现一次的块（运行时只读第一块，多出来的会被校验挡下）
+SINGLETON_BLOCKS: tuple[str, ...] = ("group", "times", "people", "style")
+
+#: 可以出现多次的块（按顺序生效）
+REPEATABLE_BLOCKS: tuple[str, ...] = ("source", "rule", "strategy", "recipient", "condition")
+
 #: 发送前置条件
 CONDITION_KEYS: dict[str, str] = {
     "workday": "仅工作日",
@@ -129,7 +135,14 @@ def as_str_list(value: Any) -> list[str]:
     return []
 
 
-def _check_one(index: int, block: Block, *, strategies: Optional[list[str]], owners: Optional[list[str]]) -> list[str]:
+def _check_one(
+    index: int,
+    block: Block,
+    *,
+    strategies: Optional[list[str]],
+    owners: Optional[list[str]],
+    today: str,
+) -> list[str]:
     """校验单块，返回错误文案列表。"""
     where = f"第 {index} 块 {block.type or '(缺 type)'}"
     errors: list[str] = []
@@ -147,7 +160,11 @@ def _check_one(index: int, block: Block, *, strategies: Optional[list[str]], own
         slots = as_str_list(block.get("slots"))
         if not slots:
             errors.append(f"{where}：slots 不能为空")
+        seen: set[str] = set()
         for slot in slots:
+            if slot in seen:
+                errors.append(f"{where}：档位 {slot} 重复")
+            seen.add(slot)
             if not _TIME_RE.match(slot):
                 errors.append(f"{where}：时刻格式应为 HH:MM，当前为 {slot}")
                 continue
@@ -157,9 +174,8 @@ def _check_one(index: int, block: Block, *, strategies: Optional[list[str]], own
                 errors.append(f"{where}：当前引擎只支持 {supported}，不支持 {slot}")
 
     elif block.type == "people":
+        # 空名单 = 该群全员；想限定人员才填 names
         names = as_str_list(block.get("names"))
-        if not names:
-            errors.append(f"{where}：names 不能为空")
         if owners is not None:
             unknown = [name for name in names if name not in owners]
             if unknown:
@@ -192,6 +208,8 @@ def _check_one(index: int, block: Block, *, strategies: Optional[list[str]], own
         until = _text(block.get("until"))
         if until and not _DAY_RE.match(until):
             errors.append(f"{where}：until 应为 YYYY-MM-DD，当前为 {until}")
+        elif until and until < today:
+            errors.append(f"{where}：策略 {strategy_id} 已于 {until} 到期，这块永远不会命中，请改期或删掉")
 
     elif block.type == "recipient":
         kind = _text(block.get("kind"))
@@ -219,11 +237,25 @@ def _check_one(index: int, block: Block, *, strategies: Optional[list[str]], own
     return errors
 
 
+def today_in_shanghai() -> str:
+    """今天的日期（Asia/Shanghai），用来判断策略是不是已经过期。"""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat()
+
+
+def is_valid_day(text: str) -> bool:
+    """只校验 YYYY-MM-DD 形状。"""
+    return bool(_DAY_RE.match(text or ""))
+
+
 def validate_blocks(
     blocks: list[Block],
     *,
     strategies: Optional[list[str]] = None,
     owners: Optional[list[str]] = None,
+    today: Optional[str] = None,
 ) -> list[str]:
     """校验整份配置，返回错误文案列表（不抛异常）。
 
@@ -232,10 +264,16 @@ def validate_blocks(
     if not blocks:
         return ["至少需要一个积木块（至少要有 group + times）"]
     errors: list[str] = []
+    reference_day = today or today_in_shanghai()
     for index, block in enumerate(blocks, start=1):
-        errors.extend(_check_one(index, block, strategies=strategies, owners=owners))
+        errors.extend(_check_one(index, block, strategies=strategies, owners=owners, today=reference_day))
     if not any(block.type == "group" for block in blocks):
         errors.append("缺少 group 块：不知道发到哪个群")
+    for kind in SINGLETON_BLOCKS:
+        found = [block for block in blocks if block.type == kind]
+        if len(found) > 1:
+            tail = "：一个子 Agent 追一个群" if kind == "group" else "：同类块只有第一个生效，多出来的会被忽略"
+            errors.append(f"只能有一个 {kind} 块（当前 {len(found)} 个）{tail}")
     if not any(block.type == "times" for block in blocks):
         errors.append("缺少 times 块：不知道一天推哪几档")
     return errors
@@ -247,7 +285,8 @@ def block_schema() -> list[dict]:
         {
             "type": "group",
             "label": "目标群",
-            "hint": "这份报告发到哪个群",
+            "hint": "这份报告发到哪个群（只能一块）",
+            "multiple": False,
             "fields": [
                 {"key": "channel_id", "label": "群 ID", "kind": "uuid", "required": True},
                 {"key": "label", "label": "群名称", "kind": "text"},
@@ -256,7 +295,8 @@ def block_schema() -> list[dict]:
         {
             "type": "times",
             "label": "推送档位",
-            "hint": f"当前引擎支持 {'/'.join(f'{h}:00' for h in SLOT_HOURS)}",
+            "hint": f"当前引擎支持 {'/'.join(f'{h}:00' for h in SLOT_HOURS)}（只能一块）",
+            "multiple": False,
             "fields": [
                 {
                     "key": "slots",
@@ -270,12 +310,14 @@ def block_schema() -> list[dict]:
         {
             "type": "people",
             "label": "覆盖人员",
-            "hint": "留空表示该群全员",
+            "hint": "留空 = 该群全员；要限定人员就填名字（必须在本群名单内）",
+            "multiple": False,
             "fields": [{"key": "names", "label": "姓名", "kind": "names"}],
         },
         {
             "type": "source",
             "label": "数据源",
+            "multiple": True,
             "hint": "这一节取什么数",
             "fields": [
                 {
@@ -291,6 +333,7 @@ def block_schema() -> list[dict]:
         {
             "type": "rule",
             "label": "规则 / 动作",
+            "multiple": True,
             "hint": "确定性文案，或交给 AI 按当天数据生成",
             "fields": [
                 {
@@ -315,6 +358,7 @@ def block_schema() -> list[dict]:
         {
             "type": "strategy",
             "label": "策略核查",
+            "multiple": True,
             "hint": "挂一条触达策略检查",
             "fields": [
                 {"key": "id", "label": "策略 ID", "kind": "text", "required": True},
@@ -324,6 +368,7 @@ def block_schema() -> list[dict]:
         {
             "type": "recipient",
             "label": "额外收件人",
+            "multiple": True,
             "hint": "除群以外再抄送给谁",
             "fields": [
                 {
@@ -340,6 +385,7 @@ def block_schema() -> list[dict]:
         {
             "type": "condition",
             "label": "发送条件",
+            "multiple": True,
             "hint": "满足才发",
             "fields": [
                 {
@@ -356,7 +402,8 @@ def block_schema() -> list[dict]:
         {
             "type": "style",
             "label": "样式",
-            "hint": "语言、标题、落款",
+            "hint": "语言、标题、落款（只能一块）",
+            "multiple": False,
             "fields": [
                 {
                     "key": "lang",

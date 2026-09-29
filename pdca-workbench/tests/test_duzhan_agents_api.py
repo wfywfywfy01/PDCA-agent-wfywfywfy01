@@ -136,6 +136,27 @@ class DuzhanAgentApiTests(unittest.TestCase):
         )
         self.assertFalse(off.json()["enabled"])
 
+    def test_timezone_case_is_normalised(self):
+        body = self.client.post(
+            "/api/duzhan-agents",
+            headers=self.headers,
+            json={"name": "小写时区官", "timezone": "asia/shanghai", "blocks": GOOD_BLOCKS},
+        ).json()
+        self.assertEqual(body["timezone"], "Asia/Shanghai")
+
+    def test_preview_rejects_bad_day(self):
+        agent_id = self.client.post(
+            "/api/duzhan-agents", headers=self.headers, json={"name": "试跑日期官", "blocks": GOOD_BLOCKS}
+        ).json()["id"]
+        bad = self.client.post(
+            f"/api/duzhan-agents/{agent_id}/preview", headers=self.headers, json={"day": "不是日期"}
+        )
+        self.assertEqual(bad.status_code, 422)
+        ok = self.client.post(
+            f"/api/duzhan-agents/{agent_id}/preview", headers=self.headers, json={"day": "2026-09-29"}
+        )
+        self.assertEqual(ok.status_code, 200)
+
     def test_unknown_timezone_is_rejected(self):
         response = self.client.post(
             "/api/duzhan-agents",
