@@ -53,6 +53,7 @@ const cases = ref<CaseRow[]>([])
 const sessions = ref<SessionRow[]>([])
 const assignments = ref<Assignment[]>([])
 const sidebarTab = ref<'cases' | 'assignments' | 'sessions'>('cases')
+const mobileNavOpen = ref(false)
 const showAllSessions = ref(false)
 const members = ref<Array<{ id: number; name: string }>>([])
 const chosenAssignment = ref<Assignment | null>(null)
@@ -173,6 +174,7 @@ async function openSession(id: string) {
   chosenAssignment.value = null
   const game = await apiGet<SessionRow>(`/api/omega/sessions/${id}`)
   if (token !== openToken) return
+  mobileNavOpen.value = false
   chosenSession.value = game
   sidebarTab.value = 'sessions'
   if (game.latest_report_id) {
@@ -294,6 +296,7 @@ async function createAssignment(sourceReportId: string | null = null) {
 }
 function showAssignment(row: Assignment) {
   sidebarTab.value = 'assignments'
+  mobileNavOpen.value = false
   chosenAssignment.value = row
   chosenCase.value = null
   chosenSession.value = null
@@ -417,6 +420,7 @@ function editCase(row: CaseRow) {
 }
 function showCase(row: CaseRow) {
   sidebarTab.value = 'cases'
+  mobileNavOpen.value = false
   openToken++
   if (pollTimer) clearTimeout(pollTimer)
   chosenCase.value = row
@@ -428,6 +432,7 @@ function showCase(row: CaseRow) {
 }
 function newCase() {
   sidebarTab.value = 'cases'
+  mobileNavOpen.value = false
   openToken++
   if (pollTimer) clearTimeout(pollTimer)
   chosenCase.value = null
@@ -713,14 +718,14 @@ onBeforeUnmount(() => {
     <p v-if="notice" class="omega-notice" role="status">{{ notice }}</p>
     <p v-if="loading">正在读取演练…</p>
     <div v-else class="omega-grid">
-      <aside class="card omega-side" aria-label="演练导航">
-        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>训练项目</h2></div><button class="btn btn-sm btn-primary" type="button" @click="newCase">新建任务</button></div>
-        <div class="omega-side-tabs" role="group" aria-label="列表类型">
+      <aside class="card omega-side" :class="{ 'is-collapsed': !mobileNavOpen }" aria-label="演练导航">
+        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>训练项目</h2></div><div class="omega-side-actions"><button class="btn btn-sm btn-ghost omega-side-toggle" type="button" :aria-expanded="mobileNavOpen" aria-controls="omega-side-tabs omega-side-body" @click="mobileNavOpen = !mobileNavOpen">{{ mobileNavOpen ? '收起列表' : '展开列表' }}</button><button class="btn btn-sm btn-primary" type="button" @click="newCase">新建任务</button></div></div>
+        <div id="omega-side-tabs" class="omega-side-tabs" role="group" aria-label="列表类型">
           <button type="button" :class="{ active: sidebarTab === 'cases' }" :aria-pressed="sidebarTab === 'cases'" @click="sidebarTab = 'cases'">任务 <span>{{ cases.length }}</span></button>
           <button type="button" :class="{ active: sidebarTab === 'assignments' }" :aria-pressed="sidebarTab === 'assignments'" @click="sidebarTab = 'assignments'">指派 <span>{{ assignments.length }}</span></button>
           <button type="button" :class="{ active: sidebarTab === 'sessions' }" :aria-pressed="sidebarTab === 'sessions'" @click="sidebarTab = 'sessions'">记录 <span>{{ sessions.length }}</span></button>
         </div>
-        <div class="omega-side-body">
+        <div id="omega-side-body" class="omega-side-body">
           <template v-if="sidebarTab === 'cases'">
             <p class="omega-list-title">谈判任务</p>
             <ul v-if="cases.length" class="omega-list"><li v-for="row in cases" :key="row.id">
@@ -899,6 +904,8 @@ onBeforeUnmount(() => {
 .omega-side-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 18px 16px 16px; }
 .omega-side-head h2 { margin: 0; font-size: 17px; }
 .omega-side-head .btn { white-space: nowrap; }
+.omega-side-actions { display: flex; align-items: center; gap: 6px; }
+.omega-side-toggle { display: none; }
 .omega-side-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 0 12px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
 .omega-side-tabs button { min-height: 36px; padding: 6px 4px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
 .omega-side-tabs button.active { background: var(--card-2); color: var(--text); font-weight: 700; }
@@ -1001,6 +1008,12 @@ onBeforeUnmount(() => {
   .omega-side-body { max-height: 190px; min-height: 0; }
 }
 @media (max-width: 640px) {
+  .omega-side-toggle { display: inline-flex; }
+  .omega-side.is-collapsed .omega-side-tabs, .omega-side.is-collapsed .omega-side-body { display: none; }
+  .omega-workspace { display: flex; flex-direction: column; }
+  .omega-practice-controls, .omega-complete-controls { order: 1; }
+  .omega-conversation { order: 2; }
+  .omega-report { order: 3; }
   .omega-head h1 { font-size: 25px; }
   .omega-head-meta { width: 100%; }
   .omega-main > .card.pad, .omega-session-summary, .omega-conversation, .omega-practice-controls, .omega-complete-controls { padding: 16px; }

@@ -32,6 +32,9 @@ def actor_messages(snapshot: dict, segments: list[dict]) -> list[dict[str, str]]
 def coach_messages(snapshot: dict, segments: list[dict], weights: dict[str, int], *, goal_timing: str = "pre") -> list[dict[str, str]]:
     transcript = [{"id": item["id"], "speaker": item["speaker"], "text": item["text"]}
                   for item in segments]
+    quote_candidates = [{"segment_id": item["id"], "speaker": item["speaker"],
+                         "start": 0, "end": len(item["text"]), "text": item["text"]}
+                        for item in segments]
     return [
         {"role": "system", "content": (
             "你是销售谈判教练。只依据逐字稿和确认的目标作判断。输出一个 JSON 对象，不要 Markdown。"
@@ -40,11 +43,16 @@ def coach_messages(snapshot: dict, segments: list[dict], weights: dict[str, int]
             "每个事实含说明与 quotes，没有原话就不要列为事实。给出 next_practice 建议。"
             "score 可为 null，证据不足时必须为 null。quotes 每项含 segment_id,speaker,start,end,text，"
             "start/end 是原文 Unicode 字符偏移，end 不包含末尾字符。"
+            "任何 quotes 只能完整复制输入中的 quote_candidates 对象，不得改写、截取或编造。"
+            "outcome.status 只能是 achieved、partial、not_achieved、unverified。"
+            "dimensions 恰好九项，key 与评分项一致；非 null 的 score 必须引用销售原话。"
+            "没有适用证据时 score=null、quotes=[]。"
             "客户说将付款只代表承诺，不代表到账。客户隐藏设定不作为扣分证据。"
             "评分项及最高分：" + json.dumps(weights, ensure_ascii=False)
         )},
         {"role": "user", "content": json.dumps({
             "goal": snapshot.get("goal"), "seller_private": snapshot.get("seller_private"),
-            "transcript": transcript, "goal_timing": goal_timing,
+            "transcript": transcript, "quote_candidates": quote_candidates,
+            "goal_timing": goal_timing,
         }, ensure_ascii=False)},
     ]
