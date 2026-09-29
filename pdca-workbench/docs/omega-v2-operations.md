@@ -29,7 +29,7 @@ Omega 作为 PDCA 的认证页面 `/app/omega`、API `/api/omega/*` 和独立 `o
 
 当前电脑已注册 Windows 登录任务 `VertuOmegaLocal`，无需保持 Codex 会话运行。可用 PowerShell 的 `Get-ScheduledTask -TaskName VertuOmegaLocal` 查看状态，`Start-ScheduledTask -TaskName VertuOmegaLocal` 启动；服务日志在 `%LOCALAPPDATA%/VertuOmega/local/server.out.log` 和 `server.err.log`。本机登录文件与会话签名密钥都在该目录，需按本机账号凭据保护。浏览器挂断语音时，会先调用同源的认证接口释放该演练的连接租约，再允许重连。
 
-1. 从受控代码版本构建 PDCA 镜像，在正式连接串上执行既有 `python scripts/migrate.py`，确认 Alembic 版本为 `016`。生产运行前先做备份和预发布迁移。
+1. 从受控代码版本构建 PDCA 镜像，在正式连接串上执行既有 `python scripts/migrate.py`，确认 Alembic 版本为 `017`。生产运行前先做备份和预发布迁移。
 2. 设置 `PDCA_OMEGA_ENABLED=1`。文字演练/报告配置模型变量并启动 worker；实时语音另设百炼 Workspace ID、北京地域 API Key，短句录音另设 ASR 变量。用 `docker compose --profile omega up -d --build pdca-app omega-worker` 启动。worker 不开放端口，使用与 Web 相同的 PostgreSQL 和镜像版本。反向代理需把 `/api/omega/sessions/*/realtime` 的 WebSocket Upgrade 转发到 PDCA 应用，并保留 Cookie 与 Origin。
 3. 登录销售或主管账号后访问 `/api/omega/status`。`realtime_configured=true` 说明实时语音变量完整；`model_configured=true` 且 `worker_online=true` 说明文字和报告可用。`ready=false` 时检查功能开关及两条链路配置。变量完整只表示已配置，不代表供应商接入验证通过。
 4. 在页面创建任务、设置买方信息与九维评分权重（合计 100）、确认目标版本、开始演练。场景草稿修订后再次确认会产生新版本；旧演练和既有指派保持原版本。结束后请求报告；同组主管追加点评，不覆盖原报告。
@@ -37,6 +37,6 @@ Omega 作为 PDCA 的认证页面 `/app/omega`、API `/api/omega/*` 和独立 `o
 
 ## 验证与边界
 
-本地执行 `python -m pytest tests/test_omega_flow.py tests/test_omega_realtime.py -q`；一次性本机 PostgreSQL `omega_test` 升级到 `016` 后，以 `PDCA_ENV=development` 和 `OMEGA_TEST_DATABASE_URL` 执行 `python -m pytest tests/test_omega_postgres.py -q`。前端执行 `npm test`、`npm run typecheck`、`npm run build`，并用模拟上游运行 `python scripts/omega_browser_smoke.py`。另启动 `npm run demo` 后运行 `python scripts/omega_demo_smoke.py` 验证联合流程。
+本地执行 `python -m pytest tests/test_omega_flow.py tests/test_omega_realtime.py -q`；一次性本机 PostgreSQL `omega_test` 升级到 `017` 后，以 `PDCA_ENV=development` 和 `OMEGA_TEST_DATABASE_URL` 执行 `python -m pytest tests/test_omega_postgres.py -q`。前端执行 `npm test`、`npm run typecheck`、`npm run build`，并用模拟上游运行 `python scripts/omega_browser_smoke.py`。另启动 `npm run demo` 后运行 `python scripts/omega_demo_smoke.py` 验证联合流程。
 
 预发布验证：能连续对话，销售插话后对手音频立即停止，最终双方逐字稿按顺序出现，挂断后麦克风停止，断线后可重新连接，报告引用原话。记录首音延迟、打断延迟、掉线率和 30 分钟稳定性；检查反向代理 WebSocket 超时。百炼北京地域已通过合成语音的真实双向回合和自动取消插话测试，应用 WebSocket 已验证转发及落库；真实麦克风、耳机回声、真实模型报告质量、Vemory 实际字段、多人负载和延迟仍需端到端验收。

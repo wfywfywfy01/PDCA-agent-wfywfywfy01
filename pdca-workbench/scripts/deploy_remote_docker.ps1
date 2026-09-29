@@ -402,6 +402,12 @@ function New-SecretEnvFile {
     if ($Secrets.VEMORY_OPENAPI_KEY) {
         $lines += "VEMORY_OPENAPI_KEY=$($Secrets.VEMORY_OPENAPI_KEY)"
     }
+    if ($Secrets.PDCA_SUPERVISOR_API_KEY) {
+        $lines += "PDCA_SUPERVISOR_API_KEY=$($Secrets.PDCA_SUPERVISOR_API_KEY)"
+    }
+    if ($Secrets.PDCA_QWEN_REALTIME_API_KEY) {
+        $lines += "PDCA_QWEN_REALTIME_API_KEY=$($Secrets.PDCA_QWEN_REALTIME_API_KEY)"
+    }
     [System.IO.File]::WriteAllLines($path, $lines)
     return $path
 }
@@ -476,6 +482,7 @@ function Start-PdcaContainer {
     $envExcluded = @(
         "PDCA_DATABASE_URL",        # 容器库地址由 compose 注入，透传会把容器指向生产库
         "PDCA_SECRET_KEY",          # 由 compose/密钥文件管理
+        "PDCA_SUPERVISOR_API_KEY", "PDCA_QWEN_REALTIME_API_KEY", # 通过临时密钥文件传入
         "PDCA_CUSTOMER_MGMT_ROOT",  # 以下都是本机路径/命令，容器里不存在
         "PDCA_COLLECT_XLSX", "PDCA_VN_XLSX", "PDCA_PG_DUMP_COMMAND"
     )
@@ -497,6 +504,54 @@ function Start-PdcaContainer {
     Invoke-Docker -DockerArgs $dockerArgs | Out-Null
     }
     finally {
+        Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-OmegaWorker {
+    param(
+        [string]$Image,
+        [string]$Revision,
+        [hashtable]$Secrets,
+        [hashtable]$Agent
+    )
+    if ((Read-OptionalDotEnvValue "PDCA_OMEGA_ENABLED") -ne "1") { return }
+    $provider = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_PROVIDER"
+    $model = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_MODEL"
+    if (-not ($provider -and $model -and $Secrets.PDCA_SUPERVISOR_API_KEY)) {
+        throw "Omega worker requires a configured text model"
+    }
+    $name = "pdca-omega-worker"
+    $backupName = "$name-rollback-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    $existing = Invoke-DockerProcess -DockerArgs @("inspect", $name)
+    $oldWorker = if ($existing.ExitCode -eq 0) { @($existing.StdOut | ConvertFrom-Json)[0] } else { $null }
+    $secretEnvFile = New-SecretEnvFile -Secrets $Secrets -Agent $Agent
+    try {
+        if ($oldWorker) {
+            Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldWorker.Id) | Out-Null
+            Invoke-Docker -DockerArgs @("rename", $oldWorker.Id, $backupName) | Out-Null
+        }
+        Invoke-Docker -DockerArgs @(
+            "run", "-d", "--name", $name, "--restart", "unless-stopped",
+            "--label", "com.vertu.pdca.revision=$Revision",
+            "--network", $KnowledgeNetwork, "--env-file", $secretEnvFile,
+            "-e", "PDCA_ENV=production", "-e", "PDCA_OMEGA_ENABLED=1",
+            "-e", "PDCA_SUPERVISOR_PROVIDER=$provider", "-e", "PDCA_SUPERVISOR_MODEL=$model",
+            $Image, "python", "-m", "app.omega.worker"
+        ) | Out-Null
+        Start-Sleep -Seconds 3
+        $state = (Invoke-Docker -DockerArgs @("inspect", $name, "--format", "{{.State.Status}}" )).Trim()
+        if ($state -ne "running") { throw "Omega worker state: $state" }
+        if ($oldWorker) { Invoke-Docker -DockerArgs @("rm", $oldWorker.Id) | Out-Null }
+    } catch {
+        $newWorker = Invoke-DockerProcess -DockerArgs @("inspect", $name)
+        if ($newWorker.ExitCode -eq 0) { Invoke-Docker -DockerArgs @("rm", "-f", $name) | Out-Null }
+        if ($oldWorker) {
+            Invoke-Docker -DockerArgs @("rename", $oldWorker.Id, $name) | Out-Null
+            Invoke-Docker -DockerArgs @("start", $oldWorker.Id) | Out-Null
+        }
+        throw
+    } finally {
         Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue
     }
 }
@@ -685,6 +740,8 @@ $secrets = @{
     PDCA_DATABASE_URL = Read-DotEnvValue "PDCA_DATABASE_URL"
     VERTU_BOT_INBOUND_KEY = Read-OptionalDotEnvValue "VERTU_BOT_INBOUND_KEY"
     VEMORY_OPENAPI_KEY = Read-OptionalDotEnvValue "VEMORY_OPENAPI_KEY"
+    PDCA_SUPERVISOR_API_KEY = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_API_KEY"
+    PDCA_QWEN_REALTIME_API_KEY = Read-OptionalDotEnvValue "PDCA_QWEN_REALTIME_API_KEY"
 }
 if (-not $secrets.VERTU_BOT_INBOUND_KEY) {
     Write-Output "VERTU_BOT_INBOUND_KEY is not set; using the persisted pdca-vertu-session login"
@@ -698,7 +755,9 @@ $script:SensitiveValues = @(
     $secrets.PDCA_DATABASE_URL,
     $agent.VERTU_APP_KEY,
     $secrets.VERTU_BOT_INBOUND_KEY,
-    $secrets.VEMORY_OPENAPI_KEY
+    $secrets.VEMORY_OPENAPI_KEY,
+    $secrets.PDCA_SUPERVISOR_API_KEY,
+    $secrets.PDCA_QWEN_REALTIME_API_KEY
 )
 
 Write-Output "Ensuring writable PDCA runtime directories"
@@ -770,6 +829,8 @@ try {
     $asset = $Matches[0]
     $bundle = Invoke-WebRequest -Uri "$PublicUrl$asset" -UseBasicParsing -TimeoutSec 20
     if ($bundle.Headers['Content-Type'] -notmatch 'javascript') { throw "Public Vue asset returned the wrong content type" }
+    Write-Output "Starting Omega worker"
+    Start-OmegaWorker $image $Sha $secrets $agent
     Write-Output "Deployment healthy: $Sha"
 } catch {
     try {

@@ -1,13 +1,13 @@
 """One active realtime voice lease per Omega session.
 
-Revision ID: 015
-Revises: 014
+Revision ID: 016
+Revises: 015
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "015"
-down_revision = "014"
+revision = "016"
+down_revision = "015"
 branch_labels = None
 depends_on = None
 

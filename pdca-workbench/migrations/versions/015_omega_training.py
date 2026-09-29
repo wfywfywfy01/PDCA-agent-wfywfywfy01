@@ -1,13 +1,13 @@
 """Omega team training tables with a frozen, idempotent schema.
 
-Revision ID: 014
-Revises: 013
+Revision ID: 015
+Revises: 014
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "014"
-down_revision = "013"
+revision = "015"
+down_revision = "014"
 branch_labels = None
 depends_on = None
 

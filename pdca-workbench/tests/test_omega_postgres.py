@@ -37,8 +37,8 @@ class OmegaPostgresTests(unittest.TestCase):
         cls.engine = create_engine(url, pool_pre_ping=True)
         with cls.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            if version != "016":
-                raise RuntimeError(f"expected migration 016; got {version}")
+            if version != "017":
+                raise RuntimeError(f"expected migration 017; got {version}")
         cls._clear_test_data()
 
     @classmethod
@@ -101,7 +101,7 @@ class OmegaPostgresTests(unittest.TestCase):
             actor = db.get(User, self.user_id)
             db.expunge(actor)
             db.commit()
-        job_id, token, _, _ = _acquire(self.engine, actor, self.game_id)
+        job_id, token, _ = _acquire(self.engine, actor, self.game_id)
         with self.assertRaisesRegex(Exception, "已有实时语音连接"):
             _acquire(self.engine, actor, self.game_id)
         with Session(self.engine) as db:
