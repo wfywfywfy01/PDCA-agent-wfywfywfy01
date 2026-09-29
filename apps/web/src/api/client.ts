@@ -72,6 +72,16 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
   return res
 }
 
+/** 后端可能用 {message, errors} 结构化返回校验错误（如督战官配置启用被挡）。 */
+function objectDetail(detail: unknown): string {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return ''
+  const shape = detail as { message?: unknown; errors?: unknown }
+  const parts: string[] = []
+  if (typeof shape.message === 'string' && shape.message) parts.push(shape.message)
+  if (Array.isArray(shape.errors)) parts.push(...shape.errors.map((item) => String(item)))
+  return parts.join('；')
+}
+
 async function toHttpError(res: Response): Promise<HttpError> {
   try {
     const payload = (await res.json()) as { detail?: unknown; code?: string }
@@ -79,7 +89,7 @@ async function toHttpError(res: Response): Promise<HttpError> {
       ? payload.detail.map((issue: { loc?: unknown[]; msg?: string }) =>
           [issue.loc?.filter((part) => part !== 'body' && part !== 'query').join('.'), issue.msg].filter(Boolean).join(': '),
         ).filter(Boolean).join('；')
-      : ''
+      : objectDetail(payload.detail)
     return new HttpError(res.status, detail || `HTTP ${res.status}`, payload.code)
   } catch {
     return new HttpError(res.status, `HTTP ${res.status}`)

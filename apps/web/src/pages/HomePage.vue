@@ -228,6 +228,13 @@ onMounted(loadAll)
         >
           Agent 管理
         </router-link>
+        <router-link
+          v-if="me && me.role === 'admin'"
+          class="btn"
+          to="/admin/duzhan-agents"
+        >
+          督战官配置
+        </router-link>
         <button
           v-if="me && (me.role === 'admin' || me.role === 'manager')"
           class="btn btn-primary"
