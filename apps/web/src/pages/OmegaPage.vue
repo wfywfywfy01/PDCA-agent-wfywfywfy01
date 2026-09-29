@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppNav from '@/components/AppNav.vue'
 import { apiGet, apiPatch, apiPost, apiRequest, HttpError } from '@/api/client'
@@ -81,7 +81,11 @@ const textReady = ref(false)
 const voiceConnecting = ref(false)
 const voiceConnected = ref(false)
 const voiceClosing = ref(false)
+const voiceSpeaking = ref(false)
 const voiceCaption = ref('')
+const voiceVolume = ref(2)
+const voiceDialog = ref<HTMLDialogElement | null>(null)
+const callOpen = computed(() => voiceConnecting.value || voiceConnected.value || voiceClosing.value)
 const voiceOriginal = ref('')
 const amountMajor = ref('')
 const meetingId = ref('')
@@ -123,6 +127,7 @@ let voiceSocket: WebSocket | undefined
 let voiceStream: MediaStream | undefined
 let voiceInput: AudioContext | undefined
 let voiceOutput: AudioContext | undefined
+let voiceGain: GainNode | undefined
 let voiceWorklet: AudioWorkletNode | undefined
 let nextVoicePlayback = 0
 const voiceSources = new Set<AudioBufferSourceNode>()
@@ -471,9 +476,11 @@ function stopVoice() {
   if (voiceInput) { closeAudioContext(voiceInput); voiceInput = undefined }
   stopVoicePlayback()
   if (voiceOutput) { closeAudioContext(voiceOutput); voiceOutput = undefined }
+  voiceGain = undefined
   voiceConnecting.value = false
   voiceConnected.value = false
   voiceClosing.value = false
+  voiceSpeaking.value = false
   voiceCaption.value = ''
 }
 async function hangupVoice() {
@@ -488,7 +495,9 @@ async function hangupVoice() {
   if (voiceInput) { closeAudioContext(voiceInput); voiceInput = undefined }
   stopVoicePlayback()
   if (voiceOutput) { closeAudioContext(voiceOutput); voiceOutput = undefined }
+  voiceGain = undefined
   voiceConnected.value = false
+  voiceSpeaking.value = false
   try {
     await apiPost(`/api/omega/sessions/${encodeURIComponent(sessionId)}/realtime/stop`)
     if (voiceSocket === socket) stopVoice()
@@ -504,6 +513,7 @@ function stopVoicePlayback() {
     try { source.stop() } catch { /* already stopped */ }
   }
   voiceSources.clear()
+  voiceSpeaking.value = false
   nextVoicePlayback = voiceOutput?.currentTime || 0
 }
 function playVoiceAudio(bytes: ArrayBuffer) {
@@ -515,12 +525,21 @@ function playVoiceAudio(bytes: ArrayBuffer) {
   for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768
   const source = context.createBufferSource()
   source.buffer = buffer
-  source.connect(context.destination)
-  source.onended = () => voiceSources.delete(source)
+  source.connect(voiceGain || context.destination)
+  source.onended = () => {
+    voiceSources.delete(source)
+    if (!voiceSources.size) voiceSpeaking.value = false
+  }
   voiceSources.add(source)
+  voiceSpeaking.value = true
   const at = Math.max(context.currentTime + 0.015, nextVoicePlayback)
   source.start(at)
   nextVoicePlayback = at + buffer.duration
+}
+function exitVoice() {
+  if (voiceClosing.value) return
+  if (voiceConnecting.value) stopVoice()
+  else void hangupVoice()
 }
 async function startVoice() {
   if (!chosenSession.value || !realtimeReady.value || voiceConnecting.value || voiceConnected.value || voiceClosing.value) return
@@ -536,6 +555,13 @@ async function startVoice() {
   try {
     voiceOutput = new AudioContext()
     await voiceOutput.resume()
+    voiceGain = voiceOutput.createGain()
+    voiceGain.gain.value = voiceVolume.value
+    const limiter = voiceOutput.createDynamicsCompressor()
+    limiter.threshold.value = -8
+    limiter.knee.value = 0
+    limiter.ratio.value = 12
+    voiceGain.connect(limiter).connect(voiceOutput.destination)
     const captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
     if (token !== voiceToken || chosenSession.value?.id !== sessionId || chosenSession.value?.status !== 'active') {
       captured.getTracks().forEach((track) => track.stop())
@@ -680,6 +706,14 @@ watch(() => chosenSession.value?.id, () => {
   stopCapture(true)
   stopVoice()
   window.speechSynthesis?.cancel()
+})
+watch(callOpen, async (open) => {
+  await nextTick()
+  if (open && callOpen.value && !voiceDialog.value?.open) voiceDialog.value?.showModal()
+  else if (!callOpen.value && voiceDialog.value?.open) voiceDialog.value.close()
+})
+watch(voiceVolume, (volume) => {
+  if (voiceGain && voiceOutput) voiceGain.gain.setTargetAtTime(volume, voiceOutput.currentTime, 0.03)
 })
 watch(caseBriefInput, () => { analysisReady.value = false; reviewOpen.value = false })
 onMounted(async () => {
@@ -826,7 +860,7 @@ onBeforeUnmount(() => {
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
               <div><p class="omega-kicker">实时语音</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : '连接后开始说话，双方原话自动保存' }}</p></div>
               <button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">开始实时对话</button>
-              <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="voiceConnecting ? stopVoice() : hangupVoice()">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
+              <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
             </div>
             <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
@@ -891,6 +925,22 @@ onBeforeUnmount(() => {
       </section>
     </div>
   </main>
+  <dialog ref="voiceDialog" class="omega-call" aria-label="实时语音对话" @cancel.prevent="exitVoice">
+    <div class="omega-call-shell">
+      <div class="omega-call-top"><span>谈判陪练 · 实时对话</span><span>{{ chosenSession ? caseName(chosenSession.case_id) : '' }}</span></div>
+      <div class="omega-call-center">
+        <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting }" aria-hidden="true"></div>
+        <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voiceSpeaking ? '对手正在说话' : '正在听' }}</h2>
+        <p>{{ voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
+        <p v-if="voiceCaption" class="omega-call-caption">{{ voiceCaption }}</p>
+      </div>
+      <div class="omega-call-bottom">
+        <label for="omega-call-volume">对手音量 <span>{{ Math.round(voiceVolume * 100) }}%</span></label>
+        <input id="omega-call-volume" v-model.number="voiceVolume" type="range" min="1" max="2.5" step="0.1" aria-label="对手音量">
+        <button class="btn omega-call-hangup" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '结束中…' : voiceConnecting ? '取消连接' : '结束通话' }}</button>
+      </div>
+    </div>
+  </dialog>
 </template>
 
 <style scoped>
@@ -1002,6 +1052,34 @@ onBeforeUnmount(() => {
 .omega-import > form, .omega-import > p { margin-top: 16px; }
 .omega-scorecard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 12px; border: 1px solid var(--border); border-radius: 8px; }
 .omega-scorecard legend { padding: 0 8px; }
+.omega-call { inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; background: var(--bg); color: var(--text); }
+.omega-call::backdrop { background: var(--bg); }
+.omega-call-shell { display: flex; flex-direction: column; min-height: 100%; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); }
+.omega-call-top { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 13px; }
+.omega-call-top span:last-child { overflow: hidden; max-width: 48%; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.omega-call-center { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-height: 0; text-align: center; }
+.omega-call-orb { position: relative; width: clamp(152px, 42vw, 210px); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 38% 30%, #9ed9ff 0, #488ed1 38%, #1a426f 72%, #122541 100%); box-shadow: 0 0 0 1px rgba(158, 217, 255, .22), 0 0 70px rgba(78, 158, 245, .25); animation: omega-breathe 3.4s ease-in-out infinite; }
+.omega-call-orb::before { position: absolute; inset: -20px; border: 1px solid rgba(78, 158, 245, .18); border-radius: 50%; content: ''; }
+.omega-call-orb.is-speaking { animation-duration: 1.35s; }
+.omega-call-orb.is-connecting { opacity: .55; }
+.omega-call-center h2 { margin: 42px 0 8px; font-size: 26px; font-weight: 600; }
+.omega-call-center > p { margin: 0; color: var(--muted); font-size: 14px; }
+.omega-call-caption { display: -webkit-box; overflow: hidden; max-width: 520px; margin-top: 28px !important; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.6; }
+.omega-call-bottom { width: min(100%, 420px); margin: 0 auto; }
+.omega-call-bottom label { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
+.omega-call-bottom input { width: 100%; min-height: 44px; margin: 4px 0 16px; accent-color: var(--blue); }
+.omega-call-hangup { width: 100%; min-height: 52px; border-color: rgba(244, 63, 94, .36); color: #ff7188; }
+@keyframes omega-breathe { 50% { transform: scale(1.09); box-shadow: 0 0 0 12px rgba(78, 158, 245, .07), 0 0 95px rgba(78, 158, 245, .4); } }
+@media (prefers-reduced-motion: reduce) { .omega-call-orb { animation: none; } }
+@media (max-height: 560px) {
+  .omega-call-shell { padding: 12px 20px; }
+  .omega-call-orb { width: 96px; }
+  .omega-call-orb::before { inset: -10px; }
+  .omega-call-center h2 { margin: 12px 0 4px; font-size: 21px; }
+  .omega-call-caption { display: none; }
+  .omega-call-bottom input { min-height: 28px; margin-bottom: 8px; }
+  .omega-call-hangup { min-height: 44px; }
+}
 @media (max-width: 900px) {
   .omega-grid { grid-template-columns: 1fr; }
   .omega-side { position: static; }
@@ -1011,7 +1089,8 @@ onBeforeUnmount(() => {
   .omega-side-toggle { display: inline-flex; }
   .omega-side.is-collapsed .omega-side-tabs, .omega-side.is-collapsed .omega-side-body { display: none; }
   .omega-workspace { display: flex; flex-direction: column; }
-  .omega-practice-controls, .omega-complete-controls { order: 1; }
+  .omega-practice-controls, .omega-complete-controls { order: 0; }
+  .omega-session-summary { order: 1; }
   .omega-conversation { order: 2; }
   .omega-report { order: 3; }
   .omega-head h1 { font-size: 25px; }

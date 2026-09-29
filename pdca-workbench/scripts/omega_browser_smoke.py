@@ -160,6 +160,13 @@ def main() -> None:
         page.locator(".omega-side .omega-link").first.click()
         page.evaluate("""() => {
           window.__voicePackets = 0
+          window.__voiceGains = []
+          const originalCreateGain = AudioContext.prototype.createGain
+          AudioContext.prototype.createGain = function () {
+            const gain = originalCreateGain.call(this)
+            window.__voiceGains.push(gain)
+            return gain
+          }
           window.__voiceContext = new AudioContext()
           window.__voiceOscillator = window.__voiceContext.createOscillator()
           const destination = window.__voiceContext.createMediaStreamDestination()
@@ -182,17 +189,34 @@ def main() -> None:
             close() { this.readyState = 3; this.onclose?.() }
           }
         }""")
+        page.set_viewport_size({"width": 390, "height": 844})
+        call_button = page.get_by_role("button", name="开始实时对话").bounding_box()
+        assert call_button and call_button["y"] + call_button["height"] <= 844
         page.get_by_role("button", name="开始实时对话").click()
-        expect(page.get_by_role("button", name="挂断实时对话")).to_be_visible(timeout=5000)
+        dialog = page.get_by_role("dialog", name="实时语音对话")
+        expect(dialog).to_be_visible(timeout=5000)
+        expect(dialog.get_by_role("heading", name="正在听")).to_be_visible(timeout=5000)
+        expect(dialog.get_by_role("slider", name="对手音量")).to_have_value("2")
+        assert page.evaluate("""() => {
+          const rect = document.querySelector('dialog').getBoundingClientRect()
+          return rect.width === innerWidth && rect.height === innerHeight
+            && document.documentElement.scrollWidth <= innerWidth
+        }""")
         page.wait_for_function("window.__voicePackets >= 3")
         page.evaluate("""() => {
           window.__voiceSocket.onmessage({ data: JSON.stringify({ type: 'caption', speaker: 'sales', text: '测试实时发言' }) })
-          window.__voiceSocket.onmessage({ data: new Int16Array([6553, 3277]).buffer })
-          window.__voiceSocket.onmessage({ data: JSON.stringify({ type: 'interrupt' }) })
+          window.__voiceSocket.onmessage({ data: new Int16Array(24000).buffer })
         }""")
-        expect(page.get_by_text("你：测试实时发言")).to_be_visible()
-        page.get_by_role("button", name="挂断实时对话").click()
+        expect(dialog.get_by_text("你：测试实时发言")).to_be_visible()
+        expect(dialog.get_by_role("heading", name="对手正在说话")).to_be_visible()
+        dialog.get_by_role("slider", name="对手音量").fill("2.5")
+        page.wait_for_function("window.__voiceGains.some(gain => gain.gain.value > 2.4)")
+        page.evaluate("window.__voiceSocket.onmessage({ data: JSON.stringify({ type: 'interrupt' }) })")
+        expect(dialog.get_by_role("heading", name="正在听")).to_be_visible()
+        dialog.get_by_role("button", name="结束通话").click()
+        expect(dialog).to_be_hidden()
         page.wait_for_function("window.__voiceStream.getAudioTracks()[0].readyState === 'ended'")
+        page.set_viewport_size({"width": 1280, "height": 900})
         page.evaluate("""() => { window.__voiceOscillator.stop(); return window.__voiceContext.close() }""")
         page.evaluate("""() => {
           window.__voiceContext = new AudioContext()
@@ -204,8 +228,9 @@ def main() -> None:
           navigator.mediaDevices.getUserMedia = async () => destination.stream
         }""")
         page.get_by_role("button", name="开始实时对话").click()
-        expect(page.get_by_role("button", name="挂断实时对话")).to_be_visible(timeout=5000)
+        expect(dialog).to_be_visible(timeout=5000)
         page.evaluate("""() => { window.__voiceSocket.onerror(); window.__voiceSocket.close() }""")
+        expect(dialog).to_be_hidden()
         expect(page.get_by_role("alert")).to_contain_text("实时语音网络连接失败")
         page.wait_for_function("window.__voiceStream.getAudioTracks()[0].readyState === 'ended'")
         page.evaluate("""() => { window.__voiceOscillator.stop(); return window.__voiceContext.close() }""")
