@@ -24,7 +24,9 @@ from app.duzhan_blocks import Block, parse_blocks
 from app.models.duzhan_agent import DuzhanAgent
 
 MAX_CHARS = 80
-DEFAULT_MAX_TOKENS = 160
+# deepseek-flash 是带推理的模型：预算给小了会全花在 reasoning 上、content 为空。
+# 默认给足 1200，并且 content 为空时再给一次 4 倍预算的机会。
+DEFAULT_MAX_TOKENS = 1200
 DEFAULT_TIMEOUT_SECONDS = 25.0
 DEFAULT_DAILY_LIMIT = 60
 
@@ -91,7 +93,7 @@ def _build_messages(group, hour: int, day: str, ledger: dict | None, rule: Block
     system = (
         "你是跨境电商团队的督战助理。你只写一句话：这一档要求每个人做什么。"
         "要求：中文；一行；不超过 60 字；像主管当面催办；不要称呼、不要 emoji、不要引号、不要换行、不要编号。"
-        "只输出这句话本身。"
+        "直接输出这句话本身，不要推理过程、不要解释、不要复述要求。"
     )
     user = (
         f"{_digest(group, hour, day, ledger)}\n\n"
@@ -148,9 +150,20 @@ def _generate(messages: list[dict[str, str]]) -> str:
     except ValueError:
         timeout = DEFAULT_TIMEOUT_SECONDS
     client.timeout = timeout
-    data = client.chat(messages, max_tokens=max_tokens or DEFAULT_MAX_TOKENS, temperature=0.3)
+    budget = max_tokens or DEFAULT_MAX_TOKENS
+    content = _content_of(client.chat(messages, max_tokens=budget, temperature=0.3))
+    if content.strip():
+        return content
+    # 推理模型偶尔把预算全用在 reasoning 上（finish_reason=length），content 为空：
+    # 再给一次 4 倍预算，还是空就让调用方回落固定文案。
+    logger.warning("AI 规则首次返回为空（max_tokens={}），用 4 倍预算重试一次", budget)
+    return _content_of(client.chat(messages, max_tokens=budget * 4, temperature=0.3))
+
+
+def _content_of(data: dict) -> str:
     choice = (data.get("choices") or [{}])[0]
-    return str((choice.get("message") or {}).get("content") or "")
+    message = choice.get("message") or {}
+    return str(message.get("content") or "")
 
 
 def focus_for(group, hour: int, day: str, ledger: dict | None = None) -> Optional[str]:
