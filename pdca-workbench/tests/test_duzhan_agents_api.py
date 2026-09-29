@@ -154,6 +154,12 @@ class DuzhanAgentApiTests(unittest.TestCase):
         self.assertGreater(body["chars"], 100)
         self.assertEqual(body["renderer"], "duzhan.render_brief")
 
+    def test_ai_status_endpoint(self):
+        body = self.client.get("/api/duzhan-agents/ai-status").json()
+        self.assertIn("calls", body)
+        self.assertIn("limit", body)
+        self.assertIn("cached", body)
+
     def test_render_preview_rejects_unknown_mode(self):
         agent_id = self.client.post(
             "/api/duzhan-agents", headers=self.headers, json={"name": "坏模式官", "blocks": GOOD_BLOCKS}

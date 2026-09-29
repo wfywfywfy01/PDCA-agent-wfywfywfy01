@@ -293,14 +293,19 @@ def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optio
             body = str((snapshot.get("messages") or {}).get(group.channel_id) or "")
         if body:
             source = "snapshot"
-        elif ledger is not None:
-            body = duzhan_module.render_brief(group, hour, now.astimezone(ZoneInfo(group.tz)), ledger, prev_ledger)
-            source = "snapshot_ledger"
         else:
+            from app.duzhan_admin import ai_rules
+
+            if ledger is not None:
+                use_ledger, source = ledger, "snapshot_ledger"
+            else:
+                use_ledger, source = empty_ledger(day), "empty_ledger"
+            # 和到点发送走同一条渲染路径：配了 AI 规则块时，这里出来的就是模型那句
+            override = ai_rules.focus_for(group, hour, day, use_ledger)
             body = duzhan_module.render_brief(
-                group, hour, now.astimezone(ZoneInfo(group.tz)), empty_ledger(day), prev_ledger
+                group, hour, now.astimezone(ZoneInfo(group.tz)), use_ledger, prev_ledger,
+                focus_override=override,
             )
-            source = "empty_ledger"
         renderer = "duzhan.render_brief"
 
     notes = {

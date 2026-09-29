@@ -334,14 +334,14 @@ def block_schema() -> list[dict]:
             "type": "rule",
             "label": "规则 / 动作",
             "multiple": True,
-            "hint": "确定性文案，或交给 AI 按当天数据生成",
+            "hint": "确定性文案，或交给 AI 按当天数据生成（慢·有费用；生成失败自动回落固定文案）",
             "fields": [
                 {
                     "key": "mode",
                     "label": "生成方式",
                     "kind": "select",
                     "options": list(RULE_MODES),
-                    "option_labels": {"text": "固定文案", "ai": "AI 生成（慢·有费用）"},
+                    "option_labels": {"text": "固定文案", "ai": "AI 生成（慢·有费用，失败回落固定文案）"},
                     "default": "text",
                 },
                 {"key": "text", "label": "文案", "kind": "textarea", "show_when": {"mode": "text"}},
