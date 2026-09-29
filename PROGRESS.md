@@ -1,5 +1,144 @@
 # Progress
 
+## 2026-09-29: Omega natural-language case intake
+
+- Replaced the new-case form entry with one free-text description and `AI 分析`. The authenticated server uses the already configured `qwen-audio-3.1-realtime-plus` connection in text-only mode (or the configured supervisor text model) to extract a reviewable case draft. It does not write a case during analysis. Missing goals, dates, amounts and hard limits stay missing; the UI lists gaps and lets the seller add detail or expand the editable fields before saving. Existing cases retain manual editing and confirmed-version rules.
+- Evidence: a live fictional text-only Qwen call returned structured JSON with the stated 10,000 USD amount, 2026-10-05 date and no invented missing values. The authenticated local `/api/omega/case-draft/analyze` endpoint returned 200 with those fields. A real Chromium browser clicked `AI 分析`, displayed the draft, found no missing fields for the complete fictional example, exposed the filled amount/date/limit fields on review, and had zero page errors or mobile horizontal overflow. Focused Omega flow and realtime suites: **30 passed**. Frontend: **8 passed**, typecheck/build passed; browser API smoke and simulated Practice + Perform walkthrough passed. The scheduled local service was restarted on the final code and `/health` returned 200.
+- Report generation remains a separate text-model-and-worker capability; analysis alone does not enable it.
+
+## 2026-09-29: Omega training UI rebuild
+
+- Reworked Omega around the training flow: a compact task/assignment/history navigator, a clear target summary, readable two-sided transcript, and a prominent realtime voice control. Recent history shows five records by default, with access to all records. Text controls appear only when the text model is ready; manager assignment and meeting import are collapsed until opened.
+- Kept the existing PDCA visual tokens and all authenticated workflows. Tightened desktop navigation so the full menu stays on one row at 1365 px; mobile keeps the menu button and shows the full transcript without an inner scroll.
+- Evidence: Vue typecheck, 8 frontend tests and production build passed. Browser smoke passed case creation/confirmation, delayed microphone cancellation, realtime PCM/interruption/hangup/reconnect, text turn, report and review at desktop and 390 px. The running localhost app was checked at 1365 and 390 px: zero page errors or horizontal overflow; desktop navigation height 50 px. Screenshots: `%LOCALAPPDATA%/VertuOmega/local/omega-final-home.png`, `omega-final-desktop.png`, `omega-final-mobile.png`.
+
+## 2026-09-29: Omega local service and two-turn browser acceptance
+
+- Registered `VertuOmegaLocal` as a Windows logon task so the isolated localhost service survives the Codex process ending. The launcher keeps its session signing secret in local AppData and writes server logs there. It still binds only `127.0.0.1:8769` and reads the supplied Qwen credential file at startup.
+- Fixed immediate voice reconnect: authenticated, owner-scoped `POST /api/omega/sessions/{id}/realtime/stop` releases the current stream lease; the browser waits for confirmation after stopping microphone and playback, then enables reconnect. Removed temporary diagnostic routes from the local launcher.
+- Fresh evidence after restarting the scheduled task: `/health` and `/app/omega` returned 200; local login and `/api/omega/status` returned 200; the removed provider probe route returned 404. Focused realtime suite: **10 passed**; Vue typecheck, production build, Python compilation and `git diff --check` passed. A real Chromium browser using synthetic speech completed two Qwen voice turns, stopped the microphone track after each hangup, reconnected, froze and reloaded four persisted segments (sales/counterparty/sales/counterparty), received **1,378,560 audio bytes**, and reported zero page or WebSocket errors. Screenshot: `%LOCALAPPDATA%/VertuOmega/local/acceptance.png`.
+- The supplied key remains voice-only for this app: text model calls returned 403 previously, so report generation still needs a chat-enabled model key and worker. Human microphone/headset, longer stability and production deployment remain unverified.
+
+## 2026-09-28: Omega independent localhost trial
+
+- Added `scripts/run_omega_local.py` to read the supplied Qwen credential file at process startup, bind an isolated development app to `127.0.0.1:8769`, and create an isolated SQLite database and local manager login under `%LOCALAPPDATA%/VertuOmega/local`. No provider secret is written to the repository or local login file. Existing services on ports 5183 and 8767 were left running.
+- Fresh live evidence: frontend production build passed; `GET /health` returned 200 with connected SQLite; local login, authenticated Omega status, and built `/app/omega` page returned 200. Chromium completed browser login and showed the confirmed fictional trial case with no page errors. With synthetic, non-customer SAPI speech through the real browser capture pipeline and authenticated WebSocket, Qwen returned 380,160 audio bytes, live captions, no WebSocket/page errors, and the server persisted one sales and one counterparty final segment.
+- The supplied key lists `qwen3.5-plus` and `qwen-plus` but denies chat-completions requests with HTTP 403 `Access denied by API-Key restrictions`. This local trial has real voice but no text worker or report generation until a chat-enabled key is supplied. Human microphone, echo cancellation, and production deployment remain unverified.
+
+## 2026-09-28: Omega Qwen realtime speech integration
+
+- Replaced the unprovisioned Doubao dialogue transport with Alibaba Cloud Model Studio `qwen-audio-3.1-realtime-plus` in Beijing. The server now authenticates with a workspace ID and API Key, sends 16 kHz PCM16 over the model's WebSocket event protocol, and returns 24 kHz PCM16 plus final transcripts to the authenticated Omega browser session. The browser playback decoder now matches PCM16.
+- Kept the existing one-stream lease, team/source checks, frozen transcript rules and secret boundary. Interrupted or cancelled model responses do not become report evidence. No credential from the user-provided `qwen.env` was copied into source, docs or tracked configuration.
+- Live provider evidence with the supplied key and a synthetic, non-customer voice clip: `session.created`, `session.updated`, user transcription, completed assistant response, assistant transcription and 145,920 output audio bytes. A second synthetic clip sent during assistant speech produced `cancelled` then `completed` responses with no provider error; the model handled the interruption itself. The authenticated application WebSocket path, against disposable SQLite and the live provider, persisted one sales and one counterparty segment and forwarded 334,080 audio bytes without an error.
+- Regression evidence: full backend `python -m pytest -q --disable-warnings` returned **786 passed, 6 skipped, 31 subtests passed**; focused realtime suite **9 passed**, including reconnect context restoration. Frontend **8 passed**, typecheck and production build passed; Chromium browser smoke passed PCM16 playback, interruption, hangup, text fallback and report/review. Compose validation passed with disposable placeholder variables and confirmed both new variables reach only the Web container; source scan found zero copies of the supplied API Key.
+- Real microphone/headset echo, live user interruption timing, 30-minute stability, production reverse proxy, actual Vemory data and scoring calibration remain unverified. The browser-memory demo remains simulated; no production release was made.
+
+## 2026-09-28: Omega Practice＋Perform linked pilot
+
+- Added buyer profile and nine configurable score weights to immutable case versions. `rubric-v2` report generation and validation use the frozen weights and still reject fabricated quotes or unsupported scores.
+- Added migration `016`, team-scoped assignments, source-report authorization, targeted dimension/pass threshold, repeated attempts and evidence-based progress. A Vemory real-review report can drive an assignment only for a seller with access to that source. New practice sessions retain the assigned case version after later edits.
+- Added manager assignment and seller retry views, source baseline comparison, and an explicitly simulated Practice＋Perform walkthrough to `npm run demo`. Fixed the shared request validation handler so model-validator errors return JSON 422 instead of raising a 500; refreshed assignment status after report completion.
+- Evidence: disposable local PostgreSQL upgraded `015` to `016`; focused SQLite/realtime/PostgreSQL suite **34 passed**. Full backend `python -m pytest -q --disable-warnings`: **786 passed, 6 skipped, 31 subtests passed**. Frontend **8 passed**, typecheck and production build passed. Browser API smoke and browser-memory Practice＋Perform walkthrough passed; `git diff --check` passed. Real Doubao, real Vemory data, human scoring calibration and production cutover remain unverified.
+
+## 2026-09-28: Omega runnable interaction prototype
+
+- Added `npm run demo` in `apps/web`, serving the real Omega page at `http://127.0.0.1:5183/omega` with browser-memory fixtures. The demo has a visible label, a seeded negotiation case, editable cases, simulated text turns, a sample report, manager review and a local PCM voice interaction. It does not proxy `/api` traffic to PDCA or call Doubao, and resets on refresh.
+- Chromium checks passed for the seeded text flow, new case/confirmation/review, and simulated realtime PCM/caption/response/hangup. Frontend `npm test` (8 passed), `npm run typecheck` and production `npm run build` passed. This verifies the runnable prototype, not live provider quality.
+
+## 2026-09-25: Omega continuous realtime speech stream
+
+- Added a same-origin authenticated WebSocket that proxies Doubao's binary dialogue protocol. App ID and Access Key stay on the server. The browser captures continuous 16 kHz PCM, plays 24 kHz PCM chunks, clears queued speech on interruption and stops microphone tracks on hangup, session switch, finish or unmount.
+- Added a database-backed one-stream lease, migration `015`, final sales/counterparty transcript persistence, active-session/source-permission checks and cancellation of competing text turns. Status now reports text and realtime readiness separately; reports still require the text model and worker. Added the two realtime variables to `.env.example` and independent-operation steps to `omega-v2-operations.md`.
+- Verification: full backend `python -m pytest -q --disable-warnings`: **784 passed, 6 skipped, 31 subtests passed**. Focused realtime tests: **9 passed** including actual login Cookie, SPA microphone policy and mocked provider audio/text. Disposable local PostgreSQL upgraded from `014` to `015`; **6 PostgreSQL tests passed**, including realtime lease/frozen-session behavior. Frontend: **8 tests passed**, `typecheck` and production build passed. Chromium mock flow passed continuous PCM capture, audio response, interrupt, hangup/disconnect track cleanup, text fallback and report/review flow at desktop and 390 px. Compose configuration and `git diff --check` passed.
+- The user has not opened the Doubao end-to-end speech service. Live provider handshake, device echo/latency, production reverse proxy, real customer quality and deployment remain **unverified**; simulated events are engineering checks only.
+
+## 2026-09-24: Omega v2 functional self-check
+
+- Corrected Vemory import deduplication so the same transcript and goal in two
+  cases cannot return a session from the other case. An existing import is
+  checked against the current case and source permission before returning it.
+- Re-read and lock the case after the Vemory fetch. A draft changed while the
+  external request runs now blocks import until the new goal is confirmed.
+- Re-check source authorization after model generation and before saving a turn
+  or report. A permission revoked during the model call now fails the job.
+- Refresh the locked session row when submitting a turn or ending a session.
+  A request that read `active` before another transaction ended the session
+  now receives 409 and cannot append to the frozen transcript.
+- Cancel a pending microphone permission request on session switch or finish;
+  close the associated audio context and stop late audio tracks.
+
+Verification: each backend regression above failed before its fix and passed
+afterward. Omega SQLite flow: 17 tests passed; disposable local PostgreSQL:
+5 concurrency/lease tests passed. Full backend: `Ran 778 tests in 87.318s`,
+`OK (skipped=5)` (PostgreSQL cases run separately). Frontend: 8 tests,
+typecheck, production build, and Chromium browser smoke including delayed
+permission and active recording cancellation passed. Real model, ASR device, live Vemory data,
+load/latency and deployment remain unverified.
+
+## 2026-09-24: Omega v2 local implementation
+
+- Implemented the authenticated PDCA Omega module on `codex/omega-v2`: team-scoped
+  cases, confirmed immutable target versions, isolated sessions, PostgreSQL-backed
+  jobs with lease recovery and partial unique indexes, actor/coach separation,
+  quote-checked reports, manager reviews, worker heartbeat and readiness.
+- Added the Vue text flow, optional protected 30-second WAV transcription with
+  user correction and stored original transcript, browser TTS, and Vemory import
+  requiring source scope and complete speaker mapping. Post-meeting goals cannot
+  receive an achievement score. The Web app and `omega-worker` run without Codex.
+- Added frozen migration `014`. Fixed older `008` and `013` Boolean defaults that
+  prevented a fresh PostgreSQL upgrade. All eight Omega tables use aware UTC
+  timestamps. A disposable PostgreSQL 16 cluster reached `014` from an empty
+  database; table columns and expected indexes matched the model metadata.
+- Added `pdca-workbench/docs/omega-v2-operations.md` for independent operation,
+  environment variables, checks and release boundaries. No production service,
+  external model, ASR provider or Vemory source was called in this milestone.
+
+Verification:
+
+- Full backend: `python -m unittest discover -s tests -q` returned
+  `Ran 774 tests in 100.441s`, `OK (skipped=4)`.
+- Omega API/worker: 14 focused SQLite cases passed; 4 isolated PostgreSQL cases
+  passed for claim exclusivity, concurrent turn submission, end/reply order and
+  expired-lease recovery. One standalone worker process wrote a heartbeat to the
+  test PostgreSQL database.
+- Frontend: `npm test` 8 passed; `npm run typecheck` and `npm run build` passed.
+  Playwright Chromium completed create -> confirm -> turn -> report -> manager
+  review at 1280px and checked the 390px view with no horizontal overflow or
+  browser errors. `docker compose --profile omega config --quiet`, Python
+  compilation and `git diff --check` passed.
+- Live model behavior, microphone/ASR quality, real Vemory field compatibility,
+  latency/load, production cutover and old public API closure remain unverified.
+  The isolated worktree has no `.env`; credentials must be placed in deployment
+  secret storage before those checks. This is not a production release. The
+  temporary PostgreSQL process was stopped; automatic approval review blocked
+  recursive deletion of its test-only data directory, so the directory remains
+  under `D:\cdoeX-work\omega-pg-test-b530bb4fd79643c29121c72c53462535`.
+
+## 2026-09-24: Omega v2 architecture proposal
+
+- Confirmed scope with the user: architecture and implementation plan only;
+  sales and supervisors train together, with team visibility by default.
+- Added `vertu-omega/docs/2026-09-24-architecture-v2.md` and
+  `docs/superpowers/plans/2026-09-24-omega-v2.md` after inspecting the Omega
+  prototype and the existing PDCA auth, scope, database, model, knowledge,
+  meeting and Vue modules at commit `73d5588`.
+- Proposed versioned goals, separate actor/coach context, durable isolated
+  sessions, evidence-checked reports, supervisor calibration, and staged
+  voice/actual-meeting integration. These are planned capabilities, not
+  implemented behavior or measured performance.
+- Added `vertu-omega/docs/2026-09-24-acceptance-and-test-protocol.md` with
+  explicit correctness cases, proposed performance/quality gates, isolated
+  PostgreSQL/browser procedures, and required evidence. Reused script paths
+  were checked against the current repository; no acceptance scripts were run.
+- Corrected the planned commit conditions: turns require active sessions,
+  reports require ended sessions with matching frozen inputs. Added a partial
+  unique index requirement for concurrent turns and a consistent lock order.
+
+Verification: UTF-8 decoding, Markdown fence balance, local document links,
+trailing whitespace and plan placeholder checks. No application code,
+production state or business records changed; no runtime tests were run for
+this documentation-only milestone.
+
 ## 2026-09-16: Logistics operations console same-origin mount
 
 - Added `/logistics-admin/...` as a server-side proxy to the independent

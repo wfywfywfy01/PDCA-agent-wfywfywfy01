@@ -1,5 +1,5 @@
 # Incremental production delivery: reuse the reviewed runtime already on the host.
-# Dependency/runtime changes must first rebuild Dockerfile and update this digest.
+# Pure Python dependency additions are installed from the pinned lock below.
 ARG NODE_RUNTIME_IMAGE=node:22-bookworm-slim
 ARG SOURCE_REVISION=unknown
 
@@ -20,7 +20,8 @@ ENV PDCA_RELEASE_SHA=$SOURCE_REVISION
 WORKDIR /app
 
 COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
-RUN python -m pip install --no-index --no-deps -r requirements.lock \
+RUN python -m pip install --no-cache-dir --no-deps websockets==15.0.1 \
+    && python -m pip install --no-index --no-deps -r requirements.lock \
     && python -m pip check
 
 # Remove deleted/renamed source files too. Never touch /app/data, /repo or /mvp.

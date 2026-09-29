@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import asyncio
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -44,6 +45,10 @@ from app.knowledge.router import router as knowledge_router
 from app.knowledge.mcp import knowledge_mcp, knowledge_mcp_app
 from app.mcp_five_kit import five_kit_mcp, five_kit_mcp_app
 from app.agents.router import router as agents_router
+from app.omega.router import router as omega_router
+from app.omega.voice import router as omega_voice_router
+from app.omega.real import router as omega_real_router
+from app.omega.realtime import router as omega_realtime_router
 
 PUBLIC_PATHS = {
     "/login",
@@ -150,8 +155,11 @@ def _apply_security_headers(request: Request, response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     # Native form POSTs need a same-origin source for CSRF checks; never send it cross-origin.
     response.headers["Referrer-Policy"] = "same-origin"
+    # The SPA document may be loaded on /app before client-side navigation to Omega.
+    spa_document = request.url.path == "/app" or request.url.path.startswith("/app/")
+    microphone = "microphone=(self)" if spa_document else "microphone=()"
     response.headers["Permissions-Policy"] = (
-        "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        f"camera=(), {microphone}, geolocation=(), payment=(), usb=()"
     )
     settings = get_settings()
     extra_ancestors = getattr(settings, "frame_ancestors", []) or []
@@ -161,13 +169,16 @@ def _apply_security_headers(request: Request, response):
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
     acquisition_origin = getattr(settings, "acquisition_frame_origin", "")
     frame_sources = "'self'" + (f" {acquisition_origin}" if acquisition_origin else "")
+    voice_host = urlsplit(settings.workbench_base_url).netloc if _production else request.url.netloc
+    voice_ws = f"wss://{voice_host}" if _production else f"ws://{voice_host} wss://{voice_host}"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "base-uri 'self'; form-action 'self'; "
         f"frame-ancestors {ancestor_policy}; "
         "object-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
-        f"font-src 'self' data:; connect-src 'self'; frame-src {frame_sources}"
+        f"font-src 'self' data:; connect-src 'self' {voice_ws}; "
+        f"frame-src {frame_sources}"
     )
     if _production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -292,7 +303,10 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse({"detail": "请求参数有误", "errors": exc.errors()}, status_code=422)
+    from fastapi.encoders import jsonable_encoder
+    return JSONResponse({"detail": "请求参数有误",
+                         "errors": jsonable_encoder(exc.errors(), custom_encoder={ValueError: str})},
+                        status_code=422)
 
 
 @app.exception_handler(Exception)
@@ -321,6 +335,10 @@ app.include_router(admin_router)
 app.include_router(agent_admin_router)
 app.include_router(export_router)
 app.include_router(agents_router)
+app.include_router(omega_router)
+app.include_router(omega_voice_router)
+app.include_router(omega_real_router)
+app.include_router(omega_realtime_router)
 app.include_router(pages_router)
 app.include_router(spa_router)
 app.mount("/mcp", knowledge_mcp_app)

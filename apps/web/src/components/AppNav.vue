@@ -23,6 +23,7 @@ const logoutError = ref('')
 const panelOpen = ref(false)
 const identityError = ref('')
 const identityBusy = ref(false)
+const omegaEnabled = ref(false)
 
 const ROLE_LABELS: Record<string, string> = {
   admin: '系统管理员',
@@ -43,13 +44,15 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/signalseller', label: '获客指挥' },
   { to: '/walkin', label: '客流五件套' },
   { to: '/onboarding', label: '新人培训' },
+  { to: '/omega', label: '谈判陪练', roles: ['sales', 'manager', 'admin'] },
   { to: '/admin/agents', label: 'Agent 管理', roles: ['manager', 'admin'] },
   { to: '/admin/sync', label: '数据同步', roles: ['manager', 'admin'] },
   { to: '/admin/permissions', label: '权限管理', roles: ['admin'] },
 ]
 
 const navItems = computed(() =>
-  NAV_ITEMS.filter((item) => !item.roles || (me.value && item.roles.includes(me.value.role))),
+  NAV_ITEMS.filter((item) => (item.to !== '/omega' || omegaEnabled.value)
+    && (!item.roles || (me.value && item.roles.includes(me.value.role)))),
 )
 
 const roleLabel = computed(() => (me.value ? ROLE_LABELS[me.value.role] || me.value.role : ''))
@@ -70,6 +73,7 @@ async function loadIdentity() {
   identityError.value = ''
   try {
     me.value = await apiGet<Me>('/api/auth/me')
+    omegaEnabled.value = (await apiGet<{ ready: boolean }>('/api/omega/status').catch(() => ({ ready: false }))).ready
     if (me.value.must_change_password) {
       router.replace({ path: '/login', query: { change_password: '1', next: router.currentRoute.value.fullPath } })
     }
@@ -177,7 +181,7 @@ async function logout() {
 }
 
 .nav-inner {
-  max-width: 1240px;
+  max-width: 1380px;
   margin: 0 auto;
   padding: 10px 20px;
   display: flex;
@@ -194,7 +198,7 @@ async function logout() {
 /* 换行而不是横向滚动：任何窗口宽度下入口都不会被截断 */
 .links { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 2px; }
 .links a {
-  padding: 6px 12px; border-radius: 999px; color: var(--muted); font-size: 13px; white-space: nowrap;
+  padding: 6px 8px; border-radius: 999px; color: var(--muted); font-size: 12px; white-space: nowrap;
   transition: background-color 0.15s, color 0.15s;
 }
 .links a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
