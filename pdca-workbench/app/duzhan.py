@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -248,13 +249,39 @@ def parse_hours(times: list[str]) -> list[int]:
     return hours or [10, 15, 20]
 
 
-def groups_for_tz(tz_name: str) -> list[DuzhanGroup]:
-    """返回指定时区的督战群。"""
-    return [group for group in GROUPS if group.tz == tz_name]
+def groups_for_tz(tz_name: str, channel_ids: Iterable[str] | None = None) -> list[DuzhanGroup]:
+    """返回指定时区的督战群。
+
+    code 源：写死的 GROUPS；db 源：读 duzhan_agents 里启用的子 Agent。
+    `channel_ids` 用于「一个子 Agent 一条调度」时只取自己那个群。
+    """
+    from app.duzhan_admin import runtime
+
+    if runtime.using_db():
+        groups = runtime.groups_for_tz(tz_name)
+    else:
+        groups = [group for group in GROUPS if group.tz == tz_name]
+    if channel_ids is not None:
+        wanted = {str(item) for item in channel_ids}
+        groups = [group for group in groups if group.channel_id in wanted]
+    return groups
+
+
+def all_groups() -> list[DuzhanGroup]:
+    """所有督战群（db 源读配置，code 源读常量）。"""
+    from app.duzhan_admin import runtime
+
+    if runtime.using_db():
+        return [group for _agent, group in runtime.duzhan_agents()]
+    return list(GROUPS)
 
 
 def cron_timezones() -> list[str]:
     """调度需要注册的时区（去重、保序）。"""
+    from app.duzhan_admin import runtime
+
+    if runtime.using_db():
+        return runtime.cron_timezones()
     seen: list[str] = []
     for group in GROUPS:
         if group.tz not in seen:
@@ -289,15 +316,32 @@ def _idempotency_key(
     return base
 
 
-def _slot_path(tz_name: str, day: str, hour: int) -> Path:
+def _slot_key(channel_ids: Iterable[str] | None) -> str:
+    """同一时区多个子 Agent 各写各的快照；code 源下返回空串，文件名保持原样。"""
+    if not channel_ids:
+        return ""
+    return sorted(str(item) for item in channel_ids)[0][:8]
+
+
+def _slot_path(tz_name: str, day: str, hour: int, key: str = "") -> Path:
     slug = tz_name.lower().replace("/", "_")
     folder = get_settings().data_dir / "runtime" / "duzhan_slots"
     folder.mkdir(parents=True, exist_ok=True)
-    return folder / f"{slug}_{day}_{hour:02d}.json"
+    suffix = f"_{key}" if key else ""
+    return folder / f"{slug}_{day}_{hour:02d}{suffix}.json"
 
 
-def prepare_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict:
-    """踩点：拉群消息 + WhatsApp MCP + Vemory + VPS + 日报，写快照，不发群。"""
+def prepare_duzhan(
+    tz_name: str,
+    hour: int,
+    now: datetime | None = None,
+    *,
+    channel_ids: Iterable[str] | None = None,
+) -> dict:
+    """踩点：拉群消息 + WhatsApp MCP + Vemory + VPS + 日报，写快照，不发群。
+
+    `channel_ids` 有值时只组这些群的表（db 源下一个子 Agent 一次）。
+    """
     now = now or datetime.now(ZoneInfo(tz_name))
     if not is_duzhan_workday(tz_name, now):
         logger.info("周末不组表 {} {}", tz_name, hour)
@@ -319,7 +363,7 @@ def prepare_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict
     prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
     messages = {
         group.channel_id: render_brief(group, hour, now, ledger, prev_ledger)
-        for group in groups_for_tz(tz_name)
+        for group in groups_for_tz(tz_name, channel_ids)
     }
     payload = {
         "tz": tz_name,
@@ -330,7 +374,9 @@ def prepare_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict
         "ledger": ledger,
         "messages": messages,
     }
-    _slot_path(tz_name, day, hour).write_text(
+    slot_key = _slot_key(channel_ids)
+    slot_path = _slot_path(tz_name, day, hour, slot_key) if slot_key else _slot_path(tz_name, day, hour)
+    slot_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -338,9 +384,12 @@ def prepare_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict
     return payload
 
 
-def load_prepared(tz_name: str, hour: int, day: str) -> dict | None:
-    """读取本档组表快照；没有则返回 None。"""
-    path = _slot_path(tz_name, day, hour)
+def load_prepared(tz_name: str, hour: int, day: str, key: str = "") -> dict | None:
+    """读取本档组表快照；没有则返回 None。
+
+    `key` 为空时沿用原来的调用形状（code 源路径零改动）。
+    """
+    path = _slot_path(tz_name, day, hour, key) if key else _slot_path(tz_name, day, hour)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError):
@@ -1282,18 +1331,28 @@ def _board_text(
     return head + f"奖励台账：{reward}\n扣罚台账：{penalty}\n"
 
 
-def run_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict:
-    """整点推送：优先用提前组好的快照，没有快照则现场渲染。周末不发。"""
+def run_duzhan(
+    tz_name: str,
+    hour: int,
+    now: datetime | None = None,
+    *,
+    channel_ids: Iterable[str] | None = None,
+) -> dict:
+    """整点推送：优先用提前组好的快照，没有快照则现场渲染。周末不发。
+
+    `channel_ids` 有值时只推这些群（db 源下一个子 Agent 一次）。
+    """
     now = now or datetime.now(ZoneInfo(tz_name))
     if not is_duzhan_workday(tz_name, now):
         logger.info("周末不推送 {} {}", tz_name, hour)
         return {"tz": tz_name, "hour": hour, "sent": [], "failed": [], "skipped": "weekend"}
     day = now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
-    snapshot = load_prepared(tz_name, hour, day)
+    slot_key = _slot_key(channel_ids)
+    snapshot = load_prepared(tz_name, hour, day, slot_key)
     bodies = snapshot.get("messages") if snapshot else None
     ledger = snapshot.get("ledger") if snapshot else None
     prev_hour = prev_slot_hour(hour)
-    prev = load_prepared(tz_name, prev_hour, day) if prev_hour else None
+    prev = load_prepared(tz_name, prev_hour, day, slot_key) if prev_hour else None
     prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
     if ledger is None:
         # 快照缺失（如 2026-09-18 容器重启打断 19:45 组表）时，绝不把空台账推给群：
@@ -1306,7 +1365,7 @@ def run_duzhan(tz_name: str, hour: int, now: datetime | None = None) -> dict:
             )
     sent: list[str] = []
     failed: list[str] = []
-    for group in groups_for_tz(tz_name):
+    for group in groups_for_tz(tz_name, channel_ids):
         body = ""
         if isinstance(bodies, dict):
             body = str(bodies.get(group.channel_id) or "")
@@ -1475,7 +1534,7 @@ def poll_at_mentions() -> dict:
     channels = state["channels"]
     replied: list[str] = []
     skipped_init: list[str] = []
-    for group in GROUPS:
+    for group in all_groups():
         state_row = channels.get(group.channel_id) or {}
         last_seen = str(state_row.get("last_created_at") or "")
         answered = list(state_row.get("answered_ids") or [])

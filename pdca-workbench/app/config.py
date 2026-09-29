@@ -262,6 +262,12 @@ class Settings:
         except ValueError:
             lead = 15
         self.duzhan_lead_minutes = min(60, max(5, lead))
+        # 督战官的群清单从哪来：code = 写死在 app.duzhan.GROUPS（现状）；
+        # db = 读 duzhan_agents 里启用的子 Agent（配置页说了算）。
+        # 默认 code，切 db 前先确认库里该启用的都启用了，否则会出现"一条都不发"。
+        self.duzhan_config_source = (
+            os.environ.get("PDCA_DUZHAN_CONFIG_SOURCE", "code").strip().lower() or "code"
+        )
         # @海外渠道督战官 才回；默认跟督战开关走，1 分钟轮询。
         # 三档只出总结性内容（明细走每天 08:00 的证据 HTML）；=0 回到长版
         self.duzhan_compact = _env_flag("PDCA_DUZHAN_COMPACT", "1")

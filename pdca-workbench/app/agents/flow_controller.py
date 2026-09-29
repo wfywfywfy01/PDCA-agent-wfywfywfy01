@@ -37,8 +37,19 @@ def _slot_events_key(producer: str, event_type: str, tz_name: str, day: str, hou
     return f"{producer}:{event_type}:{tz_name}:{day}:{hour:02d}"
 
 
-def prepare_performance_slot(tz_name: str, hour: int, now: datetime | None = None) -> dict:
-    """提前采集档位快照（P2 封装）：claim -> prepare_duzhan -> 事件 -> finish。"""
+def prepare_performance_slot(
+    tz_name: str,
+    hour: int,
+    now: datetime | None = None,
+    *,
+    ledger_job: str = "duzhan_collect",
+    channel_ids: list[str] | None = None,
+) -> dict:
+    """提前采集档位快照（P2 封装）：claim -> prepare_duzhan -> 事件 -> finish。
+
+    `ledger_job` 按子 Agent 分档（db 源下同群同时刻互不抢 claim）；
+    `channel_ids` 只组这些群的表。
+    """
     from app.agents.events import write_event
 
     now = now or datetime.now(ZoneInfo(tz_name))
@@ -46,16 +57,16 @@ def prepare_performance_slot(tz_name: str, hour: int, now: datetime | None = Non
         return {"tz": tz_name, "hour": hour, "skipped": "weekend"}
     day = now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
     bucket = f"{tz_name}:{hour:02d}:{day}"
-    if not claim_run("duzhan_collect", bucket):
+    if not claim_run(ledger_job, bucket):
         return {"tz": tz_name, "hour": hour, "skipped": "already_claimed"}
     write_event("slot.collect_started", producer="flow_controller",
                 event_key=_slot_events_key("flow_controller", "collect_started", tz_name, day, hour),
                 payload={"tz": tz_name, "hour": hour, "day": day})
     try:
-        payload = prepare_duzhan(tz_name, hour, now)
+        payload = prepare_duzhan(tz_name, hour, now, channel_ids=channel_ids)
     except Exception as exc:  # noqa: BLE001
         logger.exception("督战官组表失败: {}", exc)
-        finish_run("duzhan_collect", bucket, "failed", f"{type(exc).__name__}: {exc}")
+        finish_run(ledger_job, bucket, "failed", f"{type(exc).__name__}: {exc}")
         notify("督战官组表失败", f"{tz_name} {hour:02d}:00 {exc}"[:200])
         write_event("slot.collect_failed", producer="flow_controller",
                     event_key=_slot_events_key("flow_controller", "collect_failed", tz_name, day, hour),
@@ -64,12 +75,19 @@ def prepare_performance_slot(tz_name: str, hour: int, now: datetime | None = Non
     write_event("slot.collect_completed", producer="flow_controller",
                 event_key=_slot_events_key("flow_controller", "collect_completed", tz_name, day, hour),
                 payload={"groups": len(payload.get("messages") or {})})
-    finish_run("duzhan_collect", bucket, "sent")
+    finish_run(ledger_job, bucket, "sent")
     payload["status"] = "ok"
     return payload
 
 
-def push_performance_slot(tz_name: str, hour: int, now: datetime | None = None) -> dict:
+def push_performance_slot(
+    tz_name: str,
+    hour: int,
+    now: datetime | None = None,
+    *,
+    ledger_job: str = "duzhan",
+    channel_ids: list[str] | None = None,
+) -> dict:
     """整点推送（P2 封装）：claim -> run_duzhan -> 事件 -> finish；单群失败不阻断其他群。"""
     from app.agents.events import write_event
 
@@ -78,16 +96,16 @@ def push_performance_slot(tz_name: str, hour: int, now: datetime | None = None) 
         return {"tz": tz_name, "hour": hour, "skipped": "weekend"}
     day = now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
     bucket = f"{tz_name}:{hour:02d}:{day}"
-    if not claim_run("duzhan", bucket):
+    if not claim_run(ledger_job, bucket):
         return {"tz": tz_name, "hour": hour, "skipped": "already_claimed"}
     write_event("slot.push_requested", producer="flow_controller",
                 event_key=_slot_events_key("flow_controller", "push_requested", tz_name, day, hour),
                 payload={"tz": tz_name, "hour": hour, "day": day})
     try:
-        result = run_duzhan(tz_name, hour, now)
+        result = run_duzhan(tz_name, hour, now, channel_ids=channel_ids)
     except Exception as exc:  # noqa: BLE001
         logger.exception("督战官执行失败: {}", exc)
-        finish_run("duzhan", bucket, "failed", f"{type(exc).__name__}: {exc}")
+        finish_run(ledger_job, bucket, "failed", f"{type(exc).__name__}: {exc}")
         notify("督战官推送失败", f"{tz_name} {hour:02d}:00 {exc}"[:200])
         write_event("slot.push_failed", producer="flow_controller",
                     event_key=_slot_events_key("flow_controller", "push_failed", tz_name, day, hour),
@@ -100,7 +118,7 @@ def push_performance_slot(tz_name: str, hour: int, now: datetime | None = None) 
         logger.warning("督战官部分群失败，60 秒后重试一次: {} {} {}", tz_name, hour, failed)
         time.sleep(60)
         try:
-            retry = run_duzhan(tz_name, hour, now)
+            retry = run_duzhan(tz_name, hour, now, channel_ids=channel_ids)
         except Exception as exc:  # noqa: BLE001
             logger.exception("督战官重试失败: {}", exc)
             retry = {"sent": [], "failed": failed}
@@ -113,10 +131,10 @@ def push_performance_slot(tz_name: str, hour: int, now: datetime | None = None) 
                 event_key=_slot_events_key("flow_controller", "push_result", tz_name, day, hour),
                 payload={"sent": sent, "failed": failed})
     if failed:
-        finish_run("duzhan", bucket, "failed", ",".join(failed)[:512])
+        finish_run(ledger_job, bucket, "failed", ",".join(failed)[:512])
         notify("督战官部分群失败", f"{tz_name} {hour:02d}:00 {failed}")
         return {"tz": tz_name, "hour": hour, "status": "partial", "sent": sent, "failed": failed}
-    finish_run("duzhan", bucket, "sent", ",".join(sent)[:512])
+    finish_run(ledger_job, bucket, "sent", ",".join(sent)[:512])
     return {"tz": tz_name, "hour": hour, "status": "ok", "sent": sent}
 
 
@@ -124,8 +142,14 @@ def run_ctob_slot(
     hour: int = 20,
     day: str | None = None,
     now: datetime | None = None,
+    *,
+    owners: tuple | None = None,
+    ledger_job: str = "ctob",
 ) -> dict:
-    """C转B 按档推送（P2 封装）：工作日北京 10:00 / 15:00 / 20:00，每档独立台账。"""
+    """C转B 按档推送（P2 封装）：工作日北京 10:00 / 15:00 / 20:00，每档独立台账。
+
+    `owners` 有值时只处理这些群（db 源下一个子 Agent 一次）；`ledger_job` 按子 Agent 分档。
+    """
     from app.ctob import TZ_SHANGHAI as _SH, run_ctob, slot_title
 
     now = now or datetime.now(ZoneInfo(_SH))
@@ -133,13 +157,13 @@ def run_ctob_slot(
         return {"skipped": "weekend"}
     day = day or now.astimezone(ZoneInfo(_SH)).strftime("%Y-%m-%d")
     bucket = f"{day}-{hour:02d}"
-    if not claim_run("ctob", bucket):
+    if not claim_run(ledger_job, bucket):
         return {"skipped": "already_claimed"}
     try:
-        result = run_ctob(day, now, hour=hour)
+        result = run_ctob(day, now, hour=hour, owners=owners)
     except Exception as exc:  # noqa: BLE001
         logger.exception("C转B {}失败: {}", slot_title(hour), exc)
-        finish_run("ctob", bucket, "failed", f"{type(exc).__name__}: {exc}")
+        finish_run(ledger_job, bucket, "failed", f"{type(exc).__name__}: {exc}")
         notify(f"C转B{slot_title(hour)}失败", str(exc)[:200])
         return {"status": "failed", "error": str(exc)[:300]}
     failed = result.get("failed") or []
@@ -149,17 +173,17 @@ def run_ctob_slot(
         logger.warning("C转B {}部分失败，60 秒后重试一次: {}", slot_title(hour), failed)
         time.sleep(60)
         try:
-            retry = run_ctob(day, now, hour=hour)
+            retry = run_ctob(day, now, hour=hour, owners=owners)
         except Exception as exc:  # noqa: BLE001
             logger.exception("C转B {}重试失败: {}", slot_title(hour), exc)
             retry = {"sent": [], "failed": failed}
         sent = sorted(set(sent) | set(retry.get("sent") or []))
         failed = retry.get("failed") or []
     if failed:
-        finish_run("ctob", bucket, "failed", ",".join(failed)[:512])
+        finish_run(ledger_job, bucket, "failed", ",".join(failed)[:512])
         notify(f"C转B{slot_title(hour)}部分失败", str(failed))
         return {"status": "partial", "sent": sent, "failed": failed}
-    finish_run("ctob", bucket, "sent", ",".join(sent)[:512])
+    finish_run(ledger_job, bucket, "sent", ",".join(sent)[:512])
     return {"status": "ok", "sent": sent}
 
 

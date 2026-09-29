@@ -603,16 +603,21 @@ def run_ctob(
     day: str | None = None,
     now: datetime | None = None,
     hour: int = 20,
+    owners: tuple[CtobOwner, ...] | None = None,
 ) -> dict:
-    """工作日按档向已配置的 C转B 群各推一条（10:00 / 15:00 / 20:00）。"""
+    """工作日按档向已配置的 C转B 群各推一条（10:00 / 15:00 / 20:00）。
+
+    `owners` 有值时只处理这些群（db 源下一个子 Agent 一次）；默认全部。
+    """
     clock = now or datetime.now(ZoneInfo(TZ_SHANGHAI))
     if not is_duzhan_workday(TZ_SHANGHAI, clock):
         logger.info("周末不推 C转B {}", slot_title(hour))
         return {"sent": [], "failed": [], "skipped": "weekend"}
     day = day or clock.strftime("%Y-%m-%d")
+    targets: tuple[CtobOwner, ...] = tuple(owners) if owners is not None else OWNERS
     collected: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(collect_owner, owner, day): owner for owner in OWNERS}
+        futures = {pool.submit(collect_owner, owner, day): owner for owner in targets}
         for fut in as_completed(futures):
             owner = futures[fut]
             try:
@@ -628,7 +633,7 @@ def run_ctob(
         prev_owner = load_snapshot(prev_slot[0], prev_slot[1])
     sent: list[str] = []
     failed: list[str] = []
-    for owner in OWNERS:
+    for owner in targets:
         data = collected.get(owner.channel_id) or {"summary": {}, "chats": [], "cohort": {}}
         body = render_brief(
             owner,
