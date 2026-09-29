@@ -361,10 +361,14 @@ def prepare_duzhan(
         yday = (now.astimezone(ZoneInfo(tz_name)) - timedelta(days=1)).strftime("%Y-%m-%d")
         prev = load_prepared(tz_name, 20, yday)
     prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
-    messages = {
-        group.channel_id: render_brief(group, hour, now, ledger, prev_ledger)
-        for group in groups_for_tz(tz_name, channel_ids)
-    }
+    from app.duzhan_admin import ai_rules
+
+    messages = {}
+    for group in groups_for_tz(tz_name, channel_ids):
+        override = ai_rules.focus_for(group, hour, day, ledger)
+        messages[group.channel_id] = render_brief(
+            group, hour, now, ledger, prev_ledger, focus_override=override
+        )
     payload = {
         "tz": tz_name,
         "hour": hour,
@@ -405,8 +409,13 @@ def render_brief(
     now: datetime,
     ledger: dict | None = None,
     prev_ledger: dict | None = None,
+    *,
+    focus_override: str | None = None,
 ) -> str:
-    """按群语言渲染每日三追进度表。15/20 有上一档则只报变化。"""
+    """按群语言渲染每日三追进度表。15/20 有上一档则只报变化。
+
+    `focus_override` 有值时替换「本档动作」那一句（AI 规则块生成），其余一字不动。
+    """
     local = now.astimezone(ZoneInfo(group.tz))
     day = local.strftime("%Y-%m-%d")
     slot = f"{hour:02d}:00"
@@ -428,11 +437,12 @@ def render_brief(
                 item,
                 prev_people.get(str(item.get("display") or "")),
                 use_diff,
+                focus_override,
             )
             for item in people
         ]
     else:
-        blocks = [_render_person(group, hour, day, slot, slogan, None, None, use_diff)]
+        blocks = [_render_person(group, hour, day, slot, slogan, None, None, use_diff, focus_override)]
     board = _board_text(
         ledger,
         hour,
@@ -451,6 +461,7 @@ def _render_person(
     person: dict | None,
     prev_person: dict | None = None,
     use_diff: bool = False,
+    focus_override: str | None = None,
 ) -> str:
     lang = group.lang
     reporter = (person or {}).get("display") or _REPORTER.get(group.name, group.name)
@@ -470,6 +481,7 @@ def _render_person(
     )
     if group.lang == "en":
         title, focus = _SLOT_EN.get(hour, ("Brief", ""))
+        focus = focus_override or focus
         head = (
             f"[Overseas Channel Daily Triple Chase] {title} {slot} (Paris time)\n"
             f"- Owner: {reporter} | Date: {day} | Slot: {slot}\n"
@@ -479,6 +491,8 @@ def _render_person(
         )
     else:
         title, focus = _SLOT_ZH.get(hour, ("督战", ""))
+        # 配了 AI 规则块的子 Agent：这句话由模型按当天数据生成（失败时是 None，回落固定文案）
+        focus = focus_override or focus
         tz_label = "北京时间" if group.tz == TZ_SHANGHAI else group.tz
         head = (
             f"【海外渠道业绩达标群 · 每日三追进度表】{title} {slot}（{tz_label}）\n"
@@ -1370,7 +1384,10 @@ def run_duzhan(
         if isinstance(bodies, dict):
             body = str(bodies.get(group.channel_id) or "")
         if not body:
-            body = render_brief(group, hour, now, ledger, prev_ledger)
+            from app.duzhan_admin import ai_rules
+
+            override = ai_rules.focus_for(group, hour, day, ledger)
+            body = render_brief(group, hour, now, ledger, prev_ledger, focus_override=override)
         ok = push_duzhan_message(
             body,
             group.channel_id,

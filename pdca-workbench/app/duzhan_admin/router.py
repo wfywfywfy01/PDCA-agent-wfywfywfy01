@@ -99,6 +99,15 @@ class PreviewIn(BaseModel):
         return text
 
 
+@router.get("/ai-status", summary="AI 规则今日用量（调用次数 / 缓存条数 / 上限）")
+async def ai_status(
+    _user: Annotated[User, Depends(require_admin)] = None,
+) -> dict:
+    from app.duzhan_admin import ai_rules
+
+    return ai_rules.status()
+
+
 def _get_agent(session: Session, agent_id: int) -> DuzhanAgent:
     row = session.get(DuzhanAgent, agent_id)
     if row is None:
