@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,7 +14,7 @@ from app.auth.deps import require_role
 from app.auth.models import User
 from app.database import get_session
 from app.duzhan_admin import service
-from app.duzhan_blocks import block_schema, dump_blocks, parse_blocks
+from app.duzhan_blocks import block_schema, dump_blocks, is_valid_day, parse_blocks
 from app.models.duzhan_agent import DuzhanAgent
 
 router = APIRouter(prefix="/api/duzhan-agents", tags=["duzhan-agents"])
@@ -49,9 +50,20 @@ class AgentIn(BaseModel):
         text = (value or "").strip() or "Asia/Shanghai"
         try:
             ZoneInfo(text)
-        except Exception as exc:  # noqa: BLE001 — 未知时区直接挡在入口
-            raise ValueError(f"未知时区：{text}") from exc
-        return text
+            return text
+        except Exception:  # noqa: BLE001 — 大小写写错很常见，先按小写索引找回规范名
+            canonical = _TIMEZONE_INDEX().get(text.lower())
+            if canonical:
+                return canonical
+            raise ValueError(f"未知时区：{text}")
+
+
+@lru_cache(maxsize=1)
+def _TIMEZONE_INDEX() -> dict[str, str]:
+    """小写时区名 → 规范名（用户手输 asia/shanghai 也能落到 Asia/Shanghai）。"""
+    from zoneinfo import available_timezones
+
+    return {name.lower(): name for name in available_timezones()}
 
 
 class ToggleIn(BaseModel):
@@ -61,6 +73,16 @@ class ToggleIn(BaseModel):
 class PreviewIn(BaseModel):
     day: Optional[str] = Field(default=None, max_length=10, description="试跑日期 YYYY-MM-DD")
     hour: Optional[int] = Field(default=None, ge=0, le=23, description="试跑档位（整点）")
+
+    @field_validator("day")
+    @classmethod
+    def _day_shape(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        text = value.strip()
+        if not is_valid_day(text):
+            raise ValueError("试跑日期格式应为 YYYY-MM-DD")
+        return text
 
 
 def _get_agent(session: Session, agent_id: int) -> DuzhanAgent:
