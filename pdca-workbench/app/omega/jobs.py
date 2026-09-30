@@ -175,8 +175,10 @@ def run_once(engine, *, generate=_default_generate) -> bool:
         with Session(engine) as db:
             job = db.get(OmegaJob, job_id)
             if job and job.status == "running" and job.lease_token == token:
-                job.status = "failed"
-                job.error = str(exc)[:300]
+                retry = (kind == "report" and isinstance(exc, ValueError)
+                         and str(exc) == "九维评分缺失" and job.attempts < 2)
+                job.status = "queued" if retry else "failed"
+                job.error = "" if retry else str(exc)[:300]
                 job.lease_token = ""
                 job.updated_at = utcnow()
                 db.commit()
