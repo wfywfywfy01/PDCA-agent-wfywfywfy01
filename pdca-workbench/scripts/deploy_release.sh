@@ -14,6 +14,27 @@ ENV_FILE="$WB_DIR/.env"
 STATE_DIR="$WB_DIR/data/deploy"
 LOCK_FILE="$STATE_DIR/deploy.lock"
 PUBLIC_HEALTH_URL="${PDCA_PUBLIC_HEALTH_URL:-https://pdca-workbench-teams.vertu.cn/health}"
+gate_pid=""
+gate_read_fd=""
+gate_write_fd=""
+rollout_started=0
+
+stop_omega_gate() {
+  if [[ -n "$gate_pid" ]]; then
+    local watchdog
+    printf '\n' >&"$gate_write_fd" 2>/dev/null || true
+    exec {gate_write_fd}>&-
+    exec {gate_read_fd}<&-
+    ( sleep 5; kill -KILL "$gate_pid" 2>/dev/null || true ) &
+    watchdog=$!
+    wait "$gate_pid" || true
+    kill "$watchdog" 2>/dev/null || true
+    wait "$watchdog" 2>/dev/null || true
+    gate_pid=""
+  fi
+}
+
+trap stop_omega_gate EXIT
 
 for command_name in git docker curl python3 flock; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -55,7 +76,9 @@ if ! git diff --quiet "$PREVIOUS_SHA" "$TARGET_SHA" -- \
 fi
 
 backup_database() {
-  if ! docker ps --format '{{.Names}}' | grep -qx 'pdca-workbench'; then
+  local running
+  running="$(docker ps --format '{{.Names}}')" || return 1
+  if ! grep -qx 'pdca-workbench' <<<"$running"; then
     echo "当前没有运行中的 pdca-workbench 容器，跳过旧版本备份"
     return 0
   fi
@@ -77,11 +100,75 @@ PY
   echo "发布前数据库备份完成"
 }
 
+assert_no_active_realtime_calls() {
+  local running
+  running="$(docker ps --format '{{.Names}}')" || return 1
+  if ! grep -qx 'pdca-workbench' <<<"$running"; then
+    return 0
+  fi
+  local count
+  count="$(docker exec -i pdca-workbench python - <<'PY'
+from sqlalchemy import inspect, text
+from app.database import get_engine
+
+engine = get_engine()
+with engine.connect() as db:
+    print(db.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = 'realtime' AND status = 'running'")).scalar_one() if inspect(engine).has_table("omega_jobs") else 0)
+PY
+)"
+  if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+    echo "无法确认实时语音通话状态，发布中止" >&2
+    return 1
+  fi
+  if (( count > 0 )); then
+    echo "当前有 $count 通实时语音，发布中止；通话结束后重试" >&2
+    return 1
+  fi
+}
+
+start_omega_gate() {
+  local running container code count
+  running="$(docker ps --format '{{.Names}}')" || return 1
+  container="pdca-workbench"
+  if grep -qx 'pdca-omega-worker' <<<"$running"; then container="pdca-omega-worker"; fi
+  code="$(cat <<'PY'
+import sys
+from sqlalchemy import inspect, text
+from app.database import get_engine
+engine = get_engine()
+with engine.connect() as db:
+    with db.begin():
+        if inspect(engine).has_table("omega_jobs"):
+            db.execute(text("SET LOCAL lock_timeout = '20s'"))
+            db.execute(text("LOCK TABLE omega_jobs IN SHARE MODE"))
+            count = db.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = 'realtime' AND status = 'running'")).scalar_one()
+        else:
+            count = 0
+        print(count, flush=True)
+        sys.stdin.readline()
+PY
+)"
+  coproc OMEGA_GATE { exec docker exec -i "$container" python -u -c "$code"; }
+  gate_pid="$OMEGA_GATE_PID"
+  gate_read_fd="${OMEGA_GATE[0]}"
+  gate_write_fd="${OMEGA_GATE[1]}"
+  if ! read -r -t 30 count <&"$gate_read_fd" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
+    stop_omega_gate
+    echo "无法锁定实时语音任务，发布中止" >&2
+    return 1
+  fi
+  if (( count > 0 )); then
+    stop_omega_gate
+    echo "当前有 $count 通实时语音，发布中止；通话结束后重试" >&2
+    return 1
+  fi
+}
+
 verify_public_health() {
-  local body
+  local body expected_sha="$1"
   for _ in $(seq 1 12); do
     body="$(curl -fsS --connect-timeout 5 --max-time 15 "$PUBLIC_HEALTH_URL" 2>/dev/null || true)"
-    if HEALTH_JSON="$body" python3 - <<'PY'
+    if HEALTH_JSON="$body" EXPECTED_SHA="$expected_sha" python3 - <<'PY'
 import json
 import os
 
@@ -90,7 +177,7 @@ try:
 except json.JSONDecodeError:
     raise SystemExit(1)
 vertu = payload.get("vertu_cli") or {}
-raise SystemExit(0 if payload.get("status") == "ok" and vertu.get("ok") is True else 1)
+raise SystemExit(0 if payload.get("status") == "ok" and vertu.get("ok") is True and payload.get("revision") == os.environ["EXPECTED_SHA"] else 1)
 PY
     then
       return 0
@@ -104,15 +191,46 @@ PY
 deploy_sha() {
   local sha="$1"
   local deploy_image=""
-  git switch --detach "$sha"
   if [[ -n "${PDCA_IMAGE_REGISTRY:-}" ]]; then
     deploy_image="${PDCA_IMAGE_REGISTRY}:${sha}"
-    docker pull "$deploy_image"
+    docker pull "$deploy_image" || return 1
   fi
-  PDCA_DEPLOY_IMAGE="$deploy_image" bash "$WB_DIR/scripts/docker_up.sh"
-  verify_public_health
+  if [[ "$sha" == "$TARGET_SHA" ]]; then
+    local running
+    running="$(docker ps --format '{{.Names}}')" || exit 1
+    if grep -qx 'pdca-workbench' <<<"$running"; then
+      start_omega_gate || exit 75
+      kill -0 "$gate_pid" 2>/dev/null || exit 1
+      rollout_started=1
+      if ! docker stop --time 30 pdca-workbench >/dev/null; then
+        local old_state=""
+        for _ in {1..8}; do
+          if ! old_state="$(docker inspect --format '{{.State.Running}}' pdca-workbench 2>/dev/null)"; then
+            old_state=""
+          fi
+          if [[ "$old_state" == false ]]; then break; fi
+          sleep 5
+        done
+        stop_omega_gate
+        if [[ "$old_state" == false ]]; then
+          docker start pdca-workbench >/dev/null || exit 1
+        elif [[ "$old_state" != true ]]; then
+          echo "无法确认旧容器状态，需要人工检查并恢复服务" >&2
+          exit 1
+        fi
+        echo "旧容器停止命令失败；已保持或恢复旧容器，本次发布中止" >&2
+        exit 1
+      fi
+      stop_omega_gate
+    fi
+  fi
+  rollout_started=1
+  git switch --detach "$sha" || return 1
+  PDCA_DEPLOY_IMAGE="$deploy_image" PDCA_SOURCE_REVISION="$sha" bash "$WB_DIR/scripts/docker_up.sh" || return 1
+  verify_public_health "$sha"
 }
 
+assert_no_active_realtime_calls
 backup_database
 echo "开始发布 $PREVIOUS_SHA -> $TARGET_SHA"
 if deploy_sha "$TARGET_SHA"; then
@@ -123,6 +241,7 @@ if deploy_sha "$TARGET_SHA"; then
 fi
 
 echo "PDCA 发布失败" >&2
+if [[ "$rollout_started" -eq 0 ]]; then exit 1; fi
 if [[ "$SCHEMA_CHANGED" -eq 1 ]]; then
   echo "本次包含数据库结构变更，为避免不兼容，不执行盲目代码回退；请结合发布前备份人工处理" >&2
   exit 1

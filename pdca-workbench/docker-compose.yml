@@ -13,6 +13,8 @@ services:
     build:
       context: ..
       dockerfile: pdca-workbench/Dockerfile
+      args:
+        SOURCE_REVISION: ${PDCA_SOURCE_REVISION:-unknown}
     image: ${PDCA_IMAGE:-pdca-workbench:local}
     container_name: pdca-workbench
     ports:

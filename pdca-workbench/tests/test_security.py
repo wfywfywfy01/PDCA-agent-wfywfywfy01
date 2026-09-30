@@ -78,6 +78,29 @@ class InputValidationTests(unittest.TestCase):
         self.assertIn("PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080", script)
         self.assertIn("os.chown(p,10001,10001); os.chmod(p,0o400)", script)
 
+    def test_remote_deploy_blocks_active_realtime_calls_before_stopping_web(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "deploy_remote_docker.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("function Assert-NoActiveRealtimeCalls", script)
+        self.assertIn("LOCK TABLE omega_jobs IN SHARE MODE", script)
+        stop = script.index('Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldObject.Id)')
+        self.assertLess(
+            script.index("$omegaGate = Start-OmegaDeploymentGate", script.index("$oldExists =")),
+            stop,
+        )
+        release = (
+            Path(__file__).resolve().parents[1] / "scripts" / "deploy_release.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("LOCK TABLE omega_jobs IN SHARE MODE", release)
+        self.assertIn("assert_no_active_realtime_calls\nbackup_database", release)
+        self.assertLess(release.index("start_omega_gate || exit 75", release.index("deploy_sha()")),
+                        release.index('git switch --detach "$sha"'))
+        self.assertIn('payload.get("revision") == os.environ["EXPECTED_SHA"]', release)
+        self.assertIn('PDCA_SOURCE_REVISION="$sha"', release)
+        compose = (Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("SOURCE_REVISION: ${PDCA_SOURCE_REVISION:-unknown}", compose)
+
     def test_shared_shell_injection_supports_body_attributes(self):
         source = '<!doctype html><html><body class="dashboard">content</body></html>'
         result = inject_vue_shell(source)
