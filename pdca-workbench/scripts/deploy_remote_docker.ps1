@@ -518,13 +518,20 @@ function Start-OmegaWorker {
         [hashtable]$Secrets,
         [hashtable]$Agent
     )
-    if ((Read-OptionalDotEnvValue "PDCA_OMEGA_ENABLED") -ne "1") { return }
+    $name = "pdca-omega-worker"
+    if ((Read-OptionalDotEnvValue "PDCA_OMEGA_ENABLED") -ne "1") {
+        $existing = Invoke-DockerProcess -DockerArgs @("inspect", $name)
+        if ($existing.ExitCode -eq 0) {
+            Invoke-Docker -DockerArgs @("stop", "--time", "30", $name) | Out-Null
+            Invoke-Docker -DockerArgs @("rm", $name) | Out-Null
+        }
+        return
+    }
     $provider = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_PROVIDER"
     $model = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_MODEL"
     if (-not ($provider -and $model -and $Secrets.PDCA_SUPERVISOR_API_KEY)) {
         throw "Omega worker requires a configured text model"
     }
-    $name = "pdca-omega-worker"
     $backupName = "$name-rollback-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     $existing = Invoke-DockerProcess -DockerArgs @("inspect", $name)
     $oldWorker = if ($existing.ExitCode -eq 0) { @($existing.StdOut | ConvertFrom-Json)[0] } else { $null }
@@ -655,9 +662,27 @@ if ($currentInspectResult.ExitCode -eq 0 -and $currentInspect) {
     $currentObject = @($inspectJson | ConvertFrom-Json)[0]
     $currentRevision = $currentObject.Config.Labels.'com.vertu.pdca.revision'
 }
+$omegaEnabled = (Read-OptionalDotEnvValue "PDCA_OMEGA_ENABLED") -eq "1"
+$webOmegaEnabled = $currentObject -and ($currentObject.Config.Env -contains "PDCA_OMEGA_ENABLED=1")
+$workerInspect = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-omega-worker")
+$workerExists = $workerInspect.ExitCode -eq 0
+$workerRunning = $false
+$workerRevision = ""
+if ($workerExists -and $workerInspect.StdOut) {
+    $workerObject = @($workerInspect.StdOut | ConvertFrom-Json)[0]
+    $workerRunning = $workerObject.State.Status -eq "running"
+    $workerRevision = $workerObject.Config.Labels.'com.vertu.pdca.revision'
+}
+$workerReady = if ($omegaEnabled) { $workerRunning -and $workerRevision -eq $Sha } else { -not $workerExists }
+$webReady = $false
 if ($currentRevision -eq $Sha -and -not $Force) {
-    $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 20
-    if ($health.status -eq "ok" -and $health.revision -eq $Sha) {
+    try {
+        $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 20
+        $webReady = $health.status -eq "ok" -and $health.revision -eq $Sha
+    } catch {
+        Write-Warning "Public health check failed; continuing deployment"
+    }
+    if ($webReady -and $workerReady -and $webOmegaEnabled -eq $omegaEnabled) {
         Write-Output "Already deployed and healthy: $Sha"
         Complete-DeploymentRun -Status "success" -Message "Already deployed and healthy: $Sha"
         exit 0
@@ -767,6 +792,29 @@ $script:SensitiveValues = @(
     $secrets.PDCA_QWEN_REALTIME_API_KEY,
     $secrets.PDCA_DOUBAO_REALTIME_API_KEY
 )
+
+$sharedConfig = @{
+    PDCA_DATABASE_URL = $secrets.PDCA_DATABASE_URL
+    PDCA_SECRET_KEY = $secrets.PDCA_SECRET_KEY
+    PDCA_SUPERVISOR_PROVIDER = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_PROVIDER"
+    PDCA_SUPERVISOR_MODEL = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_MODEL"
+    PDCA_SUPERVISOR_API_KEY = $secrets.PDCA_SUPERVISOR_API_KEY
+}
+$webConfigMatches = $webOmegaEnabled
+if ($webConfigMatches) {
+    foreach ($name in $sharedConfig.Keys) {
+        if ($currentObject.Config.Env -cnotcontains "$name=$($sharedConfig[$name])") {
+            $webConfigMatches = $false
+            break
+        }
+    }
+}
+if ($webReady -and $webConfigMatches -and -not $workerReady -and -not $Force) {
+    Write-Output "Repairing Omega worker for $Sha"
+    Start-OmegaWorker $image $Sha $secrets $agent
+    Complete-DeploymentRun -Status "success" -Message "Omega worker repaired: $Sha"
+    exit 0
+}
 
 Write-Output "Ensuring writable PDCA runtime directories"
 Initialize-RemoteRuntimeDirectories -ReleasePath $releasePath
