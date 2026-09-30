@@ -472,9 +472,44 @@ class OmegaFlowTests(unittest.TestCase):
                         "text": "I have paid"}],
         })
         self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: json.dumps(fabricated)))
+        self.assertEqual(self.client.get(f"/api/omega/jobs/{report_job['id']}").json()["status"], "queued")
+        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: json.dumps(fabricated)))
         failed = self.client.get(f"/api/omega/jobs/{report_job['id']}").json()
         self.assertEqual(failed["status"], "failed")
         self.assertIn("引文", failed["error"])
+
+    def test_report_retries_missing_sales_quote_once(self):
+        from app.omega.jobs import run_once
+        from app.omega.reports import WEIGHTS
+
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        game = self.client.post("/api/omega/sessions", json={"case_id": case["id"]}).json()
+        utterance = "Can you confirm a date?"
+        self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
+            "request_key": "turn-missing-quote", "text": utterance}).raise_for_status()
+        self.assertTrue(run_once(self.engine, generate=lambda *_: "I need a plan."))
+        self.client.post(f"/api/omega/sessions/{game['id']}/finish", json={"request_key": "finish-missing-quote"}).raise_for_status()
+        queued = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={
+            "request_key": "report-missing-quote"}).json()
+        calls = []
+        segment = self.client.get(f"/api/omega/sessions/{game['id']}").json()["segments"][0]
+
+        def generate(*_):
+            calls.append(True)
+            dimensions = [{"key": key, "score": None, "reason": "No evidence", "quotes": []}
+                          for key in WEIGHTS]
+            dimensions[1].update(score=6, reason="Asked about date", quotes=[] if len(calls) == 1 else [{
+                "segment_id": segment["id"], "speaker": "sales", "start": 0,
+                "end": len(utterance), "text": utterance}])
+            return json.dumps({"outcome": {"status": "unverified", "reason": "No commitment", "quotes": []},
+                               "dimensions": dimensions})
+
+        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertEqual(self.client.get(f"/api/omega/jobs/{queued['id']}").json()["status"], "queued")
+        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertEqual(self.client.get(f"/api/omega/jobs/{queued['id']}").json()["status"], "succeeded")
+        self.assertEqual(len(calls), 2)
 
     def test_incomplete_scorecard_is_retried_once_without_publishing_it(self):
         from app.omega.jobs import run_once
@@ -719,6 +754,19 @@ class OmegaReportGenerationTests(unittest.TestCase):
         }])
         self.assertIn("quote_candidates", messages[0]["content"])
         self.assertIn("只给一项下轮可练的具体动作", messages[0]["content"])
+
+    def test_long_voice_turn_gets_short_exact_quote_candidates(self):
+        from app.omega.context import coach_messages
+        from app.omega.reports import WEIGHTS, verify_quote
+
+        text = "这段谈话与付款无关。" * 80 + "第一笔款最早哪天能付？"
+        prompt = json.loads(coach_messages({}, [{"id": "long-turn", "speaker": "sales", "text": text}],
+                                           WEIGHTS)[1]["content"])
+        candidates = prompt["quote_candidates"]
+        self.assertGreater(len(candidates), 1)
+        self.assertTrue(all(len(quote["text"]) <= 160 and verify_quote(quote, {
+            "long-turn": {"id": "long-turn", "speaker": "sales", "text": text}}) for quote in candidates))
+        self.assertTrue(any("第一笔款最早哪天能付" in quote["text"] for quote in candidates))
 
     def test_deepseek_report_uses_json_without_thinking(self):
         from app.omega.jobs import _default_generate

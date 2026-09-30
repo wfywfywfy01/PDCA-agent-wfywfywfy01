@@ -56,9 +56,20 @@ def actor_messages(snapshot: dict, segments: list[dict], *, focus: str = "") -> 
 def coach_messages(snapshot: dict, segments: list[dict], weights: dict[str, int], *, goal_timing: str = "pre") -> list[dict[str, str]]:
     transcript = [{"id": item["id"], "speaker": item["speaker"], "text": item["text"]}
                   for item in segments]
-    quote_candidates = [{"segment_id": item["id"], "speaker": item["speaker"],
-                         "start": 0, "end": len(item["text"]), "text": item["text"]}
-                        for item in segments]
+    quote_candidates = []
+    for item in segments:
+        content = item["text"]
+        start = 0
+        while start < len(content):
+            end = min(start + 160, len(content))
+            if end < len(content):
+                boundary = max(content.rfind(mark, start + 80, end) for mark in "。！？!?；;")
+                if boundary >= 0:
+                    end = boundary + 1
+            if content[start:end].strip():
+                quote_candidates.append({"segment_id": item["id"], "speaker": item["speaker"],
+                                         "start": start, "end": end, "text": content[start:end]})
+            start = end
     return [
         {"role": "system", "content": (
             "你是销售谈判教练。只依据逐字稿和确认的目标作判断。输出一个 JSON 对象，不要 Markdown。"
