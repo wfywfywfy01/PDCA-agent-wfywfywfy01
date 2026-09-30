@@ -81,6 +81,16 @@ const textReady = ref(false)
 const voiceConnecting = ref(false)
 const voiceConnected = ref(false)
 const voiceInterrupted = ref(false)
+const voiceSessionKey = 'omega-active-voice-session'
+function rememberedVoiceSession() {
+  try { return sessionStorage.getItem(voiceSessionKey) } catch { return null }
+}
+function rememberVoiceSession(id: string | null) {
+  try {
+    if (id) sessionStorage.setItem(voiceSessionKey, id)
+    else sessionStorage.removeItem(voiceSessionKey)
+  } catch { /* Voice still works when browser storage is unavailable. */ }
+}
 const voiceClosing = ref(false)
 const voiceSpeaking = ref(false)
 const voiceCaption = ref('')
@@ -357,8 +367,9 @@ async function sendTurn() {
 async function finishSession() {
   if (!chosenSession.value) return
   const sessionId = chosenSession.value.id
+  if (rememberedVoiceSession() === sessionId) rememberVoiceSession(null)
   stopCapture(true)
-  stopVoice()
+  stopVoice(true)
   window.speechSynthesis?.cancel()
   await run(async () => {
     const ended = await apiPost<SessionRow>(`/api/omega/sessions/${sessionId}/finish`, { request_key: key() })
@@ -466,7 +477,11 @@ function stopCapture(discard = false) {
   }
   recording.value = false
 }
-function stopVoice() {
+function stopVoice(intentional = false) {
+  if (!intentional && voiceConnected.value && !voiceClosing.value) {
+    voiceInterrupted.value = true
+    if (chosenSession.value?.id) rememberVoiceSession(chosenSession.value.id)
+  }
   voiceToken++
   voiceSocket?.close()
   voiceSocket = undefined
@@ -487,6 +502,8 @@ function stopVoice() {
 async function hangupVoice() {
   const socket = voiceSocket
   const sessionId = chosenSession.value?.id
+  if (sessionId && rememberedVoiceSession() === sessionId) rememberVoiceSession(null)
+  voiceInterrupted.value = false
   if (!socket || !sessionId) { stopVoice(); return }
   voiceClosing.value = true
   voiceWorklet?.disconnect()
@@ -611,6 +628,7 @@ async function startVoice() {
         }
         voiceConnecting.value = false
         voiceConnected.value = true
+        rememberVoiceSession(sessionId)
       } catch (err) { if (token === voiceToken) { error.value = detail(err); stopVoice() } }
     }
     socket.onerror = () => { if (token === voiceToken && !voiceClosing.value) error.value = '实时语音网络连接失败' }
@@ -714,10 +732,11 @@ function speakLastReply() {
   speech.lang = /[\u4e00-\u9fff]/.test(last.text) ? 'zh-CN' : 'en-US'
   window.speechSynthesis.speak(speech)
 }
-watch(() => chosenSession.value?.id, () => {
+watch(() => chosenSession.value?.id, (id, previousId) => {
+  if (previousId && previousId !== id && rememberedVoiceSession() === previousId) rememberVoiceSession(null)
   stopCapture(true)
-  stopVoice()
-  voiceInterrupted.value = false
+  stopVoice(true)
+  voiceInterrupted.value = chosenSession.value?.status === 'active' && rememberedVoiceSession() === chosenSession.value.id
   window.speechSynthesis?.cancel()
 })
 watch(callOpen, async (open) => {
@@ -738,7 +757,12 @@ onMounted(async () => {
     me.value = { id: status.actor_id, role: status.role }
     if (['manager', 'admin'].includes(status.role)) members.value = await apiGet('/api/omega/team-members')
     await loadLists()
-    if (cases.value.length) showCase(cases.value[0]!)
+    const remembered = rememberedVoiceSession()
+    if (remembered && sessions.value.some((row) => row.id === remembered && row.status === 'active')) await openSession(remembered)
+    else {
+      if (remembered) rememberVoiceSession(null)
+      if (cases.value.length) showCase(cases.value[0]!)
+    }
   } catch (err) {
     if (err instanceof HttpError && err.status === 401) router.replace({ path: '/login', query: { next: '/omega' } })
     else error.value = detail(err)
