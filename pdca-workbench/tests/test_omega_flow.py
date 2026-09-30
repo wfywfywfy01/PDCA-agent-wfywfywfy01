@@ -624,6 +624,7 @@ class OmegaReportGenerationTests(unittest.TestCase):
             "start": 0, "end": len(segment["text"]), "text": segment["text"],
         }])
         self.assertIn("quote_candidates", messages[0]["content"])
+        self.assertIn("只给一项下轮可练的具体动作", messages[0]["content"])
 
     def test_deepseek_report_uses_json_without_thinking(self):
         from app.omega.jobs import _default_generate
