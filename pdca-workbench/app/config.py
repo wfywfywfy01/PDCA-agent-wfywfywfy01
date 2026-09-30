@@ -268,6 +268,14 @@ class Settings:
         self.duzhan_config_source = (
             os.environ.get("PDCA_DUZHAN_CONFIG_SOURCE", "code").strip().lower() or "code"
         )
+        # 小黑屋（直营门店）开单晒单自动祝贺：机器人凭证走 PDCA_HEIWU_BOT_*，
+        # 没配就整条链路安静跳过（见 app/heiwu.py）。
+        self.heiwu_enabled = _env_flag("PDCA_HEIWU_ENABLED", "0")
+        try:
+            heiwu_minutes = _env_int("PDCA_HEIWU_POLL_MINUTES", "5")
+        except ValueError:
+            heiwu_minutes = 5
+        self.heiwu_poll_minutes = min(60, max(1, heiwu_minutes))
         # @海外渠道督战官 才回；默认跟督战开关走，1 分钟轮询。
         # 三档只出总结性内容（明细走每天 08:00 的证据 HTML）；=0 回到长版
         self.duzhan_compact = _env_flag("PDCA_DUZHAN_COMPACT", "1")

@@ -985,6 +985,17 @@ def mto_temp_cleanup_job() -> None:
         notify("MTO 临时文件清理失败", str(exc)[:200])
 
 
+def heiwu_poll_job() -> None:
+    """扫小黑屋群：有新的开单晒单就回一条祝贺（机器人身份，同一条只回一次）。"""
+    from app.heiwu import poll_once
+
+    result = poll_once()
+    if result.get("skipped"):
+        logger.info("小黑屋本轮跳过 {}", result["skipped"])
+    elif result.get("replied"):
+        logger.info("小黑屋本轮已祝贺 {}", result["replied"])
+
+
 def duzhan_at_poll_job() -> None:
     """每分钟扫达标群：只有 @海外渠道督战官 才回复。"""
     from app.duzhan import poll_at_mentions
@@ -1266,6 +1277,18 @@ def start_scheduler() -> BackgroundScheduler | None:
     if getattr(settings, "duzhan_enabled", False) and config_from_db:
         registered = duzhan_runtime.register_agent_jobs(_scheduler)
         logger.info("督战官按库注册完成：{} 个子 Agent", len(registered))
+
+    # 小黑屋：开单晒单自动祝贺（默认关；配了机器人凭证才开）
+    if getattr(settings, "heiwu_enabled", False):
+        _scheduler.add_job(
+            heiwu_poll_job,
+            trigger="interval",
+            minutes=int(getattr(settings, "heiwu_poll_minutes", 5) or 5),
+            id="heiwu_poll",
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info("小黑屋祝贺机器人已注册：每 {} 分钟扫一轮", getattr(settings, "heiwu_poll_minutes", 5))
 
     if getattr(settings, "duzhan_enabled", False) and not config_from_db:
         from zoneinfo import ZoneInfo

@@ -77,6 +77,26 @@ def push_duzhan_message(
     )
 
 
+def push_as_bot(
+    message: str,
+    channel_id: str,
+    *,
+    app_id: str,
+    app_secret: str,
+    parent_message_id: str = "",
+    idempotency_key: str = "",
+) -> bool:
+    """以任意自有机器人身份推一条消息到群（小黑屋管理员这类专用机器人用）。"""
+    return _push(
+        message,
+        channel_id,
+        app_id=app_id,
+        app_secret=app_secret,
+        parent_message_id=parent_message_id,
+        idempotency_key=idempotency_key,
+    )
+
+
 def _push(
     message: str,
     channel_id: str,
