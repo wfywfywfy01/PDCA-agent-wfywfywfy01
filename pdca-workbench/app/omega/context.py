@@ -52,7 +52,7 @@ def coach_messages(snapshot: dict, segments: list[dict], weights: dict[str, int]
             "JSON 字段：outcome={status,reason,quotes}; dimensions 为九个对象，每项含 key,score,reason,quotes；"
             "另列 commitments、concession_costs、hard_limit_findings 三个事实数组；"
             "每个事实含说明与 quotes，没有原话就不要列为事实。"
-            "next_practice 只给一项下轮可练的具体动作：针对本场出现的卡点，写出销售该问的一句话或该索取的证据；"
+            "next_practice 必须是纯字符串，只给一项下轮可练的具体动作：针对本场出现的卡点，写出销售该问的一句话或该索取的证据；"
             "不编造客户事实，没有足够信息时先建议澄清。"
             "score 可为 null，证据不足时必须为 null。quotes 每项含 segment_id,speaker,start,end,text，"
             "start/end 是原文 Unicode 字符偏移，end 不包含末尾字符。"

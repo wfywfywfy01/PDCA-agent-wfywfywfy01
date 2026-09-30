@@ -612,6 +612,16 @@ class OmegaFlowTests(unittest.TestCase):
 
 
 class OmegaReportGenerationTests(unittest.TestCase):
+    def test_report_next_practice_is_readable_when_model_returns_an_object(self):
+        from app.omega.reports import WEIGHTS, validate_report
+
+        report = {"outcome": {"status": "unverified", "reason": "No evidence", "quotes": []},
+                  "dimensions": [{"key": name, "score": None, "reason": "No evidence", "quotes": []}
+                                 for name in WEIGHTS],
+                  "next_practice": {"动作": "先问客户最担心哪个交付节点。", "引用": []}}
+        checked = validate_report(json.dumps(report, ensure_ascii=False), [])
+        self.assertEqual(checked["next_practice"], "先问客户最担心哪个交付节点。")
+
     def test_coach_supplies_exact_quote_candidates(self):
         from app.omega.context import coach_messages
         from app.omega.reports import WEIGHTS

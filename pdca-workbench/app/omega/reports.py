@@ -89,6 +89,10 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
             check_quotes(item.get("quotes", []))
             if not item.get("quotes"):
                 raise ValueError("事实项缺少原话")
+    next_practice = report.get("next_practice", "")
+    if isinstance(next_practice, dict):
+        next_practice = next_practice.get("动作", next_practice.get("action", ""))
+    report["next_practice"] = next_practice.strip()[:1000] if isinstance(next_practice, str) else ""
     report["score"] = {"earned": earned, "available": available,
                        "coverage_percent": available, "total": earned if available == 100 else None}
     report["score_weights"] = weights
