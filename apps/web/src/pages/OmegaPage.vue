@@ -37,7 +37,7 @@ type SessionRow = { id: string; case_id: string; owner_id: number; assignment_id
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
-type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
+type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
 type Assignment = { id: string; case_id: string; assignee_id: number; source_report_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
 
@@ -126,6 +126,15 @@ const coachingPoint = computed(() => {
   const weights = chosenSession.value?.case_snapshot?.score_weights || defaultWeights
   const dimensions = (report.value?.content.dimensions || []).filter((row) => row.score !== null && row.quotes?.length && weights[row.key])
   return dimensions.sort((a, b) => (a.score! / weights[a.key]!) - (b.score! / weights[b.key]!))[0] || null
+})
+const reportNextPractice = computed(() => {
+  const value = report.value?.content.next_practice
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') {
+    const action = value['动作'] || value.action
+    if (typeof action === 'string') return action
+  }
+  return ''
 })
 const missingDraftFields = computed(() => {
   const fields: string[] = []
@@ -988,7 +997,7 @@ onBeforeUnmount(() => {
           <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : '查看本场复盘' }}</strong><p v-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="!textReady || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : '生成复盘' }}</button></div>
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
             <p class="omega-report-result"><strong>{{ outcomeNames[report.content.outcome?.status || 'unverified'] || '证据不足' }}</strong>　{{ report.content.outcome?.reason }}</p>
-            <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || report.content.next_practice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]">“{{ coachingPoint.quotes[0].text }}”</blockquote><p v-if="coachingPoint && report.content.next_practice" class="omega-report-next"><strong>下次尝试：</strong>{{ report.content.next_practice }}</p></div>
+            <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]">“{{ coachingPoint.quotes[0].text }}”</blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
             <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">再练一轮</button>
             <details class="omega-report-details"><summary>查看原话证据和完整评分</summary>
               <blockquote v-for="quote in report.content.outcome?.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote>

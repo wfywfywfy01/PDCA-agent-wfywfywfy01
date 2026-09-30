@@ -22,6 +22,7 @@ def main() -> None:
             "outcome": {"status": "unverified", "reason": "尚无书面确认", "quotes": []},
             "commitments": [], "concession_costs": [], "hard_limit_findings": [],
             "dimensions": [], "score": {"earned": 0, "available": 0, "total": None},
+            "next_practice": {"动作": "下次先确认交付负责人。"},
         }, "reviews": reviews,
     }
 
@@ -252,6 +253,7 @@ def main() -> None:
         expect(page.get_by_text("请发书面时间表。")).to_be_visible(timeout=5000)
         page.get_by_role("button", name="结束并复盘").click()
         expect(page.get_by_role("heading", name="复盘报告")).to_be_visible(timeout=5000)
+        expect(page.get_by_text("下次先确认交付负责人。")).to_be_visible()
         page.get_by_label("点评").fill("继续练习锁定书面日期")
         page.get_by_role("button", name="追加点评").click()
         expect(page.get_by_text("继续练习锁定书面日期")).to_be_visible()
