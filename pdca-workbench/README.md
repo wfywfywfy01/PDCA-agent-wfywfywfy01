@@ -173,6 +173,13 @@ AI 客户端使用 `https://pdca-workbench-teams.vertu.cn/mcp/`。先调用
 `Authorization: Bearer <token>` 请求头。MCP 仅提供只读工具：列出当前账号可见
 经销商、检索脱敏证据、生成带引用回答；权限与网页完全一致。
 
+## 实时语音发布
+
+`deploy_remote_docker.ps1` 和 `deploy_release.sh` 会在切换网页容器前锁定
+`omega_jobs` 的写入，并检查所有 `running` 的实时语音任务。有通话时发布中止，通话结束后重试；
+`-Force` 也不会跳过此保护。若无人通话却持续被拦截，先核实旧容器及 WebSocket 已停止，
+再审计并清理孤儿任务。租约过期不能单独证明连接已断开。
+
 ## HTTPS
 
 ```powershell

@@ -146,6 +146,79 @@ function Invoke-Docker {
     return $result.StdOut
 }
 
+function Assert-NoActiveRealtimeCalls {
+    $code = 'from sqlalchemy import text; from app.database import get_engine; c=get_engine().connect(); print(c.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = ''realtime'' AND status = ''running''")).scalar_one()); c.close()'
+    $result = (Invoke-Docker -DockerArgs @("exec", "pdca-workbench", "python", "-c", $code)).Trim()
+    $count = 0
+    if (-not [int]::TryParse($result, [ref]$count) -or $count -lt 0) {
+        throw "Unable to verify active Omega realtime calls; deployment blocked"
+    }
+    if ($count -gt 0) {
+        throw "Deployment blocked: $count active Omega realtime call(s); retry after calls end"
+    }
+}
+
+function Stop-OmegaDeploymentGate {
+    param([System.Diagnostics.Process]$Gate)
+    if (-not $Gate) { return }
+    try {
+        if (-not $Gate.HasExited) {
+            try { $Gate.StandardInput.WriteLine(""); $Gate.StandardInput.Close() } catch { }
+            if (-not $Gate.WaitForExit(5000)) {
+                $Gate.Kill()
+                [void]$Gate.WaitForExit(5000)
+            }
+        }
+    } finally { $Gate.Dispose() }
+}
+
+function Start-OmegaDeploymentGate {
+    $code = @'
+import sys
+from sqlalchemy import text
+from app.database import get_engine
+with get_engine().connect() as db:
+    with db.begin():
+        db.execute(text("SET LOCAL lock_timeout = '20s'"))
+        db.execute(text("LOCK TABLE omega_jobs IN SHARE MODE"))
+        count = db.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = 'realtime' AND status = 'running'")).scalar_one()
+        print(count, flush=True)
+        sys.stdin.readline()
+'@
+    $gateContainer = if ($workerRunning) { "pdca-omega-worker" } else { "pdca-workbench" }
+    $args = @("-H", $DockerHost, "exec", "-i", $gateContainer, "python", "-u", "-c", $code)
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = "docker"
+    $startInfo.Arguments = (($args | ForEach-Object { ConvertTo-NativeArgument $_ }) -join " ")
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $startInfo.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
+    $gate = New-Object System.Diagnostics.Process
+    $gate.StartInfo = $startInfo
+    $ready = $false
+    try {
+        if (-not $gate.Start()) { throw "Unable to start Omega deployment gate" }
+        $stderr = $gate.StandardError.ReadToEndAsync()
+        $line = $gate.StandardOutput.ReadLineAsync()
+        if (-not $line.Wait(30000)) { throw "Timed out waiting for Omega deployment gate" }
+        $count = 0
+        if (-not [int]::TryParse($line.Result, [ref]$count) -or $count -lt 0) {
+            throw "Unable to verify active Omega realtime calls; deployment blocked"
+        }
+        if ($count -gt 0) {
+            throw "Deployment blocked: $count active Omega realtime call(s); retry after calls end"
+        }
+        $ready = $true
+        return $gate
+    } finally {
+        if (-not $ready) { Stop-OmegaDeploymentGate $gate }
+    }
+}
+
 function Complete-DeploymentRun {
     param(
         [ValidateSet("success", "failed")][string]$Status,
@@ -816,6 +889,8 @@ if ($webReady -and $webConfigMatches -and -not $workerReady -and -not $Force) {
     exit 0
 }
 
+if ($currentObject -and $currentObject.State.Running -and $webOmegaEnabled) { Assert-NoActiveRealtimeCalls }
+
 Write-Output "Ensuring writable PDCA runtime directories"
 Initialize-RemoteRuntimeDirectories -ReleasePath $releasePath
 
@@ -859,10 +934,20 @@ if ($oldExists) {
     if ($candidateRelease) { $oldRelease = $candidateRelease }
 }
 
+$omegaGate = $null
+if ($oldExists -and $oldObject.State.Running -and $webOmegaEnabled) {
+    $omegaGate = Start-OmegaDeploymentGate
+    if ($omegaGate.HasExited) {
+        Stop-OmegaDeploymentGate $omegaGate
+        throw "Omega deployment gate exited before the old container was stopped"
+    }
+}
 try {
     if ($oldExists) {
         # Include stop/rename in recovery; a timeout may still complete remotely.
         Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldObject.Id) | Out-Null
+        Stop-OmegaDeploymentGate $omegaGate
+        $omegaGate = $null
         Invoke-Docker -DockerArgs @("rename", $oldObject.Id, $rollbackName) | Out-Null
     }
     Write-Output "Starting PDCA container for $Sha"
@@ -921,6 +1006,8 @@ try {
         Wait-ContainerHealthy
     }
     throw
+} finally {
+    Stop-OmegaDeploymentGate $omegaGate
 }
 
 try {

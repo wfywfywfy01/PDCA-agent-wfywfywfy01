@@ -80,6 +80,7 @@ const realtimeReady = ref(false)
 const textReady = ref(false)
 const voiceConnecting = ref(false)
 const voiceConnected = ref(false)
+const voiceInterrupted = ref(false)
 const voiceClosing = ref(false)
 const voiceSpeaking = ref(false)
 const voiceCaption = ref('')
@@ -553,6 +554,7 @@ async function startVoice() {
   const token = ++voiceToken
   const sessionId = chosenSession.value.id
   voiceConnecting.value = true
+  voiceInterrupted.value = false
   error.value = ''
   try {
     voiceOutput = new AudioContext()
@@ -579,8 +581,12 @@ async function startVoice() {
       if (event.data instanceof ArrayBuffer) { playVoiceAudio(event.data); return }
       try {
         const message = JSON.parse(event.data) as { type: string; message?: string; speaker?: string; text?: string }
-        if (message.type === 'error') { if (!voiceClosing.value) { error.value = message.message || '实时语音连接失败'; stopVoice() } return }
-        if (message.type === 'closed') { stopVoice(); return }
+        if (message.type === 'error') { if (!voiceClosing.value) { error.value = message.message || '实时语音连接失败'; voiceInterrupted.value = true; stopVoice() } return }
+        if (message.type === 'closed') {
+          if (!voiceClosing.value) voiceInterrupted.value = true
+          stopVoice()
+          return
+        }
         if (message.type === 'interrupt') { stopVoicePlayback(); return }
         if (message.type === 'caption') { voiceCaption.value = `${message.speaker === 'sales' ? '你' : '对手'}：${message.text || ''}`; return }
         if (message.type === 'segment') { await refreshSession(); return }
@@ -608,7 +614,11 @@ async function startVoice() {
       } catch (err) { if (token === voiceToken) { error.value = detail(err); stopVoice() } }
     }
     socket.onerror = () => { if (token === voiceToken && !voiceClosing.value) error.value = '实时语音网络连接失败' }
-    socket.onclose = () => { if (voiceSocket === socket && token === voiceToken) stopVoice() }
+    socket.onclose = () => {
+      if (voiceSocket !== socket || token !== voiceToken) return
+      if (!voiceClosing.value) voiceInterrupted.value = true
+      stopVoice()
+    }
   } catch (err) { if (token === voiceToken) { error.value = detail(err); stopVoice() } }
 }
 function closeAudioContext(context: AudioContext) {
@@ -707,6 +717,7 @@ function speakLastReply() {
 watch(() => chosenSession.value?.id, () => {
   stopCapture(true)
   stopVoice()
+  voiceInterrupted.value = false
   window.speechSynthesis?.cancel()
 })
 watch(callOpen, async (open) => {
@@ -861,9 +872,10 @@ onBeforeUnmount(() => {
           <form v-if="chosenSession.status === 'active' && canWrite(chosenSession.owner_id)" class="card omega-practice-controls" @submit.prevent="sendTurn">
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
               <div><p class="omega-kicker">实时语音</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : '连接后开始说话，双方原话自动保存' }}</p></div>
-              <button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">开始实时对话</button>
+              <button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
               <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
             </div>
+            <p v-if="voiceInterrupted" class="omega-alert" role="alert">语音连接中断，已保存的对话仍在。点击“继续实时对话”接着练。</p>
             <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
             <div class="omega-session-footer"><span>结束后逐字稿将冻结，无法继续发言。</span><button class="btn btn-ghost" type="button" :disabled="busy || voiceConnecting || voiceConnected || voiceClosing" @click="finishSession">结束并冻结逐字稿</button></div>
