@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from app.auth.models import User
 from app.omega.context import actor_messages, coach_messages
 from app.omega.models import (
-    OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment,
+    OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment,
     OmegaSession, new_id, utcnow,
     OmegaWorkerHeartbeat,
 )
@@ -104,6 +104,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             require_session_source(owner, db, game)
             version = db.get(OmegaCaseVersion, game.case_version_id)
             snapshot = json.loads(version.snapshot_json)
+            assignment = db.get(OmegaAssignment, game.assignment_id) if game.assignment_id else None
+            focus = assignment.target_dimension if assignment else ""
             segments = _segments(db, game.id)
             if kind == "turn" and (game.status != "active" or game.revision != job.session_revision):
                 raise ValueError("对话版本已失效")
@@ -117,7 +119,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             expected_revision = game.revision
             goal_timing = game.goal_timing
         if kind == "turn":
-            messages = actor_messages(snapshot, segments)
+            messages = actor_messages(snapshot, segments, focus=focus)
             result = generate(kind, messages, 1500)
             if not result or not result.strip():
                 raise ValueError("模拟客户回复为空")

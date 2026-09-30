@@ -124,9 +124,17 @@ const analysisReady = ref(false)
 const reviewOpen = ref(false)
 const coachingPoint = computed(() => {
   const weights = chosenSession.value?.case_snapshot?.score_weights || defaultWeights
-  const dimensions = (report.value?.content.dimensions || []).filter((row) => row.score !== null && row.quotes?.length && weights[row.key])
+  const dimensions = (report.value?.content.dimensions || []).filter((row) => row.key !== 'outcome' && row.score !== null && row.quotes?.length && weights[row.key])
   return dimensions.sort((a, b) => (a.score! / weights[a.key]!) - (b.score! / weights[b.key]!))[0] || null
 })
+const focusPercent = computed(() => {
+  const point = coachingPoint.value
+  const maximum = chosenSession.value?.case_snapshot?.score_weights?.[point?.key || ''] || defaultWeights[point?.key || '']
+  return point && maximum ? Math.round(point.score! * 100 / maximum) : null
+})
+const focusPassPercent = computed(() => Math.min(100, Math.max(70, (focusPercent.value ?? 0) + 10)))
+const currentAssignment = computed(() => assignments.value.find((row) => row.id === chosenSession.value?.assignment_id) || null)
+const currentAttempt = computed(() => currentAssignment.value?.attempts.find((item) => item.session_id === chosenSession.value?.id) || null)
 const reportNextPractice = computed(() => {
   const value = report.value?.content.next_practice
   if (typeof value === 'string') return value
@@ -239,6 +247,9 @@ async function openSession(id: string) {
   editing.value = false
   chosenSession.value = game
   sidebarTab.value = 'sessions'
+  if (['manager', 'admin'].includes(me.value?.role || '') && members.value.some((row) => row.id === game.owner_id)) {
+    assignUserId.value = game.owner_id
+  }
   if (game.latest_report_id) {
     const loadedReport = await apiGet<Report>(`/api/omega/reports/${game.latest_report_id}`)
     if (token !== openToken) return
@@ -362,9 +373,31 @@ async function repeatPractice() {
   if (!chosenSession.value) return
   const { case_id, assignment_id } = chosenSession.value
   await run(async () => {
-    const game = await apiPost<SessionRow>('/api/omega/sessions', { case_id, ...(assignment_id ? { assignment_id } : {}) })
+    let targetId = assignment_id
+    if (!targetId && report.value && coachingPoint.value && me.value) {
+      const assignment = await apiPost<Assignment>('/api/omega/assignments', {
+        case_id, assignee_id: me.value.id, source_report_id: report.value.id,
+        target_dimension: coachingPoint.value.key, pass_percent: focusPassPercent.value,
+        instructions: reportNextPractice.value || `重点练习${dimensionNames[coachingPoint.value.key] || coachingPoint.value.key}`,
+      })
+      targetId = assignment.id
+    }
+    const game = await apiPost<SessionRow>('/api/omega/sessions', { case_id, ...(targetId ? { assignment_id: targetId } : {}) })
     await loadLists()
     await openSession(game.id)
+  })
+}
+async function assignFromReport() {
+  if (!chosenSession.value || !report.value || !coachingPoint.value || !assignUserId.value) return
+  await run(async () => {
+    await apiPost('/api/omega/assignments', {
+      case_id: chosenSession.value!.case_id, assignee_id: assignUserId.value,
+      source_report_id: report.value!.id, target_dimension: coachingPoint.value!.key,
+      pass_percent: focusPassPercent.value,
+      instructions: reportNextPractice.value || `重点练习${dimensionNames[coachingPoint.value!.key] || coachingPoint.value!.key}`,
+    })
+    await loadLists()
+    notice.value = '练习已指派，销售可在待练列表开始。'
   })
 }
 async function startAssignment(row: Assignment) {
@@ -972,7 +1005,7 @@ onBeforeUnmount(() => {
           <header class="card omega-session-summary">
             <div class="omega-session-heading"><div><p class="omega-kicker">{{ chosenSession.mode === 'real_review' ? (demoMode ? '模拟会议复盘样本' : '真实会议复盘') : '模拟对手演练' }} <span v-if="chosenSession.mode === 'real_review'">· {{ chosenSession.goal_timing === 'pre' ? '会前目标' : '目标时点未获会前确认' }}</span></p><h2>{{ caseName(chosenSession.case_id) }}</h2></div><span :class="['pill', chosenSession.status === 'active' ? 'pill-green' : 'pill-muted']">{{ chosenSession.status === 'active' ? '演练中' : '已结束' }}</span></div>
             <div v-if="chosenSession.case_snapshot" class="omega-goal"><span>本场目标 · 版本 {{ chosenSession.case_version }}</span><p>{{ chosenSession.case_snapshot.goal.success_condition }}</p></div>
-            <p v-if="chosenSession.assignment_id" class="omega-session-note">关联指派：{{ dimensionNames[assignments.find((item) => item.id === chosenSession?.assignment_id)?.target_dimension || ''] || '定向练习' }}</p>
+          <div v-if="currentAssignment" class="omega-session-note"><strong>本轮只练：{{ dimensionNames[currentAssignment.target_dimension] || currentAssignment.target_dimension }}</strong><p>{{ currentAssignment.instructions || '先处理客户的主要卡点，再争取具体下一步。' }} · 达到 {{ currentAssignment.pass_percent }}% 算达标</p></div>
           </header>
           <section class="card omega-conversation" aria-labelledby="omega-conversation-title">
             <div class="omega-conversation-head"><div><p class="omega-kicker">对话实录</p><h3 id="omega-conversation-title">逐字稿</h3></div><span class="omega-turn-count">{{ (chosenSession.segments || []).length }} 条发言</span></div>
@@ -998,7 +1031,13 @@ onBeforeUnmount(() => {
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
             <p class="omega-report-result"><strong>{{ outcomeNames[report.content.outcome?.status || 'unverified'] || '证据不足' }}</strong>　{{ report.content.outcome?.reason }}</p>
             <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]">“{{ coachingPoint.quotes[0].text }}”</blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
-            <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">再练一轮</button>
+            <p v-if="currentAssignment?.baseline" class="omega-session-note">{{ dimensionNames[currentAssignment.target_dimension] }}：上次 {{ currentAssignment.baseline.percent }}% · 本轮 {{ currentAttempt?.result ? `${currentAttempt.result.percent}%` : '待评分' }} · {{ currentAttempt?.passed ? '已达标' : '继续练习' }}</p>
+            <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">{{ currentAssignment ? '继续练本项' : coachingPoint ? '按这个卡点再练' : '再练一轮' }}</button>
+            <form v-if="['manager', 'admin'].includes(me?.role || '') && coachingPoint" class="omega-import" @submit.prevent="assignFromReport">
+              <h4>让销售练这个卡点</h4><p>推荐练 {{ dimensionNames[coachingPoint.key] || coachingPoint.key }}；当前 {{ focusPercent }}%，目标 {{ focusPassPercent }}%。{{ reportNextPractice }}</p>
+              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
+              <button class="btn" type="submit" :disabled="busy">指派这项练习</button>
+            </form>
             <details class="omega-report-details"><summary>查看原话证据和完整评分</summary>
               <blockquote v-for="quote in report.content.outcome?.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote>
               <h4>承诺、让步与底线</h4>
@@ -1011,8 +1050,8 @@ onBeforeUnmount(() => {
             </details>
             <h4>主管点评</h4><p v-for="(item, index) in report.reviews" :key="index">{{ item.content.comment }} <small>{{ item.content.next_practice }}</small></p>
             <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
-            <form v-if="['manager', 'admin'].includes(me?.role || '')" class="omega-import" @submit.prevent="createAssignment(report.id)">
-              <h4>从本场证据指派练习</h4>
+            <details v-if="['manager', 'admin'].includes(me?.role || '')" class="omega-import"><summary>手动设置指派</summary>
+            <form @submit.prevent="createAssignment(report.id)">
               <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
               <label>目标技能<select v-model="assignDimension"><option v-for="(name, scoreKey) in dimensionNames" :key="scoreKey" :value="scoreKey">{{ name }}</option></select></label>
               <label>达标百分比<input v-model.number="assignPassPercent" type="number" min="1" max="100" required></label>
@@ -1020,6 +1059,7 @@ onBeforeUnmount(() => {
               <label>练习要求<textarea v-model.trim="assignInstructions" maxlength="1000"></textarea></label>
               <button class="btn" type="submit" :disabled="busy">指派针对性练习</button>
             </form>
+            </details>
           </section>
         </div>
         <div v-else-if="chosenCase" class="card pad omega-case-detail">

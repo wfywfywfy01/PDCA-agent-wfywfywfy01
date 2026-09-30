@@ -287,8 +287,10 @@ def create_assignment(body: AssignmentCreate,
                       user: Annotated[User, Depends(get_current_user)],
                       db: Annotated[Session, Depends(get_session)]):
     team = require_team_user(user)
-    if user.role not in {"manager", "admin"}:
-        raise HTTPException(403, "仅同组主管可以指派练习")
+    self_practice = (user.role == "sales" and body.assignee_id == user.id
+                     and body.source_report_id is not None)
+    if user.role not in {"manager", "admin"} and not self_practice:
+        raise HTTPException(403, "仅同组主管可以指派练习；销售只能从本人报告发起复练")
     if body.target_dimension not in WEIGHTS:
         raise HTTPException(422, "未知评分项")
     case = db.get(OmegaCase, body.case_id)
@@ -302,6 +304,8 @@ def create_assignment(body: AssignmentCreate,
         if source is None:
             raise HTTPException(404, "来源报告不存在")
         source_game = owned_session(db, user, source.session_id)
+        if self_practice and source_game.owner_id != user.id:
+            raise HTTPException(403, "销售只能从本人报告发起复练")
         if source_game.case_id != case.id:
             raise HTTPException(422, "来源报告与场景不一致")
         require_session_source(assignee, db, source_game)

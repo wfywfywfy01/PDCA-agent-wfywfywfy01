@@ -78,6 +78,59 @@ class OmegaFlowTests(unittest.TestCase):
         self.current = User(id=3, username="seller-c", role="sales", team_key="team-b")
         self.assertEqual(self.client.get(f"/api/omega/cases/{case_id}").status_code, 404)
 
+    def test_seller_can_repractice_only_from_own_report(self):
+        from app.omega.models import OmegaReport
+
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        source = self.client.post("/api/omega/sessions", json={"case_id": case["id"]}).json()
+        with Session(self.engine) as db:
+            report = OmegaReport(session_id=source["id"], input_hash="test-report",
+                                 content_json=json.dumps({"score_weights": {"objections": 10},
+                                     "dimensions": [{"key": "objections", "score": 4}]}))
+            db.add(report)
+            db.add(User(id=3, username="seller-b", role="sales", team_key="team-a",
+                        hashed_password="test-only", is_active=True))
+            db.commit()
+            report_id = report.id
+        payload = {"case_id": case["id"], "assignee_id": 1,
+                   "source_report_id": report_id, "target_dimension": "objections",
+                   "pass_percent": 70, "instructions": "先问清客户的交付顾虑"}
+        self.assertEqual(self.client.post("/api/omega/assignments", json={
+            **payload, "source_report_id": None}).status_code, 403)
+        self.assertEqual(self.client.post("/api/omega/assignments", json={
+            **payload, "assignee_id": 3}).status_code, 403)
+        self.current = User(id=3, username="seller-b", role="sales", team_key="team-a")
+        self.assertEqual(self.client.post("/api/omega/assignments", json={
+            **payload, "assignee_id": 3}).status_code, 403)
+        self.current = User(id=1, username="seller-a", role="sales", team_key="team-a")
+        created = self.client.post("/api/omega/assignments", json=payload)
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["baseline"]["percent"], 40)
+        attempt = self.client.post("/api/omega/sessions", json={
+            "case_id": case["id"], "assignment_id": created.json()["id"]})
+        self.assertEqual(attempt.status_code, 201, attempt.text)
+        self.assertEqual(attempt.json()["case_version_id"], source["case_version_id"])
+        self.client.post(f"/api/omega/sessions/{attempt.json()['id']}/turns", json={
+            "request_key": "focused-turn", "text": "请说说您的交付顾虑。"}).raise_for_status()
+        from app.omega.jobs import run_once
+        prompts = []
+        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit:
+                                 prompts.append(messages[0]["content"]) or "交付时间仍不明确。"))
+        self.assertIn("Keep one stated objection active", prompts[0])
+        self.assertNotIn("PRIVATE_BOTTOM_LINE", prompts[0])
+
+    def test_targeted_buyer_prompt_uses_skill_without_private_report_text(self):
+        from app.omega.context import actor_messages
+        from app.omega.realtime import _voice_role
+
+        snapshot = {**self.case_body(), "buyer_objections": ["交付时间不明确"]}
+        for role in (actor_messages(snapshot, [], focus="objections")[0]["content"],
+                     _voice_role(snapshot, focus="objections")):
+            self.assertIn("Keep one stated objection active", role)
+            self.assertIn("交付时间不明确", role)
+            self.assertNotIn("PRIVATE_BOTTOM_LINE", role)
+
     def test_unauthenticated_requests_and_cross_origin_write_are_rejected(self):
         del app.dependency_overrides[get_current_user]
         self.assertEqual(self.client.get("/api/omega/cases").status_code, 401)
