@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  addBlock, agentPayload, blockSummary, defaultBlock, fieldVisible,
+  addBlock, agentPayload, blockSummary, configChanged, defaultBlock, fieldVisible,
   fromJson, moveBlock, removeBlock, toJson, updateBlockField,
 } from '../src/api/duzhanBlocks.ts'
 
@@ -61,6 +61,18 @@ test('保存入参：不带 enabled 时不下发该字段', () => {
     name: '新人组官', timezone: 'Asia/Shanghai', note: '备注', blocks: [{ type: 'group' }],
   })
   assert.equal(agentPayload({ ...base, enabled: true }).enabled, true)
+})
+
+test('未保存提示只看真实改动', () => {
+  const saved = { name: '甲', timezone: 'Asia/Shanghai', note: '', blocks: [{ type: 'group', channel_id: 'g1' }] }
+  assert.equal(configChanged(saved, { ...saved }), false)
+  assert.equal(configChanged(saved, { ...saved, name: '甲 ' }), true)
+  assert.equal(configChanged(saved, { ...saved, note: '新备注' }), true)
+  assert.equal(configChanged(saved, { ...saved, blocks: [{ type: 'group', channel_id: 'g2' }] }), true)
+  // 新建草稿：只要动了就算未保存
+  assert.equal(configChanged(null, { name: '', timezone: 'Asia/Shanghai', note: '', blocks: [] }), false)
+  assert.equal(configChanged(null, { name: '新的', timezone: 'Asia/Shanghai', note: '', blocks: [] }), true)
+  assert.equal(configChanged(null, { name: '', timezone: 'Asia/Shanghai', note: '', blocks: [{ type: 'group' }] }), true)
 })
 
 test('卡片摘要读取关键字段', () => {

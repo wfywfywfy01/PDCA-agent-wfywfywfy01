@@ -5,11 +5,13 @@ import { HttpError } from '@/api/client'
 import BlockCard from '@/components/BlockCard.vue'
 import BlockPalette from '@/components/BlockPalette.vue'
 import {
-  addBlock as appendBlock, agentPayload, blockSchema, createAgent, defaultBlock, deleteAgent,
+  addBlock as appendBlock, agentPayload, aiStatus as fetchAiStatus, blockSchema, configChanged,
+  createAgent, defaultBlock, deleteAgent,
   fromJson, listAgents, moveBlock, previewAgent, removeBlock, seedFromCode, toJson, toggleAgent,
   updateAgent, updateBlockField,
   type Block,
   type BlockTypeSpec,
+  type AiStatus,
   type DuzhanAgentItem,
   type PreviewMode,
   type PreviewResult,
@@ -35,10 +37,17 @@ const busy = ref(false)
 const message = ref('')
 const error = ref('')
 const pendingDelete = ref(false)
+const ai = ref<AiStatus | null>(null)
 
 const current = computed(() => agents.value.find((item) => item.id === selectedId.value) || null)
 const savedErrors = computed(() => current.value?.errors || [])
 const isDraft = computed(() => selectedId.value === null)
+const unsaved = computed(() => configChanged(
+  current.value
+    ? { name: current.value.name, timezone: current.value.timezone, note: current.value.note, blocks: current.value.blocks.blocks }
+    : null,
+  { name: name.value, timezone: timezone.value, note: note.value, blocks: blocks.value },
+))
 
 watch(blocks, () => { jsonText.value = toJson(blocks.value) }, { deep: true })
 
@@ -83,6 +92,14 @@ async function reload(keepId: number | null) {
   if (next) fill(next)
 }
 
+async function loadAiStatus() {
+  try {
+    ai.value = await fetchAiStatus()
+  } catch {
+    ai.value = null  // 用量看板拿不到不影响配置
+  }
+}
+
 async function load() {
   busy.value = true
   error.value = ''
@@ -90,6 +107,7 @@ async function load() {
     specs.value = (await blockSchema()).blocks
     agents.value = (await listAgents()).items
     if (agents.value.length && selectedId.value === null) fill(agents.value[0])
+    await loadAiStatus()
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -235,6 +253,9 @@ onMounted(load)
       <div>
         <h1>督战官配置</h1>
         <p class="sub">一个子 Agent = 追一个群 + 一组规则。用积木拼，保存后启用才生效。</p>
+        <p v-if="ai" class="sub ai-line">
+          AI 规则今日用量：{{ ai.calls }} / {{ ai.limit }} 次（已缓存 {{ ai.cached }} 条）
+        </p>
       </div>
       <div class="actions">
         <button class="btn" type="button" :disabled="busy" @click="load">刷新</button>
@@ -244,7 +265,7 @@ onMounted(load)
     </header>
 
     <p v-if="message" class="toast" role="status">{{ message }}</p>
-    <p v-if="error" class="alert" role="alert">{{ error }}</p>
+    <p v-if="error" class="alert alert-sticky" role="alert">{{ error }}</p>
 
     <div class="layout">
       <aside class="col list">
@@ -255,6 +276,8 @@ onMounted(load)
           class="row"
           type="button"
           :class="{ active: item.id === selectedId }"
+          :aria-current="item.id === selectedId ? 'true' : undefined"
+          :aria-label="item.name + '｜' + (item.enabled ? '已启用' : '已停用') + (item.errors.length ? '｜' + item.errors.length + ' 处问题' : '')"
           @click="fill(item)"
         >
           <span class="row-name">{{ item.name }}</span>
@@ -270,7 +293,7 @@ onMounted(load)
       <section class="col editor">
         <div class="meta">
           <label class="field">
-            <span>名称</span>
+            <span>名称<em v-if="unsaved" class="unsaved">未保存</em></span>
             <input v-model="name" type="text" />
           </label>
           <label class="field">
@@ -399,6 +422,9 @@ onMounted(load)
 .preview-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .preview-row input, .preview-row select { padding: 5px 6px; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; font-size: 12px; }
 .summary { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
+.alert-sticky { position: sticky; top: 8px; z-index: 5; }
+.ai-line { margin-top: 2px; }
+.unsaved { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #fffaeb; color: #b54708; font-style: normal; font-size: 10px; }
 .meta-line { margin: 0; color: var(--text-muted, #667085); font-size: 11px; }
 .body {
   margin: 0; padding: 10px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
