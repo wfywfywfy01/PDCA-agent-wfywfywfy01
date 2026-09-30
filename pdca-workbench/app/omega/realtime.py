@@ -23,7 +23,7 @@ from app.auth.models import User
 from app.config import get_settings
 from app.database import get_session
 from app.omega.context import actor_messages
-from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession, new_id, utcnow
+from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession, new_id, utcnow
 from app.omega.policy import require_case, require_session_source, require_writer
 from app.omega.router import is_enabled, owned_session, session_segments
 
@@ -96,8 +96,8 @@ def _aware(value):
     return value.replace(tzinfo=timezone.utc) if value and value.tzinfo is None else value
 
 
-def _voice_role(snapshot: dict) -> str:
-    role = actor_messages(snapshot, [])[0]["content"]
+def _voice_role(snapshot: dict, *, focus: str = "") -> str:
+    role = actor_messages(snapshot, [], focus=focus)[0]["content"]
     if len(role) > 8000:
         raise ValueError("实时语音背景超过 8000 字，请缩短双方背景")
     return role
@@ -153,7 +153,9 @@ def _acquire(engine, user: User, session_id: str) -> tuple[str, str, str]:
             old.error = "实时连接已过期"
             db.flush()
         version = db.get(OmegaCaseVersion, game.case_version_id)
-        role = _voice_role(json.loads(version.snapshot_json))
+        assignment = db.get(OmegaAssignment, game.assignment_id) if game.assignment_id else None
+        role = _voice_role(json.loads(version.snapshot_json),
+                           focus=assignment.target_dimension if assignment else "")
         # ponytail: replay recent text on reconnect; use native conversation items if longer history matters.
         history = [{"speaker": part.speaker, "text": part.text[-500:]}
                    for part in session_segments(db, session_id)[-12:]]

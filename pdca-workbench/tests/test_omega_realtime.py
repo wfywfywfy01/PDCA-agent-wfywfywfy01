@@ -19,7 +19,7 @@ from app.auth.security import create_access_token
 from app.config import get_settings
 from app.database import get_session
 from app.main import app
-from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession
+from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession
 from app.omega.realtime import _acquire, _append, _receive_audio, _receive_doubao_audio, _release, _renew
 from app.omega.realtime import _provider_url
 
@@ -85,6 +85,22 @@ class RealtimeSessionTests(unittest.TestCase):
         with Session(self.engine) as db:
             self.assertEqual(db.get(OmegaJob, job_id).status, "succeeded")
             self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 2)
+
+    def test_assigned_skill_shapes_realtime_buyer(self):
+        with Session(self.engine) as db:
+            game = db.get(OmegaSession, self.session_id)
+            assignment = OmegaAssignment(case_id=game.case_id,
+                                         case_version_id=game.case_version_id,
+                                         team_key="team-a", assignee_id=1, assigned_by=1,
+                                         target_dimension="objections", instructions="private coaching")
+            db.add(assignment)
+            db.flush()
+            game.assignment_id = assignment.id
+            db.commit()
+        job_id, token, role = _acquire(self.engine, self.user, self.session_id)
+        self.assertIn("Keep one stated objection active", role)
+        self.assertNotIn("private coaching", role)
+        _release(self.engine, job_id, token, failed=False)
 
     def test_authenticated_stop_releases_stream_before_reconnect(self):
         first_job, _, _ = _acquire(self.engine, self.user, self.session_id)

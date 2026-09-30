@@ -120,7 +120,7 @@ export function installOmegaDemo() {
         case_version: scenario.current_version, case_snapshot: clone(scenario.draft), segments: [] as Row[],
         latest_report_id: '', assignment_id: assignment?.id || null }
       sessions.unshift(game)
-      if (assignment) { assignment.attempts.push({ session_id: game.id, status: 'active', result: null, passed: false }); assignment.status = 'in_progress' }
+      if (assignment) { assignment.attempts.push({ session_id: game.id, status: 'active', result: null, passed: false }); if (assignment.status !== 'passed') assignment.status = 'in_progress' }
       return json(game, 201)
     }
     const sessionMatch = /^\/api\/omega\/sessions\/([^/]+)(?:\/(turns|finish|reports|realtime\/stop))?$/.exec(path)
@@ -158,7 +158,7 @@ export function installOmegaDemo() {
       game.latest_report_id = reportId
       const assignment = assignments.find((item) => item.id === game.assignment_id)
       const attempt = assignment?.attempts.find((item: Row) => item.session_id === game.id)
-      if (attempt && assignment) { attempt.result = { score: 8, maximum: 10, percent: 80, report_id: reportId }; attempt.passed = 80 >= assignment.pass_percent; assignment.status = attempt.passed ? 'passed' : 'in_progress' }
+      if (attempt && assignment) { attempt.result = { score: 8, maximum: 10, percent: 80, report_id: reportId }; attempt.passed = 80 >= assignment.pass_percent; assignment.status = assignment.attempts.some((item: Row) => item.passed) ? 'passed' : 'in_progress' }
       const job = { id: nextId(), kind: 'report', status: 'succeeded', result_id: reportId, error: '' }
       jobs.set(job.id, job)
       return json(job, 202)
