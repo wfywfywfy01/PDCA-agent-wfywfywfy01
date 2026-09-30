@@ -99,5 +99,37 @@ class StrictHolidayTests(unittest.TestCase):
         self.assertEqual(holiday_lines, workday_lines)
 
 
+class OfficialCalendarTests(unittest.TestCase):
+    """国办发明电〔2025〕7号：国庆 10/1-7 放假，9/20（周日）、10/10（周六）补班。
+
+    补班日漏配的直接后果是那天一条都不推——2026-09-30 值守自检抓到 10/10 漏配。
+    """
+
+    def test_both_makeup_days_are_workdays(self):
+        from app.workday_calendar import day_kind, is_workday, penalty_exempt
+
+        for day in ("2026-09-20", "2026-10-10"):
+            with self.subTest(day=day):
+                self.assertEqual(day_kind(day), "makeup")
+                self.assertTrue(is_workday(day), "补班日必须推")
+                self.assertFalse(penalty_exempt(day), "补班日照常评价，不豁免")
+
+    def test_national_day_window(self):
+        from app.workday_calendar import day_kind, is_workday, penalty_exempt
+
+        for day in ("2026-10-01", "2026-10-04", "2026-10-07"):
+            with self.subTest(day=day):
+                self.assertEqual(day_kind(day), "long_holiday")
+                self.assertTrue(is_workday(day), "长假照推")
+                self.assertTrue(penalty_exempt(day), "长假不处罚")
+
+    def test_days_around_the_window(self):
+        from app.workday_calendar import is_workday
+
+        self.assertTrue(is_workday("2026-10-08"), "节后第一个工作日")
+        self.assertTrue(is_workday("2026-10-09"), "节后第二个工作日")
+        self.assertFalse(is_workday("2026-10-11"), "10/11 是周日，正常休息")
+
+
 if __name__ == "__main__":
     unittest.main()
