@@ -106,12 +106,40 @@ class PollTests(unittest.TestCase):
              "body": "成交机器人自己的消息不该被回"},
         ]
 
+    def test_credentials_fall_back_to_existing_bot(self):
+        base_env = {"PDCA_HEIWU_BOT_APP_ID": "", "PDCA_HEIWU_BOT_APP_SECRET": "",
+                    "PDCA_DUZHAN_BOT_APP_ID": "vbot_duzhan", "PDCA_DUZHAN_BOT_APP_SECRET": "ds"}
+        with patch.dict("os.environ", base_env, clear=False):
+            self.assertEqual(heiwu.bot_credentials_effective(), ("vbot_duzhan", "ds"))
+            self.assertTrue(heiwu.configured())
+        base_env.update({"PDCA_HEIWU_BOT_APP_ID": "vbot_hei", "PDCA_HEIWU_BOT_APP_SECRET": "hs"})
+        with patch.dict("os.environ", base_env, clear=False):
+            self.assertEqual(heiwu.bot_credentials_effective(), ("vbot_hei", "hs"), "专用凭证优先")
+
+    def _seed_cursor(self, last: str = "2026-09-30T01:00:00Z") -> None:
+        """已有游标 = 不是首轮（首轮只记游标不回历史）。"""
+        (self.tmp / "heiwu_cursor.json").write_text(
+            json.dumps({"last_created_at": last, "replied_ids": []}), encoding="utf-8"
+        )
+
+    def test_first_run_only_seeds_cursor(self):
+        with patch.object(heiwu, "bot_credentials_effective", return_value=("id", "secret")), \
+             patch.object(heiwu, "fetch_recent", return_value=self._messages()), \
+             patch.object(heiwu, "_reply", return_value=True) as reply:
+            result = heiwu.poll_once()
+        self.assertTrue(result.get("seeded"))
+        self.assertEqual(result["replied"], [])
+        self.assertEqual(reply.call_count, 0, "首轮不该回历史晒单")
+        cursor = json.loads((self.tmp / "heiwu_cursor.json").read_text(encoding="utf-8"))
+        self.assertEqual(cursor["last_created_at"], "2026-09-30T02:02:00Z")
+
     def test_no_credentials_skips(self):
-        with patch.object(heiwu, "bot_credentials", return_value=("", "")):
+        with patch.object(heiwu, "bot_credentials_effective", return_value=("", "")):
             self.assertEqual(heiwu.poll_once(), {"skipped": "not_configured"})
 
     def test_replies_once_per_message(self):
-        with patch.object(heiwu, "bot_credentials", return_value=("id", "secret")), \
+        self._seed_cursor()
+        with patch.object(heiwu, "bot_credentials_effective", return_value=("id", "secret")), \
              patch.object(heiwu, "fetch_recent", return_value=self._messages()), \
              patch.object(heiwu, "refresh_names", return_value={"1": "高亚靓"}), \
              patch.object(heiwu, "_reply", return_value=True) as reply:
@@ -124,13 +152,14 @@ class PollTests(unittest.TestCase):
             self.assertEqual(reply.call_count, 1, "同一条晒单不该回两次")
 
     def test_bare_declaration_reuses_previous_amount(self):
+        self._seed_cursor()
         messages = [
             {"id": "a1", "created_at": "2026-09-30T02:00:00Z", "sender_type": "user", "sender_user_id": 7,
              "body": "成交：META2浅金款 一台，13800"},
             {"id": "a2", "created_at": "2026-09-30T02:05:00Z", "sender_type": "user", "sender_user_id": 7,
              "body": "已开单"},
         ]
-        with patch.object(heiwu, "bot_credentials", return_value=("id", "secret")), \
+        with patch.object(heiwu, "bot_credentials_effective", return_value=("id", "secret")), \
              patch.object(heiwu, "fetch_recent", return_value=messages), \
              patch.object(heiwu, "refresh_names", return_value={}), \
              patch.object(heiwu, "_reply", return_value=True) as reply:
@@ -141,13 +170,14 @@ class PollTests(unittest.TestCase):
         self.assertIn("按你上一条报的金额", second_body)
 
     def test_stale_amount_is_not_reused(self):
+        self._seed_cursor()
         messages = [
             {"id": "b1", "created_at": "2026-09-30T02:00:00Z", "sender_type": "user", "sender_user_id": 7,
              "body": "成交：META2浅金款 一台，13800"},
             {"id": "b2", "created_at": "2026-09-30T06:00:00Z", "sender_type": "user", "sender_user_id": 7,
              "body": "已开单"},
         ]
-        with patch.object(heiwu, "bot_credentials", return_value=("id", "secret")), \
+        with patch.object(heiwu, "bot_credentials_effective", return_value=("id", "secret")), \
              patch.object(heiwu, "fetch_recent", return_value=messages), \
              patch.object(heiwu, "refresh_names", return_value={}), \
              patch.object(heiwu, "_reply", return_value=True) as reply:
@@ -155,14 +185,16 @@ class PollTests(unittest.TestCase):
         self.assertIn("金额待确认", reply.call_args_list[1][0][0])
 
     def test_dry_run_does_not_send_or_move_cursor(self):
-        with patch.object(heiwu, "bot_credentials", return_value=("id", "secret")), \
+        self._seed_cursor()
+        with patch.object(heiwu, "bot_credentials_effective", return_value=("id", "secret")), \
              patch.object(heiwu, "fetch_recent", return_value=self._messages()), \
              patch.object(heiwu, "refresh_names", return_value={}), \
              patch.object(heiwu, "_reply", return_value=True) as reply:
             result = heiwu.poll_once(dry_run=True)
             self.assertEqual(len(result["replied"]), 1)
             self.assertEqual(reply.call_count, 0)
-            self.assertFalse((self.tmp / "heiwu_cursor.json").exists(), "dry-run 不该落游标")
+            cursor = json.loads((self.tmp / "heiwu_cursor.json").read_text(encoding="utf-8"))
+            self.assertEqual(cursor["last_created_at"], "2026-09-30T01:00:00Z", "dry-run 不该推进游标")
 
 
 if __name__ == "__main__":

@@ -56,8 +56,24 @@ def bot_credentials() -> tuple[str, str]:
     )
 
 
-def configured() -> bool:
+def bot_credentials_effective() -> tuple[str, str]:
+    """实际使用的机器人凭证：小黑屋专用优先，没配就回退到现有督战官机器人。
+
+    老板 2026-09-30："你自己现有的不能祝贺吗" —— 能，只要那个机器人已在群里
+    （vps-work im +add-bot）。等拿到「小黑屋管理员」的 App Secret，配上
+    PDCA_HEIWU_BOT_APP_ID/SECRET 就自动切过去。
+    """
     app_id, app_secret = bot_credentials()
+    if app_id and app_secret:
+        return app_id, app_secret
+    return (
+        os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip(),
+        os.environ.get("PDCA_DUZHAN_BOT_APP_SECRET", "").strip(),
+    )
+
+
+def configured() -> bool:
+    app_id, app_secret = bot_credentials_effective()
     return bool(app_id and app_secret)
 
 
@@ -237,7 +253,7 @@ def fetch_recent(hours: int = 24) -> list[dict]:
 def _reply(body: str, parent_message_id: str, idempotency_key: str) -> bool:
     from app.vps_im_push import push_as_bot
 
-    app_id, app_secret = bot_credentials()
+    app_id, app_secret = bot_credentials_effective()
     return push_as_bot(
         body,
         channel_id(),
@@ -262,6 +278,16 @@ def poll_once(*, hours: int = 24, dry_run: bool = False) -> dict:
         return {"scanned": 0, "replied": []}
 
     messages.sort(key=lambda item: str(item.get("created_at") or ""))
+    if not last_seen:
+        # 首轮只记游标、不回历史晒单（和督战官 @ 轮询同一约定）：
+        # 否则一上线就会把几天前的旧单全祝贺一遍。
+        cursor["last_created_at"] = str(messages[-1].get("created_at") or "")
+        cursor["replied_ids"] = []
+        if not dry_run:
+            _save_cursor(cursor)
+        logger.info("小黑屋首次运行：只记游标到 {}，不回历史", cursor["last_created_at"])
+        return {"scanned": len(messages), "replied": [], "seeded": True}
+
     names: dict = {}
     sent: list[str] = []
     newest = last_seen
