@@ -423,6 +423,37 @@ class OmegaFlowTests(unittest.TestCase):
         self.assertEqual(failed["status"], "failed")
         self.assertIn("引文", failed["error"])
 
+    def test_incomplete_scorecard_is_retried_once_without_publishing_it(self):
+        from app.omega.jobs import run_once
+        from app.omega.reports import WEIGHTS
+
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        game = self.client.post("/api/omega/sessions", json={"case_id": case["id"]}).json()
+        self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
+            "request_key": "turn-scorecard-retry", "text": "Can you confirm a date?",
+        }).raise_for_status()
+        self.assertTrue(run_once(self.engine, generate=lambda *_: "I need a plan."))
+        self.client.post(f"/api/omega/sessions/{game['id']}/finish", json={"request_key": "finish-scorecard-retry"}).raise_for_status()
+        queued = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={"request_key": "report-scorecard-retry"}).json()
+        calls = []
+
+        def generate(*_):
+            calls.append(True)
+            return json.dumps({"outcome": {"status": "unverified", "reason": "No commitment", "quotes": []},
+                               "dimensions": [] if len(calls) == 1 else [
+                                   {"key": name, "score": None, "reason": "No evidence", "quotes": []}
+                                   for name in WEIGHTS]})
+
+        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertEqual(self.client.get(f"/api/omega/jobs/{queued['id']}").json()["status"], "queued")
+        self.assertTrue(run_once(self.engine, generate=generate))
+        completed = self.client.get(f"/api/omega/jobs/{queued['id']}").json()
+        self.assertEqual(completed["status"], "succeeded", completed)
+        self.assertEqual(len(calls), 2)
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(OmegaJob, queued["id"]).attempts, 2)
+
     def test_valid_report_shows_coverage_and_manager_review(self):
         from app.omega.jobs import run_once
         from app.omega.reports import WEIGHTS

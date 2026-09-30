@@ -58,7 +58,7 @@ def coach_messages(snapshot: dict, segments: list[dict], weights: dict[str, int]
             "start/end 是原文 Unicode 字符偏移，end 不包含末尾字符。"
             "任何 quotes 只能完整复制输入中的 quote_candidates 对象，不得改写、截取或编造。"
             "outcome.status 只能是 achieved、partial、not_achieved、unverified。"
-            "dimensions 恰好九项，key 与评分项一致；非 null 的 score 必须引用销售原话。"
+            "dimensions 必须逐项列出评分项及最高分中全部九个 key，不得省略证据不足的项；非 null 的 score 必须引用销售原话。"
             "没有适用证据时 score=null、quotes=[]。"
             "客户说将付款只代表承诺，不代表到账。客户隐藏设定不作为扣分证据。"
             "评分项及最高分：" + json.dumps(weights, ensure_ascii=False)

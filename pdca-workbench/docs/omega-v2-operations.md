@@ -33,7 +33,7 @@ Omega 作为 PDCA 的认证页面 `/app/omega`、API `/api/omega/*` 和独立 `o
 1. 从受控代码版本构建 PDCA 镜像，在正式连接串上执行既有 `python scripts/migrate.py`，确认 Alembic 版本为 `017`。生产运行前先做备份和预发布迁移。
 2. 设置 `PDCA_OMEGA_ENABLED=1`。文字演练/报告配置模型变量并启动 worker；实时语音设置所选供应商及对应密钥，短句录音另设 ASR 变量。用 `docker compose --profile omega up -d --build pdca-app omega-worker` 启动。worker 不开放端口，使用与 Web 相同的 PostgreSQL 和镜像版本。反向代理需把 `/api/omega/sessions/*/realtime` 的 WebSocket Upgrade 转发到 PDCA 应用，并保留 Cookie 与 Origin。
 3. 登录销售或主管账号后访问 `/api/omega/status`。`realtime_configured=true` 说明实时语音变量完整；`model_configured=true` 且 `worker_online=true` 说明文字和报告可用。`ready=false` 时检查功能开关及两条链路配置。变量完整只表示已配置，不代表供应商接入验证通过。
-4. 在页面选择模拟卡点直接演练，或描述真实客户情况后核对并开练。九维评分沿用默认权重，更多设定中可调整。场景草稿修订后再次确认会产生新版本；旧演练和既有指派保持原版本。有逐字稿的演练结束后自动请求报告，报告失败可重试；同组主管追加点评，不覆盖原报告。
+4. 在页面选择模拟卡点直接演练，或描述真实客户情况后核对并开练。九维评分沿用默认权重，更多设定中可调整。场景草稿修订后再次确认会产生新版本；旧演练和既有指派保持原版本。有逐字稿的演练结束后自动请求报告；模型漏掉评分项时自动重试一次，伪造引文仍直接拒绝，其他失败可在页面重试。同组主管追加点评，不覆盖原报告。
 5. 真实会议复盘输入 Vemory ID，检查来源逐字稿并映射所有说话人。无来源权限、无分说话人逐字稿或未映射完整时拒绝导入。会后目标标为 `post`，成果达成评分为未验证。主管可从报告指派该来源授权的销售做同版本练习；指派页显示来源基线、每次练习评分与达标状态。
 
 ## 验证与边界
