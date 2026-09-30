@@ -37,7 +37,7 @@ type SessionRow = { id: string; case_id: string; owner_id: number; assignment_id
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
-type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
+type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
 type Assignment = { id: string; case_id: string; assignee_id: number; source_report_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
 
@@ -45,6 +45,20 @@ const defaultWeights: Record<string, number> = { outcome: 25, information: 12, v
   concessions: 12, objections: 10, listening: 8, compliance: 10, relationship: 6, closure: 5 }
 const dimensionNames: Record<string, string> = { outcome: '结果', information: '信息获取', value: '价值表达',
   concessions: '让步', objections: '异议处理', listening: '倾听', compliance: '底线合规', relationship: '关系', closure: '收尾' }
+const quickScenarios = [
+  { title: '客户要求降价', brief: '销售与客户正在讨论一笔订单，客户提出价格顾虑。',
+    stance: '客户希望获得更好的价格，尚未答应下单。', objection: '现在的价格缺少说服力。',
+    goal: '弄清价格顾虑，并争取一个可核实的下一步。' },
+  { title: '客户要求延期付款', brief: '销售与客户正在讨论付款安排，客户希望延期。',
+    stance: '客户担心当前付款安排难以执行，尚未承诺付款日期。', objection: '目前无法按原计划付款。',
+    goal: '弄清延期原因，并争取可核实的付款协商安排。' },
+  { title: '客户迟迟不下单', brief: '销售与客户正在讨论订单，客户尚未决定。',
+    stance: '客户对立即下单仍有顾虑，需要销售进一步说明。', objection: '现在还不能决定下单。',
+    goal: '找到真正的决策卡点，并约定可核实的下一步。' },
+]
+const safeTrainingLimit = '未经确认，不承诺价格、付款日期或交期。'
+const outcomeNames: Record<string, string> = { achieved: '达成目标', partial: '部分达成',
+  not_achieved: '未达成', unverified: '证据不足' }
 
 const router = useRouter()
 const demoMode = import.meta.env.MODE === 'omega-demo'
@@ -108,6 +122,20 @@ const caseBriefInput = ref('')
 const analysisBusy = ref(false)
 const analysisReady = ref(false)
 const reviewOpen = ref(false)
+const coachingPoint = computed(() => {
+  const weights = chosenSession.value?.case_snapshot?.score_weights || defaultWeights
+  const dimensions = (report.value?.content.dimensions || []).filter((row) => row.score !== null && row.quotes?.length && weights[row.key])
+  return dimensions.sort((a, b) => (a.score! / weights[a.key]!) - (b.score! / weights[b.key]!))[0] || null
+})
+const reportNextPractice = computed(() => {
+  const value = report.value?.content.next_practice
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') {
+    const action = value['动作'] || value.action
+    if (typeof action === 'string') return action
+  }
+  return ''
+})
 const missingDraftFields = computed(() => {
   const fields: string[] = []
   const goal = draft.value.goal
@@ -150,6 +178,23 @@ function blankDraft(): CaseDraft {
     goal: { outcome_type: 'payment_commitment', success_condition: '', ideal: '', minimum: '',
       hard_limits: [''], amount_minor: null, currency: 'USD', due_date: null } }
 }
+function quickDraft(scenario: typeof quickScenarios[number]): CaseDraft {
+  const base = blankDraft()
+  return { ...base, title: `练习：${scenario.title}`, public_brief: scenario.brief,
+    counterparty_brief: scenario.stance, buyer_objections: [scenario.objection],
+    goal: { ...base.goal, outcome_type: 'other', success_condition: scenario.goal,
+      ideal: scenario.goal, minimum: '明确客户顾虑和下一步。', hard_limits: [safeTrainingLimit],
+      currency: null } }
+}
+function caseBody(): CaseDraft {
+  return { ...draft.value,
+    buyer_objections: draft.value.buyer_objections.map((s) => s.trim()).filter(Boolean),
+    goal: { ...draft.value.goal,
+      hard_limits: draft.value.goal.hard_limits.map((s) => s.trim()).filter(Boolean),
+      amount_minor: draft.value.goal.outcome_type === 'payment_commitment' ? toMinor(amountMajor.value, draft.value.goal.currency) : null,
+      currency: draft.value.goal.outcome_type === 'payment_commitment' ? draft.value.goal.currency : null,
+      due_date: draft.value.goal.outcome_type === 'payment_commitment' ? draft.value.goal.due_date : null } }
+}
 function detail(err: unknown): string { return err instanceof HttpError ? err.detail : err instanceof Error ? err.message : '请求失败，请重试' }
 function key(): string { return crypto.randomUUID() }
 function canWrite(ownerId: number): boolean { return me.value?.id === ownerId || ['manager', 'admin'].includes(me.value?.role || '') }
@@ -191,6 +236,7 @@ async function openSession(id: string) {
   const game = await apiGet<SessionRow>(`/api/omega/sessions/${id}`)
   if (token !== openToken) return
   mobileNavOpen.value = false
+  editing.value = false
   chosenSession.value = game
   sidebarTab.value = 'sessions'
   if (game.latest_report_id) {
@@ -221,13 +267,7 @@ async function run(action: () => Promise<void>) {
 }
 async function saveCase() {
   await run(async () => {
-    const body = { ...draft.value,
-      buyer_objections: draft.value.buyer_objections.map((s) => s.trim()).filter(Boolean),
-      goal: { ...draft.value.goal,
-      hard_limits: draft.value.goal.hard_limits.map((s) => s.trim()).filter(Boolean),
-      amount_minor: draft.value.goal.outcome_type === 'payment_commitment' ? toMinor(amountMajor.value, draft.value.goal.currency) : null,
-      currency: draft.value.goal.outcome_type === 'payment_commitment' ? draft.value.goal.currency : null,
-      due_date: draft.value.goal.outcome_type === 'payment_commitment' ? draft.value.goal.due_date : null } }
+    const body = caseBody()
     const saved = chosenCase.value && editing.value
       ? await apiPatch<CaseRow>(`/api/omega/cases/${chosenCase.value.id}`, { ...body, revision: chosenCase.value.revision })
       : await apiPost<CaseRow>('/api/omega/cases', body)
@@ -235,6 +275,34 @@ async function saveCase() {
     chosenCase.value = saved
     editing.value = false
     notice.value = '草稿已保存，请核对后确认目标版本。'
+  })
+}
+async function saveAndStart() {
+  if (missingDraftFields.value.length) return
+  await run(async () => {
+    const saved = await apiPost<CaseRow>('/api/omega/cases', caseBody())
+    chosenCase.value = saved
+    editing.value = false
+    await loadLists()
+    await apiPost(`/api/omega/cases/${saved.id}/confirm`)
+    const game = await apiPost<SessionRow>('/api/omega/sessions', { case_id: saved.id })
+    await loadLists()
+    await openSession(game.id)
+  })
+}
+async function startQuickPractice(scenario: typeof quickScenarios[number]) {
+  await run(async () => {
+    const template = quickDraft(scenario)
+    let saved = cases.value.find((row) => row.owner_id === me.value?.id && row.title === template.title
+      && row.draft.public_brief === template.public_brief && row.draft.goal.success_condition === template.goal.success_condition
+      && row.draft_confirmed)
+    if (!saved) {
+      saved = await apiPost<CaseRow>('/api/omega/cases', template)
+      await apiPost(`/api/omega/cases/${saved.id}/confirm`)
+    }
+    const game = await apiPost<SessionRow>('/api/omega/sessions', { case_id: saved.id })
+    await loadLists()
+    await openSession(game.id)
   })
 }
 async function analyzeCaseDraft() {
@@ -251,24 +319,27 @@ async function analyzeCaseDraft() {
     if (caseBriefInput.value.trim() !== description) return
     const found = result.draft
     const goal = found.goal || {}
+    const completePayment = goal.outcome_type === 'payment_commitment' && goal.amount_major && goal.currency && goal.due_date
+    const practiceGoal = goal.success_condition || '澄清客户顾虑，并约定可核实的下一步。'
     draft.value = {
       ...blankDraft(),
-      title: found.title || '', public_brief: found.public_brief || '',
-      seller_private: found.seller_private || '', counterparty_brief: found.counterparty_brief || '',
+      title: found.title || '客户谈判练习', public_brief: found.public_brief || '双方正在商谈交易，具体背景待澄清。',
+      seller_private: found.seller_private || '', counterparty_brief: found.counterparty_brief || '客户顾虑需要在对话中澄清。',
       buyer_name: found.buyer_name || '', buyer_role: found.buyer_role || '',
       buyer_company: found.buyer_company || '', buyer_emotion: found.buyer_emotion || '',
       buyer_objections: found.buyer_objections || [],
       goal: {
         ...blankDraft().goal,
-        outcome_type: goal.outcome_type || 'other',
-        success_condition: goal.success_condition || '', ideal: goal.ideal || '',
-        minimum: goal.minimum || '', hard_limits: goal.hard_limits?.length ? goal.hard_limits : [''],
-        amount_minor: null, currency: goal.currency || null, due_date: goal.due_date || null,
+        outcome_type: completePayment ? 'payment_commitment' : goal.outcome_type === 'payment_commitment' ? 'other' : goal.outcome_type || 'other',
+        success_condition: practiceGoal, ideal: goal.ideal || practiceGoal,
+        minimum: goal.minimum || '明确客户顾虑和下一步。', hard_limits: goal.hard_limits?.length ? goal.hard_limits : [safeTrainingLimit],
+        amount_minor: null, currency: completePayment ? goal.currency || null : null, due_date: completePayment ? goal.due_date || null : null,
       },
     }
-    amountMajor.value = goal.amount_major || ''
+    amountMajor.value = completePayment ? goal.amount_major || '' : ''
     analysisReady.value = true
     reviewOpen.value = false
+    if (goal.outcome_type === 'payment_commitment' && !completePayment) notice.value = '金额或日期未明确，本场先练推进下一步；需要回款判定可在更多设定中补齐。'
   } catch (err) { error.value = detail(err) } finally { analysisBusy.value = false }
 }
 async function confirmCase() {
@@ -285,6 +356,15 @@ async function startSession() {
     const row = await apiPost<SessionRow>('/api/omega/sessions', { case_id: chosenCase.value!.id })
     await loadLists()
     await openSession(row.id)
+  })
+}
+async function repeatPractice() {
+  if (!chosenSession.value) return
+  const { case_id, assignment_id } = chosenSession.value
+  await run(async () => {
+    const game = await apiPost<SessionRow>('/api/omega/sessions', { case_id, ...(assignment_id ? { assignment_id } : {}) })
+    await loadLists()
+    await openSession(game.id)
   })
 }
 async function startAssignment(row: Assignment) {
@@ -377,7 +457,11 @@ async function finishSession() {
     chosenSession.value = ended
     activeJob.value = null
     await loadLists()
-    notice.value = '演练已结束，逐字稿已冻结。'
+    if (textReady.value && ended.segments?.length) {
+      activeJob.value = await apiPost<Job>(`/api/omega/sessions/${sessionId}/reports`, { request_key: key() })
+      schedulePoll()
+      notice.value = '对话已保存，正在生成复盘。'
+    } else notice.value = ended.segments?.length ? '对话已保存，可稍后生成复盘。' : '演练已结束，本场没有可复盘的对话。'
   })
 }
 async function makeReport() {
@@ -761,7 +845,9 @@ onMounted(async () => {
     if (remembered && sessions.value.some((row) => row.id === remembered && row.status === 'active')) await openSession(remembered)
     else {
       if (remembered) rememberVoiceSession(null)
-      if (cases.value.length) showCase(cases.value[0]!)
+      const nextAssignment = assignments.value.find((row) => row.assignee_id === me.value?.id && row.status !== 'passed')
+      if (nextAssignment) showAssignment(nextAssignment)
+      else newCase()
     }
   } catch (err) {
     if (err instanceof HttpError && err.status === 401) router.replace({ path: '/login', query: { next: '/omega' } })
@@ -781,7 +867,7 @@ onBeforeUnmount(() => {
   <AppNav />
   <main class="page omega">
     <header class="page-head omega-head">
-      <div><p class="omega-kicker">训练工作台</p><h1>谈判陪练</h1><p class="sub">带着明确目标练习，逐轮复盘有据可查。</p></div>
+      <div><p class="omega-kicker">客户谈判练习</p><h1>谈判陪练</h1><p class="sub">选一个卡点，和会给你压力的模拟客户练一轮。</p></div>
       <div class="omega-head-meta"><span class="pill pill-muted">组内可见</span><span :class="['pill', realtimeReady ? 'pill-green' : 'pill-muted']">{{ realtimeReady ? '实时语音可用' : '实时语音未配置' }}</span></div>
     </header>
     <p v-if="demoMode" class="omega-notice" role="status"><strong>交互原型 · 模拟数据</strong>　AI 分析、文字回复、语音识别和复盘内容均为预设；麦克风音频不会上传。刷新页面会重置演示数据。</p>
@@ -790,7 +876,7 @@ onBeforeUnmount(() => {
     <p v-if="loading">正在读取演练…</p>
     <div v-else class="omega-grid">
       <aside class="card omega-side" :class="{ 'is-collapsed': !mobileNavOpen }" aria-label="演练导航">
-        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>训练项目</h2></div><div class="omega-side-actions"><button class="btn btn-sm btn-ghost omega-side-toggle" type="button" :aria-expanded="mobileNavOpen" aria-controls="omega-side-tabs omega-side-body" @click="mobileNavOpen = !mobileNavOpen">{{ mobileNavOpen ? '收起列表' : '展开列表' }}</button><button class="btn btn-sm btn-primary" type="button" @click="newCase">新建任务</button></div></div>
+        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>我的练习</h2></div><div class="omega-side-actions"><button class="btn btn-sm btn-ghost omega-side-toggle" type="button" :aria-expanded="mobileNavOpen" aria-controls="omega-side-tabs omega-side-body" @click="mobileNavOpen = !mobileNavOpen">{{ mobileNavOpen ? '收起列表' : '展开列表' }}</button><button class="btn btn-sm btn-primary" type="button" @click="newCase">新练习</button></div></div>
         <div id="omega-side-tabs" class="omega-side-tabs" role="group" aria-label="列表类型">
           <button type="button" :class="{ active: sidebarTab === 'cases' }" :aria-pressed="sidebarTab === 'cases'" @click="sidebarTab = 'cases'">任务 <span>{{ cases.length }}</span></button>
           <button type="button" :class="{ active: sidebarTab === 'assignments' }" :aria-pressed="sidebarTab === 'assignments'" @click="sidebarTab = 'assignments'">指派 <span>{{ assignments.length }}</span></button>
@@ -824,19 +910,22 @@ onBeforeUnmount(() => {
       <section class="omega-main">
         <div v-if="editing" class="card pad omega-intake">
           <template v-if="!chosenCase">
-            <p class="omega-kicker">新建谈判任务</p><h2>用自己的话描述这场谈判</h2>
-            <p class="sub">说清楚对方是谁、要谈什么、你想达成什么，以及不能接受什么。信息不全也可以先分析。</p>
-            <label for="omega-case-brief">谈判描述</label>
-            <textarea id="omega-case-brief" v-model="caseBriefInput" rows="7" minlength="1" maxlength="6000" placeholder="例如：我要和经销商谈一笔到期货款。对方希望延期，我想确认书面付款时间表；最低接受先付一半，未经批准不能降价。"></textarea>
-            <div class="omega-intake-actions"><span>描述会发送给已配置的 AI 模型，只生成草稿，不会自动保存。</span><button class="btn btn-primary" type="button" :disabled="analysisBusy || !caseBriefInput.trim()" @click="analyzeCaseDraft">{{ analysisBusy ? '分析中…' : analysisReady ? '重新分析' : 'AI 分析' }}</button></div>
+            <p class="omega-kicker">开始一场练习</p><h2>今天想练哪个客户卡点？</h2>
+            <p class="sub">直接选一个常见场景，或用一句话描述手头客户。AI 会整理目标，你核对后就能开练。</p>
+            <div class="omega-quick-grid" aria-label="常见谈判场景">
+              <button v-for="scenario in quickScenarios" :key="scenario.title" class="omega-quick-card" type="button" :disabled="busy" @click="startQuickPractice(scenario)"><strong>{{ scenario.title }}</strong><span>模拟场景 · 直接开练</span></button>
+            </div>
+            <label for="omega-case-brief">带入手头客户</label>
+            <textarea id="omega-case-brief" v-model="caseBriefInput" rows="4" minlength="1" maxlength="6000" placeholder="例如：客户觉得价格高，要求再降 10%。我想先弄清他跟谁比较，再争取本周确认订单。"></textarea>
+            <div class="omega-intake-actions"><span>AI 只整理你写出的客户事实，缺少的金额、日期不会猜。</span><button class="btn btn-primary" type="button" :disabled="analysisBusy || !caseBriefInput.trim()" @click="analyzeCaseDraft">{{ analysisBusy ? '分析中…' : analysisReady ? '重新分析' : '整理练习' }}</button></div>
           </template>
           <template v-else><h2>编辑任务草稿</h2><p class="sub">修改后需重新确认目标版本，既有演练仍使用原版本。</p></template>
           <section v-if="!chosenCase && analysisReady" class="omega-analysis" aria-label="AI 生成的任务草稿">
-            <div class="omega-analysis-head"><div><p class="omega-kicker">AI 已整理</p><h3>核对任务草稿</h3></div><span class="pill pill-amber">尚未保存</span></div>
-            <dl class="omega-analysis-summary"><div><dt>任务</dt><dd>{{ draft.title || '待补充' }}</dd></div><div><dt>双方背景</dt><dd>{{ draft.public_brief || '待补充' }}</dd></div><div><dt>对手立场</dt><dd>{{ draft.counterparty_brief || '待补充' }}</dd></div><div><dt>成功条件</dt><dd>{{ draft.goal.success_condition || '待补充' }}</dd></div><div v-if="draft.goal.outcome_type === 'payment_commitment'"><dt>目标金额 / 日期</dt><dd>{{ amountMajor || '待补充金额' }} {{ draft.goal.currency || '待补充币种' }} · {{ draft.goal.due_date || '待补充日期' }}</dd></div><div><dt>销售内部信息</dt><dd>{{ draft.seller_private || '未提供' }}</dd></div><div><dt>最低可接受结果</dt><dd>{{ draft.goal.minimum || '待补充' }}</dd></div><div><dt>硬底线</dt><dd>{{ draft.goal.hard_limits.filter(Boolean).join('；') || '待补充' }}</dd></div></dl>
-            <p v-if="missingDraftFields.length" class="omega-missing" role="status">还需补充：{{ missingDraftFields.join('、') }}。可在上方补充后重新分析，或展开草稿修改。</p>
-            <p v-else class="omega-review-note">请重点核对金额、日期、私有信息和底线；保存后还需确认目标版本。</p>
-            <div class="omega-actions"><button class="btn btn-primary" type="button" :disabled="busy || !!missingDraftFields.length" @click="saveCase">保存草稿</button><button class="btn btn-ghost" type="button" :aria-expanded="reviewOpen" @click="reviewOpen = !reviewOpen">{{ reviewOpen ? '收起字段' : '核对并修改全部字段' }}</button></div>
+            <div class="omega-analysis-head"><div><p class="omega-kicker">开练前看一眼</p><h3>{{ draft.title }}</h3></div><span class="pill pill-amber">尚未保存</span></div>
+            <dl class="omega-analysis-summary"><div><dt>对手会知道</dt><dd>{{ draft.public_brief }} {{ draft.counterparty_brief }} {{ draft.buyer_objections.join('；') }}</dd></div><div><dt>本场目标</dt><dd>{{ draft.goal.success_condition }}</dd></div><div><dt>不能承诺</dt><dd>{{ draft.goal.hard_limits.filter(Boolean).join('；') }}</dd></div><div v-if="draft.goal.outcome_type === 'payment_commitment'"><dt>金额与日期</dt><dd>{{ amountMajor }} {{ draft.goal.currency }} · {{ draft.goal.due_date }}</dd></div><div v-if="draft.seller_private"><dt>仅销售可见</dt><dd>{{ draft.seller_private }}</dd></div></dl>
+            <p v-if="missingDraftFields.length" class="omega-missing" role="status">还需补充：{{ missingDraftFields.join('、') }}。请展开更多设定修改。</p>
+            <p v-else class="omega-review-note">确认目标和底线无误后开始；这一步会保存并确认本场目标。</p>
+            <div class="omega-actions"><button class="btn btn-primary" type="button" :disabled="busy || !!missingDraftFields.length" @click="saveAndStart">确认并开练</button><button class="btn btn-ghost" type="button" :aria-expanded="reviewOpen" @click="reviewOpen = !reviewOpen">{{ reviewOpen ? '收起更多设定' : '修改内容或更多设定' }}</button></div>
           </section>
           <div v-show="chosenCase || reviewOpen" class="omega-review-fields">
           <form class="form-grid omega-form" @submit.prevent="saveCase">
@@ -896,26 +985,30 @@ onBeforeUnmount(() => {
           <form v-if="chosenSession.status === 'active' && canWrite(chosenSession.owner_id)" class="card omega-practice-controls" @submit.prevent="sendTurn">
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
               <div><p class="omega-kicker">实时语音</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : '连接后开始说话，双方原话自动保存' }}</p></div>
-              <button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
-              <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
+              <div class="omega-voice-actions"><button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
+                <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
+                <button v-if="!callOpen" class="btn btn-ghost omega-voice-button" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
             </div>
             <p v-if="voiceInterrupted" class="omega-alert" role="alert">语音连接中断，已保存的对话仍在。点击“继续实时对话”接着练。</p>
             <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
-            <div class="omega-session-footer"><span>结束后逐字稿将冻结，无法继续发言。</span><button class="btn btn-ghost" type="button" :disabled="busy || voiceConnecting || voiceConnected || voiceClosing" @click="finishSession">结束并冻结逐字稿</button></div>
+            <div v-if="!realtimeReady" class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
           </form>
-          <div v-if="chosenSession.status === 'ended'" class="card omega-complete-controls"><div><p class="omega-kicker">下一步</p><strong>查看本场复盘</strong><p v-if="!textReady">复盘报告需要配置文字模型和 worker。</p><p v-else>报告会引用本场逐字稿中的原话。</p></div><button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="!textReady || busy" @click="makeReport">生成复盘报告</button></div>
+          <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : '查看本场复盘' }}</strong><p v-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="!textReady || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : '生成复盘' }}</button></div>
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
-            <p>成果：{{ report.content.outcome?.status || '未验证' }} · {{ report.content.outcome?.reason }}</p>
-            <blockquote v-for="quote in report.content.outcome?.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote>
-            <h4>承诺、让步与底线</h4>
-            <div v-for="(items, title) in { '承诺': report.content.commitments || [], '让步代价': report.content.concession_costs || [], '底线': report.content.hard_limit_findings || [] }" :key="title">
-              <strong>{{ title }}</strong><p v-if="!items.length">没有可核验的原话</p>
-              <div v-for="(item, index) in items" :key="index"><p>{{ item.description || item.reason }}</p><blockquote v-for="quote in item.quotes" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote></div>
-            </div>
-            <p>评分覆盖 {{ report.content.score?.available ?? 0 }}/100；{{ report.content.score?.total === null ? '证据不足，暂无总分' : `总分 ${report.content.score?.total}` }}</p>
-            <ul><li v-for="dim in report.content.dimensions || []" :key="dim.key"><strong>{{ dimensionNames[dim.key] || dim.key }}：</strong>{{ dim.score === null ? '证据不足' : dim.score }} / {{ dim.reason }}<blockquote v-for="quote in dim.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote></li></ul>
-            <p v-if="report.content.next_practice"><strong>下次练习：</strong>{{ report.content.next_practice }}</p>
+            <p class="omega-report-result"><strong>{{ outcomeNames[report.content.outcome?.status || 'unverified'] || '证据不足' }}</strong>　{{ report.content.outcome?.reason }}</p>
+            <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]">“{{ coachingPoint.quotes[0].text }}”</blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
+            <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">再练一轮</button>
+            <details class="omega-report-details"><summary>查看原话证据和完整评分</summary>
+              <blockquote v-for="quote in report.content.outcome?.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote>
+              <h4>承诺、让步与底线</h4>
+              <div v-for="(items, title) in { '承诺': report.content.commitments || [], '让步代价': report.content.concession_costs || [], '底线': report.content.hard_limit_findings || [] }" :key="title">
+                <strong>{{ title }}</strong><p v-if="!items.length">没有可核验的原话</p>
+                <div v-for="(item, index) in items" :key="index"><p>{{ item.description || item.reason }}</p><blockquote v-for="quote in item.quotes" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote></div>
+              </div>
+              <p>评分覆盖 {{ report.content.score?.available ?? 0 }}/100；{{ report.content.score?.total === null ? '证据不足，暂无总分' : `总分 ${report.content.score?.total}` }}</p>
+              <ul><li v-for="dim in report.content.dimensions || []" :key="dim.key"><strong>{{ dimensionNames[dim.key] || dim.key }}：</strong>{{ dim.score === null ? '证据不足' : dim.score }} / {{ dim.reason }}<blockquote v-for="quote in dim.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote></li></ul>
+            </details>
             <h4>主管点评</h4><p v-for="(item, index) in report.reviews" :key="index">{{ item.content.comment }} <small>{{ item.content.next_practice }}</small></p>
             <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
             <form v-if="['manager', 'admin'].includes(me?.role || '')" class="omega-import" @submit.prevent="createAssignment(report.id)">
@@ -959,7 +1052,7 @@ onBeforeUnmount(() => {
             </div>
           </details>
         </div>
-        <div v-else class="card pad omega-welcome"><p class="omega-kicker">开始训练</p><h2>先定目标，再练对话</h2><p>写清客户背景、成功条件和不能触碰的底线。确认目标版本后，就能开始实时演练。</p><button class="btn btn-primary" type="button" @click="newCase">新建谈判任务</button></div>
+        <div v-else class="card pad omega-welcome"><p class="omega-kicker">开始训练</p><h2>选个客户卡点，马上开练</h2><p>可以用常见场景，也可以写下手头客户的情况。</p><button class="btn btn-primary" type="button" @click="newCase">开始练习</button></div>
       </section>
     </div>
   </main>
@@ -1015,7 +1108,13 @@ onBeforeUnmount(() => {
 .omega-intake h2 { font-size: 24px; }
 .omega-intake > .sub { max-width: 670px; margin-bottom: 24px; line-height: 1.6; }
 .omega-intake > label { font-size: 13px; font-weight: 600; }
-.omega-intake > textarea { min-height: 190px; padding: 16px; background: var(--card-2); line-height: 1.7; }
+.omega-intake > textarea { min-height: 112px; padding: 16px; background: var(--card-2); line-height: 1.7; }
+.omega-quick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0 0 24px; }
+.omega-quick-card { display: flex; min-height: 104px; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-2); color: var(--text); text-align: left; cursor: pointer; }
+.omega-quick-card:hover, .omega-quick-card:focus-visible { border-color: var(--blue); background: var(--blue-soft); }
+.omega-quick-card:disabled { opacity: .5; cursor: wait; }
+.omega-quick-card strong { font-size: 15px; }
+.omega-quick-card span { color: var(--muted); font-size: 12px; }
 .omega-intake-actions { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 16px; }
 .omega-intake-actions span { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .omega-intake-actions .btn { min-width: 128px; }
@@ -1067,6 +1166,7 @@ onBeforeUnmount(() => {
 .omega-voice-panel strong, .omega-complete-controls strong { font-size: 17px; }
 .omega-voice-panel p:not(.omega-kicker), .omega-complete-controls p:not(.omega-kicker) { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
 .omega-voice-panel.is-live .omega-kicker { color: var(--green); }
+.omega-voice-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .omega-voice-button { min-width: 174px; min-height: 44px; flex: none; }
 .omega-text-panel { padding: 18px 4px; border-top: 1px solid var(--border); }
 .omega-text-panel label { margin-top: 0; font-size: 13px; font-weight: 600; }
@@ -1084,6 +1184,12 @@ onBeforeUnmount(() => {
 .omega-alert { color: var(--red); background: rgba(239, 68, 68, .12); }
 .omega-notice { color: var(--blue); background: var(--blue-soft); }
 .omega-report { margin-top: 2px; }
+.omega-report-result { line-height: 1.6; }
+.omega-report-focus { margin: 20px 0; padding: 18px; border-radius: 10px; background: var(--blue-soft); }
+.omega-report-focus span { color: var(--blue); font-size: 12px; font-weight: 700; }
+.omega-report-focus p { margin: 8px 0 0; font-size: 17px; line-height: 1.6; }
+.omega-report-details { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+.omega-report-details > summary { cursor: pointer; font-weight: 600; }
 .omega-report blockquote { margin: 4px 0 12px; padding-left: 10px; border-left: 2px solid var(--blue); color: var(--muted); }
 .omega-import { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
 .omega-import > summary { cursor: pointer; font-size: 15px; font-weight: 600; }
@@ -1122,6 +1228,8 @@ onBeforeUnmount(() => {
   .omega-grid { grid-template-columns: 1fr; }
   .omega-side { position: static; }
   .omega-side-body { max-height: 190px; min-height: 0; }
+  .omega-quick-grid { grid-template-columns: 1fr; }
+  .omega-quick-card { min-height: 64px; flex-direction: row; align-items: center; }
 }
 @media (max-width: 640px) {
   .omega-side-toggle { display: inline-flex; }
@@ -1130,12 +1238,13 @@ onBeforeUnmount(() => {
   .omega-practice-controls, .omega-complete-controls { order: 0; }
   .omega-session-summary { order: 1; }
   .omega-conversation { order: 2; }
-  .omega-report { order: 3; }
+  .omega-report { order: 0; }
   .omega-head h1 { font-size: 25px; }
   .omega-head-meta { width: 100%; }
   .omega-main > .card.pad, .omega-session-summary, .omega-conversation, .omega-practice-controls, .omega-complete-controls { padding: 16px; }
   .omega-session-heading h2 { font-size: 20px; }
   .omega-voice-panel, .omega-complete-controls { align-items: stretch; flex-direction: column; }
+  .omega-voice-actions { flex-direction: column; }
   .omega-voice-button, .omega-complete-controls .btn { width: 100%; }
   .omega-session-footer { align-items: stretch; flex-direction: column; }
   .omega-transcript li { max-width: 92%; }
