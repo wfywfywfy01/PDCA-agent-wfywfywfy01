@@ -448,6 +448,7 @@ def render_brief(
         hour,
         group.lang,
         compact=bool(getattr(get_settings(), "duzhan_compact", True)),
+        strict_holiday=group.channel_id in strict_holiday_channels(),
     )
     return "\n\n".join(blocks) + board
 
@@ -1283,13 +1284,31 @@ def _red_item_text(item: dict, lang: str) -> str:
     return head
 
 
+STRICT_HOLIDAY_ENV = "PDCA_DUZHAN_STRICT_HOLIDAY_CHANNELS"
+
+
+def strict_holiday_channels() -> set[str]:
+    """长假期间也"按正常工作日"处理的群（逗号分隔的 channel_id）。
+
+    长假本来就照推三档（见 workday_calendar），差的只是"一律不处罚"这条豁免：
+    列进这里的群，红黑榜照列、扣罚照记，和普通工作日一模一样。
+    """
+    raw = os.environ.get(STRICT_HOLIDAY_ENV, "")
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
 def _board_text(
     ledger: dict | None,
     hour: int,
     lang: str,
     compact: bool = False,
+    *,
+    strict_holiday: bool = False,
 ) -> str:
-    """晚追才出红黑榜；@ 纯文本拼进 body。compact=只留红榜与黑榜。"""
+    """晚追才出红黑榜；@ 纯文本拼进 body。compact=只留红榜与黑榜。
+
+    `strict_holiday=True`：这个群在长假里也按工作日办（豁免不生效）。
+    """
     if hour != 20 or not ledger:
         return ""
     red = ledger.get("red") or []
@@ -1307,7 +1326,7 @@ def _board_text(
             f"@{item['display']} {_to_en(str(item.get('reason') or ''))}"
             for item in black
         ) or "none"
-        exempt = bool((ledger or {}).get("_penalty_exempt"))
+        exempt = bool((ledger or {}).get("_penalty_exempt")) and not strict_holiday
         head = (
             f"\nRed TOP3 (department-wide, visible to all groups): {red_line}\n"
             + ("Black: holiday period, no penalty\n" if exempt else f"Black (to improve, department-wide): {black_line}\n")
@@ -1328,7 +1347,8 @@ def _board_text(
     ) or "无"
     # 老板 2026-09-20 拍板：红黑榜是部门口径、全员可见（每个群都会看到全部 10 人）
     # 长假期间照常推送进度，但一律不处罚：不列黑榜、不记扣罚（老板 2026-09-20 拍板）。
-    exempt = bool((ledger or {}).get("_penalty_exempt"))
+    # 例外：PDCA_DUZHAN_STRICT_HOLIDAY_CHANNELS 里的群，长假也照常评价（老板 2026-09-30）。
+    exempt = bool((ledger or {}).get("_penalty_exempt")) and not strict_holiday
     head = (
         "\n"
         f"红榜 TOP3（部门口径·全员可见｜综合=过程50%+业绩50%）：{red_line}\n"
