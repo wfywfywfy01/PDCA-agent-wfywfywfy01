@@ -976,13 +976,14 @@ onBeforeUnmount(() => {
           <form v-if="chosenSession.status === 'active' && canWrite(chosenSession.owner_id)" class="card omega-practice-controls" @submit.prevent="sendTurn">
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
               <div><p class="omega-kicker">实时语音</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : '连接后开始说话，双方原话自动保存' }}</p></div>
-              <button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
-              <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
+              <div class="omega-voice-actions"><button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
+                <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
+                <button v-if="!callOpen" class="btn btn-ghost omega-voice-button" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
             </div>
             <p v-if="voiceInterrupted" class="omega-alert" role="alert">语音连接中断，已保存的对话仍在。点击“继续实时对话”接着练。</p>
             <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
-            <div class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy || voiceConnecting || voiceConnected || voiceClosing" @click="finishSession">结束并复盘</button></div>
+            <div v-if="!realtimeReady" class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
           </form>
           <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : '查看本场复盘' }}</strong><p v-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="!textReady || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : '生成复盘' }}</button></div>
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
@@ -1156,6 +1157,7 @@ onBeforeUnmount(() => {
 .omega-voice-panel strong, .omega-complete-controls strong { font-size: 17px; }
 .omega-voice-panel p:not(.omega-kicker), .omega-complete-controls p:not(.omega-kicker) { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
 .omega-voice-panel.is-live .omega-kicker { color: var(--green); }
+.omega-voice-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .omega-voice-button { min-width: 174px; min-height: 44px; flex: none; }
 .omega-text-panel { padding: 18px 4px; border-top: 1px solid var(--border); }
 .omega-text-panel label { margin-top: 0; font-size: 13px; font-weight: 600; }
@@ -1233,6 +1235,7 @@ onBeforeUnmount(() => {
   .omega-main > .card.pad, .omega-session-summary, .omega-conversation, .omega-practice-controls, .omega-complete-controls { padding: 16px; }
   .omega-session-heading h2 { font-size: 20px; }
   .omega-voice-panel, .omega-complete-controls { align-items: stretch; flex-direction: column; }
+  .omega-voice-actions { flex-direction: column; }
   .omega-voice-button, .omega-complete-controls .btn { width: 100%; }
   .omega-session-footer { align-items: stretch; flex-direction: column; }
   .omega-transcript li { max-width: 92%; }
