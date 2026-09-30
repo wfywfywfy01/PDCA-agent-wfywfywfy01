@@ -113,6 +113,16 @@ export function agentPayload(input: {
   return payload
 }
 
+/** 表单内容和已保存的配置是否一致（用来提示"未保存"）。 */
+export function configChanged(
+  current: { name: string; timezone: string; note: string; blocks: Block[] } | null,
+  draft: { name: string; timezone: string; note: string; blocks: Block[] },
+): boolean {
+  if (!current) return draft.blocks.length > 0 || draft.name.trim().length > 0
+  if (current.name !== draft.name || current.timezone !== draft.timezone || current.note !== draft.note) return true
+  return JSON.stringify(current.blocks) !== JSON.stringify(draft.blocks)
+}
+
 /** 卡片标题上的一行摘要。 */
 export function blockSummary(block: Block): string {
   switch (block.type) {

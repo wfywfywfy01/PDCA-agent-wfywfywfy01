@@ -7,7 +7,7 @@ import type { Block, BlockTypeSpec, BlocksPayload } from '@/api/duzhanBlocks'
 
 export type { Block, BlockTypeSpec, BlockFieldSpec, BlocksPayload } from '@/api/duzhanBlocks'
 export {
-  addBlock, agentPayload, blockSummary, defaultBlock, fieldVisible,
+  addBlock, agentPayload, blockSummary, configChanged, defaultBlock, fieldVisible,
   fromJson, moveBlock, removeBlock, toJson, updateBlockField,
 } from '@/api/duzhanBlocks'
 
@@ -88,6 +88,18 @@ export function previewAgent(
   mode: PreviewMode = 'structure',
 ): Promise<PreviewResult | RenderPreviewResult> {
   return apiPost('/api/duzhan-agents/' + id + '/preview', { day, hour, mode })
+}
+
+export interface AiStatus {
+  day: string
+  calls: number
+  cached: number
+  limit: number
+}
+
+/** AI 规则今天的用量（调用次数 / 缓存条数 / 上限）。 */
+export function aiStatus(): Promise<AiStatus> {
+  return apiGet('/api/duzhan-agents/ai-status')
 }
 
 export function seedFromCode(): Promise<{ created: DuzhanAgentItem[]; skipped: string[] }> {
