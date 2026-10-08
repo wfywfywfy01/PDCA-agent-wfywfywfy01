@@ -358,8 +358,8 @@ watch([startDate, endDate], load)
         </div>
       </div>
 
-      <div v-else-if="vemory && vemory.meetings.length" class="table-wrap">
-        <table class="data-table">
+      <div v-else-if="vemory && vemory.meetings.length" class="table-scroll">
+        <table class="grid">
           <thead>
             <tr>
               <th scope="col">会议</th>
@@ -388,15 +388,17 @@ watch([startDate, endDate], load)
       <p v-if="vemory?.warning" class="hint-warn">数据源提示：{{ vemory.warning }}</p>
     </section>
 
-    <div v-if="detailOpen" class="overlay" @click.self="detailOpen = false">
-      <section class="card modal" role="dialog" aria-modal="true" aria-labelledby="vemory-detail-title">
-        <header class="modal-head">
+    <template v-if="detailOpen">
+      <div class="drawer-backdrop" @click="detailOpen = false" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="vemory-detail-title">
+        <header class="drawer-head">
           <div>
             <h2 id="vemory-detail-title">会议详情</h2>
             <p>Vemory 纪要、章节与音频入口</p>
           </div>
-          <button class="btn btn-sm" type="button" @click="detailOpen = false">关闭</button>
+          <button class="icon-btn" type="button" aria-label="关闭抽屉" @click="detailOpen = false">✕</button>
         </header>
+        <div class="drawer-body">
 
         <div v-if="detailError" class="alert" role="alert">
           <span>{{ detailError }}</span>
@@ -430,8 +432,12 @@ watch([startDate, endDate], load)
           <h2>没有可展示的详情</h2>
           <p>该会议可能尚未生成纪要。</p>
         </div>
-      </section>
-    </div>
+        </div>
+        <footer class="drawer-foot">
+          <button class="btn" type="button" @click="detailOpen = false">关闭</button>
+        </footer>
+      </aside>
+    </template>
 
     <div v-if="showDispatch" class="modal-backdrop" @click.self="showDispatch = false">
       <section class="card modal">

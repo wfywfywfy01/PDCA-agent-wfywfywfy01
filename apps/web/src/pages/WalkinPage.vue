@@ -350,7 +350,7 @@ onMounted(async () => {
         </section>
         <section class="card panel">
           <h2>门店排行</h2>
-          <table v-if="summary.by_dealer.length" class="table">
+          <table v-if="summary.by_dealer.length" class="grid">
             <thead>
               <tr>
                 <th>门店</th>
@@ -388,7 +388,7 @@ onMounted(async () => {
       <p v-if="historyLoading" class="empty">正在读取历史明细…</p>
       <section v-else-if="!historyError" class="card panel">
         <h2>日报明细</h2>
-        <table v-if="history.length" class="table">
+        <table v-if="history.length" class="grid">
           <thead>
             <tr>
               <th>日期</th>
@@ -622,25 +622,8 @@ h2 {
   border-radius: 999px;
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-th {
-  text-align: left;
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 12px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-td {
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--border);
-}
+/* 表格结构样式统一走全局 table.grid（styles/ui.css）；
+   原先 scoped 的 table/th/td 元素规则会盖掉粘性表头，已移除。 */
 
 .num {
   text-align: right;

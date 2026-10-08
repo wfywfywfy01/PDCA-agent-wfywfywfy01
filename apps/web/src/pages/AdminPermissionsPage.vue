@@ -81,7 +81,7 @@ onMounted(load)
       <section class="workspace">
         <div class="card list-card">
           <label class="search">搜索账号<input v-model="search" class="input" type="search" placeholder="姓名或账号" /></label>
-          <div class="table-wrap"><table><thead><tr><th>账号</th><th>角色</th><th>数据范围</th><th>状态</th></tr></thead><tbody>
+          <div class="table-scroll"><table class="grid"><thead><tr><th>账号</th><th>角色</th><th>数据范围</th><th>状态</th></tr></thead><tbody>
             <tr v-for="user in visibleUsers" :key="user.username" :class="{ active: selected?.username === user.username }">
               <td><button type="button" :aria-pressed="selected?.username === user.username" @click="choose(user)"><strong>{{ user.display_name || user.username }}</strong><small>{{ user.username }}</small></button></td>
               <td>{{ ROLE_LABELS[user.role] }}</td><td>{{ SCOPE_LABELS[user.data_scope] || user.data_scope }}<span v-if="needsSetup(user)" class="warn">需配置</span></td>

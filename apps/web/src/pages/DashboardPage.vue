@@ -944,8 +944,8 @@ onBeforeUnmount(() => {
           <p v-else class="hint">没有可绘制的趋势数据</p>
         </div>
 
-        <div v-if="dealer.dealers.length" class="table-wrap">
-          <table class="data-table">
+        <div v-if="dealer.dealers.length" class="table-scroll">
+          <table class="grid">
             <caption class="sr-only">经销商月度 Sell-in 排行</caption>
             <thead>
               <tr>
