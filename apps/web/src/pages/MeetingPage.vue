@@ -261,13 +261,25 @@ watch([startDate, endDate], load)
         <h1>会议中心</h1>
         <p class="sub">会议记录 · 待办派发 · 闭环跟踪</p>
       </div>
-      <div class="date-row">
-        <input v-model="startDate" type="date" class="input" aria-label="会议开始日期" />
-        <span class="sep">至</span>
-        <input v-model="endDate" type="date" class="input" :min="startDate" aria-label="会议结束日期" />
-        <button v-if="endDate" type="button" class="btn" @click="endDate = ''">清除</button>
-      </div>
     </header>
+
+    <section class="filterbar" aria-label="会议筛选">
+      <label class="sr-only" for="meeting-start">会议开始日期</label>
+      <input id="meeting-start" v-model="startDate" type="date" class="input" />
+      <span class="muted">至</span>
+      <label class="sr-only" for="meeting-end">会议结束日期</label>
+      <input id="meeting-end" v-model="endDate" type="date" class="input" :min="startDate" />
+      <button
+        v-if="startDate || endDate"
+        type="button"
+        class="chip-filter"
+        @click="startDate = ''; endDate = ''"
+      >
+        清除筛选
+      </button>
+      <span class="spacer" />
+      <span class="muted">{{ payload?.meetings.length || 0 }} 场会议</span>
+    </section>
 
     <p v-if="payload?.scope_message" class="scope-note">🔒 {{ payload.scope_message }}</p>
     <p v-if="payload?.state === 'live'" class="source-note">数据源：Vemory 实时会议列表</p>
@@ -498,18 +510,6 @@ h2 {
 .sub {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
-}
-
-.date-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.sep {
-  color: var(--faint);
   font-size: 13px;
 }
 
