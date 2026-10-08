@@ -1,6 +1,53 @@
-/* PDCA 工作台设计 token —— 提炼自现有暗色 cockpit 视觉
-   （workbench-unified.css / logistics_center 内联变量） */
+/* PDCA 工作台设计 token
+   对标：Ant Design Pro 布局规范 + Stripe/Mixpanel/Datadog/Retool 的 B2B 数据密集型模式
+   （详见 docs/DESIGN.md）。下面分两层：外壳/表面/文本/描边/间距/圆角刻度 = 新增；
+   --card/--text/--muted 等 = 兼容既有页面的旧命名。 */
 :root {
+  /* ── 外壳尺寸 ─────────────────────────────────────────── */
+  --sidebar-w: 232px;
+  --sidebar-w-collapsed: 60px;
+  --topbar-h: 52px;
+
+  /* ── 表面层级（数字越大越亮）──────────────────────────── */
+  --surface-0: #0a0c11;
+  --surface-1: #0f1218;
+  --surface-2: #141821;
+  --surface-3: #1a1f2a;
+  --surface-hover: rgba(255, 255, 255, 0.035);
+  --surface-active: rgba(78, 158, 245, 0.1);
+
+  /* ── 文本层级 ─────────────────────────────────────────── */
+  --text-1: #e8edf5;
+  --text-2: #9aa7b8;
+  --text-3: #6b7787;
+
+  /* ── 描边 ─────────────────────────────────────────────── */
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+
+  /* ── 状态色（全站统一 5 种）───────────────────────────── */
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --danger: #f43f5e;
+  --info: #4e9ef5;
+  --idle: #7c8798;
+
+  /* ── 间距刻度（4px 基准）──────────────────────────────── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* ── 圆角刻度 ─────────────────────────────────────────── */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
   --bg: #0b0d13;
   --card: #13182a;
   --card-2: #171d33;
