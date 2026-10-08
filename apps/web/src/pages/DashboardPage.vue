@@ -1099,37 +1099,32 @@ onBeforeUnmount(() => {
       </template>
     </section>
 
-    <div v-if="glossaryOpen" class="overlay" @click.self="closeGlossary">
-      <section class="card modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title">
-        <header class="modal-head">
+    <template v-if="glossaryOpen">
+      <div class="drawer-backdrop" @click="closeGlossary" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="glossary-title">
+        <header class="drawer-head">
           <div>
             <h2 id="glossary-title">数据口径说明</h2>
             <p>每个指标都标注来源与新鲜度；没有可验证数据时显示 N/A，不用估算值补齐。</p>
-            <p v-if="overview?.managerRole" class="hint">
-              当前视图：{{ overview.managerName }} · {{ overview.managerRole }}
-            </p>
+            <p v-if="overview?.managerRole">当前视图：{{ overview.managerName }} · {{ overview.managerRole }}</p>
           </div>
-          <button
-            ref="glossaryCloseBtn"
-            class="btn btn-sm"
-            type="button"
-            aria-label="关闭数据口径说明"
-            @click="closeGlossary"
-          >
-            关闭
+          <button ref="glossaryCloseBtn" class="icon-btn" type="button" aria-label="关闭数据口径说明" @click="closeGlossary">
+            ✕
           </button>
         </header>
-        <dl class="glossary">
-          <div v-for="item in GLOSSARY" :key="item.term" class="glossary-row">
-            <dt>{{ item.term }}</dt>
-            <dd>{{ item.text }}</dd>
-          </div>
-        </dl>
-        <div class="modal-foot">
-          <button class="btn btn-primary" type="button" @click="closeGlossary">知道了</button>
+        <div class="drawer-body">
+          <dl class="glossary">
+            <div v-for="item in GLOSSARY" :key="item.term" class="glossary-row">
+              <dt>{{ item.term }}</dt>
+              <dd>{{ item.text }}</dd>
+            </div>
+          </dl>
         </div>
-      </section>
-    </div>
+        <footer class="drawer-foot">
+          <button class="btn btn-primary" type="button" @click="closeGlossary">知道了</button>
+        </footer>
+      </aside>
+    </template>
   </main>
 </template>
 
@@ -1193,8 +1188,6 @@ onBeforeUnmount(() => {
 .task-owner { font-size: 12px; color: var(--muted); }
 
 /* ── 表格数字列右对齐 ─────────────────────────────────────────────── */
-.data-table .num { text-align: right; }
-
 /* ── 口径说明弹层 ─────────────────────────────────────────────────── */
 .glossary { margin: 0; display: grid; gap: 12px; }
 .glossary-row { display: grid; gap: 3px; }

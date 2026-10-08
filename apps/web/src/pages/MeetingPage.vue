@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
+import { useEscapeClose } from '@/composables/use-escape-close'
 
 interface MeetingItem {
   meeting_date?: string
@@ -237,6 +238,11 @@ async function submitDispatch() {
   }
 }
 
+useEscapeClose(() => {
+  if (showDispatch.value) showDispatch.value = false
+  else if (detailOpen.value) detailOpen.value = false
+})
+
 onMounted(() => {
   load()
   apiGet<Me>('/api/auth/me')
@@ -439,26 +445,36 @@ watch([startDate, endDate], load)
       </aside>
     </template>
 
-    <div v-if="showDispatch" class="modal-backdrop" @click.self="showDispatch = false">
-      <section class="card modal">
-        <h2>派发待办</h2>
-        <p class="sub">{{ dispatchMeeting?.title }}</p>
-        <div v-if="dispatchError" class="entry-msg bad">{{ dispatchError }}</div>
-        <div v-if="dispatchSuccess" class="entry-msg ok">{{ dispatchSuccess }}</div>
-        <div v-for="(row, index) in assignments" :key="index" class="assign-row">
-          <input v-model="row.owner" class="input" placeholder="负责人" />
-          <input v-model="row.title" class="input grow" placeholder="待办内容" />
-          <button type="button" class="btn btn-remove" @click="removeAssignment(index)">✕</button>
+    <template v-if="showDispatch">
+      <div class="drawer-backdrop" @click="showDispatch = false" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dispatch-title">
+        <header class="drawer-head">
+          <div>
+            <h2 id="dispatch-title">派发待办</h2>
+            <p>{{ dispatchMeeting?.title }}</p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="关闭派发抽屉" @click="showDispatch = false">✕</button>
+        </header>
+        <div class="drawer-body">
+          <div v-if="dispatchError" class="entry-msg bad">{{ dispatchError }}</div>
+          <div v-if="dispatchSuccess" class="entry-msg ok">{{ dispatchSuccess }}</div>
+          <div v-for="(row, index) in assignments" :key="index" class="assign-row">
+            <input v-model="row.owner" class="input" placeholder="负责人" aria-label="待办负责人" />
+            <input v-model="row.title" class="input grow" placeholder="待办内容" aria-label="待办内容" />
+            <button type="button" class="btn btn-remove" :aria-label="'删除第 ' + (index + 1) + ' 行'" @click="removeAssignment(index)">
+              ✕
+            </button>
+          </div>
+          <button type="button" class="btn add-btn" @click="addAssignment">+ 添加一行</button>
         </div>
-        <button type="button" class="btn add-btn" @click="addAssignment">+ 添加一行</button>
-        <div class="modal-actions">
+        <footer class="drawer-foot">
           <button type="button" class="btn" @click="showDispatch = false">取消</button>
           <button type="button" class="btn btn-primary" :disabled="dispatchBusy" @click="submitDispatch">
             {{ dispatchBusy ? '派发中…' : '派发' }}
           </button>
-        </div>
-      </section>
-    </div>
+        </footer>
+      </aside>
+    </template>
   </main>
 </template>
 
@@ -467,15 +483,6 @@ watch([startDate, endDate], load)
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px 20px 60px;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
 }
 
 h1 {
@@ -654,25 +661,6 @@ h2 {
   padding: 32px 0;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 20;
-}
-
-.modal {
-  width: 100%;
-  max-width: 560px;
-  padding: 22px 24px;
-  max-height: 90vh;
-  overflow: auto;
-}
-
 .assign-row {
   display: flex;
   gap: 8px;
@@ -718,13 +706,6 @@ h2 {
   color: var(--amber);
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.25);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
 }
 
 .skeleton-rows { display: grid; }

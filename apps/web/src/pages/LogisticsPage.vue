@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
+import { useEscapeClose } from '@/composables/use-escape-close'
 
 interface Summary {
   source_state?: string
@@ -77,6 +78,7 @@ const q = ref('')
 
 const summary = ref<Summary | null>(null)
 const shipments = ref<Shipment[]>([])
+const activeShipment = ref<Shipment | null>(null)
 const loading = ref(true)
 const error = ref('')
 let loadId = 0
@@ -153,6 +155,7 @@ const freightAvailable = ref(true)
 const freightBusy = ref(false)
 const freightError = ref('')
 const freightMsg = ref('')
+const activeFreight = ref<FreightItem | null>(null)
 const confirmSf = ref('')
 const confirmReason = ref('')
 const confirmBusy = ref(false)
@@ -200,6 +203,7 @@ async function submitConfirm(item: FreightItem) {
     freightMsg.value = `已确认 ${item.sf_tracking_no}`
     confirmSf.value = ''
     confirmReason.value = ''
+    activeFreight.value = null
     await loadFreight()
   } catch (err) {
     freightError.value = err instanceof HttpError ? err.detail : '复核失败'
@@ -275,11 +279,28 @@ async function singleTrack() {
   }
 }
 
-function judgementClass(judgement: string): string {
-  if (judgement === '异常') return 'j-bad'
-  if (judgement === '正常') return 'j-ok'
-  if (judgement === '运输中') return 'j-transit'
-  return 'j-warn'
+function matchPill(level: string): string {
+  if (level === 'A') return 'pill-green'
+  if (level === 'B') return 'pill-amber'
+  if (level === 'C') return 'pill-red'
+  return 'pill-muted'
+}
+
+function closeFreightDrawer() {
+  activeFreight.value = null
+  confirmSf.value = ''
+  confirmReason.value = ''
+}
+
+function statusLabel(value: string): string {
+  return STATUS_TABS.find((tab) => tab.value === value)?.label || value
+}
+
+function judgeStatus(judgement: string): string {
+  if (judgement === '异常') return 'danger'
+  if (judgement === '正常') return 'ok'
+  if (judgement === '运输中') return 'info'
+  return 'warn'
 }
 
 function barClass(judgement: string): string {
@@ -288,6 +309,12 @@ function barClass(judgement: string): string {
   if (judgement === '运输中') return 'bar-transit'
   return 'bar-warn'
 }
+
+useEscapeClose(() => {
+  if (activeShipment.value) activeShipment.value = null
+  else if (activeFreight.value) closeFreightDrawer()
+  else if (showEntry.value) showEntry.value = false
+})
 
 onMounted(() => {
   load()
@@ -416,26 +443,38 @@ watch(me, (value) => {
     <p v-if="entrySuccess" class="entry-msg ok">{{ entrySuccess }}</p>
 
     <template v-if="board === 'dealer'">
-    <section class="toolbar card">
-      <label>
-        批次
-        <select v-model="date" class="input select">
-          <option value="all">全部</option>
-          <option v-for="d in dates" :key="d" :value="d">{{ d }}</option>
-        </select>
-      </label>
-      <div class="tabs">
-        <button
-          v-for="tab in STATUS_TABS"
-          :key="tab.value"
-          type="button"
-          :class="['tab', { active: status === tab.value }]"
-          @click="status = tab.value"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-      <input v-model="q" class="input search" type="search" placeholder="搜索运单号/客户/销售/状态…" />
+    <section class="filterbar" aria-label="运单筛选">
+      <label class="sr-only" for="log-batch">批次</label>
+      <select id="log-batch" v-model="date" class="input select">
+        <option value="all">全部批次</option>
+        <option v-for="d in dates" :key="d" :value="d">{{ d }}</option>
+      </select>
+      <button
+        v-for="tab in STATUS_TABS"
+        :key="tab.value"
+        type="button"
+        class="chip-filter"
+        :class="{ on: status === tab.value }"
+        @click="status = tab.value"
+      >
+        {{ tab.label }}
+      </button>
+      <button
+        v-if="status !== 'all' || date !== 'all' || q"
+        type="button"
+        class="chip-filter"
+        @click="status = 'all'; date = 'all'; q = ''"
+      >
+        清除筛选
+      </button>
+      <span class="spacer" />
+      <input
+        v-model="q"
+        class="input filter-search"
+        type="search"
+        placeholder="搜索运单号/客户/销售/状态…"
+        aria-label="搜索运单"
+      />
     </section>
 
     <div v-if="loading" class="card state">正在读取物流数据…</div>
@@ -470,33 +509,80 @@ watch(me, (value) => {
         </div>
       </section>
 
-      <section class="cards">
-        <article v-for="ship in shipments" :key="ship.tracking_number" class="card shipment">
-          <div class="ship-head">
-            <span class="tracking">{{ ship.tracking_number }}</span>
-            <span class="badge-carrier">{{ ship.carrier }}</span>
-            <span :class="['judge', judgementClass(ship.judgement)]">{{ ship.judgement }}</span>
-            <span v-if="ship.data_source === 'csv_history'" class="badge-carrier">历史记录</span>
-          </div>
-          <div class="meta">
-            <span><b>客户</b>{{ ship.customer || '—' }}</span>
-            <span><b>销售</b>{{ ship.salesperson || '—' }}</span>
-            <span><b>发货</b>{{ ship.ship_date }}</span>
-            <span><b>在途</b>{{ ship.days_in_transit != null ? ship.days_in_transit + ' 天' : '—' }}</span>
-          </div>
-          <p class="status-line">
-            {{ ship.current_status || '未填写当前状态' }}
-            <span v-if="ship.status_source === 'auto'" class="auto-tag">官网自动</span>
-          </p>
-          <div class="bar"><i :class="[barClass(ship.judgement)]" :style="{ width: (ship.progress_pct || 0) + '%' }"></i></div>
-          <p class="reason">{{ ship.reason }}</p>
-          <div class="actions">
-            <a v-if="ship.tracking_url" :href="ship.tracking_url" target="_blank" rel="noopener">官网查询 →</a>
-          </div>
-        </article>
-        <p v-if="!loading && !shipments.length" class="empty">
-          当前筛选条件下暂无运单{{ status === 'all' && date === 'all' ? '（可在上方录入物流单号）' : '' }}
-        </p>
+      <section v-if="shipments.length" class="table-shell">
+        <div class="table-scroll">
+          <table class="grid">
+            <thead>
+              <tr>
+                <th>运单号</th>
+                <th>承运商</th>
+                <th>客户</th>
+                <th>销售</th>
+                <th>发货日期</th>
+                <th class="num">在途</th>
+                <th>当前状态</th>
+                <th>判定</th>
+                <th><span class="sr-only">操作</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="ship in shipments" :key="ship.tracking_number">
+                <td class="mono">
+                  {{ ship.tracking_number }}
+                  <span v-if="ship.data_source === 'csv_history'" class="chip">历史记录</span>
+                </td>
+                <td>{{ ship.carrier || '—' }}</td>
+                <td>{{ ship.customer || '—' }}</td>
+                <td>{{ ship.salesperson || '—' }}</td>
+                <td class="num">{{ ship.ship_date || '—' }}</td>
+                <td class="num">{{ ship.days_in_transit != null ? ship.days_in_transit + ' 天' : '—' }}</td>
+                <td class="cell-status">
+                  {{ ship.current_status || '未填写当前状态' }}
+                  <span v-if="ship.status_source === 'auto'" class="chip">官网自动</span>
+                </td>
+                <td><span class="status" :class="judgeStatus(ship.judgement)">{{ ship.judgement }}</span></td>
+                <td>
+                  <div class="row-actions">
+                    <button
+                      class="icon-btn"
+                      type="button"
+                      :aria-label="'查看运单详情 ' + ship.tracking_number"
+                      @click="activeShipment = ship"
+                    >
+                      详情
+                    </button>
+                    <a
+                      v-if="ship.tracking_url"
+                      class="icon-btn"
+                      :href="ship.tracking_url"
+                      target="_blank"
+                      rel="noopener"
+                      :aria-label="'在承运商官网查询 ' + ship.tracking_number"
+                    >
+                      ↗
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <footer class="table-foot-bar">
+          <span>{{ shipments.length }} 条运单</span>
+          <span class="muted">{{ status === 'all' ? '全部状态' : statusLabel(status) }} · {{ date === 'all' ? '全部批次' : date }}</span>
+        </footer>
+      </section>
+      <section v-else class="card empty-state">
+        <h2>当前筛选条件下暂无运单</h2>
+        <p>可以切换批次或状态，或先录入一条物流单号；录入后立即进入看板。</p>
+        <button
+          v-if="me && (me.role === 'sales' || me.role === 'manager' || me.role === 'admin')"
+          class="btn btn-primary"
+          type="button"
+          @click="showEntry = true"
+        >
+          录入物流单号
+        </button>
       </section>
 
       <section class="card track-box">
@@ -524,19 +610,33 @@ watch(me, (value) => {
 
     <template v-if="board === 'freight'">
       <p v-if="freightMsg" class="entry-msg ok">{{ freightMsg }}</p>
-      <section class="toolbar card">
-        <div class="tabs">
-          <button
-            v-for="tab in FREIGHT_TABS"
-            :key="tab.value"
-            type="button"
-            :class="['tab', { active: freightView === tab.value }]"
-            @click="freightView = tab.value"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
-        <input v-model="freightQ" class="input search" type="search" placeholder="搜索订单号/顺丰/国际单/录单人…" />
+      <section class="filterbar" aria-label="货代台账筛选">
+        <button
+          v-for="tab in FREIGHT_TABS"
+          :key="tab.value"
+          type="button"
+          class="chip-filter"
+          :class="{ on: freightView === tab.value }"
+          @click="freightView = tab.value"
+        >
+          {{ tab.label }}
+        </button>
+        <button
+          v-if="freightView !== 'all' || freightQ"
+          type="button"
+          class="chip-filter"
+          @click="freightView = 'all'; freightQ = ''"
+        >
+          清除筛选
+        </button>
+        <span class="spacer" />
+        <input
+          v-model="freightQ"
+          class="input filter-search"
+          type="search"
+          placeholder="搜索订单号/顺丰/国际单/录单人…"
+          aria-label="搜索货代台账"
+        />
       </section>
       <div v-if="freightError" class="card state error">{{ freightError }}</div>
       <p v-else-if="freightBusy" class="card state">加载货代台账…</p>
@@ -550,53 +650,172 @@ watch(me, (value) => {
           <div class="card stat"><span class="k">已出国际单</span><span class="v">{{ freightSummary.labeled }}</span></div>
           <div class="card stat"><span class="k">已签收</span><span class="v ok">{{ freightSummary.delivered }}</span></div>
         </section>
-        <section class="cards">
-          <article v-for="item in freightItems" :key="item.sf_tracking_no" class="card shipment">
-            <div class="ship-head">
-              <span class="tracking">{{ item.order_no || item.sf_tracking_no }}</span>
-              <span class="badge-carrier">{{ item.carrier || '—' }}</span>
-              <span v-if="item.match_level" :class="['judge', item.match_level === 'C' ? 'j-bad' : item.match_level === 'B' ? 'j-warn' : 'j-ok']">
-                Level {{ item.match_level }}
-              </span>
-              <span :class="['judge', item.exception ? 'j-bad' : item.status === '签收已确认' ? 'j-ok' : 'j-transit']">
-                {{ item.exception || item.status || '—' }}
-              </span>
-            </div>
-            <div class="meta">
-              <span><b>顺丰</b>{{ item.sf_tracking_no }}</span>
-              <span><b>国际单</b>{{ item.tracking_no || '—' }}</span>
-              <span><b>录单人</b>{{ item.salesperson || '—' }}</span>
-              <span><b>目的地</b>{{ item.consignee || '—' }} {{ item.country }}</span>
-            </div>
-            <p v-if="item.last_event" class="reason">{{ item.last_event }}</p>
-            <p v-if="item.match_evidence" class="reason">证据 {{ item.match_evidence }}</p>
-            <div v-if="item.needs_review && canReviewFreight()" class="confirm-row">
-              <template v-if="confirmSf === item.sf_tracking_no">
-                <input
-                  v-model="confirmReason"
-                  class="input"
-                  placeholder="确认原因（必填）"
-                  @keyup.enter="submitConfirm(item)"
-                />
-                <button class="btn btn-primary" type="button" :disabled="confirmBusy" @click="submitConfirm(item)">
-                  {{ confirmBusy ? '提交中…' : '提交' }}
-                </button>
-                <button class="btn" type="button" @click="confirmSf = ''">取消</button>
-              </template>
-              <button v-else class="btn btn-primary" type="button" @click="startConfirm(item)">确认关联</button>
-            </div>
-          </article>
-          <p v-if="!freightBusy && !freightItems.length" class="empty">当前筛选下没有货代运单</p>
+        <section v-if="freightItems.length" class="table-shell">
+          <div class="table-scroll">
+            <table class="grid">
+              <thead>
+                <tr>
+                  <th>订单号</th>
+                  <th>顺丰单号</th>
+                  <th>国际单号</th>
+                  <th>承运商</th>
+                  <th>录单人</th>
+                  <th>目的地</th>
+                  <th>状态</th>
+                  <th>匹配</th>
+                  <th><span class="sr-only">操作</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in freightItems" :key="item.sf_tracking_no">
+                  <td class="mono">{{ item.order_no || '—' }}</td>
+                  <td class="mono">{{ item.sf_tracking_no }}</td>
+                  <td class="mono">{{ item.tracking_no || '—' }}</td>
+                  <td>{{ item.carrier || '—' }}</td>
+                  <td>{{ item.salesperson || '—' }}</td>
+                  <td>{{ item.consignee || '—' }}<span class="muted"> {{ item.country }}</span></td>
+                  <td>
+                    <span class="status" :class="item.exception ? 'danger' : item.status === '签收已确认' ? 'ok' : 'info'">
+                      {{ item.exception || item.status || '—' }}
+                    </span>
+                  </td>
+                  <td>
+                    <span v-if="item.match_level" class="pill" :class="matchPill(item.match_level)">
+                      Level {{ item.match_level }}
+                    </span>
+                    <span v-if="item.needs_review" class="chip">待复核</span>
+                  </td>
+                  <td>
+                    <div class="row-actions">
+                      <button
+                        class="icon-btn"
+                        type="button"
+                        :aria-label="'查看货代运单详情 ' + item.sf_tracking_no"
+                        @click="activeFreight = item"
+                      >
+                        详情
+                      </button>
+                      <button
+                        v-if="item.needs_review && canReviewFreight()"
+                        class="icon-btn"
+                        type="button"
+                        :aria-label="'确认关联 ' + item.sf_tracking_no"
+                        @click="startConfirm(item); activeFreight = item"
+                      >
+                        复核
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <footer class="table-foot-bar">
+            <span>{{ freightItems.length }} 条货代运单</span>
+            <span class="muted">{{ freightView === 'all' ? '全部' : freightView === 'review' ? '待复核' : '异常' }}</span>
+          </footer>
+        </section>
+        <section v-else-if="!freightBusy" class="card empty-state">
+          <h2>当前筛选下没有货代运单</h2>
+          <p>切换筛选或稍后刷新；台账尚未同步时请联系管理员。</p>
+          <button class="btn" type="button" @click="loadFreight()">重新加载</button>
         </section>
       </template>
     </template>
 
-    <div v-if="showEntry" class="modal-backdrop" @click.self="showEntry = false">
-      <section class="card modal">
-        <h2>录入物流单号</h2>
-        <p class="sub">保存后立即进入看板（销售身份由服务器锁定）</p>
-        <div v-if="entryError" class="entry-msg bad">{{ entryError }}</div>
-        <form class="entry-form" @submit.prevent="submitEntry">
+    <template v-if="activeFreight">
+      <div class="drawer-backdrop" @click="closeFreightDrawer" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="freight-title">
+        <header class="drawer-head">
+          <div>
+            <h2 id="freight-title" class="mono">{{ activeFreight.order_no || activeFreight.sf_tracking_no }}</h2>
+            <p>顺丰 {{ activeFreight.sf_tracking_no }} · {{ activeFreight.carrier || '—' }}</p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="关闭货代运单详情" @click="closeFreightDrawer">✕</button>
+        </header>
+        <div class="drawer-body">
+          <dl class="kv-list">
+            <div><dt>国际单号</dt><dd class="mono">{{ activeFreight.tracking_no || '—' }}</dd></div>
+            <div><dt>录单人</dt><dd>{{ activeFreight.salesperson || '—' }}</dd></div>
+            <div><dt>收货人</dt><dd>{{ activeFreight.consignee || '—' }}</dd></div>
+            <div><dt>国家</dt><dd>{{ activeFreight.country || '—' }}</dd></div>
+            <div><dt>状态</dt><dd>{{ activeFreight.status || '—' }}</dd></div>
+            <div><dt>生命周期</dt><dd>{{ activeFreight.lifecycle || '—' }}</dd></div>
+            <div><dt>异常</dt><dd>{{ activeFreight.exception || '—' }}</dd></div>
+            <div><dt>匹配级别</dt><dd>Level {{ activeFreight.match_level || '—' }}</dd></div>
+          </dl>
+          <p v-if="activeFreight.last_event" class="reason">{{ activeFreight.last_event }}</p>
+          <p v-if="activeFreight.match_evidence" class="reason">匹配证据 {{ activeFreight.match_evidence }}</p>
+          <div v-if="activeFreight.needs_review && canReviewFreight()" class="confirm-row">
+            <input
+              v-model="confirmReason"
+              class="input"
+              placeholder="确认原因（必填，至少 2 字）"
+              @keyup.enter="submitConfirm(activeFreight)"
+            />
+            <button class="btn btn-primary" type="button" :disabled="confirmBusy" @click="submitConfirm(activeFreight)">
+              {{ confirmBusy ? '提交中…' : '确认关联' }}
+            </button>
+          </div>
+        </div>
+        <footer class="drawer-foot">
+          <button class="btn" type="button" @click="closeFreightDrawer">关闭</button>
+        </footer>
+      </aside>
+    </template>
+
+    <template v-if="activeShipment">
+      <div class="drawer-backdrop" @click="activeShipment = null" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="shipment-title">
+        <header class="drawer-head">
+          <div>
+            <h2 id="shipment-title" class="mono">{{ activeShipment.tracking_number }}</h2>
+            <p>{{ activeShipment.carrier }} · 判定 {{ activeShipment.judgement }}</p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="关闭运单详情" @click="activeShipment = null">✕</button>
+        </header>
+        <div class="drawer-body">
+          <div class="bar"><i :class="[barClass(activeShipment.judgement)]" :style="{ width: (activeShipment.progress_pct || 0) + '%' }"></i></div>
+          <dl class="kv-list">
+            <div><dt>客户</dt><dd>{{ activeShipment.customer || '—' }}</dd></div>
+            <div><dt>销售</dt><dd>{{ activeShipment.salesperson || '—' }}</dd></div>
+            <div><dt>发货日期</dt><dd class="num">{{ activeShipment.ship_date || '—' }}</dd></div>
+            <div><dt>在途天数</dt><dd class="num">{{ activeShipment.days_in_transit != null ? activeShipment.days_in_transit + ' 天' : '—' }}</dd></div>
+            <div><dt>当前状态</dt><dd>{{ activeShipment.current_status || '未填写当前状态' }}</dd></div>
+            <div><dt>预期状态</dt><dd>{{ activeShipment.expected_status || '—' }}</dd></div>
+            <div><dt>状态来源</dt><dd>{{ activeShipment.status_source === 'auto' ? '承运商官网自动抓取' : '人工录入' }}</dd></div>
+            <div><dt>数据来源</dt><dd>{{ activeShipment.data_source === 'csv_history' ? '历史记录导入' : '系统台账' }}</dd></div>
+            <div><dt>备注</dt><dd>{{ activeShipment.note || '—' }}</dd></div>
+          </dl>
+          <p class="reason">{{ activeShipment.reason }}</p>
+        </div>
+        <footer class="drawer-foot">
+          <a
+            v-if="activeShipment.tracking_url"
+            class="btn"
+            :href="activeShipment.tracking_url"
+            target="_blank"
+            rel="noopener"
+          >
+            官网查询
+          </a>
+          <button class="btn btn-primary" type="button" @click="activeShipment = null">关闭</button>
+        </footer>
+      </aside>
+    </template>
+
+    <template v-if="showEntry">
+      <div class="drawer-backdrop" @click="showEntry = false" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="entry-title">
+        <header class="drawer-head">
+          <div>
+            <h2 id="entry-title">录入物流单号</h2>
+            <p>保存后立即进入看板（销售身份由服务器锁定）</p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="关闭录入抽屉" @click="showEntry = false">✕</button>
+        </header>
+        <form id="logistics-entry-form" class="drawer-body entry-form" @submit.prevent="submitEntry">
+          <p v-if="entryError" class="entry-msg bad span-2">{{ entryError }}</p>
           <label>
             物流单号 *
             <input v-model="entryForm.tracking_number" class="input" required />
@@ -627,15 +846,15 @@ watch(me, (value) => {
             备注
             <input v-model="entryForm.note" class="input" />
           </label>
-          <div class="modal-actions span-2">
-            <button type="button" class="btn" @click="showEntry = false">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="entryBusy">
-              {{ entryBusy ? '保存中…' : '保存' }}
-            </button>
-          </div>
         </form>
-      </section>
-    </div>
+        <footer class="drawer-foot">
+          <button type="button" class="btn" @click="showEntry = false">取消</button>
+          <button type="submit" form="logistics-entry-form" class="btn btn-primary" :disabled="entryBusy">
+            {{ entryBusy ? '保存中…' : '保存' }}
+          </button>
+        </footer>
+      </aside>
+    </template>
   </main>
 </template>
 
@@ -644,15 +863,6 @@ watch(me, (value) => {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px 20px 60px;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
 }
 
 .head-actions {
@@ -715,31 +925,9 @@ h2 {
   font-size: 13px;
 }
 
-.toolbar {
-  padding: 12px 14px;
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
-.toolbar label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
 .select {
   width: auto;
   min-width: 140px;
-}
-
-.search {
-  flex: 1;
-  min-width: 200px;
 }
 
 .tabs {
@@ -810,95 +998,6 @@ h2 {
   color: var(--green);
 }
 
-.cards {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.shipment {
-  padding: 16px 18px;
-  border-left: 4px solid var(--faint);
-}
-
-.ship-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.tracking {
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.badge-carrier {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  border: 1px solid var(--border-strong);
-  color: var(--muted);
-}
-
-.judge {
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.j-ok {
-  background: rgba(16, 185, 129, 0.14);
-  color: var(--green);
-}
-
-.j-bad {
-  background: rgba(244, 63, 94, 0.14);
-  color: var(--red);
-}
-
-.j-warn {
-  background: rgba(245, 158, 11, 0.14);
-  color: var(--amber);
-}
-
-.j-transit {
-  background: rgba(78, 158, 245, 0.14);
-  color: var(--blue);
-}
-
-.meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px;
-  margin: 12px 0;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.meta b {
-  margin-right: 6px;
-  color: var(--faint);
-  font-weight: 500;
-}
-
-.status-line {
-  margin: 6px 0;
-  font-size: 14px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.auto-tag {
-  font-size: 11px;
-  color: var(--blue);
-  border: 1px solid rgba(78, 158, 245, 0.3);
-  border-radius: 6px;
-  padding: 1px 6px;
-}
-
 .bar {
   height: 8px;
   background: rgba(255, 255, 255, 0.06);
@@ -934,15 +1033,6 @@ h2 {
   color: var(--muted);
 }
 
-.actions {
-  margin-top: 10px;
-}
-
-.actions a,
-.actions .btn {
-  font-size: 13px;
-}
-
 .confirm-row {
   display: flex;
   gap: 8px;
@@ -954,16 +1044,6 @@ h2 {
 .confirm-row .input {
   flex: 1;
   min-width: 180px;
-}
-
-.actions a {
-  font-size: 13px;
-}
-
-.empty {
-  color: var(--muted);
-  text-align: center;
-  padding: 32px 0;
 }
 
 .track-box {
@@ -1015,34 +1095,11 @@ h2 {
   padding: 10px 14px;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 20;
-}
-
-.modal {
-  width: 100%;
-  max-width: 560px;
-  padding: 22px 24px;
-  max-height: 90vh;
-  overflow: auto;
-}
-
-.modal h2 {
-  margin-bottom: 4px;
-}
-
 .entry-form {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-content: start;
   gap: 12px;
-  margin-top: 14px;
 }
 
 .entry-form label {
@@ -1054,13 +1111,6 @@ h2 {
 
 .span-2 {
   grid-column: 1 / -1;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 6px;
 }
 
 @media (max-width: 560px) {

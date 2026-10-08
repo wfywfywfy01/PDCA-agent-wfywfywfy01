@@ -753,20 +753,9 @@ onBeforeUnmount(() => {
 .stat-note { color: var(--muted); font-size: 12px; }
 
 /* 工具栏 */
-.toolbar { display: flex; flex-wrap: wrap; gap: 14px; padding: 14px 16px; margin-bottom: 16px; align-items: flex-end; }
 .field { display: grid; gap: 6px; }
 .field.grow { flex: 1 1 240px; min-width: 200px; }
 .field-label { color: var(--muted); font-size: 12px; }
-.select { cursor: pointer; }
-.segmented { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; }
-.segmented button {
-  padding: 9px 13px; border: none; background: transparent; color: var(--muted);
-  font-size: 12px; cursor: pointer; font-variant-numeric: tabular-nums;
-  transition: background-color 0.15s, color 0.15s;
-}
-.segmented button + button { border-left: 1px solid var(--border); }
-.segmented button.active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
-
 /* 状态与骨架 */
 .alert { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; margin-bottom: 16px; color: var(--red); background: rgba(244, 63, 94, 0.08); border-color: rgba(244, 63, 94, 0.28); }
 .hint-warn { margin: 0 0 14px; color: var(--amber); font-size: 13px; }
@@ -795,16 +784,9 @@ onBeforeUnmount(() => {
 .app-id:hover { color: var(--blue); }
 .app-id:hover .copy-hint, .app-id:focus-visible .copy-hint { opacity: 1; }
 .copy-hint { opacity: 0; color: var(--blue); transition: opacity 0.15s; }
-.desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); font-size: 13px; }
-
 /* 可见性开关 */
-.switch { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; padding: 2px 0; border: none; background: transparent; cursor: pointer; }
-.switch:disabled { opacity: 0.5; cursor: progress; }
-.switch-track { position: relative; width: 34px; height: 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); transition: background-color 0.15s; }
-.switch-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s ease-out; }
 .switch[aria-checked='true'] .switch-track { background: var(--blue); }
 .switch[aria-checked='true'] .switch-thumb { transform: translateX(14px); }
-.switch-text { font-size: 12px; color: var(--muted); }
 .link-btn { min-height: 24px; padding: 3px 0; border: none; background: transparent; color: var(--blue); font-size: 13px; cursor: pointer; }
 .link-btn:disabled { color: var(--faint); cursor: default; }
 

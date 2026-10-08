@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiGet, apiPost, apiPut, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
+import { useEscapeClose } from '@/composables/use-escape-close'
 
 interface Me {
   role: string
@@ -55,6 +56,7 @@ const customers = ref<CustomerRow[]>([])
 const followups = ref<FollowupTask[]>([])
 const owners = ref<string[]>([])
 const ownerFilter = ref('')
+const ABCD_FILTERS = ['all', 'A', 'B', 'C', 'D']
 const abcdFilter = ref('all')
 const overdueOnly = ref(false)
 const search = ref('')
@@ -271,6 +273,10 @@ async function generateOutreach() {
   }
 }
 
+useEscapeClose(() => {
+  if (editCustomer.value) editCustomer.value = null
+})
+
 onMounted(() => {
   load()
   loadOwners()
@@ -339,23 +345,47 @@ onMounted(() => {
       </section>
 
       <template v-if="activeTab === 'customers'">
-        <section class="toolbar card">
-          <select v-if="owners.length" v-model="ownerFilter" class="input select" @change="load()">
+        <section class="filterbar" aria-label="客户筛选">
+          <label class="sr-only" for="owner-filter">负责人</label>
+          <select v-if="owners.length" id="owner-filter" v-model="ownerFilter" class="input select" @change="load()">
             <option value="">全部负责人</option>
             <option v-for="name in owners" :key="name" :value="name">{{ name }}</option>
           </select>
-          <select v-model="abcdFilter" class="input select" @change="load()">
-            <option value="all">全部分级</option>
-            <option value="A">A 类</option>
-            <option value="B">B 类</option>
-            <option value="C">C 类</option>
-            <option value="D">D 类</option>
-          </select>
-          <label class="check">
-            <input v-model="overdueOnly" type="checkbox" @change="load()" />
+          <button
+            v-for="grade in ABCD_FILTERS"
+            :key="grade"
+            type="button"
+            class="chip-filter"
+            :class="{ on: abcdFilter === grade }"
+            @click="abcdFilter = grade; load()"
+          >
+            {{ grade === 'all' ? '全部分级' : grade + ' 类' }}
+          </button>
+          <button
+            type="button"
+            class="chip-filter"
+            :class="{ on: overdueOnly }"
+            :aria-pressed="overdueOnly"
+            @click="overdueOnly = !overdueOnly; load()"
+          >
             仅超期
-          </label>
-          <input v-model="search" class="input search" type="search" placeholder="搜索客户名/负责人/国家…" />
+          </button>
+          <button
+            v-if="abcdFilter !== 'all' || overdueOnly || search || ownerFilter"
+            type="button"
+            class="chip-filter"
+            @click="abcdFilter = 'all'; overdueOnly = false; search = ''; ownerFilter = ''; load()"
+          >
+            清除筛选
+          </button>
+          <span class="spacer" />
+          <input
+            v-model="search"
+            class="input filter-search"
+            type="search"
+            placeholder="搜索客户名/负责人/国家…"
+            aria-label="搜索客户"
+          />
         </section>
 
         <div v-if="loading" class="card state">正在读取客户…</div>
@@ -504,11 +534,18 @@ onMounted(() => {
       </section>
     </template>
 
-    <div v-if="editCustomer" class="modal-backdrop" @click.self="editCustomer = null">
-      <section class="card modal">
-        <h2>更新跟进 · {{ editCustomer.dealer_name }}</h2>
-        <div v-if="editError" class="entry-msg bad">{{ editError }}</div>
-        <form class="entry-form" @submit.prevent="submitEdit">
+    <template v-if="editCustomer">
+      <div class="drawer-backdrop" @click="editCustomer = null" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="edit-followup-title">
+        <header class="drawer-head">
+          <div>
+            <h2 id="edit-followup-title">更新跟进 · {{ editCustomer.dealer_name }}</h2>
+            <p>记录分级、轮次与下一步动作，保存后写入客户档案</p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="关闭跟进抽屉" @click="editCustomer = null">✕</button>
+        </header>
+        <form id="signalseller-edit-form" class="drawer-body entry-form" @submit.prevent="submitEdit">
+          <p v-if="editError" class="entry-msg bad span-2">{{ editError }}</p>
           <label>
             ABCD 分级
             <select v-model="editForm.abcd_grade" class="input">
@@ -531,15 +568,15 @@ onMounted(() => {
             下一步动作
             <input v-model="editForm.next_action" class="input" placeholder="如：周五前发送报价单" />
           </label>
-          <div class="modal-actions span-2">
-            <button type="button" class="btn" @click="editCustomer = null">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="editBusy">
-              {{ editBusy ? '保存中…' : '保存' }}
-            </button>
-          </div>
         </form>
-      </section>
-    </div>
+        <footer class="drawer-foot">
+          <button type="button" class="btn" @click="editCustomer = null">取消</button>
+          <button type="submit" form="signalseller-edit-form" class="btn btn-primary" :disabled="editBusy">
+            {{ editBusy ? '保存中…' : '保存' }}
+          </button>
+        </footer>
+      </aside>
+    </template>
   </main>
 </template>
 
@@ -548,15 +585,6 @@ onMounted(() => {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px 20px 60px;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
 }
 
 h1 {
@@ -639,31 +667,9 @@ h2 {
   color: var(--amber);
 }
 
-.toolbar {
-  padding: 12px 14px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
 .select {
   width: auto;
   min-width: 130px;
-}
-
-.search {
-  flex: 1;
-  min-width: 200px;
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--muted);
 }
 
 .cards {
@@ -832,30 +838,11 @@ h2 {
   border: 1px solid rgba(244, 63, 94, 0.25);
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 20;
-}
-
-.modal {
-  width: 100%;
-  max-width: 520px;
-  padding: 22px 24px;
-  max-height: 90vh;
-  overflow: auto;
-}
-
 .entry-form {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  align-content: start;
   gap: 12px;
-  margin-top: 14px;
 }
 
 .entry-form label {
@@ -867,13 +854,6 @@ h2 {
 
 .span-2 {
   grid-column: 1 / -1;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 6px;
 }
 
 @media (max-width: 560px) {

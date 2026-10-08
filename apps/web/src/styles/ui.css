@@ -294,6 +294,7 @@ tr:hover .row-actions, tr:focus-within .row-actions { opacity: 1; }
   border: 1px solid transparent; background: transparent; color: var(--text-2); cursor: pointer; font-size: 13px;
 }
 .icon-btn:hover { background: var(--surface-2); border-color: var(--line); color: var(--text-1); }
+@media (hover: none) { .row-actions { opacity: 1; } }
 .table-foot-bar {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
   padding: 8px 14px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12px; background: var(--surface-1);
@@ -325,6 +326,15 @@ tr:hover .row-actions, tr:focus-within .row-actions { opacity: 1; }
 .chip-filter:hover { border-color: var(--line-strong); color: var(--text-1); }
 .chip-filter.on { background: var(--surface-active); border-color: transparent; color: var(--info); font-weight: 600; }
 .filterbar .spacer { flex: 1 1 auto; }
+/* 过滤条内的控件统一紧凑尺寸（对齐 Ant Design Pro 的 filter 区高度）*/
+.filterbar .input {
+  width: auto; height: 30px; padding: 0 10px; border-radius: 8px;
+  border-color: var(--line); background: var(--surface-2);
+  color: var(--text-1); font-size: 12.5px;
+}
+.filterbar .filter-search { flex: 0 1 260px; min-width: 150px; width: 100%; }
+.filterbar input[type='date'].input { flex: 0 0 auto; }
+.filterbar .muted { font-size: 12px; }
 
 .drawer-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(4, 6, 12, 0.5); }
 .drawer {

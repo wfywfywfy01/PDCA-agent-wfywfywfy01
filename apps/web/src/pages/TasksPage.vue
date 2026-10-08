@@ -201,23 +201,46 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       </div>
     </section>
 
-    <section class="card toolbar">
-      <div class="field">
-        <label class="field-label" for="task-date">日期</label>
-        <input id="task-date" v-model="dateText" type="date" class="input date-input" @change="load" />
-      </div>
-      <div class="field">
-        <label class="field-label" for="task-status">状态</label>
-        <select id="task-status" v-model="statusFilter" class="input select" @change="load">
-          <option value="">全部状态</option>
-          <option value="pending">待处理</option>
-          <option value="done">已完成</option>
-        </select>
-      </div>
-      <div class="field grow">
-        <label class="field-label" for="task-owner">负责人</label>
-        <input id="task-owner" v-model="ownerFilter" class="input" placeholder="按负责人筛选，留空为全部" @change="load" />
-      </div>
+    <section class="filterbar" aria-label="任务筛选">
+      <label class="sr-only" for="task-date">归属日期</label>
+      <input id="task-date" v-model="dateText" type="date" class="input date-input" @change="load" />
+      <button type="button" class="chip-filter" :class="{ on: statusFilter === '' }" @click="statusFilter = ''; load()">
+        全部
+      </button>
+      <button
+        type="button"
+        class="chip-filter"
+        :class="{ on: statusFilter === 'pending' }"
+        @click="statusFilter = 'pending'; load()"
+      >
+        待处理
+      </button>
+      <button
+        type="button"
+        class="chip-filter"
+        :class="{ on: statusFilter === 'done' }"
+        @click="statusFilter = 'done'; load()"
+      >
+        已完成
+      </button>
+      <button
+        v-if="statusFilter || ownerFilter"
+        type="button"
+        class="chip-filter"
+        @click="statusFilter = ''; ownerFilter = ''; load()"
+      >
+        清除筛选
+      </button>
+      <span class="spacer" />
+      <input
+        id="task-owner"
+        v-model="ownerFilter"
+        class="input filter-search"
+        type="search"
+        placeholder="按负责人筛选"
+        aria-label="按负责人筛选"
+        @change="load"
+      />
     </section>
 
     <div v-if="error" class="card alert" role="alert">
@@ -245,24 +268,47 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       </button>
     </div>
 
-    <section v-else class="task-grid">
-      <article v-for="row in tasks" :key="row.id" class="card task" :class="{ done: isDone(row.status) }">
-        <label class="task-check">
-          <input
-            type="checkbox"
-            :checked="isDone(row.status)"
-            :disabled="!canWrite || updating.has(row.id)"
-            :aria-label="'标记完成：' + row.title"
-            @change="toggle(row)"
-          />
-          <span class="task-title">{{ row.title }}</span>
-        </label>
-        <div class="task-meta">
-          <span class="pill" :class="priorityPill(row.priority)">{{ priorityLabel(row.priority) }}</span>
-          <span class="meta-item">{{ row.owner || '未指派' }}</span>
-          <span class="meta-item faint">{{ row.source || 'workbench' }}</span>
-        </div>
-      </article>
+    <section v-else class="table-shell">
+      <div class="table-scroll">
+        <table class="grid">
+          <thead>
+            <tr>
+              <th class="col-check"><span class="sr-only">完成</span></th>
+              <th>任务</th>
+              <th>优先级</th>
+              <th>负责人</th>
+              <th>来源</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in tasks" :key="row.id" :class="{ 'row-done': isDone(row.status) }">
+              <td class="col-check">
+                <input
+                  type="checkbox"
+                  :checked="isDone(row.status)"
+                  :disabled="!canWrite || updating.has(row.id)"
+                  :aria-label="'标记完成：' + row.title"
+                  @change="toggle(row)"
+                />
+              </td>
+              <td class="cell-main">{{ row.title }}</td>
+              <td><span class="pill" :class="priorityPill(row.priority)">{{ priorityLabel(row.priority) }}</span></td>
+              <td>{{ row.owner || '未指派' }}</td>
+              <td class="muted">{{ row.source || 'workbench' }}</td>
+              <td>
+                <span class="status" :class="isDone(row.status) ? 'ok' : 'idle'">
+                  {{ isDone(row.status) ? '已完成' : '待处理' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <footer class="table-foot-bar">
+        <span>{{ tasks.length }} 条任务</span>
+        <span class="muted">{{ dateText }}</span>
+      </footer>
     </section>
 
     <div v-if="showCreate" class="overlay" @click.self="closeCreate">
@@ -305,17 +351,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </template>
 
 <style scoped>
-.toolbar { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; padding: 14px 16px; margin-bottom: 16px; }
 .date-input { width: auto; }
-.select { width: auto; min-width: 130px; }
 
 .task-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
-.task { padding: 16px; display: grid; gap: 12px; border-left: 3px solid var(--border-strong); }
-.task.done { opacity: 0.62; border-left-color: var(--green); }
-.task-check { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
-.task-check input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--blue); }
-.task-title { font-size: 14px; font-weight: 600; line-height: 1.45; }
-.task.done .task-title { text-decoration: line-through; color: var(--muted); }
-.task-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
-.meta-item { color: var(--muted); }
+.grid .col-check { width: 36px; }
+.grid input[type='checkbox'] { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; }
+.grid .cell-main { font-weight: 600; }
+.grid tr.row-done .cell-main { text-decoration: line-through; color: var(--text-3); font-weight: 500; }
 </style>
