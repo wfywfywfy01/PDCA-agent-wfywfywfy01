@@ -20,6 +20,8 @@ from app.database import get_session
 from app.main import app
 from app.omega.jobs import run_once
 from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaReview, OmegaSegment, OmegaSession, utcnow
+from app.omega.memory_models import OmegaMemoryEntry, OmegaMemoryProposal, OmegaMemoryProfile, OmegaOpportunity
+from app.omega.coaching_models import OmegaCoachHint
 from app.omega.realtime import _acquire, _append, _release
 
 
@@ -37,8 +39,8 @@ class OmegaPostgresTests(unittest.TestCase):
         cls.engine = create_engine(url, pool_pre_ping=True)
         with cls.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            if version != "018":
-                raise RuntimeError(f"expected migration 018; got {version}")
+            if version != "021":
+                raise RuntimeError(f"expected migration 021; got {version}")
         cls._clear_test_data()
 
     @classmethod
@@ -47,8 +49,9 @@ class OmegaPostgresTests(unittest.TestCase):
             for game in db.exec(select(OmegaSession)).all():
                 game.assignment_id = None
             db.flush()
-            for model in (OmegaAssignment, OmegaReview, OmegaReport, OmegaJob, OmegaSegment,
-                          OmegaSession, OmegaCaseVersion, OmegaCase):
+            for model in (OmegaMemoryEntry, OmegaMemoryProposal, OmegaMemoryProfile, OmegaCoachHint,
+                          OmegaAssignment, OmegaReview, OmegaReport, OmegaJob, OmegaSegment,
+                          OmegaSession, OmegaCaseVersion, OmegaCase, OmegaOpportunity):
                 for row in db.exec(select(model)).all():
                     db.delete(row)
                 db.flush()

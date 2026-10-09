@@ -768,17 +768,68 @@ class OmegaReportGenerationTests(unittest.TestCase):
             "long-turn": {"id": "long-turn", "speaker": "sales", "text": text}}) for quote in candidates))
         self.assertTrue(any("第一笔款最早哪天能付" in quote["text"] for quote in candidates))
 
-    def test_deepseek_report_uses_json_without_thinking(self):
+    def test_deepseek_structured_jobs_use_json_without_thinking(self):
+        from app.omega.jobs import _default_generate
+
+        settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
+                    "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
+                    "PDCA_SUPERVISOR_API_KEY": "test-only"}
+        for kind, limit in (("report", 8000), ("memory", 4000)):
+            with self.subTest(kind=kind), patch.dict("os.environ", settings), \
+                    patch("app.omega.jobs.httpx.post") as post:
+                post.return_value.json.return_value = {
+                    "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}
+                self.assertEqual(_default_generate(kind, [{"role": "user", "content": "JSON"}], limit), "{}")
+                payload = post.call_args.kwargs["json"]
+                self.assertEqual(payload["thinking"], {"type": "disabled"})
+                self.assertEqual(payload["response_format"], {"type": "json_object"})
+                self.assertEqual(payload["max_tokens"], limit)
+                self.assertNotIn("temperature", payload)
+                self.assertEqual(post.call_args.kwargs["timeout"], 90)
+
+    def test_deepseek_text_jobs_disable_thinking_without_forcing_json(self):
+        from app.omega.jobs import _default_generate
+
+        settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
+                    "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
+                    "PDCA_SUPERVISOR_API_KEY": "test-only"}
+        for kind, limit in (("coach_hint", 600), ("turn", 1500), ("draft", 1800)):
+            with self.subTest(kind=kind), patch.dict("os.environ", settings), \
+                    patch("app.omega.jobs.httpx.post") as post:
+                text = "模拟回答：先确认下一步负责人。"
+                post.return_value.json.return_value = {"choices": [{"finish_reason": "stop",
+                    "message": {"content": "  " + text + "\n"}}]}
+                self.assertEqual(_default_generate(kind, [{"role": "user", "content": "测试"}], limit), text)
+                payload = post.call_args.kwargs["json"]
+                self.assertEqual(payload["thinking"], {"type": "disabled"})
+                self.assertNotIn("response_format", payload)
+                self.assertNotIn("temperature", payload)
+                self.assertEqual(payload["max_tokens"], limit)
+                self.assertEqual(post.call_args.kwargs["timeout"], 20)
+                post.return_value.raise_for_status.assert_called_once()
+
+    def test_generate_rejects_truncated_output_even_when_body_is_nonempty(self):
+        from app.omega.jobs import _default_generate
+
+        settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
+                    "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
+                    "PDCA_SUPERVISOR_API_KEY": "test-only"}
+        for kind in ("coach_hint", "turn", "draft", "report", "memory"):
+            with self.subTest(kind=kind), patch.dict("os.environ", settings), \
+                    patch("app.omega.jobs.httpx.post") as post:
+                post.return_value.json.return_value = {"choices": [{"finish_reason": "length",
+                    "message": {"content": "模拟回答未完成"}}]}
+                with self.assertRaisesRegex(RuntimeError, "模型输出被截断"):
+                    _default_generate(kind, [{"role": "user", "content": "测试"}], 600)
+
+    def test_generate_does_not_publish_reasoning_without_final_body(self):
         from app.omega.jobs import _default_generate
 
         settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
                     "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
                     "PDCA_SUPERVISOR_API_KEY": "test-only"}
         with patch.dict("os.environ", settings), patch("app.omega.jobs.httpx.post") as post:
-            post.return_value.json.return_value = {
-                "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}
-            self.assertEqual(_default_generate("report", [{"role": "user", "content": "JSON"}], 8000), "{}")
-            payload = post.call_args.kwargs["json"]
-        self.assertEqual(payload["thinking"], {"type": "disabled"})
-        self.assertEqual(payload["response_format"], {"type": "json_object"})
-        self.assertNotIn("temperature", payload)
+            post.return_value.json.return_value = {"choices": [{"finish_reason": "stop",
+                "message": {"content": None, "reasoning_content": "模拟推理，没有最终正文"}}]}
+            with self.assertRaisesRegex(RuntimeError, "模型没有返回正文"):
+                _default_generate("coach_hint", [{"role": "user", "content": "测试"}], 600)

@@ -274,5 +274,18 @@ async function logout() {
   .menu-btn { display: inline-grid; }
   .identity-warning { left: 0; }
 }
+@media (max-width: 600px) {
+  .shell-topbar { padding: 0 12px; gap: 8px; }
+  .menu-btn { min-width: 44px; min-height: 44px; }
+  .shell-crumbs { flex: 1; white-space: nowrap; overflow: hidden; }
+  .shell-crumbs > span { display: none; }
+  .shell-crumbs strong { overflow: hidden; text-overflow: ellipsis; }
+  .shell-search { flex: 0 0 44px; min-width: 44px; max-width: 44px; height: 44px; justify-content: center; padding: 0; }
+  .shell-search span, .shell-search kbd { display: none; }
+  .shell-right { flex-shrink: 0; }
+  .shell-right .status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .shell-user { max-width: 116px; min-height: 44px; }
+  .shell-user > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 </style>
 

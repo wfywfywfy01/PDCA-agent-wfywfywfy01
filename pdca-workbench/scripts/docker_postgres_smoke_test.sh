@@ -24,6 +24,16 @@ docker run --rm --network "$NETWORK" \
   -e "PDCA_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@$DB:5432/pdca_review" \
   -e PDCA_SECRET_KEY=isolated-ci-only-key-at-least-32-characters \
   "$IMAGE" python -m scripts.postgres_migration_acceptance
+# Omega's concurrency suite refuses every database except local development omega_test.
+# Share only this disposable DB container's network namespace, so localhost is genuine.
+docker exec "$DB" createdb -U pdca omega_test
+docker run --rm --network "container:$DB" \
+  -v "$REPO_ROOT/pdca-workbench/tests:/app/tests:ro" \
+  -e PDCA_ENV=development -e PDCA_SCHEDULER_ENABLED=0 -e PDCA_REQUIRE_VERTU=0 \
+  -e PDCA_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@127.0.0.1:5432/omega_test \
+  -e OMEGA_TEST_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@127.0.0.1:5432/omega_test \
+  -e PDCA_SECRET_KEY=isolated-ci-only-key-at-least-32-characters \
+  "$IMAGE" sh -ec 'python scripts/migrate.py && python -m unittest tests.test_omega_postgres tests.test_omega_memory_postgres tests.test_migrate_entrypoint -v'
 docker run -d --name "$APP" --network "$NETWORK" \
   -e PDCA_ENV=development -e TZ=Asia/Shanghai -e PDCA_SCHEDULER_ENABLED=0 \
   -e "PDCA_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@$DB:5432/pdca_review" \

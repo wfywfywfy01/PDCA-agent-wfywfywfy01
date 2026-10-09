@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +17,7 @@ from app.database import get_session
 from app.meeting import vemory as vemory_api
 from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaSegment, OmegaSession, utcnow
 from app.omega.policy import require_case, require_session_source
-from app.omega.router import canonical, digest, enabled, session_view
+from app.omega.router import canonical, digest, enabled, enqueue_report, report_input_hash, session_view, transcript_digest
 
 router = APIRouter(prefix="/api/omega", tags=["omega"])
 
@@ -26,6 +27,7 @@ class RealImportRequest(BaseModel):
     case_id: str
     meeting_id: str = Field(min_length=1, max_length=120)
     speaker_map: dict[str, Literal["sales", "counterparty"]]
+    participant_map: dict[str, str] = Field(default_factory=dict)
 
 
 def _source_keys(meeting: dict) -> set[str]:
@@ -50,7 +52,7 @@ def _transcript(meeting: dict) -> list[dict]:
             raise HTTPException(422, "逐字稿片段格式无效")
         speaker = str(item.get("speaker") or item.get("speaker_name") or "").strip()
         content = str(item.get("text") or item.get("content") or "").strip()
-        if not speaker or not content or len(content) > 4000:
+        if not speaker or len(speaker) > 120 or not content or len(content) > 4000:
             raise HTTPException(422, "逐字稿存在无说话人、空白或过长片段")
         result.append({"speaker": speaker, "text": content})
     if len(result) > 120 or sum(len(item["text"]) for item in result) > 24000:
@@ -109,13 +111,26 @@ async def import_real_meeting(
         OmegaCaseVersion.case_id == case.id,
         OmegaCaseVersion.version == case.current_version,
     )).one()
-    source_hash = digest([case.id, body.meeting_id, version.content_hash,
-                          body.speaker_map, transcript])
+    snapshot = json.loads(version.snapshot_json)
+    participants = {person["id"] for person in snapshot.get("participants", [])}
+    if participants or body.participant_map:
+        if set(body.participant_map) != speakers:
+            raise HTTPException(422, "须将所有原始说话人明确映射为销售或本场人物")
+        for speaker, participant_id in body.participant_map.items():
+            if (body.speaker_map[speaker] == "sales" and participant_id != "sales"
+                    or body.speaker_map[speaker] == "counterparty" and participant_id not in participants):
+                raise HTTPException(422, "人物映射与本场冻结人物或销售阵营不一致")
+    source_input = [case.id, body.meeting_id, version.content_hash, body.speaker_map, transcript]
+    if body.participant_map:
+        source_input.append(body.participant_map)
+    source_hash = digest(source_input)
     existing = db.exec(select(OmegaSession).where(OmegaSession.source_import_hash == source_hash)).first()
     if existing:
         if existing.case_id != case.id:
             raise HTTPException(409, "会议导入冲突")
         require_session_source(user, db, existing)
+        enqueue_report(db, existing, "auto-report-" + report_input_hash(existing))
+        db.commit()
         return session_view(db, existing)
     game = OmegaSession(
         case_id=case.id, case_version_id=version.id, team_key=case.team_key,
@@ -127,12 +142,20 @@ async def import_real_meeting(
     parts = [OmegaSegment(
         session_id=game.id, seq=index + 1, speaker=body.speaker_map[item["speaker"]],
         source="vemory", source_speaker=item["speaker"], text=item["text"],
+        speaker_id=body.participant_map.get(item["speaker"]) or (
+            "sales" if body.speaker_map[item["speaker"]] == "sales" else "source-" + digest(item["speaker"])[:24]),
+        turn_id=f"source-{index + 1}", provider_event_id="vemory-" + digest([body.meeting_id, index])[:32],
     ) for index, item in enumerate(transcript)]
-    game.transcript_hash = digest([[part.id, part.seq, part.speaker, part.text] for part in parts])
+    game.transcript_hash = transcript_digest(parts)
+    from app.omega.memory import create_context_snapshot
+    snapshot.update(usage="real_review", simulation=False)
+    game.context_snapshot_json, game.context_source_session_ids_json = create_context_snapshot(db, user, case, snapshot)
     try:
         db.add(game)
         db.flush()
         db.add_all(parts)
+        db.flush()
+        enqueue_report(db, game, "auto-report-" + report_input_hash(game))
         db.commit()
     except IntegrityError:
         db.rollback()

@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppNav from '@/components/AppNav.vue'
+import OmegaSetup from '@/components/omega/OmegaSetup.vue'
+import OmegaMemoryReview from '@/components/omega/OmegaMemoryReview.vue'
+import OmegaProfiles from '@/components/omega/OmegaProfiles.vue'
+import type { Participant, TemplateStart } from '@/components/omega/omega-types'
 import { apiGet, apiPatch, apiPost, apiRequest, HttpError } from '@/api/client'
 
 type Goal = {
@@ -15,6 +19,11 @@ type Goal = {
   due_date: string | null
 }
 type CaseDraft = {
+  kind?: string
+  usage?: 'training' | 'rehearsal' | 'real_review'
+  meeting_type?: string
+  stage_summary?: string
+  participants?: Participant[]
   title: string
   public_brief: string
   seller_private: string
@@ -31,13 +40,13 @@ type CaseDraft = {
 type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer_id'>> & {
   goal?: Partial<Omit<Goal, 'amount_minor'>> & { amount_major?: string }
 }
-type CaseRow = { id: string; title: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
-type Segment = { id: string; speaker: string; text: string; seq: number }
+type CaseRow = { id: string; kind?: string; title: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
+type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; seq: number }
 type SessionRow = { id: string; case_id: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
-type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
+type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
 type Assignment = { id: string; case_id: string; assignee_id: number; source_report_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
 
@@ -92,6 +101,24 @@ const recording = ref(false)
 const asrBusy = ref(false)
 const realtimeReady = ref(false)
 const textReady = ref(false)
+const multiVoiceReady = ref(false)
+const setupOpen = ref(true)
+const profilesOpen = ref(false)
+const voicePhase = ref<'live' | 'pausing' | 'coaching' | 'resuming'>('live')
+const voiceEpoch = ref(0)
+let packetEpoch = 0
+const currentSpeakerId = ref('')
+const coachText = ref('')
+const coachBusy = ref(false)
+const coachError = ref('')
+let coachTimer: ReturnType<typeof setTimeout> | undefined
+let controlTimer: ReturnType<typeof setTimeout> | undefined
+let pendingControlKey = ''
+let primedVoice = false
+let primedSessionId = ''
+const participants = computed(() => chosenSession.value?.case_snapshot?.participants || [])
+const currentSpeakerName = computed(() => participants.value.find(row => row.id === currentSpeakerId.value)?.name || '对手')
+const voiceAllowed = computed(() => participants.value.length <= 1 || multiVoiceReady.value)
 const voiceConnecting = ref(false)
 const voiceConnected = ref(false)
 const voiceInterrupted = ref(false)
@@ -116,6 +143,7 @@ const amountMajor = ref('')
 const meetingId = ref('')
 const meetingSpeakers = ref<string[]>([])
 const speakerMap = ref<Record<string, 'sales' | 'counterparty'>>({})
+const participantMap = ref<Record<string, string>>({})
 const meetingPreview = ref<Array<{ speaker: string; text: string }>>([])
 const draft = ref<CaseDraft>(blankDraft())
 const caseBriefInput = ref('')
@@ -126,6 +154,11 @@ const coachingPoint = computed(() => {
   const weights = chosenSession.value?.case_snapshot?.score_weights || defaultWeights
   const dimensions = (report.value?.content.dimensions || []).filter((row) => row.key !== 'outcome' && row.score !== null && row.quotes?.length && weights[row.key])
   return dimensions.sort((a, b) => (a.score! / weights[a.key]!) - (b.score! / weights[b.key]!))[0] || null
+})
+const strengthPoint = computed(() => {
+  const weights = chosenSession.value?.case_snapshot?.score_weights || defaultWeights
+  return (report.value?.content.dimensions || []).filter(row => row.key !== 'outcome' && row.score !== null && row.quotes?.length && weights[row.key])
+    .sort((a, b) => (b.score! / weights[b.key]!) - (a.score! / weights[a.key]!))[0] || null
 })
 const focusPercent = computed(() => {
   const point = coachingPoint.value
@@ -229,13 +262,14 @@ async function loadLists() {
     apiGet<CaseRow[]>('/api/omega/cases'), apiGet<SessionRow[]>('/api/omega/sessions'),
     apiGet<Assignment[]>('/api/omega/assignments'),
   ])
-  cases.value = caseRows
+  cases.value = caseRows.filter(row => row.kind !== 'template')
   sessions.value = sessionRows
   assignments.value = assignmentRows
   if (chosenCase.value) chosenCase.value = caseRows.find((row) => row.id === chosenCase.value?.id) || null
   if (chosenAssignment.value) chosenAssignment.value = assignmentRows.find((row) => row.id === chosenAssignment.value?.id) || null
 }
 async function openSession(id: string) {
+  profilesOpen.value = false
   const token = ++openToken
   if (pollTimer) clearTimeout(pollTimer)
   activeJob.value = null
@@ -246,6 +280,7 @@ async function openSession(id: string) {
   mobileNavOpen.value = false
   editing.value = false
   chosenSession.value = game
+  setupOpen.value = false
   sidebarTab.value = 'sessions'
   if (['manager', 'admin'].includes(me.value?.role || '') && members.value.some((row) => row.id === game.owner_id)) {
     assignUserId.value = game.owner_id
@@ -261,6 +296,38 @@ async function openSession(id: string) {
     activeJob.value = job
     schedulePoll()
   }
+}
+function prepareTemplateVoice() {
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) return
+  try {
+    voiceOutput ||= new AudioContext()
+    voiceInput ||= new AudioContext({ sampleRate: 16000 })
+    primedVoice = true
+    // Unlock both contexts during the user's tap, before creating the session.
+    void voiceOutput.resume().catch(() => {})
+    void voiceInput.resume().catch(() => {})
+  } catch { cancelTemplateVoice() }
+}
+function cancelTemplateVoice() {
+  primedVoice = false
+  primedSessionId = ''
+  if (!voiceConnected.value && !voiceConnecting.value) stopVoice(true)
+}
+async function startedTemplate(result: TemplateStart, autoVoice = false) {
+  if (autoVoice && primedVoice) primedSessionId = result.session_id || ''
+  await run(async () => {
+    await loadLists()
+    setupOpen.value = false
+    if (result.session_id) await openSession(result.session_id)
+    else {
+      const row = cases.value.find(item => item.id === result.case_id)
+      if (!row) throw new Error('场景已建立，请刷新任务列表后继续导入会议')
+      showCase(row)
+      notice.value = '场景已备好，请导入要复盘的真实会议。'
+    }
+  })
+  if (autoVoice && result.session_id && chosenSession.value?.id === result.session_id) await startVoice()
+  else cancelTemplateVoice()
 }
 async function refreshSession() {
   const id = chosenSession.value?.id
@@ -424,6 +491,8 @@ async function createAssignment(sourceReportId: string | null = null) {
   })
 }
 function showAssignment(row: Assignment) {
+  profilesOpen.value = false
+  setupOpen.value = false
   sidebarTab.value = 'assignments'
   mobileNavOpen.value = false
   chosenAssignment.value = row
@@ -449,6 +518,7 @@ async function previewMeeting() {
     if (meetingPreview.value.some((part) => !part.speaker || !part.text)) throw new Error('逐字稿包含无法确认的说话人或空白内容')
     meetingSpeakers.value = [...new Set(meetingPreview.value.map((part) => part.speaker).filter(Boolean))]
     speakerMap.value = {}
+    participantMap.value = {}
   })
 }
 async function importMeeting() {
@@ -456,6 +526,7 @@ async function importMeeting() {
   await run(async () => {
     const game = await apiPost<SessionRow>('/api/omega/real-imports', {
       case_id: chosenCase.value!.id, meeting_id: meetingId.value.trim(), speaker_map: speakerMap.value,
+      ...(chosenCase.value!.draft.participants?.length ? { participant_map: Object.fromEntries(meetingSpeakers.value.map(name => [name, speakerMap.value[name] === 'sales' ? 'sales' : participantMap.value[name]])) } : {}),
     })
     await loadLists()
     await openSession(game.id)
@@ -482,16 +553,25 @@ async function finishSession() {
   const sessionId = chosenSession.value.id
   if (rememberedVoiceSession() === sessionId) rememberVoiceSession(null)
   stopCapture(true)
-  stopVoice(true)
   window.speechSynthesis?.cancel()
   await run(async () => {
+    if (voiceSocket && voiceConnected.value) {
+      await hangupVoice()
+      const deadline = performance.now() + 22000
+      while (voiceClosing.value && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100))
+      if (voiceClosing.value) throw new Error('语音尾部还在保存，请稍后再结束复盘。')
+      await apiPost(`/api/omega/sessions/${encodeURIComponent(sessionId)}/realtime/stop`)
+    }
+    stopVoice(true)
     const ended = await apiPost<SessionRow>(`/api/omega/sessions/${sessionId}/finish`, { request_key: key() })
     if (chosenSession.value?.id !== sessionId) return
     chosenSession.value = ended
     activeJob.value = null
     await loadLists()
-    if (textReady.value && ended.segments?.length) {
-      activeJob.value = await apiPost<Job>(`/api/omega/sessions/${sessionId}/reports`, { request_key: key() })
+    if (ended.pending_job_id || textReady.value && ended.segments?.length) {
+      activeJob.value = ended.pending_job_id
+        ? await apiGet<Job>(`/api/omega/jobs/${ended.pending_job_id}`)
+        : await apiPost<Job>(`/api/omega/sessions/${sessionId}/reports`, { request_key: key() })
       schedulePoll()
       notice.value = '对话已保存，正在生成复盘。'
     } else notice.value = ended.segments?.length ? '对话已保存，可稍后生成复盘。' : '演练已结束，本场没有可复盘的对话。'
@@ -539,10 +619,12 @@ async function reviewReport() {
   })
 }
 function editCase(row: CaseRow) {
+  profilesOpen.value = false
+  setupOpen.value = false
   sidebarTab.value = 'cases'
   openToken++
   chosenCase.value = row
-  draft.value = structuredClone(row.draft)
+  draft.value = structuredClone(toRaw(row.draft))
   draft.value.score_weights ||= { ...defaultWeights }
   draft.value.buyer_objections ||= []
   amountMajor.value = row.draft.goal.amount_minor === null ? ''
@@ -553,6 +635,8 @@ function editCase(row: CaseRow) {
   report.value = null
 }
 function showCase(row: CaseRow) {
+  profilesOpen.value = false
+  setupOpen.value = false
   sidebarTab.value = 'cases'
   mobileNavOpen.value = false
   openToken++
@@ -565,6 +649,9 @@ function showCase(row: CaseRow) {
   editing.value = false
 }
 function newCase() {
+  cancelTemplateVoice()
+  profilesOpen.value = false
+  setupOpen.value = true
   sidebarTab.value = 'cases'
   mobileNavOpen.value = false
   openToken++
@@ -581,6 +668,7 @@ function newCase() {
   analysisReady.value = false
   reviewOpen.value = false
 }
+function customCase() { newCase(); setupOpen.value = false }
 function stopCapture(discard = false) {
   if (discard) recordingToken++
   if (recordingTimeout) clearTimeout(recordingTimeout)
@@ -615,6 +703,58 @@ function stopVoice(intentional = false) {
   voiceClosing.value = false
   voiceSpeaking.value = false
   voiceCaption.value = ''
+  voicePhase.value = 'live'
+  pendingControlKey = ''
+  coachBusy.value = false
+  if (coachTimer) clearTimeout(coachTimer)
+  if (controlTimer) clearTimeout(controlTimer)
+}
+function controlVoice(action: 'pause' | 'resume') {
+  const socket = voiceSocket
+  if (!socket || socket.readyState !== WebSocket.OPEN || voiceClosing.value) return
+  voicePhase.value = action === 'pause' ? 'pausing' : 'resuming'
+  voiceEpoch.value++
+  stopVoicePlayback()
+  coachError.value = ''
+  pendingControlKey = key()
+  socket.send(JSON.stringify({ type: 'control', action, request_key: pendingControlKey, audio_epoch: voiceEpoch.value }))
+  if (controlTimer) clearTimeout(controlTimer)
+  controlTimer = setTimeout(() => { if (voicePhase.value === 'pausing' || voicePhase.value === 'resuming') coachError.value = '状态确认超时，麦克风保持暂停。请重试恢复或结束通话。' }, 15000)
+}
+async function requestCoach() {
+  const id = chosenSession.value?.id
+  const token = voiceToken
+  if (!id || voicePhase.value !== 'coaching' || coachBusy.value) return
+  coachBusy.value = true
+  coachError.value = ''
+  try {
+    const job = await apiPost<Job>(`/api/omega/sessions/${id}/coach-hints`, { request_key: key() })
+    let checks = 0
+    const check = async () => {
+      if (token !== voiceToken || chosenSession.value?.id !== id || voicePhase.value !== 'coaching') return
+      try {
+        const current = await apiGet<Job>(`/api/omega/jobs/${job.id}`)
+        if (token !== voiceToken || voicePhase.value !== 'coaching') return
+        if (current.status === 'succeeded') {
+          const response = await apiGet<Array<{ id: string; text: string }>>(`/api/omega/sessions/${id}/coach-hints`)
+          if (token !== voiceToken || voicePhase.value !== 'coaching') return
+          coachText.value = response.find(row => row.id === current.result_id)?.text || response[response.length - 1]?.text || '暂无建议，可以直接恢复演练。'
+          coachBusy.value = false
+        } else if (['failed', 'cancelled'].includes(current.status)) {
+          coachError.value = current.error || '教练暂时无法回应，可以恢复演练。'
+          coachBusy.value = false
+        } else if (++checks < 120) coachTimer = setTimeout(() => void check(), 1000)
+        else { coachBusy.value = false; coachError.value = '教练回应超时，可以重试或恢复演练。' }
+      } catch (err) { coachBusy.value = false; coachError.value = detail(err) }
+    }
+    await check()
+  } catch (err) { if (token === voiceToken) { coachBusy.value = false; coachError.value = detail(err) } }
+}
+async function resumeVoice() {
+  if (coachTimer) clearTimeout(coachTimer)
+  coachBusy.value = false
+  try { await voiceOutput?.resume(); await voiceInput?.resume(); controlVoice('resume') }
+  catch (err) { coachError.value = detail(err) }
 }
 async function hangupVoice() {
   const socket = voiceSocket
@@ -679,19 +819,27 @@ function exitVoice() {
   else void hangupVoice()
 }
 async function startVoice() {
-  if (!chosenSession.value || !realtimeReady.value || voiceConnecting.value || voiceConnected.value || voiceClosing.value) return
+  if (!chosenSession.value || !realtimeReady.value || !voiceAllowed.value || voiceConnecting.value || voiceConnected.value || voiceClosing.value) return
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
     error.value = '浏览器不支持实时语音，请使用文字或短句录音'
     return
   }
   stopCapture(true)
+  primedVoice = false
+  primedSessionId = ''
   const token = ++voiceToken
   const sessionId = chosenSession.value.id
   voiceConnecting.value = true
   voiceInterrupted.value = false
+  voicePhase.value = 'live'
+  voiceEpoch.value = 0
+  packetEpoch = 0
+  coachText.value = ''
+  coachError.value = ''
+  currentSpeakerId.value = participants.value.find(row => row.is_primary)?.id || ''
   error.value = ''
   try {
-    voiceOutput = new AudioContext()
+    voiceOutput ||= new AudioContext()
     await voiceOutput.resume()
     voiceGain = voiceOutput.createGain()
     voiceGain.gain.value = voiceVolume.value
@@ -712,20 +860,57 @@ async function startVoice() {
     socket.binaryType = 'arraybuffer'
     socket.onmessage = async (event) => {
       if (voiceSocket !== socket || token !== voiceToken) return
-      if (event.data instanceof ArrayBuffer) { playVoiceAudio(event.data); return }
+      if (event.data instanceof ArrayBuffer) { if (voicePhase.value === 'live' && packetEpoch === voiceEpoch.value) playVoiceAudio(event.data); return }
       try {
-        const message = JSON.parse(event.data) as { type: string; message?: string; speaker?: string; text?: string }
+        const message = JSON.parse(event.data) as { type: string; message?: string; speaker?: string; speaker_id?: string; text?: string; state?: string; audio_epoch?: number; request_key?: string }
         if (message.type === 'error') { if (!voiceClosing.value) { error.value = message.message || '实时语音连接失败'; voiceInterrupted.value = true; stopVoice() } return }
         if (message.type === 'closed') {
           if (!voiceClosing.value) voiceInterrupted.value = true
           stopVoice()
           return
         }
-        if (message.type === 'interrupt') { stopVoicePlayback(); return }
-        if (message.type === 'caption') { voiceCaption.value = `${message.speaker === 'sales' ? '你' : '对手'}：${message.text || ''}`; return }
+        if (message.type === 'audio') { packetEpoch = message.audio_epoch ?? 0; currentSpeakerId.value = message.speaker_id || currentSpeakerId.value; return }
+        if (message.type === 'state') {
+          const spontaneousError = message.state === 'error' && !message.request_key
+          if (typeof message.audio_epoch !== 'number' || message.audio_epoch < voiceEpoch.value || (!spontaneousError && (!pendingControlKey || message.request_key !== pendingControlKey))) return
+          voiceEpoch.value = message.audio_epoch
+          packetEpoch = message.audio_epoch
+          if (message.state === 'coaching') {
+            voicePhase.value = 'coaching'
+            pendingControlKey = ''
+            if (controlTimer) clearTimeout(controlTimer)
+            void requestCoach()
+          } else if (message.state === 'listening') {
+            voicePhase.value = 'live'
+            pendingControlKey = ''
+            if (controlTimer) clearTimeout(controlTimer)
+          } else if (message.state === 'error') {
+            stopVoicePlayback()
+            voicePhase.value = 'coaching'
+            coachBusy.value = false
+            if (coachTimer) clearTimeout(coachTimer)
+            pendingControlKey = ''
+            coachError.value = message.message || '暂停或恢复失败，麦克风保持关闭。可重试恢复或结束通话。'
+            if (controlTimer) clearTimeout(controlTimer)
+          }
+          return
+        }
+        if (message.type === 'interrupt') {
+          if (typeof message.audio_epoch === 'number' && message.audio_epoch >= voiceEpoch.value) {
+            voiceEpoch.value = message.audio_epoch
+            packetEpoch = message.audio_epoch
+          }
+          stopVoicePlayback()
+          return
+        }
+        if (message.type === 'caption') { if (voicePhase.value !== 'live') return; currentSpeakerId.value = message.speaker_id || currentSpeakerId.value; voiceCaption.value = `${message.speaker === 'sales' ? '你' : currentSpeakerName.value}：${message.text || ''}`; return }
         if (message.type === 'segment') { await refreshSession(); return }
         if (message.type !== 'ready') return
-        voiceInput = new AudioContext({ sampleRate: 16000 })
+        voiceEpoch.value = message.audio_epoch ?? 0
+        packetEpoch = voiceEpoch.value
+        voicePhase.value = ['coaching', 'pausing', 'resuming', 'error'].includes(message.state || '') ? 'coaching' : 'live'
+        if (message.state === 'error') coachError.value = '上次语音未能继续，麦克风保持暂停。可重试恢复或结束通话。'
+        voiceInput ||= new AudioContext({ sampleRate: 16000 })
         await voiceInput.audioWorklet.addModule(new URL(`${import.meta.env.BASE_URL}omega-capture-worklet.js`, location.origin).toString())
         if (token !== voiceToken || voiceSocket !== socket) return
         const source = voiceInput.createMediaStreamSource(captured)
@@ -735,7 +920,7 @@ async function startVoice() {
         source.connect(worklet).connect(silent).connect(voiceInput.destination)
         voiceWorklet = worklet
         worklet.port.onmessage = (packet: MessageEvent<ArrayBuffer>) => {
-          if (socket.readyState !== WebSocket.OPEN || token !== voiceToken) return
+          if (socket.readyState !== WebSocket.OPEN || token !== voiceToken || voicePhase.value !== 'live') return
           if (socket.bufferedAmount > 256 * 1024) {
             error.value = '网络拥堵，实时语音已停止，请重试'
             stopVoice()
@@ -746,6 +931,7 @@ async function startVoice() {
         voiceConnecting.value = false
         voiceConnected.value = true
         rememberVoiceSession(sessionId)
+        if (message.state === 'coaching') void requestCoach()
       } catch (err) { if (token === voiceToken) { error.value = detail(err); stopVoice() } }
     }
     socket.onerror = () => { if (token === voiceToken && !voiceClosing.value) error.value = '实时语音网络连接失败' }
@@ -852,7 +1038,11 @@ function speakLastReply() {
 watch(() => chosenSession.value?.id, (id, previousId) => {
   if (previousId && previousId !== id && rememberedVoiceSession() === previousId) rememberVoiceSession(null)
   stopCapture(true)
-  stopVoice(true)
+  if (!(primedVoice && id && id === primedSessionId)) {
+    primedVoice = false
+    primedSessionId = ''
+    stopVoice(true)
+  }
   voiceInterrupted.value = chosenSession.value?.status === 'active' && rememberedVoiceSession() === chosenSession.value.id
   window.speechSynthesis?.cancel()
 })
@@ -867,10 +1057,11 @@ watch(voiceVolume, (volume) => {
 watch(caseBriefInput, () => { analysisReady.value = false; reviewOpen.value = false })
 onMounted(async () => {
   try {
-    const status = await apiGet<{ ready: boolean; actor_id: number; role: string; realtime_configured: boolean; model_configured: boolean; worker_online: boolean }>('/api/omega/status')
-    if (!status.ready) { error.value = '谈判陪练尚未就绪，请检查功能开关、模型配置和 worker，或配置百炼实时语音'; return }
+    const status = await apiGet<{ ready: boolean; actor_id: number; role: string; realtime_configured: boolean; model_configured: boolean; worker_online: boolean; multi_voice_ready?: boolean }>('/api/omega/status')
+    if (!status.ready) { error.value = '谈判陪练暂不可用，请联系管理员检查语音与复盘服务。'; return }
     realtimeReady.value = status.realtime_configured
     textReady.value = status.model_configured && status.worker_online
+    multiVoiceReady.value = status.multi_voice_ready === true
     me.value = { id: status.actor_id, role: status.role }
     if (['manager', 'admin'].includes(status.role)) members.value = await apiGet('/api/omega/team-members')
     await loadLists()
@@ -892,6 +1083,8 @@ onBeforeUnmount(() => {
   if (pollTimer) clearTimeout(pollTimer)
   stopCapture(true)
   stopVoice()
+  primedVoice = false
+  primedSessionId = ''
   window.speechSynthesis?.cancel()
 })
 </script>
@@ -900,8 +1093,8 @@ onBeforeUnmount(() => {
   <AppNav />
   <main class="page omega">
     <header class="page-head omega-head">
-      <div><p class="omega-kicker">客户谈判练习</p><h1>谈判陪练</h1><p class="sub">选一个卡点，和会给你压力的模拟客户练一轮。</p></div>
-      <div class="omega-head-meta"><span class="pill pill-muted">组内可见</span><span :class="['pill', realtimeReady ? 'pill-green' : 'pill-muted']">{{ realtimeReady ? '实时语音可用' : '实时语音未配置' }}</span></div>
+      <div><p class="omega-kicker">培训 · 会前演练 · 会后复盘</p><h1>谈判陪练</h1><p class="sub">选一张场景卡，练到关键问题，带着下一步去见客户。</p></div>
+      <div class="omega-head-meta"><button class="btn btn-sm btn-ghost" type="button" :disabled="callOpen || busy || !me" @click="profilesOpen = !profilesOpen">{{ profilesOpen ? '返回练习' : '查看档案' }}</button><span class="pill pill-muted">组内可见</span><span :class="['pill', realtimeReady ? 'pill-green' : 'pill-muted']">{{ realtimeReady ? '实时语音可用' : '实时语音未配置' }}</span></div>
     </header>
     <p v-if="demoMode" class="omega-notice" role="status"><strong>交互原型 · 模拟数据</strong>　AI 分析、文字回复、语音识别和复盘内容均为预设；麦克风音频不会上传。刷新页面会重置演示数据。</p>
     <p v-if="error" class="omega-alert" role="alert">{{ error }}</p>
@@ -941,7 +1134,9 @@ onBeforeUnmount(() => {
         </div>
       </aside>
       <section class="omega-main">
-        <div v-if="editing" class="card pad omega-intake">
+        <OmegaProfiles v-if="profilesOpen && me" :sales-id="me.id" @open-session="openSession($event).catch((err) => error = detail(err))" />
+        <OmegaSetup v-else-if="setupOpen" :manager="['manager', 'admin'].includes(me?.role || '')" :multi-voice-ready="multiVoiceReady" :realtime-ready="realtimeReady" @prepare-voice="prepareTemplateVoice" @cancel-voice-preparation="cancelTemplateVoice" @started="startedTemplate" @custom="customCase" />
+        <div v-else-if="editing" class="card pad omega-intake">
           <template v-if="!chosenCase">
             <p class="omega-kicker">开始一场练习</p><h2>今天想练哪个客户卡点？</h2>
             <p class="sub">直接选一个常见场景，或用一句话描述手头客户。AI 会整理目标，你核对后就能开练。</p>
@@ -1009,7 +1204,7 @@ onBeforeUnmount(() => {
           </header>
           <section class="card omega-conversation" aria-labelledby="omega-conversation-title">
             <div class="omega-conversation-head"><div><p class="omega-kicker">对话实录</p><h3 id="omega-conversation-title">逐字稿</h3></div><span class="omega-turn-count">{{ (chosenSession.segments || []).length }} 条发言</span></div>
-            <ol v-if="chosenSession.segments?.length" class="omega-transcript"><li v-for="part in chosenSession.segments" :key="part.id" :class="part.speaker === 'sales' ? 'is-sales' : 'is-counterparty'"><span class="omega-speaker">{{ part.speaker === 'sales' ? '销售' : '对手' }}</span><p>{{ part.text }}</p></li></ol>
+            <ol v-if="chosenSession.segments?.length" class="omega-transcript"><li v-for="part in chosenSession.segments" :key="part.id" :class="part.speaker === 'sales' ? 'is-sales' : 'is-counterparty'"><span class="omega-speaker">{{ part.speaker === 'sales' ? (part.source_speaker || '销售') : participants.find(person => person.id === part.speaker_id)?.name || part.source_speaker || '对手／身份未细分' }}</span><p>{{ part.text }}</p></li></ol>
             <div v-else class="omega-transcript-empty"><strong>准备好了就开始对话</strong><p>你的发言和对手回复会按顺序显示在这里。</p></div>
             <p v-if="voiceCaption" class="omega-live-caption" role="status">{{ voiceCaption }}</p>
             <div v-if="activeJob && ['queued', 'running'].includes(activeJob.status)" class="omega-responding" role="status">{{ activeJob.kind === 'turn' ? '对手正在回应…' : '报告生成中…' }}</div>
@@ -1017,22 +1212,27 @@ onBeforeUnmount(() => {
           </section>
           <form v-if="chosenSession.status === 'active' && canWrite(chosenSession.owner_id)" class="card omega-practice-controls" @submit.prevent="sendTurn">
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
-              <div><p class="omega-kicker">实时语音</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : '连接后开始说话，双方原话自动保存' }}</p></div>
-              <div class="omega-voice-actions"><button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
+              <div><p class="omega-kicker">{{ participants.length > 1 ? '可打断的多角色演练' : '实时语音' }}</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : participants.length > 1 ? '每次一位对手发言，角色切换可能稍有等待' : '连接后开始说话，双方原话自动保存' }}</p></div>
+              <div class="omega-voice-actions"><button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="!voiceAllowed || busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
                 <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
                 <button v-if="!callOpen" class="btn btn-ghost omega-voice-button" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
             </div>
             <p v-if="voiceInterrupted" class="omega-alert" role="alert">语音连接中断，已保存的对话仍在。点击“继续实时对话”接着练。</p>
+            <p v-if="!voiceAllowed" class="sub" role="status">多人语音尚未通过当前服务的能力验证。可用文字演练，或改为一位主谈。</p>
             <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
             <div v-if="!realtimeReady" class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
           </form>
           <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : '查看本场复盘' }}</strong><p v-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="!textReady || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : '生成复盘' }}</button></div>
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
+            <p v-if="report.content.hints_used?.length" class="sub">本场使用了 {{ report.content.hints_used.length }} 次教练建议。评分仍依据本场原话。</p>
+            <div class="omega-score-summary"><strong>{{ report.content.score?.total == null ? '证据不足' : `${report.content.score.total} 分` }}</strong><span>{{ report.content.score?.total == null ? `已获 ${report.content.score?.earned ?? 0} 分／可评分 ${report.content.score?.available ?? 0} 分，暂不折算总分` : '本场综合评分 · 满分 100' }}</span></div>
             <p class="omega-report-result"><strong>{{ outcomeNames[report.content.outcome?.status || 'unverified'] || '证据不足' }}</strong>　{{ report.content.outcome?.reason }}</p>
+            <div v-if="strengthPoint" class="omega-report-strength"><span>做得好 · {{ dimensionNames[strengthPoint.key] || strengthPoint.key }}</span><p>{{ strengthPoint.reason }}</p><blockquote v-if="strengthPoint.quotes[0]">“{{ strengthPoint.quotes[0].text }}”</blockquote></div>
             <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]">“{{ coachingPoint.quotes[0].text }}”</blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
             <p v-if="currentAssignment?.baseline" class="omega-session-note">{{ dimensionNames[currentAssignment.target_dimension] }}：上次 {{ currentAssignment.baseline.percent }}% · 本轮 {{ currentAttempt?.result ? `${currentAttempt.result.percent}%` : '待评分' }} · {{ currentAttempt?.passed ? '已达标' : '继续练习' }}</p>
             <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">{{ currentAssignment ? '继续练本项' : coachingPoint ? '按这个卡点再练' : '再练一轮' }}</button>
+            <OmegaMemoryReview :report-id="report.id" />
             <form v-if="['manager', 'admin'].includes(me?.role || '') && coachingPoint" class="omega-import" @submit.prevent="assignFromReport">
               <h4>让销售练这个卡点</h4><p>推荐练 {{ dimensionNames[coachingPoint.key] || coachingPoint.key }}；当前 {{ focusPercent }}%，目标 {{ focusPassPercent }}%。{{ reportNextPractice }}</p>
               <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
@@ -1079,16 +1279,17 @@ onBeforeUnmount(() => {
             <button class="btn" type="submit" :disabled="busy">指派销售</button>
           </form>
           </details>
-          <details v-if="chosenCase.draft_confirmed" class="omega-import"><summary>导入真实会议复盘</summary>
+          <details v-if="chosenCase.draft_confirmed" :open="chosenCase.draft.usage === 'real_review'" class="omega-import"><summary>导入真实会议复盘</summary>
             <p class="sub">仅导入你有 Vemory 来源权限且具备分说话人逐字稿的会议。</p>
             <label>Vemory 会议 ID<input v-model.trim="meetingId" maxlength="120"></label>
             <button class="btn btn-ghost" type="button" :disabled="busy" @click="previewMeeting">读取逐字稿</button>
             <div v-if="meetingSpeakers.length">
               <label v-for="speaker in meetingSpeakers" :key="speaker">{{ speaker }} 的身份
                 <select v-model="speakerMap[speaker]"><option disabled value="">请选择</option><option value="sales">销售</option><option value="counterparty">对手</option></select>
+                <select v-if="speakerMap[speaker] === 'counterparty' && chosenCase.draft.participants?.length" v-model="participantMap[speaker]" :aria-label="`${speaker}对应的参会人`"><option value="" disabled>选择对应参会人</option><option v-for="person in chosenCase.draft.participants" :key="person.id" :value="person.id">{{ person.name }} · {{ person.role }}</option></select>
               </label>
               <details><summary>核对来源逐字稿（{{ meetingPreview.length }} 条）</summary><p v-for="(part, index) in meetingPreview" :key="index">{{ part.speaker }}：{{ part.text }}</p></details>
-              <button class="btn" type="button" :disabled="busy || meetingSpeakers.some((speaker) => !speakerMap[speaker])" @click="importMeeting">确认映射并导入</button>
+              <button class="btn" type="button" :disabled="busy || meetingSpeakers.some((speaker) => !speakerMap[speaker] || speakerMap[speaker] === 'counterparty' && !!chosenCase?.draft.participants?.length && !participantMap[speaker])" @click="importMeeting">确认映射并导入</button>
             </div>
           </details>
         </div>
@@ -1100,12 +1301,17 @@ onBeforeUnmount(() => {
     <div class="omega-call-shell">
       <div class="omega-call-top"><span>谈判陪练 · 实时对话</span><span>{{ chosenSession ? caseName(chosenSession.case_id) : '' }}</span></div>
       <div class="omega-call-center">
-        <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting }" aria-hidden="true"></div>
-        <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voiceSpeaking ? '对手正在说话' : '正在听' }}</h2>
-        <p>{{ voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
-        <p v-if="voiceCaption" class="omega-call-caption">{{ voiceCaption }}</p>
+        <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting, 'is-paused': voicePhase !== 'live' }" aria-hidden="true"></div>
+        <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>
+        <p>{{ voicePhase !== 'live' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
+        <div v-if="participants.length > 1" class="omega-participants" aria-label="对手参会人"><span v-for="person in participants" :key="person.id" :class="{ active: voiceSpeaking && currentSpeakerId === person.id }">{{ person.name }} · {{ person.role }}</span></div>
+        <div v-if="voicePhase === 'coaching'" class="omega-private-coach" role="status"><p>{{ coachBusy ? '教练正在看本场对话…' : coachText || '可向教练求助，也可直接继续演练。' }}</p><button v-if="!coachBusy" class="btn btn-sm btn-ghost" type="button" @click="requestCoach">再给一条建议</button></div>
+        <p v-if="coachError" class="omega-call-error" role="alert">{{ coachError }}</p>
+        <p v-if="voiceCaption && voicePhase === 'live'" class="omega-call-caption">{{ voiceCaption }}</p>
       </div>
       <div class="omega-call-bottom">
+        <button v-if="voiceConnected && voicePhase === 'live'" class="btn omega-coach-button" type="button" :disabled="voiceClosing" @click="controlVoice('pause')">暂停，问问教练</button>
+        <button v-else-if="voiceConnected" class="btn btn-primary omega-coach-button" type="button" :disabled="voiceClosing || (!coachError && voicePhase !== 'coaching')" @click="resumeVoice">{{ voicePhase === 'resuming' ? '正在恢复…' : '继续演练' }}</button>
         <label for="omega-call-volume">对手音量 <span>{{ Math.round(voiceVolume * 100) }}%</span></label>
         <input id="omega-call-volume" v-model.number="voiceVolume" type="range" min="1" max="2.5" step="0.1" aria-label="对手音量">
         <button class="btn omega-call-hangup" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '结束中…' : voiceConnecting ? '取消连接' : '结束通话' }}</button>
@@ -1238,7 +1444,7 @@ onBeforeUnmount(() => {
 .omega-scorecard legend { padding: 0 8px; }
 .omega-call { inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; background: var(--bg); color: var(--text); }
 .omega-call::backdrop { background: var(--bg); }
-.omega-call-shell { display: flex; flex-direction: column; min-height: 100%; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); }
+.omega-call-shell { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; overflow: hidden; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); }
 .omega-call-top { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 13px; }
 .omega-call-top span:last-child { overflow: hidden; max-width: 48%; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .omega-call-center { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-height: 0; text-align: center; }
@@ -1246,6 +1452,18 @@ onBeforeUnmount(() => {
 .omega-call-orb::before { position: absolute; inset: -20px; border: 1px solid rgba(78, 158, 245, .18); border-radius: 50%; content: ''; }
 .omega-call-orb.is-speaking { animation-duration: 1.35s; }
 .omega-call-orb.is-connecting { opacity: .55; }
+.omega-call-orb.is-paused { width: 80px; opacity: .5; animation-play-state: paused; }
+.omega-coach-button { width: 100%; min-height: 48px; margin-bottom: 12px; }
+.omega-private-coach { max-height: 26dvh; overflow-y: auto; width: min(100%,520px); text-align: left; padding: 16px; margin-top: 20px; background: var(--card-2); border: 1px solid var(--border); border-radius: 8px; line-height: 1.7; }
+.omega-private-coach p { margin: 0; white-space: pre-wrap; }
+.omega-call-error { color: var(--red) !important; max-width: 500px; }
+.omega-participants { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; justify-content: center; }
+.omega-participants span { padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+.omega-participants span.active { border-color: var(--blue); }
+.omega-score-summary { display: grid; gap: 8px; margin: 20px 0; }
+.omega-score-summary strong { font-size: 32px; }
+.omega-score-summary span,.omega-report-strength > span { color: var(--muted); font-size: 12px; }
+.omega-report-strength { padding: 16px; margin-bottom: 16px; border-left: 3px solid var(--green); background: var(--card-2); }
 .omega-call-center h2 { margin: 42px 0 8px; font-size: 26px; font-weight: 600; }
 .omega-call-center > p { margin: 0; color: var(--muted); font-size: 14px; }
 .omega-call-caption { display: -webkit-box; overflow: hidden; max-width: 520px; margin-top: 28px !important; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.6; }

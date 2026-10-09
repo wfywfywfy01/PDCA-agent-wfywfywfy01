@@ -181,6 +181,8 @@ class KnowledgeFrontendTests(unittest.TestCase):
         self.page.locator(".result img").wait_for()
         for width in (1280, 390):
             self.page.set_viewport_size({"width": width, "height": 900})
+            # The shell animates its desktop margin for 160 ms on viewport changes.
+            self.page.wait_for_function("() => document.documentElement.scrollWidth <= innerWidth")
             self.assert_safe_preview(".result img")
             self.page.screenshot(path=str(self.output / f"vue-{width}.png"))
         self.calls.clear()

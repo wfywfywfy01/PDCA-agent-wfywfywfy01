@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.omega.reports import WEIGHTS
@@ -33,10 +33,39 @@ class Goal(BaseModel):
         return self
 
 
+class Participant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=100)
+    role: str = Field(default="", max_length=100)
+    is_primary: bool = False
+    concerns: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(default_factory=list, max_length=12)
+    known_facts: list[Annotated[str, Field(min_length=1, max_length=1000)]] = Field(default_factory=list, max_length=20)
+    decision_authority: str = Field(default="unknown", max_length=500)
+    voice_id: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_content(self):
+        if self.id.casefold() == "sales":
+            raise ValueError("sales 是销售方保留人物标识")
+        if not self.name.strip() or any(not item.strip() for item in self.concerns + self.known_facts):
+            raise ValueError("人物名称、关注点和已知事实不能为空")
+        if not self.decision_authority.strip():
+            self.decision_authority = "unknown"
+        return self
+
+
 class CaseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=2, max_length=200)
+    kind: Literal["case", "template"] = "case"
+    source_template_version_id: str | None = Field(default=None, min_length=1, max_length=36)
+    usage: Literal["training", "rehearsal", "real_review"] = "rehearsal"
+    meeting_type: Literal["introduction", "discovery", "proposal", "negotiation", "order"] = "negotiation"
+    stage_summary: str = Field(default="", max_length=1000)
+    simulation: bool = True
+    participants: list[Participant] = Field(default_factory=list, max_length=3)
     public_brief: str = Field(min_length=5, max_length=4000)
     seller_private: str = Field(default="", max_length=4000)
     counterparty_brief: str = Field(min_length=5, max_length=4000)
@@ -47,6 +76,7 @@ class CaseCreate(BaseModel):
     buyer_objections: list[str] = Field(default_factory=list, max_length=12)
     score_weights: dict[str, int] = Field(default_factory=lambda: dict(WEIGHTS))
     dealer_id: str = Field(default="", max_length=36)
+    opportunity_id: str | None = Field(default=None, max_length=36)
     goal: Goal
 
     @model_validator(mode="after")
@@ -58,11 +88,37 @@ class CaseCreate(BaseModel):
             raise ValueError("评分卡须包含九项正整数权重，合计 100")
         if any(not value.strip() for value in self.buyer_objections):
             raise ValueError("买方异议不能为空")
+        if self.participants and (sum(person.is_primary for person in self.participants) != 1
+                or len({person.id for person in self.participants}) != len(self.participants)):
+            raise ValueError("人物标识须唯一且恰有一位主要谈判对象")
+        # Simulation is a server-validated property; real review never creates simulated output.
+        self.simulation = self.usage != "real_review"
         return self
 
 
 class CaseUpdate(CaseCreate):
     revision: int = Field(ge=1)
+
+
+class TemplateStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_key: str = Field(min_length=8, max_length=120)
+    template_id: str = Field(min_length=1, max_length=36)
+    template_version: int = Field(ge=1)
+    usage: Literal["training", "rehearsal", "real_review"] = "training"
+    dealer_id: str = Field(default="", max_length=36)
+    opportunity_id: str | None = Field(default=None, max_length=36)
+    overrides: dict = Field(default_factory=dict)
+
+    @field_validator("overrides")
+    @classmethod
+    def scenario_fields_only(cls, value: dict) -> dict:
+        allowed = set(CaseCreate.model_fields) - {
+            "kind", "usage", "dealer_id", "opportunity_id", "simulation", "source_template_version_id",
+        }
+        if set(value) - allowed:
+            raise ValueError("仅允许调整场景字段")
+        return value
 
 
 class DraftAnalysisRequest(BaseModel):

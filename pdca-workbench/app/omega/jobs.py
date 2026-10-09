@@ -13,7 +13,7 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.auth.models import User
-from app.omega.context import actor_messages, coach_messages
+from app.omega.context import actor_messages, coach_messages, select_next_speaker
 from app.omega.models import (
     OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment,
     OmegaSession, new_id, utcnow,
@@ -21,7 +21,7 @@ from app.omega.models import (
 )
 from app.omega.policy import require_case, require_session_source
 from app.omega.reports import WEIGHTS, validate_report
-from app.omega.router import digest, report_input_hash
+from app.omega.router import digest, report_input_hash, transcript_digest
 
 
 def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
@@ -31,16 +31,18 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
     if not (provider.startswith("https://") and model and key):
         raise RuntimeError("Omega 文本模型未配置")
     payload = {"model": model, "messages": messages, "max_tokens": max_tokens,
-               "temperature": 0.3 if kind in {"report", "draft"} else 0.8}
-    if (kind == "report" and urlsplit(provider).hostname == "api.deepseek.com"
+               "temperature": 0.3 if kind in {"report", "draft", "memory"} else 0.8}
+    if (urlsplit(provider).hostname == "api.deepseek.com"
             and model.startswith("deepseek-")):
         payload.pop("temperature")
-        payload.update(thinking={"type": "disabled"}, response_format={"type": "json_object"})
+        payload["thinking"] = {"type": "disabled"}
+        if kind in {"report", "memory"}:
+            payload["response_format"] = {"type": "json_object"}
     response = httpx.post(
         provider.rstrip("/") + "/v1/chat/completions",
         headers={"Authorization": "Bearer " + key},
         json=payload,
-        timeout=90 if kind == "report" else 20,
+        timeout=90 if kind in {"report", "memory"} else 20,
     )
     response.raise_for_status()
     choice = response.json()["choices"][0]
@@ -56,7 +58,9 @@ def _segments(db: Session, session_id: str) -> list[dict]:
     rows = db.exec(select(OmegaSegment).where(
         OmegaSegment.session_id == session_id
     ).order_by(OmegaSegment.seq)).all()
-    return [{"id": row.id, "speaker": row.speaker, "text": row.text} for row in rows]
+    return [{"id": row.id, "speaker": row.speaker, "text": row.text,
+             "speaker_id": row.speaker_id, "turn_id": row.turn_id,
+             "provider_event_id": row.provider_event_id} for row in rows]
 
 
 def _aware(value):
@@ -65,10 +69,14 @@ def _aware(value):
 
 def run_once(engine, *, generate=_default_generate) -> bool:
     """Claim one job, then return whether a job was processed."""
+    from app.omega.coaching import run_once as run_coach_once
+    from app.omega.memory import enqueue_memory_job, finish_memory_job, prepare_memory_job, session_snapshot
+    if run_coach_once(engine, generate=generate):
+        return True
     now = utcnow()
     with Session(engine) as db:
         expired = db.exec(select(OmegaJob).where(
-            OmegaJob.status == "running", OmegaJob.kind.in_(["turn", "report"]),
+            OmegaJob.status == "running", OmegaJob.kind.in_(["turn", "report", "memory"]),
             OmegaJob.lease_until < now,
         ).with_for_update(skip_locked=True)).all()
         for old in expired:
@@ -77,7 +85,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             old.error = "任务租约过期" if old.status == "failed" else ""
         db.commit()
         job = db.exec(select(OmegaJob).where(
-            OmegaJob.status == "queued", OmegaJob.kind.in_(["turn", "report"]),
+            OmegaJob.status == "queued", OmegaJob.kind.in_(["turn", "report", "memory"]),
             OmegaJob.available_at <= now,
         ).order_by(OmegaJob.priority.desc(), OmegaJob.created_at, OmegaJob.id)
             .with_for_update(skip_locked=True)).first()
@@ -103,22 +111,28 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             require_case(owner, db, case)
             require_session_source(owner, db, game)
             version = db.get(OmegaCaseVersion, game.case_version_id)
-            snapshot = json.loads(version.snapshot_json)
+            snapshot = session_snapshot(game, version)
             assignment = db.get(OmegaAssignment, game.assignment_id) if game.assignment_id else None
             focus = assignment.target_dimension if assignment else ""
             segments = _segments(db, game.id)
             if kind == "turn" and (game.status != "active" or game.revision != job.session_revision):
                 raise ValueError("对话版本已失效")
             if kind == "report" and (game.status != "ended" or game.revision != job.session_revision
-                                     or digest([[part["id"], index + 1, part["speaker"], part["text"]]
-                                                for index, part in enumerate(segments)]) != game.transcript_hash
+                                     or transcript_digest(segments) != game.transcript_hash
                                      or report_input_hash(game) != job.input_hash):
                 raise ValueError("逐字稿已变化")
             session_id = game.id
             input_hash = job.input_hash
             expected_revision = game.revision
             goal_timing = game.goal_timing
+            if kind == "memory":
+                memory_messages = prepare_memory_job(db, owner, job)
+                db.commit()
+            if kind == "report":
+                hints_used = snapshot.get("report_hints_used", [])
         if kind == "turn":
+            selected_speaker = select_next_speaker(snapshot, segments)
+            turn_id = next((part.get("turn_id") for part in reversed(segments) if part["speaker"] == "sales"), None)
             messages = actor_messages(snapshot, segments, focus=focus)
             result = generate(kind, messages, 1500)
             if not result or not result.strip():
@@ -131,6 +145,9 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing)
             result = validate_report(generate(kind, messages, 8000), segments,
                                      goal_timing=goal_timing, weights=weights)
+            result["hints_used"] = hints_used
+        elif kind == "memory":
+            result = generate(kind, memory_messages, 4000)
         else:
             raise ValueError("未知任务类型")
 
@@ -156,9 +173,10 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                 count = len(_segments(db, session_id))
                 db.add(OmegaSegment(session_id=session_id, seq=count + 1,
                                     speaker="counterparty", text=result,
-                                    request_key=job.request_key))
+                                    request_key=job.request_key, speaker_id=selected_speaker["id"],
+                                    turn_id=turn_id or job.request_key, provider_event_id=job.id))
                 game.revision += 1
-            else:
+            elif kind == "report":
                 if (game.status != "ended"
                         or report_input_hash(game) != input_hash):
                     return True
@@ -168,10 +186,24 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                                      rubric_version="rubric-v2")
                 db.add(report)
                 job.result_id = report.id
+                published_report_id, published_owner_id = report.id, owner.id
+            else:
+                proposal = finish_memory_job(db, owner, job, result)
+                job.result_id = proposal.id
             job.status = "succeeded"
             job.lease_token = ""
             job.updated_at = utcnow()
             db.commit()
+        if kind == "report":
+            # Report publication is durable even when memory preparation fails.
+            try:
+                with Session(engine) as db:
+                    report = db.get(OmegaReport, published_report_id)
+                    owner = db.get(User, published_owner_id)
+                    enqueue_memory_job(db, owner, report, "auto-" + report.id)
+                    db.commit()
+            except Exception as exc:
+                logger.warning("Omega memory enqueue failed: {}", type(exc).__name__)
         return True
     except Exception as exc:
         with Session(engine) as db:

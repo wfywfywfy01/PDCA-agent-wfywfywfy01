@@ -357,4 +357,6 @@ tr:hover .row-actions, tr:focus-within .row-actions { opacity: 1; }
   .shell-sidebar.open { transform: none; }
   .shell-topbar { left: 0; }
   body.shell-ready main.page { margin-left: 0; padding: calc(var(--topbar-h) + 16px) 14px 40px; }
+  body.shell-ready.shell-collapsed main.page { margin-left: 0; }
+  .shell-collapsed .shell-topbar { left: 0; }
 }
