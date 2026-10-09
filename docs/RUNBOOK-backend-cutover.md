@@ -91,3 +91,29 @@ copy D:\经销商PDCA\pdca-workbench\.env D:\经销商PDCA\.worktrees\agent-admi
 cd D:\经销商PDCA\.worktrees\agent-admin-console\pdca-workbench
 $env:PDCA_WORKBENCH_PORT="8768"; $env:PDCA_HOST="127.0.0.1"; $env:PDCA_SCHEDULER_ENABLED="0"; python run.py
 ```
+
+
+---
+
+## 八、执行记录：2026-10-09 已切换 ✔
+
+| 时间（北京） | 动作 | 结果 |
+| --- | --- | --- |
+| 09:28 | 原生备份 | `data/backups/native_20261009_092830.dump`（489 KB，custom） |
+| 09:30 | 保留未提交内容 | 26 个已跟踪文件 + 15 个未跟踪但 main 也跟踪的文件 → `C:\Windows\Temp\pdca-backend-keep-2026-10-09`（37 个文件全部回填） |
+| 09:35 | 应用 main 代码树 | `git checkout origin/main -- .` 后回填保留文件 |
+| 09:37:52 | 重启服务（8767） | 日志：`调度器已启动 … duzhan=['10:00','15:00','20:00'](+30m兜底) … agent=停用 shadow=开 health=开 outbox=停用` |
+| 09:40 | 接口核验 | `/api/omega/status` 404→**403**（"Omega 需要有效的销售团队身份"）、`/api/duzhan-agents` 404→**403**（权限不足）、`/api/agent-admin/bots` 200 |
+| 09:42 | 14 条路由浏览器回归 | 无 404、无溢出、无旧表格类名；剩余 3 条 403 均为 manager 角色预期 |
+| 09:45 | git 状态规范化 | `git reset --soft origin/main && git reset` → HEAD = `9db90a0`（与运行版本一致），旧指针存为 `backup/mto-fix-20261009`（11f1e82，已在 main 历史中） |
+
+**当前状态**：生产 checkout `D:\经销商PDCA` 分支 `codex/mto-fix` @ `9db90a0`，与 `origin/main` 差异 0/0；
+工作区仅剩 19 个本地热修/运行数据文件（含 `wa_strategies.json`），未跟踪目录未改动。
+
+**回滚（未使用，保留备查）**
+```powershell
+Stop-Process -Id (Get-NetTCPConnection -LocalPort 8767 -State Listen).OwningProcess -Force
+git -C D:\经销商PDCA checkout backup/mto-fix-20261009                  # 回到切换前提交
+Copy-Item "C:\Windows\Temp\pdca-backend-keep-2026-10-09\*" D:\经销商PDCA -Recurse -Force
+& D:\经销商PDCA\pdca-workbench\start.bat
+```
