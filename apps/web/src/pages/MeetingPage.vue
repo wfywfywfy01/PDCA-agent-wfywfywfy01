@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
 import AppNav from '@/components/AppNav.vue'
 import { audioHref, meetingAudioFor, meetingDate } from './meetingAudio'
+import { useEscapeClose } from '@/composables/use-escape-close'
 
 interface MeetingItem {
   meeting_date?: string
@@ -276,6 +277,11 @@ async function submitDispatch() {
   }
 }
 
+useEscapeClose(() => {
+  if (showDispatch.value) showDispatch.value = false
+  else if (detailOpen.value) closeVemoryDetail()
+})
+
 onMounted(() => {
   load()
   apiGet<Me>('/api/auth/me')
@@ -294,13 +300,20 @@ watch([startDate, endDate], load)
         <h1>会议中心</h1>
         <p class="sub">会议记录 · 待办派发 · 闭环跟踪</p>
       </div>
-      <div class="date-row">
-        <input v-model="startDate" type="date" class="input" aria-label="会议开始日期" />
-        <span class="sep">至</span>
-        <input v-model="endDate" type="date" class="input" :min="startDate" aria-label="会议结束日期" />
-        <button v-if="endDate" type="button" class="btn" @click="endDate = ''">清除</button>
-      </div>
     </header>
+
+    <section class="filterbar" aria-label="会议筛选">
+      <label class="sr-only" for="meeting-start">会议开始日期</label>
+      <input id="meeting-start" v-model="startDate" type="date" class="input" />
+      <span class="muted">至</span>
+      <label class="sr-only" for="meeting-end">会议结束日期</label>
+      <input id="meeting-end" v-model="endDate" type="date" class="input" :min="startDate" />
+      <button v-if="startDate || endDate" type="button" class="chip-filter" @click="startDate = ''; endDate = ''">
+        清除筛选
+      </button>
+      <span class="spacer" />
+      <span class="muted">{{ payload?.meetings.length || 0 }} 场会议</span>
+    </section>
 
     <p v-if="payload?.scope_message" class="scope-note">🔒 {{ payload.scope_message }}</p>
     <p v-if="payload?.state === 'live'" class="source-note">数据源：Vemory 实时会议列表</p>
@@ -427,16 +440,17 @@ watch([startDate, endDate], load)
       <p v-if="vemory?.warning" class="hint-warn">数据源提示：{{ vemory.warning }}</p>
     </section>
 
-    <div v-if="detailOpen" class="overlay" @click.self="closeVemoryDetail">
-      <section class="card modal" role="dialog" aria-modal="true" aria-labelledby="vemory-detail-title">
-        <header class="modal-head">
+    <template v-if="detailOpen">
+      <div class="drawer-backdrop" @click="closeVemoryDetail" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="vemory-detail-title">
+        <header class="drawer-head">
           <div>
             <h2 id="vemory-detail-title">会议详情</h2>
             <p>Vemory 纪要、章节与音频入口</p>
           </div>
-          <button class="btn btn-sm" type="button" @click="closeVemoryDetail">关闭</button>
+          <button class="icon-btn" type="button" aria-label="关闭会议详情" @click="closeVemoryDetail">✕</button>
         </header>
-
+        <div class="drawer-body">
         <div v-if="detailError" class="alert" role="alert">
           <span>{{ detailError }}</span>
           <button class="btn btn-sm" type="button" @click="closeVemoryDetail">关闭</button>
@@ -469,29 +483,48 @@ watch([startDate, endDate], load)
           <h2>没有可展示的详情</h2>
           <p>该会议可能尚未生成纪要。</p>
         </div>
-      </section>
-    </div>
-
-    <div v-if="showDispatch" class="modal-backdrop" @click.self="showDispatch = false">
-      <section class="card modal">
-        <h2>派发待办</h2>
-        <p class="sub">{{ dispatchMeeting?.title }}</p>
-        <div v-if="dispatchError" class="entry-msg bad">{{ dispatchError }}</div>
-        <div v-if="dispatchSuccess" class="entry-msg ok">{{ dispatchSuccess }}</div>
-        <div v-for="(row, index) in assignments" :key="index" class="assign-row">
-          <input v-model="row.owner" class="input" placeholder="负责人" />
-          <input v-model="row.title" class="input grow" placeholder="待办内容" />
-          <button type="button" class="btn btn-remove" @click="removeAssignment(index)">✕</button>
         </div>
-        <button type="button" class="btn add-btn" @click="addAssignment">+ 添加一行</button>
-        <div class="modal-actions">
+        <footer class="drawer-foot">
+          <button class="btn" type="button" @click="closeVemoryDetail">关闭</button>
+        </footer>
+      </aside>
+    </template>
+
+    <template v-if="showDispatch">
+      <div class="drawer-backdrop" @click="showDispatch = false" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="dispatch-title">
+        <header class="drawer-head">
+          <div>
+            <h2 id="dispatch-title">派发待办</h2>
+            <p>{{ dispatchMeeting?.title }}</p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="关闭派发抽屉" @click="showDispatch = false">✕</button>
+        </header>
+        <div class="drawer-body">
+          <div v-if="dispatchError" class="entry-msg bad">{{ dispatchError }}</div>
+          <div v-if="dispatchSuccess" class="entry-msg ok">{{ dispatchSuccess }}</div>
+          <div v-for="(row, index) in assignments" :key="index" class="assign-row">
+            <input v-model="row.owner" class="input" placeholder="负责人" aria-label="待办负责人" />
+            <input v-model="row.title" class="input grow" placeholder="待办内容" aria-label="待办内容" />
+            <button
+              type="button"
+              class="btn btn-remove"
+              :aria-label="'删除第 ' + (index + 1) + ' 行'"
+              @click="removeAssignment(index)"
+            >
+              ✕
+            </button>
+          </div>
+          <button type="button" class="btn add-btn" @click="addAssignment">+ 添加一行</button>
+        </div>
+        <footer class="drawer-foot">
           <button type="button" class="btn" @click="showDispatch = false">取消</button>
           <button type="button" class="btn btn-primary" :disabled="dispatchBusy" @click="submitDispatch">
             {{ dispatchBusy ? '派发中…' : '派发' }}
           </button>
-        </div>
-      </section>
-    </div>
+        </footer>
+      </aside>
+    </template>
   </main>
 </template>
 
@@ -524,18 +557,6 @@ h2 {
 .sub {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
-}
-
-.date-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.sep {
-  color: var(--faint);
   font-size: 13px;
 }
 
@@ -687,25 +708,6 @@ h2 {
   padding: 32px 0;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 20;
-}
-
-.modal {
-  width: 100%;
-  max-width: 560px;
-  padding: 22px 24px;
-  max-height: 90vh;
-  overflow: auto;
-}
-
 .assign-row {
   display: flex;
   gap: 8px;
@@ -751,13 +753,6 @@ h2 {
   color: var(--amber);
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.25);
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
 }
 
 .skeleton-rows { display: grid; }

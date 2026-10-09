@@ -227,7 +227,7 @@ onMounted(async () => {
         <span class="stat-note">{{ diag?.database?.mode || '需管理员权限' }}</span>
       </div>
       <div class="card stat">
-        <span class="stat-label">vertu-cli</span>
+        <span class="stat-label">取数 CLI</span>
         <span class="stat-value num">{{ diag ? (diag.legacy_bridge_probe?.ok ? '可用' : '不可用') : '—' }}</span>
         <span class="stat-note">业务数据取数依赖</span>
       </div>
@@ -258,17 +258,15 @@ onMounted(async () => {
           <span class="skeleton" style="flex: 1" />
         </div>
       </div>
-      <div v-else-if="diagRows.length" class="table-wrap">
-        <table class="data-table">
+      <div v-else-if="diagRows.length" class="table-scroll">
+        <table class="grid">
           <thead>
             <tr><th scope="col">检查项</th><th scope="col">状态</th><th scope="col">说明</th></tr>
           </thead>
           <tbody>
             <tr v-for="row in diagRows" :key="row.label">
               <td><strong>{{ row.label }}</strong></td>
-              <td>
-                <span class="pill" :class="row.ok ? 'pill-green' : 'pill-red'">{{ row.value }}</span>
-              </td>
+              <td><span class="status" :class="row.ok ? 'ok' : 'danger'">{{ row.value }}</span></td>
               <td class="mono break">{{ row.note || '—' }}</td>
             </tr>
           </tbody>
@@ -298,8 +296,8 @@ onMounted(async () => {
           <span class="skeleton" style="flex: 1" />
         </div>
       </div>
-      <div v-else-if="resultRows().length" class="table-wrap">
-        <table class="data-table">
+      <div v-else-if="resultRows().length" class="table-scroll">
+        <table class="grid">
           <thead>
             <tr><th scope="col">步骤</th><th scope="col">结果</th><th scope="col">状态</th></tr>
           </thead>
@@ -308,7 +306,7 @@ onMounted(async () => {
               <td>{{ row.label }}</td>
               <td class="num">{{ fmt(row.value) }}</td>
               <td>
-                <span class="pill" :class="stepOk(row.value) ? 'pill-green' : 'pill-red'">
+                <span class="status" :class="stepOk(row.value) ? 'ok' : 'danger'">
                   {{ stepOk(row.value) ? '正常' : '失败' }}
                 </span>
               </td>
@@ -331,4 +329,3 @@ onMounted(async () => {
 .card-alert-note { padding: 12px 14px; border: 1px dashed var(--border-strong); border-radius: var(--radius); margin-bottom: 12px; }
 .card-alert-note .hint { margin: 0; }
 </style>
-
