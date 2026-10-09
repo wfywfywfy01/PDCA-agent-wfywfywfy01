@@ -510,6 +510,9 @@ def _render_person(
         extra = _slot_sections(hour, person, lang, prev_person)
         if extra:
             body = body + "\n" + extra
+        # 老板 2026-09-30：日报按模板核对，下午/晚上两档也要看得见合规情况
+        # （原来只有 10:00 的编号列表里有第 7 条，15/20 档只报变化就把它吞了）
+        body = body + "\n" + _daily_report_line(person, lang)
         return head + "\n" + body
     body = _full_person_body(group, hour, person, lang)
     if hour == 10:
@@ -696,6 +699,12 @@ def _perf_text(person: dict | None, lang: str) -> str:
         f"   • 水单：{_brief(slip)}\n"
         f"   • 意向：{_brief(intent)}"
     )
+
+
+def _daily_report_line(person: dict | None, lang: str) -> str:
+    """15/20 档差异版单起一行写日报模板核对结果。"""
+    label = "Daily report check: " if lang == "en" else "日报核对："
+    return label + _daily_report_text(person, lang)
 
 
 def _daily_report_text(person: dict | None, lang: str) -> str:

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """《海外渠道每日销售汇报模板》合规检查（2026-09-30 老板定版模板）。"""
 import unittest
+from contextlib import contextmanager
 
 from app.daily_report_template import (
     check_template,
@@ -187,6 +188,81 @@ class PipelineWiringTests(unittest.TestCase):
         self.assertIn("明日重点工作", texts["14640"])
         self.assertFalse(looks_like_report(texts["999"]), "群里闲聊不能算日报")
         self.assertFalse(looks_like_report(texts.get("888", "")))
+
+    @contextmanager
+    def _compact_off(self):
+        """生产是 PDCA_DUZHAN_COMPACT=0（长版）；测试里固定住，别依赖跑测试的机器环境。"""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        with patch("app.duzhan.get_settings", return_value=SimpleNamespace(duzhan_compact=False)):
+            yield
+
+    def _ledger_with_report(self, day: str, report: dict):
+        from app.duzhan import GROUPS
+        from app.duzhan_ledger import empty_ledger
+
+        group = GROUPS[0]
+        person = {
+            "display": "邓琳莹",
+            "group": group.name,
+            "daily_report": report,
+            "hours_minutes": 120,
+            "collections": [{"title": "客户跟进", "progress": "100%"}],
+        }
+        ledger = empty_ledger(day)
+        ledger["people"] = [person]
+        prev = empty_ledger(day)
+        prev["people"] = [dict(person)]
+        return group, ledger, prev
+
+    def test_afternoon_variant_keeps_the_report_line(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from app.duzhan import render_brief
+
+        report = {
+            "spent_hours": 6,
+            "item_count": 3,
+            "done_count": 2,
+            "template": {"ok": False, "slot": "15:00", "missing": ["USD 金额", "卡点章节"]},
+        }
+        group, ledger, prev = self._ledger_with_report("2026-10-09", report)
+        with self._compact_off():
+            body = render_brief(group, 15, datetime(2026, 10, 9, 15, 0, tzinfo=ZoneInfo(group.tz)), ledger, prev)
+        self.assertIn("日报核对：", body)
+        self.assertIn("模板缺2项", body)
+        self.assertIn("USD 金额", body)
+
+    def test_evening_variant_keeps_the_report_line(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from app.duzhan import render_brief
+
+        report = {
+            "spent_hours": 6,
+            "item_count": 3,
+            "done_count": 3,
+            "template": {"ok": True, "slot": "20:00", "missing": []},
+        }
+        group, ledger, prev = self._ledger_with_report("2026-10-09", report)
+        with self._compact_off():
+            body = render_brief(group, 20, datetime(2026, 10, 9, 20, 0, tzinfo=ZoneInfo(group.tz)), ledger, prev)
+        self.assertIn("日报核对：", body)
+        self.assertIn("模板合规", body)
+
+    def test_evening_variant_marks_missing_report(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from app.duzhan import render_brief
+
+        group, ledger, prev = self._ledger_with_report("2026-10-09", {})
+        with self._compact_off():
+            body = render_brief(group, 20, datetime(2026, 10, 9, 20, 0, tzinfo=ZoneInfo(group.tz)), ledger, prev)
+        self.assertIn("日报核对：未见今日正式日报", body)
 
     def test_report_line_shows_missing_items(self):
         from app.duzhan import _daily_report_text
