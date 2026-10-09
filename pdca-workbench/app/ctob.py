@@ -155,7 +155,6 @@ OWNERS: tuple[CtobOwner, ...] = (
     CtobOwner("李晓悦", "d6e8555f-6112-4507-82ee-7f8a329d2ac3", 10),
     CtobOwner("向俞金", "8151eb75-e355-4fc7-bc58-bc61d31419b2", 35),
     CtobOwner("宋依亭", "21416579-5648-4ec9-a098-a2aed9f684bf", 11),
-    CtobOwner("何川", "f1293c01-55b2-4155-b5e7-c13f531f08f4", 23),
     CtobOwner("陈玉霞", "9bce6f79-27bf-4730-bcbc-5ae3bf05948c", 30),
 )
 

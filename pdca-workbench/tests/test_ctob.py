@@ -27,7 +27,7 @@ class RetiredGroupTests(unittest.TestCase):
 
         retired_channel = "363667ae-1a05-4927-8cc5-883332b23ac6"
         self.assertNotIn(retired_channel, {g.channel_id for g in ctob_group_configs("2026-09-22")})
-        self.assertEqual(len(OWNERS), 15)
+        self.assertEqual(len(OWNERS), 14)
         for hour in (10, 15, 20):
             with self.subTest(hour=hour), patch("app.ctob.is_duzhan_workday", return_value=True), patch(
                 "app.ctob.collect_owner", return_value={"summary": {}, "chats": [], "cohort": {}}
@@ -38,9 +38,51 @@ class RetiredGroupTests(unittest.TestCase):
             ) as push:
                 result = run_ctob("2026-09-22", hour=hour)
             self.assertNotIn("夏欢", result["sent"])
-            self.assertEqual(len(result["sent"]), 15)
+            self.assertEqual(len(result["sent"]), 14)
             self.assertNotIn(retired_channel, {call.args[0].channel_id for call in collect.call_args_list})
             self.assertNotIn(retired_channel, {call.args[1] for call in push.call_args_list})
+
+class HechuanRetiredTests(unittest.TestCase):
+    """老板 2026-09-30：把何川停掉——不再采集、不再注册、不再推送。"""
+
+    retired_channel = "f1293c01-55b2-4155-b5e7-c13f531f08f4"
+
+    def test_not_in_owner_list(self):
+        from app.ctob import OWNERS
+
+        self.assertEqual(len(OWNERS), 14)
+        self.assertNotIn("何川", {owner.display for owner in OWNERS})
+        self.assertNotIn(self.retired_channel, {owner.channel_id for owner in OWNERS})
+
+    def test_not_registered_for_any_slot(self):
+        from app.agents.group_context import ctob_group_configs
+
+        for day in ("2026-09-30", "2026-10-01"):
+            with self.subTest(day=day):
+                self.assertNotIn(
+                    self.retired_channel,
+                    {g.channel_id for g in ctob_group_configs(day)},
+                )
+
+    def test_not_collected_or_pushed(self):
+        for hour in (10, 15, 20):
+            with self.subTest(hour=hour), patch("app.ctob.is_duzhan_workday", return_value=True), patch(
+                "app.ctob.collect_owner", return_value={"summary": {}, "chats": [], "cohort": {}}
+            ) as collect, patch("app.ctob.save_snapshot"), patch(
+                "app.ctob.load_snapshot", return_value={}
+            ), patch("app.ctob.render_brief", return_value="test-only"), patch(
+                "app.ctob.push_duzhan_message", return_value=True
+            ) as push:
+                result = run_ctob("2026-09-30", hour=hour)
+            self.assertNotIn("何川", result["sent"])
+            self.assertNotIn(self.retired_channel, {call.args[0].channel_id for call in collect.call_args_list})
+            self.assertNotIn(self.retired_channel, {call.args[1] for call in push.call_args_list})
+
+    def test_known_owners_registry_drops_him(self):
+        from app.agents.supervisor_graph import known_owners
+
+        self.assertNotIn("何川", known_owners())
+
 
 CUSTOMERS = {
     "rows": [

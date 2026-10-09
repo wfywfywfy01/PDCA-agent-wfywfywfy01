@@ -699,7 +699,11 @@ def _perf_text(person: dict | None, lang: str) -> str:
 
 
 def _daily_report_text(person: dict | None, lang: str) -> str:
-    """日报申报工时与系统证据工时并列，不互相覆盖。"""
+    """日报申报工时 + 系统证据工时 + 《每日销售汇报模板》合规情况。
+
+    老板 2026-09-30 定版模板：只写「已交」不够，要按模板核对必填项，
+    缺项直接写在群里（缺什么一目了然），不替人下结论说没干活。
+    """
     report = (person or {}).get("daily_report") or {}
     if not report:
         if not (person or {}).get("daily_report_ok", True):
@@ -711,15 +715,30 @@ def _daily_report_text(person: dict | None, lang: str) -> str:
     gap = max(declared - evidenced, 0)
     count = int(report.get("item_count") or 0)
     done = int(report.get("done_count") or 0)
+    verdict = report.get("template") or {}
+    slot = str(verdict.get("slot") or "")
+    missing = [str(item) for item in (verdict.get("missing") or [])]
     if lang == "en":
+        head = "template ok" if verdict.get("ok") else "template missing " + ", ".join(missing[:4])
+        if slot:
+            head = f"[{slot}] " + head
+        if count:
+            return (
+                f"submitted: {head}; {done}/{count} complete; declared {declared:g}h; "
+                f"system-evidenced {evidenced:.2f}h; {gap:.2f}h pending evidence"
+            )
+        return f"submitted: {head}; system-evidenced {evidenced:.2f}h"
+    if verdict.get("ok"):
+        head = f"已交{'（' + slot + '）' if slot else ''}，模板合规"
+    else:
+        detail = "、".join(missing[:4]) + ("…" if len(missing) > 4 else "")
+        head = f"已交{'（' + slot + '）' if slot else ''}，模板缺{len(missing)}项：{detail}"
+    if count:
         return (
-            f"submitted: {done}/{count} complete; declared {declared:g}h; "
-            f"system-evidenced {evidenced:.2f}h; {gap:.2f}h pending evidence"
+            f"{head}；完成{done}/{count}项；申报{declared:g}h；"
+            f"系统证据{evidenced:.2f}h；{gap:.2f}h待补证"
         )
-    return (
-        f"已交，完成{done}/{count}项；申报{declared:g}h；"
-        f"系统证据{evidenced:.2f}h；{gap:.2f}h待补证"
-    )
+    return f"{head}；系统证据{evidenced:.2f}h"
 
 
 def _morning_target_block(person: dict | None, prev_person: dict | None, lang: str) -> str:

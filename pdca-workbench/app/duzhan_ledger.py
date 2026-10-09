@@ -21,6 +21,7 @@ from loguru import logger
 
 from app.alerting import notify
 from app.config import get_settings
+from app.daily_report_template import check_template, looks_like_report
 
 TODAY_SLOGAN = "1300万战役"  # 部门月目标口号（1228 万 ≈ 1300 万），只作口号展示
 RATE_CNY = 7.1  # USD→CNY 折算（与 mto_ocr 一致）
@@ -1219,6 +1220,37 @@ def parse_daily_reports(messages: list[dict], day: str) -> dict[str, dict]:
     return reports
 
 
+def daily_report_texts(messages: list[dict], day: str) -> dict[str, str]:
+    """按提交人归集当日日报正文：卡片字段 + 本人发的纯文本（含模板正文）。
+
+    老板 2026-09-30 定版模板后，团队会在日报群里直接贴模板正文，
+    所以「有没有正经日报」不能只看卡片：这里把两者都收进来，
+    同一个人当天多条按时间顺序拼接（15:00 快报 + 20:00 汇总 = 一份完整文本）。
+    """
+    buckets: dict[str, list[str]] = {}
+    for msg in messages or []:
+        meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+        parts: list[str] = []
+        if meta.get("kind") == "daily_report_submission":
+            if str(meta.get("work_date") or "") != day:
+                continue
+            uid = str(meta.get("submitter_user_id") or msg.get("sender_user_id") or "")
+            parts.extend(
+                f"{item.get('label')}：{item.get('value')}"
+                for item in (meta.get("fields") or [])
+                if isinstance(item, dict)
+            )
+            parts.extend(str(item) for item in (meta.get("items") or []))
+            parts.extend(f"明日重点：{item}" for item in (meta.get("tomorrow") or []))
+        else:
+            uid = str(msg.get("sender_user_id") or "")
+            parts.append(str(msg.get("body") or ""))
+        if not uid or not any(part.strip() for part in parts):
+            continue
+        buckets.setdefault(uid, []).append("\n".join(parts))
+    return {uid: "\n".join(chunks) for uid, chunks in buckets.items()}
+
+
 def fetch_mto(channel_id: str, day: str) -> tuple[int | None, list[str]]:
     """vertu-cli im +history 拉当日群图。"""
     from app.vertu.client import run_vertu_sync_json
@@ -1606,11 +1638,16 @@ def score_row(row: PersonRow) -> PersonRow:
             overdue += 1
     if total == 0:
         # 日报群取数失败时不能算「未报」：那是把「读不到」当成「没交」（2026-09-20 审查）。
-        if getattr(row, "daily_report_ok", True):
+        # 交了模板日报（含只在群里贴正文的）也不算未报，缺什么由模板缺项来说话。
+        if not row.daily_report and getattr(row, "daily_report_ok", True):
             gaps.append("未报今日任务")
     elif done < total:
         prefix = "日报完成" if report_items else "任务完成"
         gaps.append(f"{prefix}{done}/{total}")
+    # 模板合规：缺项进缺口，红黑榜理由直接可读（老板 2026-09-30：按模板检查）
+    missing = list(((row.daily_report or {}).get("template") or {}).get("missing") or [])
+    if row.daily_report and missing:
+        gaps.append(f"日报缺{len(missing)}项")
     if evidenced == 0:
         gaps.append("证据不足")
     if overdue:
@@ -1946,6 +1983,8 @@ def collect_ledger(day: str) -> dict:
     if not daily_reports_ok:
         logger.warning("日报群取数失败，日报字段一律写「待确认」，不参与扣分")
     daily_reports = parse_daily_reports(report_messages, day) if report_messages else {}
+    # 模板正文按提交人归集（卡片字段 + 群里贴的模板文本），逐人做合规核对
+    report_texts = daily_report_texts(report_messages, day) if report_messages else {}
     channel_ids = sorted({cid for item in OWNERS for cid in _history_ids(item) if cid})
     history_list = _parallel_map(
         lambda cid: fetch_channel_history(cid, day, "200"),
@@ -2027,6 +2066,21 @@ def collect_ledger(day: str) -> dict:
         row.vemory, row.vemory_ok = match_vemory(owner, vemory_rows)
         row.daily_report = match_daily_report(owner, daily_reports)
         row.daily_report_ok = daily_reports_ok
+        # 模板合规核对：卡片交了但正文没按模板 → 记缺项；只有群里正文、没有卡片 → 也算已交
+        _report_text = report_texts.get(str(owner.im_user_id or ""), "")
+        if row.daily_report:
+            row.daily_report["template"] = check_template(_report_text, submitter=owner.display)
+        elif _report_text and looks_like_report(_report_text):
+            row.daily_report = {
+                "submitted": True,
+                "submitted_at": "",
+                "items": [],
+                "item_count": 0,
+                "done_count": 0,
+                "spent_hours": 0.0,
+                "from": "text",
+                "template": check_template(_report_text, submitter=owner.display),
+            }
         if owner.group not in _todo_cache:
             _todo_cache[owner.group] = _todos_for_group(day, owner.group)
         row.meeting_todos = _todo_cache[owner.group]
