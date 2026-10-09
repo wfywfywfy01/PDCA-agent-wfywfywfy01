@@ -571,6 +571,49 @@ class CoachingTests(unittest.TestCase):
         with Session(self.engine) as db:
             self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
 
+    def test_silent_allocation_during_pause_or_stop_does_not_reopen_finished_input(self):
+        # Real Doubao trace: a completed spoken turn, zero PCM, then commit/mute
+        # emits a fresh started without any subsequent delta or completed.
+        for boundary in ("pause", "stop"):
+            with self.subTest(boundary=boundary):
+                control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+
+                class Browser:
+                    async def send_json(self, event):
+                        pass
+
+                class Provider:
+                    def __init__(self):
+                        self.events = iter([
+                            "spoken-pcm",
+                            {"type": "conversation.item.input_audio_transcription.started", "item_id": boundary + "-spoken"},
+                            {"type": "conversation.item.input_audio_transcription.completed", "item_id": boundary + "-spoken",
+                             "text": "Finished public question"},
+                            "close-input",
+                            {"type": "conversation.item.input_audio_transcription.started", "item_id": boundary + "-silence"},
+                            {"type": "session.closed"},
+                        ])
+
+                    async def recv(self):
+                        event = next(self.events)
+                        if event == "spoken-pcm":
+                            control.sent_audio(b"\0\x20")
+                            return await self.recv()
+                        if event == "close-input":
+                            control.sent_audio(bytes(640))
+                            control.state = "pausing" if boundary == "pause" else "listening"
+                            control.ending = boundary == "stop"
+                            return await self.recv()
+                        return json.dumps(event)
+
+                asyncio.run(_receive_doubao_audio(Browser(), Provider(), self.engine, self.session_id,
+                    self.job_id, self.token, control=control))
+                self.assertFalse(control.pending_nonzero)
+                self.assertEqual(control.active_inputs, set())
+                self.assertTrue(control.input_final.is_set())
+                asyncio.run(control.wait_input_tail())
+                self.assertFalse(control.tail_incomplete)
+
     def test_asr_after_resume_without_new_browser_pcm_cannot_create_a_turn(self):
         self.pause()
         browser = self.run_controlled_receiver([

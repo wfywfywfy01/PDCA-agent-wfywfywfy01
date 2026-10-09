@@ -840,6 +840,12 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                 if control.pending_input is None:
                     # A resumed stream needs newly accepted browser PCM before any new input identity.
                     continue
+                if ((control.paused or control.ending) and control.final_pcm_frames > 0
+                        and control.sent_pcm_frames > control.final_pcm_frames
+                        and not (control.pending_nonzero or control.active_inputs)):
+                    # Commit/mute may allocate an idle ASR item with no final.
+                    # All accepted speech is already final; only zero PCM remains.
+                    continue
                 if control.paused:
                     input_context = (new_id(), control.pending_input[1])
                 else:
