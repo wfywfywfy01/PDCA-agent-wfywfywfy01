@@ -349,3 +349,77 @@ async def _dept_target_async(month_start: str, month_end: str) -> float:
 def fetch_dept_monthly_target(month_start: str, month_end: str) -> float:
     """同步包装：查询本月业绩目标合计（元）。"""
     return asyncio.run(_dept_target_async(month_start, month_end))
+
+async def fetch_salesperson_breakdown(month: str) -> dict:
+    """按销售人员汇总当月 Sell-in（元→万元），用于可执行的排行。
+
+    客户身份在部门汇总接口里可能被脱敏，因此用 vertu-cli 的
+    `sales +dept-breakdown --group-by salesperson` 拿真实姓名，
+    再按数据权限在路由层过滤。
+    """
+    period = _trend_months(month)[-1]
+    end = min(_date.fromisoformat(period["end"]), _date.today())
+    configured = os.environ.get(
+        "PDCA_VERTU_SELLIN_DEPARTMENTS",
+        "经销商一部,经销商二部,经销商三部",
+    )
+    departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+    dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
+
+    async def fetch_department(department: str = "") -> dict:
+        args = [
+            "sales",
+            "+dept-breakdown",
+            "--start-date",
+            period["start"],
+            "--end-date",
+            str(end),
+            "--dept-l1",
+            dept_l1,
+            "--group-by",
+            "salesperson",
+            "--limit",
+            "5000",
+        ]
+        if department:
+            args += ["--dept-l2", department]
+        payload = await run_vertu_json(args, timeout=20.0)
+        if not isinstance(payload, dict):
+            raise RuntimeError("vertu-cli sales +dept-breakdown 未返回 JSON")
+        return payload
+
+    payloads = (
+        await asyncio.gather(*(fetch_department(department) for department in departments))
+        if departments
+        else [await fetch_department()]
+    )
+    grouped: dict[str, dict] = {}
+    for raw in (row for payload in payloads for row in (payload.get("rows") or [])):
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "").strip()
+        if not name:
+            continue
+        item = grouped.setdefault(name, {"name": name, "amount": 0.0, "quantity": 0, "orders": 0})
+        item["amount"] += float(raw.get("amount") or 0)
+        item["quantity"] += int(raw.get("qty") or 0)
+        item["orders"] += int(raw.get("orders") or 0)
+    ordered = sorted(grouped.values(), key=lambda item: -item["amount"])
+    rows = [
+        {
+            "rank": rank,
+            "name": item["name"],
+            "amount_wan": round(item["amount"] / 10000, 2),
+            "quantity": item["quantity"],
+            "orders": item["orders"],
+        }
+        for rank, item in enumerate(ordered, start=1)
+    ]
+    return {
+        "month": month,
+        "rows": rows,
+        "total_wan": round(sum(row["amount_wan"] for row in rows), 2),
+        "has_data": bool(rows),
+        "source": "vertu-cli sales +dept-breakdown",
+        "as_of": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }

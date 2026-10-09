@@ -16,7 +16,7 @@ from app.auth.deps import require_role
 from app.auth.models import User
 from app.dashboard import service
 from app.database import get_session
-from app.auth.scope import resolve_data_scope, visible_dealer_names
+from app.auth.scope import normalize_scope_key, resolve_data_scope, visible_dealer_names
 from app.legacy import bridge
 from app.validation import require_iso_date, require_iso_month
 from app.models.dealer_sales import DealerSales
@@ -496,6 +496,42 @@ async def dealer_sellin_summary(
     ) if data.get("has_data") and data.get("amount_state") in {"available", "stale"} else None
     return scoped
 
+
+@router.get("/api/dealer/sellin-salespeople")
+async def dealer_sellin_salespeople(
+    month: str = Query(""),
+    user: Annotated[User, Depends(require_role("viewer"))] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+):
+    """销售人员维度 Sell-in 排行：客户名被脱敏时仍能看到该由谁跟进。"""
+    from datetime import date as _date
+
+    from app.vertu.sales import fetch_salesperson_breakdown
+
+    m = require_iso_month(month or _date.today().strftime("%Y-%m"))
+    try:
+        data = await fetch_salesperson_breakdown(m)
+    except Exception as exc:  # noqa: BLE001 — 上游 CLI 失败降级为 503，不污染页面
+        logger.warning("vertu 销售人员汇总失败: {}", exc)
+        raise HTTPException(status_code=503, detail="销售人员 Sell-in 暂时不可用") from exc
+    scope = resolve_data_scope(user, session)
+    if scope.unrestricted:
+        return data
+    allowed = {
+        normalize_scope_key(value)
+        for value in (*scope.owner_keys, getattr(user, "sales_name", ""))
+        if value
+    }
+    scoped = dict(data)
+    scoped["rows"] = [
+        row for row in data.get("rows", [])
+        if normalize_scope_key(row.get("name", "")) in allowed
+    ]
+    for rank, row in enumerate(scoped["rows"], start=1):
+        row["rank"] = rank
+    scoped["total_wan"] = round(sum(row["amount_wan"] for row in scoped["rows"]), 2)
+    scoped["has_data"] = bool(scoped["rows"])
+    return scoped
 
 @router.get("/api/task-center/panel")
 async def task_center_panel(

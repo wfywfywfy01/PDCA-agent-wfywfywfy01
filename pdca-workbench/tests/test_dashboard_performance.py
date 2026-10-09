@@ -95,6 +95,50 @@ class DashboardPerformanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("const customersTask = loadSection('customers'", source)
         self.assertIn("await Promise.allSettled([", source)
 
+    async def test_salesperson_breakdown_normalizes_cli_rows(self) -> None:
+        payload = {"rows": [{"name": "Alice", "amount": 123456, "qty": 3, "orders": 2}]}
+        with (
+            patch.dict(os.environ, {"PDCA_VERTU_SELLIN_DEPARTMENTS": ""}),
+            patch.object(sales, "run_vertu_json", return_value=payload) as run,
+        ):
+            result = await sales.fetch_salesperson_breakdown("2026-08")
+        self.assertEqual(result["rows"][0], {
+            "rank": 1,
+            "name": "Alice",
+            "amount_wan": 12.35,
+            "quantity": 3,
+            "orders": 2,
+        })
+        self.assertEqual(result["total_wan"], 12.35)
+        self.assertTrue(result["has_data"])
+        self.assertIn("+dept-breakdown", run.call_args.args[0])
+        self.assertIn("5000", run.call_args.args[0])
+
+    async def test_salesperson_breakdown_matches_configured_sellin_departments(self) -> None:
+        async def fake_run(args, timeout):
+            department = args[args.index("--dept-l2") + 1]
+            amount = 10000 if department == "经销商一部" else 20000
+            return {"rows": [{"name": "Alice", "amount": amount, "qty": 1, "orders": 1}]}
+
+        with (
+            patch.dict(os.environ, {"PDCA_VERTU_SELLIN_DEPARTMENTS": "经销商一部,经销商二部"}),
+            patch.object(sales, "run_vertu_json", side_effect=fake_run) as run,
+        ):
+            result = await sales.fetch_salesperson_breakdown("2026-08")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(result["rows"][0]["amount_wan"], 3.0)
+        self.assertEqual(result["total_wan"], 3.0)
+
+    async def test_salesperson_breakdown_skips_rows_without_name(self) -> None:
+        payload = {"rows": [{"amount": 100, "qty": 1, "orders": 1}, {"name": "  ", "amount": 100}]}
+        with (
+            patch.dict(os.environ, {"PDCA_VERTU_SELLIN_DEPARTMENTS": ""}),
+            patch.object(sales, "run_vertu_json", return_value=payload),
+        ):
+            result = await sales.fetch_salesperson_breakdown("2026-08")
+        self.assertEqual(result["rows"], [])
+        self.assertFalse(result["has_data"])
+
 
 if __name__ == "__main__":
     unittest.main()
