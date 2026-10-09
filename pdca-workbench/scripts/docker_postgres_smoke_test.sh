@@ -28,6 +28,7 @@ docker run --rm --network "$NETWORK" \
 # Share only this disposable DB container's network namespace, so localhost is genuine.
 docker exec "$DB" createdb -U pdca omega_test
 docker run --rm --network "container:$DB" \
+  -v "$REPO_ROOT/pdca-workbench/tests:/app/tests:ro" \
   -e PDCA_ENV=development -e PDCA_SCHEDULER_ENABLED=0 -e PDCA_REQUIRE_VERTU=0 \
   -e PDCA_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@127.0.0.1:5432/omega_test \
   -e OMEGA_TEST_DATABASE_URL=postgresql+psycopg2://pdca:isolated-ci-only@127.0.0.1:5432/omega_test \
