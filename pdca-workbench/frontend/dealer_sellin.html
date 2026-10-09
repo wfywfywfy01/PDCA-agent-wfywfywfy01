@@ -325,6 +325,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
       </div>
     </div>
 
+    <!-- 销售人员排行：客户名可能被上游脱敏，这里给出"该由谁跟进" -->
+    <div class="table-card">
+      <div class="table-hdr">
+        <h3>销售人员排行</h3>
+        <span class="table-count" id="spCount">—</span>
+      </div>
+      <div id="spWrap">
+        <div class="empty-state">
+          <div class="empty-icon">🧑‍💼</div>
+          <div class="empty-title">加载数据中…</div>
+        </div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -369,12 +383,17 @@ async function loadData(){
   const btn = document.getElementById('btnRefresh');
   btn.classList.add('loading');
   try {
-    const r = await fetch(`/api/dealer/sellin-summary?month=${currentMonth}`);
+    const [r, sp] = await Promise.all([
+      fetch(`/api/dealer/sellin-summary?month=${currentMonth}`),
+      fetch(`/api/dealer/sellin-salespeople?month=${currentMonth}`).catch(()=>null),
+    ]);
     if(!r.ok) throw new Error('HTTP '+r.status);
     currentData = await r.json();
     render(currentData);
+    renderSalespeople(sp && sp.ok ? await sp.json() : null);
   } catch(e){
     showError(e.message);
+    renderSalespeople(null);
   } finally {
     btn.classList.remove('loading');
     document.getElementById('updTime').textContent = '更新于 '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
@@ -602,6 +621,49 @@ function renderTable(dealers){
       <tbody>${rows}</tbody>
     </table>`;
 }
+
+function renderSalespeople(d){
+  const wrap = document.getElementById('spWrap');
+  if(!wrap) return;
+  const countEl = document.getElementById('spCount');
+  const rows = (d && d.rows) || [];
+  countEl.textContent = rows.length ? ('共 ' + rows.length + ' 人') : '—';
+  if(!d){
+    wrap.innerHTML = '<div class="empty-state"><div class="empty-icon">🧑‍💼</div>'
+      + '<div class="empty-title">销售人员数据暂不可用</div>'
+      + '<div class="empty-sub">稍后重试；持续失败请联系管理员检查取数 CLI 与部门配置</div></div>';
+    return;
+  }
+  if(!rows.length){
+    wrap.innerHTML = '<div class="empty-state"><div class="empty-icon">🧑‍💼</div>'
+      + '<div class="empty-title">当前权限范围内没有销售人员数据</div>'
+      + '<div class="empty-sub">客户身份受上游隐私保护；绑定负责人或团队后可看到本人/本团队排行</div></div>';
+    return;
+  }
+  const total = rows.reduce((s,x)=>s+(x.amount_wan||0),0) || 1;
+  const body = rows.map((x,i)=>{
+    const rk = x.rank || i+1;
+    const cls = rk===1 ? 'r1' : rk===2 ? 'r2' : rk===3 ? 'r3' : '';
+    const wan = x.amount_wan || 0;
+    const pct = Math.max(wan/total*100, 1).toFixed(1);
+    return '<tr>'
+      + '<td><span class="rank-badge ' + cls + '">' + rk + '</span></td>'
+      + '<td>' + (x.name || '—') + '</td>'
+      + '<td class="r"><span class="wan-val">' + fmtNum(wan) + '</span> 万</td>'
+      + '<td class="r"><span class="qty-val">' + fmtNum(x.quantity) + '</span></td>'
+      + '<td class="r muted">' + fmtNum(x.orders) + '</td>'
+      + '<td><div class="bar-wrap"><div class="bar-track">'
+      + '<div class="bar-fill" style="width:' + pct + '%"></div></div>'
+      + '<span class="bar-pct">' + (wan/total*100).toFixed(1) + '%</span></div></td>'
+      + '</tr>';
+  }).join('');
+  wrap.innerHTML = '<table class="tbl"><thead><tr>'
+    + '<th style="width:44px">#</th><th>销售人员</th>'
+    + '<th class="r">进货金额</th><th class="r">进货数量</th><th class="r">订单</th>'
+    + '<th style="min-width:160px">占比</th></tr></thead>'
+    + '<tbody>' + body + '</tbody></table>';
+}
+
 
 function renderEmpty(){
   document.getElementById('sbTotal').textContent = '—';
