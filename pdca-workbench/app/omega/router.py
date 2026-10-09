@@ -43,9 +43,22 @@ def digest(value: object) -> str:
     return hashlib.sha256(canonical(value).encode("utf-8")).hexdigest()
 
 
+def transcript_digest(segments) -> str:
+    rows = []
+    identified = False
+    for index, part in enumerate(segments):
+        get = part.get if isinstance(part, dict) else lambda key, default=None: getattr(part, key, default)
+        identity = [get("speaker_id"), get("turn_id"), get("provider_event_id")]
+        identified = identified or any(identity)
+        rows.append([get("id"), get("seq", index + 1), get("speaker"), get("text"), *identity])
+    # Legacy transcripts have no participant/event identity; retain their existing hash.
+    return digest(rows if identified else [row[:4] for row in rows])
+
+
 def report_input_hash(game: OmegaSession) -> str:
     return digest([
         game.id, game.transcript_hash, game.case_version_id, game.goal_timing,
+        game.context_snapshot_json, game.context_source_session_ids_json,
         "rubric-v2", "coach-v1", os.environ.get("PDCA_SUPERVISOR_PROVIDER", ""),
         os.environ.get("PDCA_SUPERVISOR_MODEL", ""),
         os.environ.get("PDCA_RELEASE_SHA", "dev"),
@@ -64,7 +77,7 @@ def omega_status(
                        and os.environ.get("PDCA_SUPERVISOR_MODEL", "").strip()
                        and os.environ.get("PDCA_SUPERVISOR_API_KEY", "").strip())
     worker_online = False
-    from app.omega.realtime import configured as realtime_configured
+    from app.omega.realtime import configured as realtime_configured, multi_voice_ready
     voice_ready = realtime_configured()
     if flag:
         worker_online = db.exec(select(OmegaWorkerHeartbeat).where(
@@ -72,7 +85,7 @@ def omega_status(
         ).limit(1)).first() is not None
     return {"enabled": flag, "ready": flag and (model_ready and worker_online or voice_ready),
             "model_configured": model_ready, "worker_online": worker_online,
-            "realtime_configured": voice_ready,
+            "realtime_configured": voice_ready, "multi_voice_ready": flag and multi_voice_ready(),
             "actor_id": user.id, "role": user.role}
 
 
@@ -80,6 +93,8 @@ def case_view(row: OmegaCase) -> dict:
     return {
         "id": row.id, "title": row.title, "team_key": row.team_key,
         "owner_id": row.owner_id, "dealer_id": row.dealer_id,
+        "kind": row.kind, "opportunity_id": row.opportunity_id,
+        "source_template_version_id": row.source_template_version_id,
         "revision": row.revision, "current_version": row.current_version,
         "draft_confirmed": bool(row.current_version and row.confirmed_revision == row.revision),
         "draft": json.loads(row.draft_json),
@@ -113,7 +128,9 @@ def create_case(
     team = require_team_user(user)
     row = OmegaCase(
         team_key=team, owner_id=user.id, title=body.title,
-        dealer_id=body.dealer_id, draft_json=canonical(body.model_dump(mode="json")),
+        dealer_id=body.dealer_id, kind=body.kind, opportunity_id=body.opportunity_id,
+        source_template_version_id=body.source_template_version_id,
+        draft_json=canonical(body.model_dump(mode="json")),
     )
     require_case(user, db, row)
     db.add(row)
@@ -161,9 +178,16 @@ def update_case(
     require_writer(user, row.owner_id)
     if row.revision != body.revision:
         raise HTTPException(409, "任务已被更新，请刷新后重试")
+    if ("source_template_version_id" in body.model_fields_set
+            and body.source_template_version_id != row.source_template_version_id):
+        raise HTTPException(422, "场景来源权限不可移除或替换")
     row.title = body.title
     row.dealer_id = body.dealer_id
-    row.draft_json = canonical(body.model_dump(mode="json", exclude={"revision"}))
+    row.kind = body.kind
+    row.opportunity_id = body.opportunity_id
+    snapshot = body.model_dump(mode="json", exclude={"revision"})
+    snapshot["source_template_version_id"] = row.source_template_version_id
+    row.draft_json = canonical(snapshot)
     row.revision += 1
     row.updated_at = utcnow()
     require_case(user, db, row)
@@ -369,6 +393,7 @@ def session_segments(db: Session, session_id: str) -> list[OmegaSegment]:
 
 
 def session_view(db: Session, row: OmegaSession) -> dict:
+    from app.omega.memory import session_snapshot
     version = db.get(OmegaCaseVersion, row.case_version_id)
     latest_report = db.exec(select(OmegaReport).where(
         OmegaReport.session_id == row.id
@@ -383,9 +408,10 @@ def session_view(db: Session, row: OmegaSession) -> dict:
         "assignment_id": row.assignment_id,
         "case_version_id": row.case_version_id,
         "case_version": version.version if version else None,
-        "case_snapshot": json.loads(version.snapshot_json) if version else None,
+        "case_snapshot": session_snapshot(row, version) if version else None,
         "source_meeting_id": row.source_meeting_id, "goal_timing": row.goal_timing,
         "status": row.status, "owner_id": row.owner_id,
+        "voice_state": row.voice_state, "audio_epoch": row.audio_epoch,
         "revision": row.revision, "transcript_hash": row.transcript_hash,
         "latest_report_id": latest_report.id if latest_report else "",
         "pending_job_id": pending_job.id if pending_job else "",
@@ -393,7 +419,9 @@ def session_view(db: Session, row: OmegaSession) -> dict:
             {"id": segment.id, "seq": segment.seq, "speaker": segment.speaker,
              "text": segment.text, "source": segment.source,
              "asr_original": segment.asr_original,
-             "source_speaker": segment.source_speaker} for segment in session_segments(db, row.id)
+             "source_speaker": segment.source_speaker, "speaker_id": segment.speaker_id,
+             "turn_id": segment.turn_id, "provider_event_id": segment.provider_event_id}
+            for segment in session_segments(db, row.id)
         ],
     }
 
@@ -406,6 +434,8 @@ def create_session(
 ):
     case = db.get(OmegaCase, body.case_id)
     require_case(user, db, case)
+    if case.kind == "template":
+        raise HTTPException(409, "请从预设开始，保留模板并创建本次副本")
     assignment = db.get(OmegaAssignment, body.assignment_id) if body.assignment_id else None
     if body.assignment_id:
         if (assignment is None or assignment.case_id != case.id
@@ -420,9 +450,18 @@ def create_session(
             OmegaCaseVersion.case_id == case.id,
             OmegaCaseVersion.version == case.current_version,
         )).one()
+    from app.omega.memory import create_context_snapshot
+    snapshot = json.loads(version.snapshot_json)
+    if snapshot.get("usage") == "real_review":
+        if assignment is None:
+            raise HTTPException(409, "真实会议复盘须导入已有会议")
+        snapshot.update(usage="rehearsal", simulation=True)
+    context_json, source_ids_json = create_context_snapshot(db, user, case, snapshot)
     row = OmegaSession(case_id=case.id, case_version_id=version.id,
                        team_key=case.team_key, owner_id=user.id,
-                       assignment_id=assignment.id if assignment else None)
+                       assignment_id=assignment.id if assignment else None,
+                       mode=snapshot.get("usage", "rehearsal"), context_snapshot_json=context_json,
+                       context_source_session_ids_json=source_ids_json)
     db.add(row)
     db.commit()
     return session_view(db, row)
@@ -505,7 +544,8 @@ def submit_turn(
     part = OmegaSegment(session_id=row.id, seq=len(segments) + 1,
                         speaker="sales", text=body.text.strip(),
                         source=body.source, asr_original=body.asr_original,
-                        request_key=body.request_key)
+                        request_key=body.request_key, speaker_id="sales",
+                        turn_id=body.request_key, provider_event_id=body.request_key)
     row.revision += 1
     job = OmegaJob(session_id=row.id, kind="turn", request_key=body.request_key,
                    request_hash=request_hash, input_hash=digest([row.case_version_id, body.text, row.revision]),
@@ -550,8 +590,17 @@ def finish_session(
     row = db.exec(select(OmegaSession).where(OmegaSession.id == row.id)
                   .with_for_update().execution_options(populate_existing=True)).one()
     require_writer(user, row.owner_id)
+    require_complete_voice_tail(db, row)
     if row.status == "ended":
+        if session_segments(db, row.id):
+            enqueue_report(db, row)
+            db.commit()
         return session_view(db, row)
+    realtime = db.exec(select(OmegaJob).where(
+        OmegaJob.session_id == row.id, OmegaJob.kind == "realtime", OmegaJob.status == "running",
+    )).first()
+    if realtime:
+        raise HTTPException(409, "实时语音尾部尚未保存，请等待连接关闭后再结束")
     for job in db.exec(select(OmegaJob).where(
         OmegaJob.session_id == row.id,
         OmegaJob.kind.in_(["turn", "realtime"]),
@@ -562,12 +611,51 @@ def finish_session(
     row.status = "ended"
     row.revision += 1
     row.ended_at = utcnow()
-    row.transcript_hash = digest([
-        [segment.id, segment.seq, segment.speaker, segment.text]
-        for segment in session_segments(db, row.id)
-    ])
+    row.transcript_hash = transcript_digest(session_segments(db, row.id))
+    if session_segments(db, row.id):
+        enqueue_report(db, row)
     db.commit()
     return session_view(db, row)
+
+
+def require_complete_voice_tail(db: Session, row: OmegaSession) -> None:
+    incomplete = db.exec(select(OmegaJob).where(
+        OmegaJob.session_id == row.id, OmegaJob.kind == "realtime",
+        OmegaJob.error == "语音尾稿未完成，请检查逐字稿后重新演练",
+    )).first()
+    if incomplete:
+        raise HTTPException(409, incomplete.error)
+
+
+def enqueue_report(db: Session, row: OmegaSession, request_key: str | None = None) -> OmegaJob:
+    """Caller holds the session lock and commits with transcript/state changes."""
+    require_complete_voice_tail(db, row)
+    from app.omega.coaching import report_hints_metadata
+    from app.omega.memory import session_snapshot
+    snapshot = session_snapshot(row, db.get(OmegaCaseVersion, row.case_version_id))
+    if "report_hints_used" not in snapshot:
+        snapshot["report_hints_used"] = report_hints_metadata(db, row)
+        row.context_snapshot_json = canonical(snapshot)
+    request_hash = report_input_hash(row)
+    request_key = request_key or "auto-report-" + request_hash
+    existing = db.exec(select(OmegaJob).where(
+        OmegaJob.session_id == row.id, OmegaJob.kind == "report", OmegaJob.request_key == request_key,
+    )).first()
+    if existing:
+        if existing.request_hash != request_hash:
+            raise HTTPException(409, "场景数据已变化，请使用新的请求编号")
+        return existing
+    same_input = db.exec(select(OmegaJob).where(
+        OmegaJob.session_id == row.id, OmegaJob.kind == "report", OmegaJob.input_hash == request_hash,
+        OmegaJob.status.in_(["queued", "running", "succeeded"]),
+    ).order_by(OmegaJob.created_at.desc()).limit(1)).first()
+    if same_input:
+        return same_input
+    job = OmegaJob(session_id=row.id, kind="report", request_key=request_key,
+                   request_hash=request_hash, input_hash=request_hash,
+                   session_revision=row.revision, priority=1)
+    db.add(job)
+    return job
 
 
 @router.post("/sessions/{session_id}/reports", status_code=202, dependencies=[Depends(enabled)])
@@ -578,31 +666,15 @@ def request_report(
     db: Annotated[Session, Depends(get_session)],
 ):
     row = owned_session(db, user, session_id)
+    row = db.exec(select(OmegaSession).where(OmegaSession.id == row.id)
+                  .with_for_update().execution_options(populate_existing=True)).one()
     require_writer(user, row.owner_id)
     if row.status != "ended":
         raise HTTPException(409, "先结束演练")
     if not session_segments(db, row.id):
         raise HTTPException(409, "还没有对话")
-    request_hash = report_input_hash(row)
-    existing = db.exec(select(OmegaJob).where(
-        OmegaJob.session_id == row.id, OmegaJob.kind == "report",
-        OmegaJob.request_key == body.request_key,
-    )).first()
-    if existing:
-        if existing.request_hash != request_hash:
-            raise HTTPException(409, "场景数据已变化，请使用新的请求编号")
-        return job_view(existing)
-    same_input = db.exec(select(OmegaJob).where(
-        OmegaJob.session_id == row.id, OmegaJob.kind == "report",
-        OmegaJob.input_hash == request_hash,
-        OmegaJob.status.in_(["queued", "running", "succeeded"]),
-    ).order_by(OmegaJob.created_at.desc()).limit(1)).first()
-    if same_input:
-        return job_view(same_input)
-    job = OmegaJob(session_id=row.id, kind="report", request_key=body.request_key,
-                   request_hash=request_hash, input_hash=request_hash,
-                   session_revision=row.revision, priority=1)
-    db.add(job)
+    job = enqueue_report(db, row, body.request_key)
+    request_hash = job.input_hash
     try:
         db.commit()
     except IntegrityError:
@@ -631,8 +703,11 @@ def get_report(
     reviews = db.exec(select(OmegaReview).where(
         OmegaReview.report_id == report.id
     ).order_by(OmegaReview.created_at)).all()
+    from app.omega.reports import report_summary
+    content = json.loads(report.content_json)
+    content["summary"] = report_summary(content)
     return {"id": report.id, "session_id": report.session_id,
-            "content": json.loads(report.content_json), "model": report.model,
+            "content": content, "model": report.model,
             "reviews": [{"id": item.id, "reviewer_id": item.reviewer_id,
                          "content": json.loads(item.content_json)} for item in reviews]}
 

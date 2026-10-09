@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from fractions import Fraction
 
 
 WEIGHTS = {
@@ -11,9 +12,24 @@ WEIGHTS = {
 }
 
 
+def report_summary(report: dict) -> dict:
+    """Pick evidence-backed skills by relative score, using stable rubric order for ties."""
+    weights = report.get("score_weights") or WEIGHTS
+    by_key = {item["key"]: item for item in report.get("dimensions", [])}
+    eligible = [by_key[key] for key in WEIGHTS if key != "outcome" and key in by_key
+                and by_key[key].get("score") is not None and by_key[key].get("quotes")]
+    ratio = lambda item: Fraction(item["score"], weights[item["key"]])
+    return {"score": report.get("score", {}), "goal_progress": report.get("outcome", {}),
+            "strength": max(eligible, key=ratio) if eligible else None,
+            "blocker": min(eligible, key=ratio) if eligible else None,
+            "next_step": report.get("next_practice", "")}
+
+
 def verify_quote(quote: dict, segments: dict[str, dict]) -> bool:
     segment = segments.get(str(quote.get("segment_id", "")))
     if not segment or quote.get("speaker") != segment.get("speaker"):
+        return False
+    if "speaker_id" in quote and quote["speaker_id"] != segment.get("speaker_id"):
         return False
     start, end = quote.get("start"), quote.get("end")
     if (type(start) is not int or type(end) is not int
@@ -32,13 +48,6 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
         raise ValueError("报告不是完整 JSON") from exc
     if not isinstance(report, dict):
         raise ValueError("报告结构无效")
-    if goal_timing != "pre":
-        outcome = report.get("outcome")
-        if isinstance(outcome, dict):
-            outcome.update(status="unverified", reason="目标未能证明在会前确认；不评价目标达成度", quotes=[])
-        for dim in report.get("dimensions", []):
-            if isinstance(dim, dict) and dim.get("key") == "outcome":
-                dim.update(score=None, reason="目标未能证明在会前确认", quotes=[])
     report["goal_timing"] = goal_timing
     source = {part["id"]: part for part in segments}
 
@@ -48,6 +57,9 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
         for quote in quotes:
             if not isinstance(quote, dict) or not verify_quote(quote, source):
                 raise ValueError("引文与当前逐字稿不匹配")
+            speaker_id = source[str(quote["segment_id"])].get("speaker_id")
+            if speaker_id:
+                quote["speaker_id"] = speaker_id
         if sales_required and not any(q["speaker"] == "sales" for q in quotes):
             raise ValueError("销售评价缺少销售原话")
 
@@ -57,6 +69,8 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
     }:
         raise ValueError("成果判定无效")
     check_quotes(outcome.get("quotes", []))
+    if goal_timing != "pre":
+        outcome.update(status="unverified", reason="目标未能证明在会前确认；不评价目标达成度", quotes=[])
     if outcome["status"] in {"achieved", "partial"} and not outcome.get("quotes"):
         raise ValueError("成果判定缺少原话")
     dimensions = report.get("dimensions")
@@ -73,7 +87,10 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
         seen.add(key)
         score = dim.get("score")
         quotes = dim.get("quotes", [])
-        check_quotes(quotes, sales_required=score is not None)
+        check_quotes(quotes, sales_required=score is not None and (key != "outcome" or goal_timing == "pre"))
+        if key == "outcome" and goal_timing != "pre":
+            dim.update(score=None, reason="目标未能证明在会前确认", quotes=[])
+            continue
         if score is None:
             if quotes:
                 raise ValueError("证据不足的评分项不能附打分引文")
@@ -96,4 +113,5 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
     report["score"] = {"earned": earned, "available": available,
                        "coverage_percent": available, "total": earned if available == 100 else None}
     report["score_weights"] = weights
+    report["summary"] = report_summary(report)
     return report

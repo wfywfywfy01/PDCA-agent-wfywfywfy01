@@ -161,6 +161,8 @@ def init_db(apply_patches: bool = True) -> None:
         MeetingAsrArtifact,
     )
     from app.omega import models as omega_models  # noqa: F401
+    from app.omega import memory_models as omega_memory_models  # noqa: F401
+    from app.omega import coaching_models as omega_coaching_models  # noqa: F401
 
     SQLModel.metadata.create_all(get_engine())
     if apply_patches:

@@ -50,6 +50,9 @@ from app.omega.router import router as omega_router
 from app.omega.voice import router as omega_voice_router
 from app.omega.real import router as omega_real_router
 from app.omega.realtime import router as omega_realtime_router
+from app.omega.templates_router import router as omega_templates_router
+from app.omega.memory_router import router as omega_memory_router
+from app.omega.coaching_router import router as omega_coaching_router
 
 PUBLIC_PATHS = {
     "/login",
@@ -341,6 +344,9 @@ app.include_router(omega_router)
 app.include_router(omega_voice_router)
 app.include_router(omega_real_router)
 app.include_router(omega_realtime_router)
+app.include_router(omega_templates_router)
+app.include_router(omega_memory_router)
+app.include_router(omega_coaching_router)
 app.include_router(pages_router)
 app.include_router(spa_router)
 app.mount("/mcp", knowledge_mcp_app)

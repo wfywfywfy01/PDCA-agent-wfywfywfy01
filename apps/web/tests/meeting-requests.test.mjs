@@ -19,6 +19,7 @@ function mountSetup(apiGet) {
     'vue-router': { useRouter: () => ({ replace() {} }) },
     '@/api/client': { apiGet, apiPost() {}, HttpError: class extends Error {} },
     '@/components/AppNav.vue': { default: {} },
+    '@/composables/use-escape-close': { useEscapeClose() {} },
     './meetingAudio': audio,
   }
   new Function('require', 'exports', outputText)((name) => {

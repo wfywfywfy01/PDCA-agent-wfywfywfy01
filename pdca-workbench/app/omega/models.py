@@ -18,12 +18,19 @@ def new_id() -> str:
 
 class OmegaCase(SQLModel, table=True):
     __tablename__ = "omega_cases"
+    __table_args__ = (Index("uq_omega_case_launch", "team_key", "owner_id", "launch_key", unique=True),)
 
     id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
     team_key: str = Field(index=True, max_length=64)
     owner_id: int
     title: str = Field(max_length=200)
     dealer_id: str = Field(default="", max_length=36)
+    kind: str = Field(default="case", max_length=16)
+    source_template_version_id: str | None = Field(default=None, max_length=36)
+    launch_key: str | None = Field(default=None, max_length=120)
+    launch_hash: str = Field(default="", max_length=64)
+    initial_session_id: str | None = Field(default=None, max_length=36)
+    opportunity_id: str | None = Field(default=None, foreign_key="omega_opportunities.id", index=True, max_length=36)
     draft_json: str = Field(default="{}")
     revision: int = Field(default=1)
     current_version: int = Field(default=0)
@@ -61,6 +68,12 @@ class OmegaSession(SQLModel, table=True):
     source_access_keys_json: str = Field(default="[]")
     goal_timing: str = Field(default="pre", max_length=12)
     status: str = Field(default="active", max_length=16)
+    context_snapshot_json: str = Field(default="")
+    context_source_session_ids_json: str = Field(default="[]")
+    voice_state: str = Field(default="idle", max_length=20)
+    audio_epoch: int = Field(default=0)
+    voice_control_key: str = Field(default="", max_length=120)
+    voice_control_action: str = Field(default="", max_length=20)
     revision: int = Field(default=1)
     transcript_hash: str = Field(default="", max_length=64)
     provider_dialog_id: str = Field(default="", max_length=120)
@@ -70,7 +83,8 @@ class OmegaSession(SQLModel, table=True):
 
 class OmegaSegment(SQLModel, table=True):
     __tablename__ = "omega_segments"
-    __table_args__ = (UniqueConstraint("session_id", "seq"),)
+    __table_args__ = (UniqueConstraint("session_id", "seq"),
+                      UniqueConstraint("session_id", "provider_event_id", name="uq_omega_segment_provider_event"))
 
     id: str = Field(default_factory=new_id, primary_key=True, max_length=36)
     session_id: str = Field(foreign_key="omega_sessions.id", index=True, max_length=36)
@@ -79,6 +93,9 @@ class OmegaSegment(SQLModel, table=True):
     text: str
     source: str = Field(default="text", max_length=16)
     source_speaker: str = Field(default="", max_length=120)
+    speaker_id: str | None = Field(default=None, max_length=120)
+    turn_id: str | None = Field(default=None, max_length=120)
+    provider_event_id: str | None = Field(default=None, max_length=120)
     asr_original: str = Field(default="")
     request_key: str = Field(default="", max_length=120)
     created_at: datetime = Field(default_factory=utcnow, sa_type=DateTime(timezone=True))
@@ -102,6 +119,11 @@ class OmegaJob(SQLModel, table=True):
             "uq_omega_one_realtime_stream", "session_id", unique=True,
             postgresql_where=text("kind = 'realtime' AND status = 'running'"),
             sqlite_where=text("kind = 'realtime' AND status = 'running'"),
+        ),
+        Index(
+            "uq_omega_active_memory_input", "session_id", "input_hash", unique=True,
+            postgresql_where=text("kind = 'memory' AND status IN ('queued', 'running', 'succeeded')"),
+            sqlite_where=text("kind = 'memory' AND status IN ('queued', 'running', 'succeeded')"),
         ),
     )
 

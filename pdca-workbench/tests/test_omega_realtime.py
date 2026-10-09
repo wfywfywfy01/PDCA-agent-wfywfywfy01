@@ -5,6 +5,7 @@ import unittest
 import base64
 import json
 import tempfile
+from threading import Event
 import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -116,7 +117,9 @@ class RealtimeSessionTests(unittest.TestCase):
             repeated = self.client.post(url, headers={"Origin": "http://testserver"})
             self.assertEqual(repeated.status_code, 200)
         with Session(self.engine) as db:
-            self.assertEqual(db.get(OmegaJob, first_job).status, "succeeded")
+            stopped = db.get(OmegaJob, first_job)
+            self.assertEqual(stopped.status, "failed")
+            self.assertEqual(stopped.error, "语音尾稿未完成，请检查逐字稿后重新演练")
         second_job, _, _ = _acquire(self.engine, self.user, self.session_id)
         self.assertNotEqual(first_job, second_job)
 
@@ -220,13 +223,14 @@ class RealtimeSessionTests(unittest.TestCase):
              patch("app.omega.realtime.ws_user", side_effect=authorize), \
              patch("app.omega.realtime.configured", return_value=True), \
              patch("app.omega.realtime.connect", return_value=provider) as connect_mock, \
-             patch.dict("os.environ", {"PDCA_QWEN_REALTIME_WORKSPACE_ID": "test-space",
+             patch.dict("os.environ", {"PDCA_OMEGA_REALTIME_PROVIDER": "qwen",
+                                    "PDCA_QWEN_REALTIME_WORKSPACE_ID": "test-space",
                                     "PDCA_QWEN_REALTIME_API_KEY": "test-only"}):
             with self.client.websocket_connect(
                 f"/api/omega/sessions/{self.session_id}/realtime",
                 headers={"Origin": "http://testserver"},
             ) as socket:
-                self.assertEqual(socket.receive_json(), {"type": "ready"})
+                self.assertEqual(socket.receive_json(), {"type": "ready", "audio_epoch": 1, "state": "listening"})
                 socket.send_bytes(b"\x00\x00" * 320)
                 segments = []
                 audio = None
@@ -243,7 +247,7 @@ class RealtimeSessionTests(unittest.TestCase):
                 self.assertEqual([part["speaker"] for part in segments],
                                  ["sales", "counterparty"])
                 self.assertEqual(audio, b"\x00\x20")
-                self.assertEqual(socket.receive_json(), {"type": "interrupt"})
+                self.assertEqual(socket.receive_json(), {"type": "interrupt", "audio_epoch": 2})
                 socket.send_text("stop")
         headers = connect_mock.call_args.kwargs["additional_headers"]
         self.assertEqual(headers["Authorization"], "Bearer test-only")
@@ -278,10 +282,11 @@ class RealtimeSessionTests(unittest.TestCase):
                 elif event["type"] == "input_audio_buffer.commit":
                     self.queue.put_nowait(json.dumps({"type": "input_audio_buffer.committed"}))
                     for item in (
+                        {"type": "conversation.item.input_audio_transcription.started", "item_id": "sales-1"},
                         {"type": "conversation.item.input_audio_transcription.completed",
                          "item_id": "sales-1", "text": "请确认付款时间。"},
                         {"type": "response.output_text.delta", "response_id": "reply-1",
-                         "delta": "周五"},
+                         "question_id": "sales-1", "delta": "周五"},
                         {"type": "response.output_text.done", "response_id": "reply-1",
                          "text": "周五可以付款。"},
                         {"type": "response.output_audio.delta", "response_id": "reply-1",
@@ -308,7 +313,7 @@ class RealtimeSessionTests(unittest.TestCase):
                 f"/api/omega/sessions/{self.session_id}/realtime",
                 headers={"Origin": "http://testserver"},
             ) as socket:
-                self.assertEqual(socket.receive_json(), {"type": "ready"})
+                self.assertEqual(socket.receive_json(), {"type": "ready", "audio_epoch": 1, "state": "listening"})
                 socket.send_bytes(b"\x00\x00" * 320)
                 socket.send_text("stop")
                 segments, audio = [], None
@@ -386,6 +391,7 @@ class RealtimeSessionTests(unittest.TestCase):
                              ["sales"])
 
     def test_doubao_browser_disconnect_flushes_transcript_and_closes_provider(self):
+        closed = Event()
         class Provider:
             def __init__(self):
                 self.queue = asyncio.Queue()
@@ -405,15 +411,17 @@ class RealtimeSessionTests(unittest.TestCase):
                 elif event["type"] == "input_audio_buffer.commit":
                     for item in (
                         {"type": "input_audio_buffer.committed"},
+                        {"type": "conversation.item.input_audio_transcription.started", "item_id": "sales-1"},
                         {"type": "conversation.item.input_audio_transcription.completed",
                          "item_id": "sales-1", "transcript": "请确认付款时间。"},
                         {"type": "response.output_text.done", "response_id": "reply-1",
-                         "text": "周五可以付款。"},
+                         "question_id": "sales-1", "text": "周五可以付款。"},
                         {"type": "response.output_audio.done", "response_id": "reply-1"},
                     ):
                         self.queue.put_nowait(json.dumps(item))
                 elif event["type"] == "session.close":
                     self.queue.put_nowait(json.dumps({"type": "session.closed"}))
+                    closed.set()
 
             async def recv(self):
                 return await self.queue.get()
@@ -431,13 +439,85 @@ class RealtimeSessionTests(unittest.TestCase):
                 f"/api/omega/sessions/{self.session_id}/realtime",
                 headers={"Origin": "http://testserver"},
             ) as socket:
-                self.assertEqual(socket.receive_json(), {"type": "ready"})
+                self.assertEqual(socket.receive_json(), {"type": "ready", "audio_epoch": 1, "state": "listening"})
                 socket.send_bytes(b"\x00\x00" * 320)
+                socket.close()
+                self.assertTrue(closed.wait(5), "Provider must drain after browser disconnect")
         self.assertIn("input_audio_buffer.commit", provider.sent)
         self.assertEqual(provider.sent[-1], "session.close")
         with Session(self.engine) as db:
             self.assertEqual([part.speaker for part in db.exec(select(OmegaSegment)
                              .order_by(OmegaSegment.seq))], ["sales", "counterparty"])
+
+    def test_stop_waits_three_seconds_for_accepted_native_asr_tail(self):
+        self._stop_with_delayed_native_tail(delayed_started=False)
+
+    def test_stop_waits_for_asr_started_after_commit_ack(self):
+        self._stop_with_delayed_native_tail(delayed_started=True)
+
+    def test_stop_tracks_pcm_accepted_while_previous_asr_is_active(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True)
+
+    def _stop_with_delayed_native_tail(self, *, delayed_started, two_utterances=False):
+        class Provider:
+            def __init__(self):
+                self.queue, self.tail, self.frames = asyncio.Queue(), None, 0
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *_):
+                if self.tail:
+                    self.tail.cancel()
+            async def send(self, raw):
+                kind = json.loads(raw)["type"]
+                if kind == "session.create":
+                    self.queue.put_nowait(json.dumps({"type": "session.created"}))
+                elif kind == "input_audio_buffer.append":
+                    self.frames += 1
+                    if not delayed_started or two_utterances and self.frames == 1:
+                        self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.started",
+                            "item_id": "first-input" if two_utterances else "slow-tail"}))
+                elif kind == "input_audio_buffer.commit":
+                    if two_utterances:
+                        self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.completed",
+                            "item_id": "first-input", "text": "First accepted public sentence"}))
+                    self.queue.put_nowait(json.dumps({"type": "input_audio_buffer.committed"}))
+                    async def finish():
+                        if delayed_started:
+                            await asyncio.sleep(.1)
+                            self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.started",
+                                                               "item_id": "slow-tail"}))
+                        await asyncio.sleep(3)
+                        self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.completed",
+                            "item_id": "slow-tail", "text": "Accepted final public sentence"}))
+                    self.tail = asyncio.create_task(finish())
+                elif kind == "session.close":
+                    if self.tail:
+                        self.tail.cancel()
+                    self.queue.put_nowait(json.dumps({"type": "session.closed"}))
+            async def recv(self):
+                return await self.queue.get()
+        async def authorize(*_):
+            return self.user
+        with patch("app.omega.realtime.is_enabled", return_value=True), \
+             patch("app.omega.realtime.ws_user", side_effect=authorize), \
+             patch("app.omega.realtime.connect", return_value=Provider()), \
+             patch.dict("os.environ", {"PDCA_OMEGA_REALTIME_PROVIDER": "doubao",
+                                      "PDCA_DOUBAO_REALTIME_API_KEY": "test-only"}):
+            with self.client.websocket_connect(f"/api/omega/sessions/{self.session_id}/realtime",
+                                                headers={"Origin": "http://testserver"}) as socket:
+                socket.receive_json()
+                socket.send_bytes(b"\0\x20")
+                if two_utterances:
+                    self.assertEqual(socket.receive_json()["type"], "interrupt")
+                    socket.send_bytes(b"\0\x40")
+                socket.send_text("stop")
+                while socket.receive_json()["type"] != "closed":
+                    pass
+        with Session(self.engine) as db:
+            texts = [part.text for part in db.exec(select(OmegaSegment).order_by(OmegaSegment.seq)).all()]
+            self.assertEqual(texts, (["First accepted public sentence"] if two_utterances else [])
+                             + ["Accepted final public sentence"])
+            self.assertEqual(db.exec(select(OmegaJob)).one().status, "succeeded")
 
     def test_doubao_reply_completed_before_asr_is_saved_after_sales(self):
         job_id, token, _ = _acquire(self.engine, self.user, self.session_id)

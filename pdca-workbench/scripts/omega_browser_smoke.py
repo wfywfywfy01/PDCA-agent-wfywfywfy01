@@ -39,6 +39,14 @@ def main() -> None:
                       "realtime_configured": True, "model_configured": True, "worker_online": True}
         elif path == "/api/omega/team-members":
             result = [{"id": 1, "name": "测试主管"}]
+        elif path == "/api/omega/templates":
+            result = []
+        elif path == "/api/knowledge/scope":
+            result = {"dealers": []}
+        elif path == "/api/omega/profiles":
+            result = {"profile": None, "entries": []}
+        elif path.endswith("/memory-proposal"):
+            result = {"proposal": None, "generation": {"status": "succeeded"}}
         elif path == "/api/omega/assignments" and method == "GET":
             result = []
         elif path == "/api/omega/cases" and method == "GET":
@@ -112,9 +120,10 @@ def main() -> None:
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-        page.route(re.compile(r"^http://127\.0\.0\.1:5173/api/(omega|auth|meeting-center)/"), respond)
+        page.route(re.compile(r"^http://127\.0\.0\.1:5173/api/(omega|auth|meeting-center|knowledge)/"), respond)
         page.goto("http://127.0.0.1:5173/omega")
         expect(page.get_by_role("heading", name="谈判陪练")).to_be_visible()
+        page.get_by_role("button", name="一句话描述自定义场景").click()
         page.get_by_label("带入手头客户").fill("明天和客户谈回款")
         page.get_by_role("button", name="整理练习").click()
         expect(page.get_by_role("heading", name="测试回款谈判")).to_be_visible()
@@ -258,9 +267,12 @@ def main() -> None:
         page.get_by_role("button", name="追加点评").click()
         expect(page.get_by_text("继续练习锁定书面日期")).to_be_visible()
         page.set_viewport_size({"width": 390, "height": 844})
+        page.wait_for_function("() => document.documentElement.scrollWidth <= innerWidth", timeout=10000)
         expect(page.get_by_role("heading", name="复盘报告")).to_be_visible()
         overflow = page.evaluate("document.documentElement.scrollWidth > window.innerWidth")
-        assert not overflow, "mobile horizontal overflow"
+        assert not overflow, "mobile horizontal overflow: " + str(page.evaluate("""() => [...document.querySelectorAll('body *')].map(node => ({
+          tag: node.tagName, class: node.className, right: node.getBoundingClientRect().right
+        })).filter(node => node.right > innerWidth + 1).slice(-12)"""))
         assert not errors, f"browser console errors: {errors}"
         if os.environ.get("OMEGA_BROWSER_SCREENSHOT"):
             page.screenshot(path=os.environ["OMEGA_BROWSER_SCREENSHOT"], full_page=True)
