@@ -44,3 +44,6 @@ artifacts/
 
 # ffmpeg 工具与临时验证产物（不提交）
 .st/
+
+# 独立版 Clippy 桌宠：自带 188MB Electron 内核与运行时数据，不入库
+clippy-pet/

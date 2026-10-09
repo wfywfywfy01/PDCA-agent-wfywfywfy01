@@ -14,6 +14,49 @@
 - `.env`、密钥、客户原件、导出文件和浏览器验收产物不得进入 Git。
 - PDCA 与 `vertu-data-hub` 独立仓库、独立发布；只通过私有 API 通信，不跨库直连。
 
+
+## 终端与进程纪律（2026-09-23 用户要求，长期有效）
+- **起 PowerShell 一律放后台**（2026-09-23 用户追加要求）：所有 `pwsh` 调用必须
+  `run_in_background: true`，拿 job id → `job_output` 收结果 → 用完 `job_kill`/自然退出；
+  禁止在前台起命令占住会话。**且"后台"仅指一次性命令后台化**，用户不需要长驻服务；
+  确需常驻时必须用户明确说"常驻"，并登记 pid/端口以便收尾全杀。
+- 起 PowerShell 一律隐藏窗口：需要交互式/自行 spawn 时用
+  `Start-Process -WindowStyle Hidden`，或 `-NoNewWindow`、`process.startInfo.CreateNoWindow = $true`；
+  禁止 `Start-Process` 不带窗口参数地拉可见控制台。
+- **绝对不许弹窗（2026-09-23 用户强调，最高优先级）**：控制台窗口、GUI 窗体、
+  MessageBox/InputBox、UAC 提权提示、凭据弹窗、浏览器或桌面应用弹层，一律禁止出现。
+  具体禁令：
+  - 禁止一切需要交互输入的命令：`Read-Host`、`Get-Credential`、`pause`、
+    `Out-GridView`、`Show-Command`、`-Confirm` 交互提示。
+  - 禁止 `Start-Process -Verb RunAs`（必弹 UAC）；需要提权时先报告用户，由用户手动执行。
+  - 禁止直接运行 `.bat`：本仓 `.bat` 结尾带 `pause`，会留窗口等按键。
+    要跑批处理须先确认无 `pause`，或用 `cmd /c` 且已剥离 `pause`。
+  - 已知含 UAC 提权的脚本（**本 Agent 禁止直接运行**）：
+    `pdca-workbench/app/vps_pet_pack/apply_patch.ps1`、`install_clippy_fixed.ps1`、
+    `restore_pristine_run.ps1`（均 `Start-Process powershell -Verb RunAs`）。
+  - 命令一律后台跑（见上条），绝不在前台阻塞等用户交互；结果用文本返回给用户，
+    不用弹窗汇报。
+- **Win11 弹窗根因与修复（2026-09-23 实测，长期有效）**：本机 Windows 11 初始把
+  "默认终端应用"设为 *让 Windows 决定*（`HKCU\Console\%%Startup` 的
+  `DelegationConsole`/`DelegationTerminal` 为空），导致 **Windows Terminal 托管控制台程序，
+  无视 `-WindowStyle Hidden` 与 `CREATE_NO_WINDOW`**，于是每次 pwsh 调用都会在桌面闪出
+  一个可见控制台窗口（实测：宿主 `VPS.exe` 派生的 shell 每次都留可见窗口）。
+  已修复：把两个值都改成 conhost GUID `{B23D10C0-E52E-411E-9D5B-C09FDF709C7D}`。
+  - **交付给用户的一句话**：设置 → 终端 → 默认终端应用 = "Windows 控制台主机"；
+    改注册表等价，无需管理员，新会话生效。
+  - **改回原样**：把两个值都写成 `{00000000-0000-0000-0000-000000000000}`（让 Windows 决定）。
+  - 修复后**显式隐藏启动的进程不再产生可见窗口**（A/B 实测）；若宿主仍弹窗，
+    需重启 VPS 桌面端让新会话继承新委派；再不行则要打 DSH 运行时的进程创建补丁
+    （`dsh-win32-process/lib/index.js` 里 `creationFlags=1028` 含 `CREATE_NEW_CONSOLE`）。
+  - 排查手法备查：枚举可见顶层窗口看 `class=C`（控制台类）窗口的 PID/标题，
+    再回溯父链即可定位是谁在弹窗。
+- 减少进程数：一次 pwsh 调用里用 `;` 串完多步，不要为一个查询起一个 shell。
+- 自己起的后台进程用完即杀（`Stop-Process -Id <pid> -Force`，必要时 taskkill /T /F）；
+  收尾时确认 `Get-Process powershell,pwsh,node` 里没有本任务遗留的进程。
+- 禁止杀别的 Agent/桌面应用的进程：父进程为 `codex.exe`、`VPS.exe`、`WorkBuddyAI.exe`、`msedge.exe` 的
+  `node`/`node_repl`/`cmd` 不属于本任务，只报告不处理；确实碍事要先问用户。
+- 一次性脚本（`pdca-workbench/data/_push*.ps1` 等）在 `pdca-workbench/data/` 这类 scratch 目录里用完即归档/删除，不要长期堆积。
+
 ## 工作台与数据中台
 - Cursor 作为日常工作台，用于编辑模板、日报、检查报告和行动建议。
 - Hermes 作为调度中枢，负责按日触发检查脚本、汇总结果、分派 Agent。
