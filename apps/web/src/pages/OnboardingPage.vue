@@ -176,15 +176,6 @@ onMounted(() => {
   padding: 24px 20px 60px;
 }
 
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-
 h1 {
   margin: 0 0 4px;
   font-size: 24px;

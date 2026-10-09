@@ -82,6 +82,11 @@ function channelsOf(bot: ImBot): number {
   return channelCounts.value.get(bot.app_id) ?? 0
 }
 
+/** 表头排序：名称升序 / 最近使用降序（比较逻辑在 visibleBots 内） */
+function sortBy(key: SortKey) {
+  sortKey.value = key
+}
+
 /** 头像地址：优先签名地址；相对路径补 VPS 域名；取不到时回退首字母。 */
 function avatarSrc(bot: ImBot): string | null {
   const raw = (bot.avatar_signed_url || bot.avatar_display_url || '').trim()
@@ -308,7 +313,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <AppNav />
-  <main class="agent-admin">
+  <main class="page agent-admin">
     <header class="page-head">
       <div>
         <h1>Agent 管理</h1>
@@ -372,27 +377,34 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section class="toolbar card">
-        <div class="field grow">
-          <label class="field-label" for="bot-search">搜索</label>
-          <input id="bot-search" v-model="search" class="input" type="search" placeholder="名称 / app_id / 说明" />
-        </div>
-        <div class="field">
-          <span class="field-label">可见性</span>
-          <div class="segmented" role="group" aria-label="按可见性筛选">
-            <button type="button" :class="{ active: visibility === 'all' }" @click="visibility = 'all'">全部 {{ stats.total }}</button>
-            <button type="button" :class="{ active: visibility === 'public' }" @click="visibility = 'public'">公开 {{ stats.isPublic }}</button>
-            <button type="button" :class="{ active: visibility === 'private' }" @click="visibility = 'private'">私有 {{ stats.private }}</button>
-          </div>
-        </div>
-        <div class="field">
-          <label class="field-label" for="bot-sort">排序</label>
-          <select id="bot-sort" v-model="sortKey" class="input select">
-            <option value="recent">最近使用</option>
-            <option value="name">名称</option>
-            <option value="created">创建时间</option>
-          </select>
-        </div>
+      <section class="filterbar" aria-label="机器人筛选">
+        <label class="sr-only" for="bot-search">搜索机器人</label>
+        <input
+          id="bot-search"
+          v-model="search"
+          class="input filter-search"
+          type="search"
+          placeholder="搜索名称 / app_id / 说明"
+        />
+        <button type="button" class="chip-filter" :class="{ on: visibility === 'all' }" @click="visibility = 'all'">
+          全部 <span class="num">{{ stats.total }}</span>
+        </button>
+        <button type="button" class="chip-filter" :class="{ on: visibility === 'public' }" @click="visibility = 'public'">
+          公开 <span class="num">{{ stats.isPublic }}</span>
+        </button>
+        <button type="button" class="chip-filter" :class="{ on: visibility === 'private' }" @click="visibility = 'private'">
+          私有 <span class="num">{{ stats.private }}</span>
+        </button>
+        <button
+          v-if="search || visibility !== 'all'"
+          type="button"
+          class="chip-filter"
+          @click="search = ''; visibility = 'all'"
+        >
+          清除筛选
+        </button>
+        <span class="spacer" />
+        <span class="muted num">{{ visibleBots.length }} / {{ bots.length }} 条</span>
       </section>
 
       <div v-if="botsError" class="card alert" role="alert">
@@ -421,16 +433,22 @@ onBeforeUnmount(() => {
         <button class="btn" type="button" @click="search = ''; visibility = 'all'">清空筛选</button>
       </div>
 
-      <section v-else class="card table-card">
-        <table>
+      <section v-else class="table-shell">
+        <div class="table-scroll">
+        <table class="grid">
           <caption class="sr-only">我的 IM 机器人列表</caption>
           <thead>
             <tr>
-              <th scope="col">机器人</th>
+              <th scope="col" class="sortable" :aria-sort="sortKey === 'name' ? 'ascending' : 'none'" @click="sortBy('name')">
+                机器人<span v-if="sortKey === 'name'" class="dir" aria-hidden="true">↑</span>
+              </th>
               <th scope="col" class="col-desc">说明</th>
               <th scope="col">可见性</th>
-              <th scope="col" class="col-channels">会话</th>
-              <th scope="col" class="col-used">最近使用</th>
+              <th scope="col" class="col-channels num">会话</th>
+              <th scope="col" class="col-used sortable" :aria-sort="sortKey === 'recent' ? 'descending' : 'none'" @click="sortBy('recent')">
+                最近使用<span v-if="sortKey === 'recent'" class="dir" aria-hidden="true">↓</span>
+              </th>
+              <th scope="col" class="num">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -465,22 +483,11 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </td>
-              <td class="col-desc"><span class="desc">{{ bot.description || '—' }}</span></td>
+              <td class="col-desc"><span class="truncate" :title="bot.description || ''">{{ bot.description || '—' }}</span></td>
               <td>
-                <button
-                  class="switch"
-                  type="button"
-                  role="switch"
-                  :aria-checked="bot.is_public"
-                  :aria-label="bot.name + ' 可见性'"
-                  :disabled="busyAppId === bot.app_id"
-                  @click="requestVisibility(bot)"
-                >
-                  <span class="switch-track" aria-hidden="true"><span class="switch-thumb" /></span>
-                  <span class="switch-text">{{ bot.is_public ? '公开' : '私有' }}</span>
-                </button>
+                <span class="status" :class="bot.is_public ? 'ok' : 'idle'">{{ bot.is_public ? '公开' : '私有' }}</span>
               </td>
-              <td class="col-channels">
+              <td class="col-channels num">
                 <button
                   class="link-btn num"
                   type="button"
@@ -490,15 +497,43 @@ onBeforeUnmount(() => {
                   {{ channelsOf(bot) }}
                 </button>
               </td>
-              <td class="col-used" :title="fmtDateTime(bot.last_used_at)">
-                <span class="num">{{ fmtRelative(bot.last_used_at) }}</span>
+              <td class="col-used num" :title="fmtDateTime(bot.last_used_at)">{{ fmtRelative(bot.last_used_at) }}</td>
+              <td>
+                <div class="row-actions">
+                  <button class="icon-btn" type="button" :aria-label="bot.name + ' 会话列表'" title="会话列表" @click="channelsOpen = bot">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z" />
+                    </svg>
+                  </button>
+                  <button class="icon-btn" type="button" :aria-label="bot.name + ' 复制 app_id'" title="复制 app_id" @click="copyAppId(bot)">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+                    </svg>
+                  </button>
+                  <button
+                    class="icon-btn"
+                    type="button"
+                    :aria-label="bot.name + (bot.is_public ? ' 设为私有' : ' 设为公开')"
+                    :title="bot.is_public ? '设为私有' : '设为公开'"
+                    :disabled="busyAppId === bot.app_id"
+                    @click="requestVisibility(bot)"
+                  >
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                      <path v-if="bot.is_public" d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+                      <path v-else d="M4 4l16 16M10 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 3.9M6.3 7.3A16.6 16.6 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 3.8-.8" />
+                      <circle v-if="bot.is_public" cx="12" cy="12" r="2.5" />
+                    </svg>
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
         </table>
-        <footer class="table-foot">
+        </div>
+        <footer class="table-foot-bar">
           <span>显示 {{ visibleBots.length }} / {{ bots.length }} 个机器人</span>
-          <span v-if="channels.length">会话数据 {{ channels.length }} 条</span>
+          <span v-if="channels.length">会话数据 {{ channels.length }} 条 · 悬停行可操作</span>
         </footer>
       </section>
     </template>
@@ -587,22 +622,18 @@ onBeforeUnmount(() => {
       </template>
     </template>
 
-    <!-- ── 弹层 ─────────────────────────────────────────────────────── -->
-    <div v-if="anyOverlayOpen" class="overlay" @click.self="closeOverlays">
-      <section
-        v-if="channelsOpen"
-        class="card modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="channels-title"
-      >
-        <header class="modal-head">
+    <!-- ── 会话抽屉（主从布局：记录详情从右侧滑出，不遮挡列表上下文）───── -->
+    <template v-if="channelsOpen">
+      <div class="drawer-backdrop" @click="channelsOpen = null" />
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="channels-title">
+        <header class="drawer-head">
           <div>
-            <h2 id="channels-title">{{ channelsOpen.name }} · 已加入会话</h2>
-            <p>{{ channelsFor.length }} 个会话，数据来自 vertu-cli im +bot-channels。</p>
+            <h2 id="channels-title">{{ channelsOpen.name }}</h2>
+            <p>已加入 {{ channelsFor.length }} 个会话 · 数据来自 im +bot-channels</p>
           </div>
-          <button class="btn btn-sm" type="button" @click="channelsOpen = null">关闭</button>
+          <button class="icon-btn" type="button" aria-label="关闭抽屉" @click="channelsOpen = null">✕</button>
         </header>
+        <div class="drawer-body">
         <ul v-if="channelsFor.length" class="channel-list">
           <li v-for="channel in channelsFor" :key="String(channel.channel_id)">
             <div class="channel-main">
@@ -618,10 +649,17 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <p v-else class="hint">该机器人还没有加入任何会话。</p>
-      </section>
+        </div>
+        <footer class="drawer-foot">
+          <button class="btn" type="button" @click="channelsOpen = null">关闭</button>
+        </footer>
+      </aside>
+    </template>
 
+    <!-- ── 弹窗（仅短表单与确认）────────────────────────────────────── -->
+    <div v-if="createOpen || confirmTarget" class="overlay" @click.self="closeOverlays">
       <form
-        v-else-if="createOpen"
+        v-if="createOpen"
         class="card modal"
         role="dialog"
         aria-modal="true"
@@ -680,7 +718,7 @@ onBeforeUnmount(() => {
   </main>
 </template>
 <style scoped>
-.agent-admin { max-width: 1240px; margin: 0 auto; padding: 24px 20px 64px; }
+/* 布局交给外壳（body.shell-ready main.page），本页不再自定宽与内边距 */
 
 /* 页头 */
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -715,20 +753,9 @@ onBeforeUnmount(() => {
 .stat-note { color: var(--muted); font-size: 12px; }
 
 /* 工具栏 */
-.toolbar { display: flex; flex-wrap: wrap; gap: 14px; padding: 14px 16px; margin-bottom: 16px; align-items: flex-end; }
 .field { display: grid; gap: 6px; }
 .field.grow { flex: 1 1 240px; min-width: 200px; }
 .field-label { color: var(--muted); font-size: 12px; }
-.select { cursor: pointer; }
-.segmented { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 10px; overflow: hidden; }
-.segmented button {
-  padding: 9px 13px; border: none; background: transparent; color: var(--muted);
-  font-size: 12px; cursor: pointer; font-variant-numeric: tabular-nums;
-  transition: background-color 0.15s, color 0.15s;
-}
-.segmented button + button { border-left: 1px solid var(--border); }
-.segmented button.active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
-
 /* 状态与骨架 */
 .alert { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; margin-bottom: 16px; color: var(--red); background: rgba(244, 63, 94, 0.08); border-color: rgba(244, 63, 94, 0.28); }
 .hint-warn { margin: 0 0 14px; color: var(--amber); font-size: 13px; }
@@ -745,13 +772,9 @@ onBeforeUnmount(() => {
 .empty-state h2 { margin: 0 0 8px; font-size: 16px; }
 .empty-state p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
 
-/* 表格 */
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 13px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-th { color: var(--muted); font-size: 12px; font-weight: 500; }
-tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
-tbody tr:last-child td { border-bottom: none; }
-.table-foot { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
+/* 表格：结构样式统一走全局 table.grid（styles/ui.css），此处只保留单元格内部布局，
+   否则 scoped 的 table/th/td 元素选择器会盖掉粘性表头与行内操作。 */
+.filter-search { width: 260px; max-width: 100%; height: 32px; padding: 0 10px; }
 .bot { display: flex; align-items: center; gap: 11px; }
 .avatar { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; flex: 0 0 auto; background: rgba(255, 255, 255, 0.06); }
 .avatar-fallback { display: grid; place-items: center; background: var(--blue-soft); color: var(--blue); font-weight: 600; }
@@ -761,16 +784,9 @@ tbody tr:last-child td { border-bottom: none; }
 .app-id:hover { color: var(--blue); }
 .app-id:hover .copy-hint, .app-id:focus-visible .copy-hint { opacity: 1; }
 .copy-hint { opacity: 0; color: var(--blue); transition: opacity 0.15s; }
-.desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); font-size: 13px; }
-
 /* 可见性开关 */
-.switch { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; padding: 2px 0; border: none; background: transparent; cursor: pointer; }
-.switch:disabled { opacity: 0.5; cursor: progress; }
-.switch-track { position: relative; width: 34px; height: 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); transition: background-color 0.15s; }
-.switch-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s ease-out; }
 .switch[aria-checked='true'] .switch-track { background: var(--blue); }
 .switch[aria-checked='true'] .switch-thumb { transform: translateX(14px); }
-.switch-text { font-size: 12px; color: var(--muted); }
 .link-btn { min-height: 24px; padding: 3px 0; border: none; background: transparent; color: var(--blue); font-size: 13px; cursor: pointer; }
 .link-btn:disabled { color: var(--faint); cursor: default; }
 
@@ -858,7 +874,3 @@ tbody tr:last-child td { border-bottom: none; }
   .kv { grid-template-columns: 1fr; }
 }
 </style>
-
-
-
-

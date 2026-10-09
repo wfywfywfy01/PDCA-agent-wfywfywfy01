@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { apiGet, apiPost, HttpError } from '@/api/client'
+import CommandPalette from '@/components/CommandPalette.vue'
 
 interface Me {
   username: string
@@ -13,16 +14,20 @@ interface Me {
 interface NavItem {
   to: string
   label: string
+  icon: string
   roles?: string[]
 }
 
+const route = useRoute()
 const router = useRouter()
 const me = ref<Me | null>(null)
 const logoutBusy = ref(false)
 const logoutError = ref('')
-const panelOpen = ref(false)
 const identityError = ref('')
-const identityBusy = ref(false)
+const collapsed = ref(false)
+const mobileOpen = ref(false)
+const paletteOpen = ref(false)
+// 谈判陪练（Omega）只在后端就绪时出现，避免给销售展示不可用入口
 const omegaEnabled = ref(false)
 
 const ROLE_LABELS: Record<string, string> = {
@@ -33,77 +38,103 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: '只读访客',
 }
 
-// 全部入口都在导航里可见（换行而不是横向滚动），避免入口被截断找不到。
-const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: '今日工作台' },
-  { to: '/dashboard', label: '数据看板' },
-  { to: '/tasks', label: '任务中心' },
-  { to: '/logistics', label: '物流中心' },
-  { to: '/meetings', label: '会议中心' },
-  { to: '/knowledge', label: '资料库' },
-  { to: '/signalseller', label: '获客指挥' },
-  { to: '/walkin', label: '客流五件套' },
-  { to: '/onboarding', label: '新人培训' },
-  { to: '/omega', label: '谈判陪练', roles: ['sales', 'manager', 'admin'] },
-  { to: '/admin/agents', label: 'Agent 管理', roles: ['manager', 'admin'] },
-  { to: '/admin/duzhan-agents', label: '督战官配置', roles: ['admin'] },
-  { to: '/admin/sync', label: '数据同步', roles: ['manager', 'admin'] },
-  { to: '/admin/permissions', label: '权限管理', roles: ['admin'] },
+// 分组侧边栏（对标 Ant Design Pro sider menu：分组 + 图标 + 可折叠）
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: '概览',
+    items: [
+      { to: '/', label: '今日工作台', icon: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z' },
+      { to: '/dashboard', label: '数据看板', icon: 'M4 19V9m5 10V5m5 14v-6m5 6V8' },
+    ],
+  },
+  {
+    label: '业务',
+    items: [
+      { to: '/tasks', label: '任务中心', icon: 'M4 6h2m3 0h11M4 12h2m3 0h11M4 18h2m3 0h11' },
+      { to: '/logistics', label: '物流中心', icon: 'M3 7h10v8H3zM13 10h4l4 3v2h-8z' },
+      { to: '/meetings', label: '会议中心', icon: 'M4 5h16v11H4zM9 20h6' },
+      { to: '/knowledge', label: '资料库', icon: 'M5 4h13v16H7a2 2 0 0 1-2-2zM9 8h6M9 12h6' },
+      { to: '/signalseller', label: '获客指挥', icon: 'M4 20 20 4M14 4h6v6' },
+      { to: '/walkin', label: '客流五件套', icon: 'M12 3v18M6 9l6-6 6 6' },
+      { to: '/onboarding', label: '新人培训', icon: 'M12 4 3 8l9 4 9-4zM7 11v5c0 1.5 2.2 2.6 5 2.6s5-1.1 5-2.6v-5' },
+      { to: '/omega', label: '谈判陪练', icon: 'M4 5h16v10H9l-5 4zM8 9h8M8 12h5', roles: ['sales', 'manager', 'admin'] },
+    ],
+  },
+  {
+    label: '管理',
+    items: [
+      { to: '/admin/agents', label: 'Agent 管理', icon: 'M12 3a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM4.5 20.5c0-3.6 3.4-5.5 7.5-5.5s7.5 1.9 7.5 5.5', roles: ['manager', 'admin'] },
+      { to: '/admin/duzhan-agents', label: '督战官配置', icon: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z', roles: ['admin'] },
+      { to: '/admin/sync', label: '数据同步', icon: 'M4 12a8 8 0 0 1 13.6-5.6M20 12a8 8 0 0 1-13.6 5.6M17 3v4h-4M7 21v-4h4', roles: ['manager', 'admin'] },
+      { to: '/admin/permissions', label: '权限管理', icon: 'M12 3l7 3v6c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6z', roles: ['admin'] },
+    ],
+  },
 ]
 
-const navItems = computed(() =>
-  NAV_ITEMS.filter((item) => (item.to !== '/omega' || omegaEnabled.value)
-    && (!item.roles || (me.value && item.roles.includes(me.value.role)))),
+const visibleGroups = computed(() =>
+  NAV_GROUPS.map((group) => ({
+    label: group.label,
+    items: group.items.filter((item) => (item.to !== '/omega' || omegaEnabled.value)
+      && (!item.roles || (me.value && item.roles.includes(me.value.role)))),
+  })).filter((group) => group.items.length > 0),
 )
 
+const allItems = computed(() => NAV_GROUPS.flatMap((group) => group.items))
 const roleLabel = computed(() => (me.value ? ROLE_LABELS[me.value.role] || me.value.role : ''))
-const whoLabel = computed(() => (me.value ? me.value.display_name || me.value.username : ''))
+const whoLabel = computed(() => (me.value ? me.value.display_name || me.value.username : '未登录'))
+const currentTitle = computed(() => allItems.value.find((item) => item.to === route.path)?.label || '')
 
-function closePanel() {
-  panelOpen.value = false
+function setBodyClasses() {
+  const body = document.body
+  body.classList.add('shell-ready')
+  body.classList.toggle('shell-collapsed', collapsed.value)
+}
+
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  try { localStorage.setItem('pdca.shell.collapsed', collapsed.value ? '1' : '0') } catch { /* ignore */ }
+  setBodyClasses()
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') closePanel()
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    paletteOpen.value = true
+    return
+  }
+  if (event.key === 'Escape') mobileOpen.value = false
 }
 
-watch(() => router.currentRoute.value.fullPath, closePanel)
-
 async function loadIdentity() {
-  identityBusy.value = true
   identityError.value = ''
   try {
     me.value = await apiGet<Me>('/api/auth/me')
     omegaEnabled.value = (await apiGet<{ ready: boolean }>('/api/omega/status').catch(() => ({ ready: false }))).ready
     if (me.value.must_change_password) {
-      router.replace({ path: '/login', query: { change_password: '1', next: router.currentRoute.value.fullPath } })
+      router.replace({ path: '/login', query: { change_password: '1', next: route.fullPath } })
     }
   } catch (err) {
     me.value = null
-    if (err instanceof HttpError && err.status === 401) {
-      identityError.value = ''
-      return
-    }
-    // 身份接口失败通常意味着后端或数据库异常；此时页面上的权限相关入口会消失，
-    // 必须显式告知用户，而不是静默降级。
-    if (err instanceof HttpError) {
-      identityError.value = err.status >= 500
-        ? '后端服务异常（HTTP ' + err.status + '），常见原因是数据库不可用'
-        : '身份接口返回 HTTP ' + err.status + '（' + err.detail + '）'
-    } else {
-      identityError.value = '无法连接后端服务'
-    }
-  } finally {
-    identityBusy.value = false
+    if (err instanceof HttpError && err.status === 401) return
+    identityError.value = err instanceof HttpError
+      ? (err.status >= 500 ? '后端服务异常（HTTP ' + err.status + '），常见原因是数据库不可用' : '身份接口返回 HTTP ' + err.status + '（' + err.detail + '）')
+      : '无法连接后端服务'
   }
 }
 
+watch(() => route.fullPath, () => { mobileOpen.value = false })
+
 onMounted(async () => {
+  try { collapsed.value = localStorage.getItem('pdca.shell.collapsed') === '1' } catch { /* ignore */ }
+  setBodyClasses()
   window.addEventListener('keydown', onKeydown)
   await loadIdentity()
 })
 
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  document.body.classList.remove('shell-ready', 'shell-collapsed')
+})
 
 async function logout() {
   if (logoutBusy.value) return
@@ -119,128 +150,90 @@ async function logout() {
   }
 }
 </script>
-
 <template>
-  <header class="nav">
-    <div class="nav-inner">
-      <router-link class="brand" to="/">
-        <span class="brand-mark" aria-hidden="true">V</span>
-        <span class="brand-text">PDCA 工作台</span>
-      </router-link>
-
-      <nav class="links" aria-label="工作台导航">
-        <router-link v-for="item in navItems" :key="item.to" :to="item.to">{{ item.label }}</router-link>
-      </nav>
-
-      <div class="user">
-        <span v-if="me" class="who">
-          <span class="who-name">{{ whoLabel }}</span>
-          <span class="role-badge">{{ roleLabel }}</span>
-        </span>
-        <button class="btn btn-sm logout" type="button" :disabled="logoutBusy" @click="logout">
-          {{ logoutBusy ? '退出中…' : '退出' }}
-        </button>
-        <button
-          class="burger"
-          type="button"
-          :aria-expanded="panelOpen"
-          aria-controls="nav-panel"
-          :aria-label="panelOpen ? '收起导航' : '展开导航'"
-          @click="panelOpen = !panelOpen"
-        >
-          <span aria-hidden="true">{{ panelOpen ? '×' : '☰' }}</span>
-        </button>
-      </div>
+  <aside class="shell-sidebar" :class="{ open: mobileOpen }" aria-label="主导航">
+    <div class="shell-brand">
+      <span class="mark" aria-hidden="true">V</span>
+      <span class="label">PDCA 工作台</span>
     </div>
 
-    <nav v-if="panelOpen" id="nav-panel" class="panel" aria-label="工作台导航（展开）">
-      <router-link v-for="item in navItems" :key="item.to" :to="item.to" @click="closePanel">{{ item.label }}</router-link>
-      <span v-if="me" class="panel-user">{{ whoLabel }} · {{ roleLabel }}</span>
+    <nav class="shell-nav">
+      <div v-for="group in visibleGroups" :key="group.label" class="shell-group">
+        <p class="shell-group-label">{{ group.label }}</p>
+        <router-link v-for="item in group.items" :key="item.to" class="shell-link" :to="item.to" :title="item.label">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path :d="item.icon" />
+          </svg>
+          <span class="label">{{ item.label }}</span>
+        </router-link>
+      </div>
     </nav>
 
-    <div v-if="identityError" class="identity-warning" role="alert">
-      <span>
-        无法读取当前登录身份：{{ identityError }}。数据接口可能同时不可用，页面上的管理入口会暂时隐藏。
-      </span>
-      <button class="btn btn-sm" type="button" :disabled="identityBusy" @click="loadIdentity">
-        {{ identityBusy ? '重试中…' : '重试' }}
+    <div class="shell-foot">
+      <button class="shell-link" type="button" :aria-expanded="!collapsed" @click="toggleCollapse">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <path :d="collapsed ? 'M9 6l6 6-6 6' : 'M15 6l-6 6 6 6'" />
+        </svg>
+        <span class="label">{{ collapsed ? '展开侧栏' : '收起侧栏' }}</span>
       </button>
     </div>
+  </aside>
 
-    <p v-if="logoutError" class="logout-error" role="alert">{{ logoutError }}</p>
+  <header class="shell-topbar">
+    <button class="icon-btn menu-btn" type="button" aria-label="打开导航" @click="mobileOpen = !mobileOpen">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16" />
+      </svg>
+    </button>
+
+    <nav class="shell-crumbs" aria-label="面包屑">
+      <span>工作台</span>
+      <span aria-hidden="true">/</span>
+      <strong>{{ currentTitle }}</strong>
+    </nav>
+
+    <button class="shell-search" type="button" aria-label="打开命令面板" @click="paletteOpen = true">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="6" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+      <span>搜索页面…</span>
+      <kbd>Ctrl K</kbd>
+    </button>
+
+    <div class="shell-right">
+      <span v-if="me" class="status" :class="me.role === 'admin' ? 'info' : 'ok'">{{ roleLabel }}</span>
+      <button class="shell-user" type="button" :disabled="logoutBusy" @click="logout">
+        <span>{{ whoLabel }}</span>
+        <span class="role">{{ logoutBusy ? '退出中…' : '退出' }}</span>
+      </button>
+    </div>
   </header>
+
+  <div v-if="identityError" class="identity-warning" role="alert">
+    <span>无法读取当前登录身份：{{ identityError }}。数据接口可能同时不可用，管理入口会暂时隐藏。</span>
+    <button class="btn btn-sm" type="button" @click="loadIdentity">重试</button>
+  </div>
+
+  <p v-if="logoutError" class="logout-error" role="alert">{{ logoutError }}</p>
+
+  <CommandPalette v-if="paletteOpen" :items="allItems" @close="paletteOpen = false" />
 </template>
 
 <style scoped>
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: rgba(11, 13, 19, 0.94);
-  border-bottom: 1px solid var(--border);
-  backdrop-filter: blur(6px);
-}
-
-.nav-inner {
-  max-width: 1380px;
-  margin: 0 auto;
-  padding: 10px 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.brand { display: inline-flex; align-items: center; gap: 9px; flex: 0 0 auto; color: var(--text); font-weight: 700; font-size: 14px; }
-.brand-mark {
-  display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px;
-  background: var(--blue-soft); color: var(--blue); font-size: 13px; font-weight: 700;
-}
-
-/* 换行而不是横向滚动：任何窗口宽度下入口都不会被截断 */
-.links { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 2px; }
-.links a {
-  padding: 6px 8px; border-radius: 999px; color: var(--muted); font-size: 12px; white-space: nowrap;
-  transition: background-color 0.15s, color 0.15s;
-}
-.links a:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
-.links a.router-link-active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
-
-.user { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
-.who { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
-.who-name { max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.role-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text); white-space: nowrap; }
-.logout { padding: 6px 12px; }
-
-.burger {
-  display: none; width: 34px; height: 34px; align-items: center; justify-content: center;
-  border-radius: 9px; border: 1px solid var(--border-strong); background: var(--card-2);
-  color: var(--text); font-size: 15px; cursor: pointer;
-}
-
-.panel {
-  display: grid; gap: 2px; padding: 8px 20px 14px;
-  border-top: 1px solid var(--border); background: var(--card);
-}
-.panel a { padding: 10px 12px; border-radius: 9px; color: var(--muted); font-size: 14px; }
-.panel a.router-link-active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
-.panel-user { padding: 10px 12px; color: var(--faint); font-size: 12px; }
-
-.logout-error { margin: 0; padding: 6px 20px 10px; color: var(--red); font-size: 13px; }
-
+.menu-btn { display: none; }
 .identity-warning {
+  position: fixed; top: var(--topbar-h); left: var(--sidebar-w); right: 0; z-index: 24;
   display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
-  margin: 0; padding: 9px 20px; font-size: 13px;
-  color: var(--amber); background: rgba(245, 158, 11, 0.1);
-  border-top: 1px solid rgba(245, 158, 11, 0.28);
+  padding: 8px 20px; font-size: 13px; color: var(--warn);
+  background: rgba(245, 158, 11, 0.1); border-bottom: 1px solid rgba(245, 158, 11, 0.25);
 }
+.shell-collapsed .identity-warning { left: var(--sidebar-w-collapsed); }
+.logout-error { position: fixed; right: 16px; bottom: 16px; z-index: 40; margin: 0; padding: 8px 14px; border-radius: var(--radius-md); background: var(--surface-3); color: var(--danger); font-size: 13px; }
 
 @media (max-width: 900px) {
-  .links { display: none; }
-  .burger { display: inline-flex; }
-  .nav-inner { padding: 10px 14px; }
-}
-@media (max-width: 640px) {
-  .who { display: none; }
-  .brand-text { display: none; }
+  .menu-btn { display: inline-grid; }
+  .identity-warning { left: 0; }
 }
 </style>
+

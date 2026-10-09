@@ -301,9 +301,12 @@ onMounted(async () => {
     </template>
 
     <template v-else-if="activeTab === 'summary'">
-      <div class="toolbar-row">
-        <input v-model="summaryMonth" type="month" class="input month-input" @change="loadSummary" />
-      </div>
+      <section class="filterbar" aria-label="月度汇总筛选">
+        <label class="sr-only" for="summary-month">汇总月份</label>
+        <input id="summary-month" v-model="summaryMonth" type="month" class="input month-input" @change="loadSummary" />
+        <span class="spacer" />
+        <span class="muted">零上报的日期会在明细中单独标注</span>
+      </section>
       <p v-if="summaryLoading" class="empty">正在读取月度汇总…</p>
       <div v-else-if="summaryError" class="msg bad">{{ summaryError }}</div>
       <template v-else-if="summary">
@@ -350,7 +353,7 @@ onMounted(async () => {
         </section>
         <section class="card panel">
           <h2>门店排行</h2>
-          <table v-if="summary.by_dealer.length" class="table">
+          <table v-if="summary.by_dealer.length" class="grid">
             <thead>
               <tr>
                 <th>门店</th>
@@ -377,18 +380,30 @@ onMounted(async () => {
     </template>
 
     <template v-else>
-      <div class="toolbar-row">
-        <input v-model="historyMonth" type="month" class="input month-input" @change="loadHistory" />
-        <select v-model="historyDealer" class="input select" @change="loadHistory">
+      <section class="filterbar" aria-label="历史明细筛选">
+        <label class="sr-only" for="history-month">明细月份</label>
+        <input id="history-month" v-model="historyMonth" type="month" class="input month-input" @change="loadHistory" />
+        <label class="sr-only" for="history-dealer">门店</label>
+        <select id="history-dealer" v-model="historyDealer" class="input select" @change="loadHistory">
           <option value="">全部门店</option>
           <option v-for="store in stores" :key="store.store_id" :value="store.store_id">{{ store.name }}</option>
         </select>
-      </div>
+        <button
+          v-if="historyDealer"
+          type="button"
+          class="chip-filter"
+          @click="historyDealer = ''; loadHistory()"
+        >
+          清除筛选
+        </button>
+        <span class="spacer" />
+        <span class="muted">{{ history.length }} 条记录</span>
+      </section>
       <div v-if="historyError" class="msg bad">{{ historyError }}</div>
       <p v-if="historyLoading" class="empty">正在读取历史明细…</p>
-      <section v-else-if="!historyError" class="card panel">
-        <h2>日报明细</h2>
-        <table v-if="history.length" class="table">
+      <section v-else-if="!historyError && history.length" class="table-shell">
+        <div class="table-scroll">
+        <table class="grid">
           <thead>
             <tr>
               <th>日期</th>
@@ -415,7 +430,16 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
-        <p v-else-if="!historyLoading" class="empty">该月暂无上报记录</p>
+        </div>
+        <footer class="table-foot-bar">
+          <span>{{ history.length }} 条日报</span>
+          <span class="muted">{{ historyMonth }}</span>
+        </footer>
+      </section>
+      <section v-else-if="!historyError && !historyLoading" class="card empty-state">
+        <h2>该月暂无上报记录</h2>
+        <p>换一个月份查看，或先在「今日上报」提交门店五件套。</p>
+        <button class="btn btn-primary" type="button" @click="activeTab = 'submit'">去上报</button>
       </section>
     </template>
   </main>
@@ -426,15 +450,6 @@ onMounted(async () => {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px 20px 60px;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
 }
 
 h1 {
@@ -532,13 +547,6 @@ h2 {
   justify-content: flex-end;
 }
 
-.toolbar-row {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
 .month-input {
   width: auto;
 }
@@ -622,25 +630,8 @@ h2 {
   border-radius: 999px;
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-th {
-  text-align: left;
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 12px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-td {
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--border);
-}
+/* 表格结构样式统一走全局 table.grid（styles/ui.css）；
+   原先 scoped 的 table/th/td 元素规则会盖掉粘性表头，已移除。 */
 
 .num {
   text-align: right;

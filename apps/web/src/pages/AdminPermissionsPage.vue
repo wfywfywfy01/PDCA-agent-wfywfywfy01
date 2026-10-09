@@ -16,7 +16,14 @@ const loading = ref(true), previewLoading = ref(false), saving = ref(false)
 const form = ref<PermissionForm>({ display_name: '', role: 'viewer', is_active: true, dealer_id: '', owner_key: '', team_key: '', sales_name: '' })
 const ROLE_LABELS: Record<UserRole, string> = { viewer: '只读访客', dealer: '经销商门店', sales: '内部销售', manager: '团队主管', admin: '系统管理员' }
 const SCOPE_LABELS: Record<string, string> = { none: '无业务数据', self: '本人绑定范围', team: '所属团队', all: '全公司' }
-const visibleUsers = computed(() => { const q = search.value.trim().toLowerCase(); return q ? users.value.filter(u => `${u.username} ${u.display_name}`.toLowerCase().includes(q)) : users.value })
+const roleFilter = ref<'all' | UserRole>('all')
+const visibleUsers = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  return users.value.filter(u => {
+    if (roleFilter.value !== 'all' && u.role !== roleFilter.value) return false
+    return q ? `${u.username} ${u.display_name}`.toLowerCase().includes(q) : true
+  })
+})
 const owners = computed(() => [...new Set(stores.value.map(s => s.sales_owner).filter(Boolean))].sort())
 const teams = computed(() => [...new Set(stores.value.map(s => s.team_key).filter(Boolean))].sort())
 let previewRequest = 0
@@ -77,11 +84,44 @@ onMounted(load)
     <header class="page-head"><div><h1>权限控制台</h1><p>账号绑定、数据隔离与实际权限核验。</p></div><a class="btn" href="/admin-panel/">完整运营后台</a></header>
     <p v-if="error" class="message error" role="alert">{{ error }}</p><p v-if="notice" class="message ok" role="status">{{ notice }}</p>
     <div v-if="loading" class="card state" aria-busy="true">正在加载账号与门店…</div>
-    <div v-else-if="users.length" class="layout">
+    <section v-if="!loading && users.length" class="filterbar" aria-label="账号筛选">
+      <label class="sr-only" for="perm-search">搜索账号</label>
+      <input
+        id="perm-search"
+        v-model="search"
+        class="input filter-search"
+        type="search"
+        placeholder="搜索姓名或账号"
+      />
+      <button type="button" class="chip-filter" :class="{ on: roleFilter === 'all' }" @click="roleFilter = 'all'">
+        全部 <span class="num">{{ users.length }}</span>
+      </button>
+      <button
+        v-for="(label, role) in ROLE_LABELS"
+        :key="role"
+        type="button"
+        class="chip-filter"
+        :class="{ on: roleFilter === role }"
+        @click="roleFilter = role"
+      >
+        {{ label }}
+      </button>
+      <button
+        v-if="search || roleFilter !== 'all'"
+        type="button"
+        class="chip-filter"
+        @click="search = ''; roleFilter = 'all'"
+      >
+        清除筛选
+      </button>
+      <span class="spacer" />
+      <span class="muted num">{{ visibleUsers.length }} / {{ users.length }} 个账号</span>
+    </section>
+
+    <div v-if="!loading && users.length" class="layout">
       <section class="workspace">
         <div class="card list-card">
-          <label class="search">搜索账号<input v-model="search" class="input" type="search" placeholder="姓名或账号" /></label>
-          <div class="table-wrap"><table><thead><tr><th>账号</th><th>角色</th><th>数据范围</th><th>状态</th></tr></thead><tbody>
+          <div class="table-scroll"><table class="grid"><thead><tr><th>账号</th><th>角色</th><th>数据范围</th><th>状态</th></tr></thead><tbody>
             <tr v-for="user in visibleUsers" :key="user.username" :class="{ active: selected?.username === user.username }">
               <td><button type="button" :aria-pressed="selected?.username === user.username" @click="choose(user)"><strong>{{ user.display_name || user.username }}</strong><small>{{ user.username }}</small></button></td>
               <td>{{ ROLE_LABELS[user.role] }}</td><td>{{ SCOPE_LABELS[user.data_scope] || user.data_scope }}<span v-if="needsSetup(user)" class="warn">需配置</span></td>
