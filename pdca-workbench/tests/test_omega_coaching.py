@@ -571,6 +571,161 @@ class CoachingTests(unittest.TestCase):
         with Session(self.engine) as db:
             self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
 
+    def _close_native_input(self, boundary, *, second_input=False, second_final=True,
+                            first_final=True, input_pcm=True):
+        from app.omega.realtime import realtime_session
+
+        async def exercise():
+            control = VoiceControl(self.engine, self.session_id, self.job_id, self.token, confirmed=True)
+            owner = self
+
+            class Browser:
+                def __init__(self):
+                    self.queue, self.events, self.sent_second = asyncio.Queue(), [], False
+                    self.queue.put_nowait({"type": "websocket.receive", **(
+                        {"bytes": b"\0\x20"} if input_pcm else {"text": "stop"})})
+
+                async def accept(self):
+                    pass
+
+                async def close(self):
+                    pass
+
+                async def receive(self):
+                    return await self.queue.get()
+
+                async def send_json(self, event):
+                    self.events.append(event)
+                    if event["type"] == "interrupt" and second_input and not self.sent_second:
+                        self.sent_second = True
+                        self.queue.put_nowait({"type": "websocket.receive", "bytes": b"\0\x40"})
+                    if event["type"] == "segment" and event["segment"]["text"] == "First public sentence":
+                        # Both real utterances precede the first final; zero PCM follows it.
+                        self.queue.put_nowait({"type": "websocket.receive", "bytes": bytes(640)})
+                        self.queue.put_nowait({"type": "websocket.receive", "text": "stop" if boundary == "stop"
+                            else json.dumps({"type": "control", "action": "pause", "request_key": "protocol-pause",
+                                             "audio_epoch": control.epoch + 1})})
+                    if boundary == "pause" and event.get("state") in {"coaching", "error"}:
+                        self.queue.put_nowait({"type": "websocket.receive", "text": "stop"})
+
+            browser = Browser()
+
+            class Provider:
+                def __init__(self):
+                    self.queue, self.sent, self.frames, self.flushed = asyncio.Queue(), [], 0, False
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *_):
+                    pass
+
+                def emit(self, kind, **fields):
+                    self.queue.put_nowait(json.dumps({"type": kind, **fields}))
+
+                async def recv(self):
+                    return await self.queue.get()
+
+                async def send(self, raw):
+                    kind = json.loads(raw)["type"]
+                    self.sent.append(kind)
+                    if kind == "session.create":
+                        self.emit("session.created")
+                    elif kind == "input_audio_buffer.append":
+                        self.frames += 1
+                        if self.frames == 1:
+                            self.emit("conversation.item.input_audio_transcription.started", item_id="first")
+                            if not first_final:
+                                browser.queue.put_nowait({"type": "websocket.receive", "text": "stop"})
+                        if first_final and self.frames == (2 if second_input else 1):
+                            self.emit("conversation.item.input_audio_transcription.completed", item_id="first",
+                                      text="First public sentence")
+                    elif kind in {"input_audio_buffer.commit", "input_audio_mute.commit"}:
+                        if kind == "input_audio_buffer.commit":
+                            self.emit("input_audio_buffer.committed")
+                        if not self.flushed:
+                            self.flushed = True
+                            if not first_final:
+                                self.emit("conversation.item.input_audio_transcription.completed", item_id="first",
+                                          text="First public sentence")
+                            elif second_input:
+                                self.emit("conversation.item.input_audio_transcription.started", item_id="second")
+                                if second_final:
+                                    self.emit("conversation.item.input_audio_transcription.completed", item_id="second",
+                                              text="Second public sentence")
+                    elif kind == "session.update":
+                        self.emit("session.updated")
+                    elif kind == "session.close":
+                        self.emit("session.closed")
+
+            provider = Provider()
+            wait_for = asyncio.wait_for
+            tail_deadlines = []
+
+            async def wait_with_tail_timeout(awaitable, seconds):
+                frame = getattr(awaitable, "cr_frame", None)
+                if not second_final and frame and frame.f_locals.get("self") is control.input_final:
+                    # Exercise the production eight-second failure path without waiting eight seconds.
+                    owner.assertGreater(seconds, 6)
+                    owner.assertLessEqual(seconds, 8)
+                    tail_deadlines.append(seconds)
+                    awaitable.close()
+                    raise TimeoutError
+                return await wait_for(awaitable, seconds)
+
+            async def authorize(*_):
+                return owner.user
+
+            with patch("app.omega.realtime.is_enabled", return_value=True), \
+                 patch("app.omega.realtime._trusted_origin", return_value=True), \
+                 patch("app.omega.realtime.ws_user", side_effect=authorize), \
+                 patch("app.omega.realtime._acquire", return_value=(self.job_id, self.token, "Synthetic role")), \
+                 patch("app.omega.realtime.VoiceControl", return_value=control), \
+                 patch("app.omega.realtime.connect", return_value=provider), \
+                 patch("app.omega.realtime.asyncio.wait_for", side_effect=wait_with_tail_timeout), \
+                 patch.dict("os.environ", {"PDCA_OMEGA_REALTIME_PROVIDER": "doubao",
+                                           "PDCA_DOUBAO_REALTIME_API_KEY": "test-only"}):
+                with Session(self.engine) as db:
+                    await realtime_session(browser, self.session_id, db)
+            return control, provider.sent, browser.events, tail_deadlines
+
+        return asyncio.run(exercise())
+
+    def _assert_second_tail(self, boundary, *, final=True):
+        control, _, _, deadlines = self._close_native_input(boundary, second_input=True, second_final=final)
+        with Session(self.engine) as db:
+            parts = db.exec(select(OmegaSegment).order_by(OmegaSegment.seq)).all()
+            self.assertEqual([part.text for part in parts], ["First public sentence"]
+                             + (["Second public sentence"] if final else []))
+            self.assertEqual(db.get(OmegaJob, self.job_id).status, "succeeded" if final else "failed")
+        self.assertEqual(control.tail_incomplete, not final)
+        self.assertEqual(bool(control.active_inputs), not final)
+        if not final:
+            self.assertTrue(deadlines)
+
+    def test_pause_saves_delayed_second_real_input_after_first_final_and_zero_pcm(self):
+        self._assert_second_tail("pause")
+
+    def test_stop_saves_delayed_second_real_input_after_first_final_and_zero_pcm(self):
+        self._assert_second_tail("stop")
+
+    def test_pause_fails_when_delayed_second_real_input_has_no_final(self):
+        self._assert_second_tail("pause", final=False)
+
+    def test_stop_fails_when_delayed_second_real_input_has_no_final(self):
+        self._assert_second_tail("stop", final=False)
+
+    def test_first_input_without_prior_final_still_commits_on_stop(self):
+        control, sent, _, _ = self._close_native_input("stop", first_final=False)
+        self.assertIn("input_audio_buffer.commit", sent)
+        self.assertFalse(control.tail_incomplete)
+
+    def test_stop_without_any_pcm_closes_without_commit_or_mute(self):
+        _, sent, _, _ = self._close_native_input("stop", input_pcm=False)
+        self.assertNotIn("input_audio_buffer.commit", sent)
+        self.assertNotIn("input_audio_mute.commit", sent)
+        self.assertIn("session.close", sent)
+
     def test_asr_after_resume_without_new_browser_pcm_cannot_create_a_turn(self):
         self.pause()
         browser = self.run_controlled_receiver([
