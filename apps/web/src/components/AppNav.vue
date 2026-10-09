@@ -27,8 +27,32 @@ const identityError = ref('')
 const collapsed = ref(false)
 const mobileOpen = ref(false)
 const paletteOpen = ref(false)
-// 谈判陪练（Omega）只在后端就绪时出现，避免给销售展示不可用入口
+// 谈判陪练（Omega）/ 督战官配置只在后端就绪时出现，避免展示 404 的入口。
+// 探测结果按会话缓存 5 分钟，避免每次路由切换都打一次探测请求。
 const omegaEnabled = ref(false)
+const duzhanEnabled = ref(false)
+const CAPS_KEY = 'pdca.shell.caps'
+const CAPS_TTL = 5 * 60 * 1000
+
+interface ShellCaps {
+  omega: boolean
+  duzhan: boolean
+}
+
+function readCaps(): ShellCaps | null {
+  try {
+    const raw = sessionStorage.getItem(CAPS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { at: number; caps: ShellCaps }
+    return Date.now() - parsed.at > CAPS_TTL ? null : parsed.caps
+  } catch {
+    return null
+  }
+}
+
+function writeCaps(caps: ShellCaps) {
+  try { sessionStorage.setItem(CAPS_KEY, JSON.stringify({ at: Date.now(), caps })) } catch { /* ignore */ }
+}
 
 const ROLE_LABELS: Record<string, string> = {
   admin: '系统管理员',
@@ -75,6 +99,7 @@ const visibleGroups = computed(() =>
   NAV_GROUPS.map((group) => ({
     label: group.label,
     items: group.items.filter((item) => (item.to !== '/omega' || omegaEnabled.value)
+      && (item.to !== '/admin/duzhan-agents' || duzhanEnabled.value)
       && (!item.roles || (me.value && item.roles.includes(me.value.role)))),
   })).filter((group) => group.items.length > 0),
 )
@@ -109,7 +134,21 @@ async function loadIdentity() {
   identityError.value = ''
   try {
     me.value = await apiGet<Me>('/api/auth/me')
-    omegaEnabled.value = (await apiGet<{ ready: boolean }>('/api/omega/status').catch(() => ({ ready: false }))).ready
+    const cachedCaps = readCaps()
+    if (cachedCaps) {
+      omegaEnabled.value = cachedCaps.omega
+      duzhanEnabled.value = cachedCaps.duzhan
+    } else {
+      const role = me.value.role
+      // 只对有权限的角色探测，避免无关页面产生 404 噪声
+      omegaEnabled.value = ['sales', 'manager', 'admin'].includes(role)
+        ? (await apiGet<{ ready: boolean }>('/api/omega/status').catch(() => ({ ready: false }))).ready
+        : false
+      duzhanEnabled.value = role === 'admin'
+        ? await apiGet('/api/duzhan-agents').then(() => true).catch(() => false)
+        : false
+      writeCaps({ omega: omegaEnabled.value, duzhan: duzhanEnabled.value })
+    }
     if (me.value.must_change_password) {
       router.replace({ path: '/login', query: { change_password: '1', next: route.fullPath } })
     }
