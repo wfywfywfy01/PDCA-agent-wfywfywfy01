@@ -19,6 +19,8 @@ function mountSetup(apiGet) {
     'vue-router': { useRouter: () => ({ replace() {} }) },
     '@/api/client': { apiGet, apiPost() {}, HttpError: class extends Error {} },
     '@/components/AppNav.vue': { default: {} },
+    // Esc 关闭是页面级 composable：桩掉即可，键盘行为另有单测
+    '@/composables/use-escape-close': { useEscapeClose() {} },
     './meetingAudio': audio,
   }
   new Function('require', 'exports', outputText)((name) => {
