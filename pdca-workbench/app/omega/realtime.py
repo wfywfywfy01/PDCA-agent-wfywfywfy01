@@ -864,7 +864,8 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
             if control and (not input_context or input_context[1] != control.epoch):
                 continue
             item_id = str(event.get("item_id") or "")
-            sales_text[item_id] = sales_text.get(item_id, "") + str(event.get("delta") or "")
+            # Doubao's full-duplex Web demo replaces ASR hypotheses; only Chat deltas append.
+            sales_text[item_id] = str(event.get("delta") or "")
             await emit_json({"type": "caption", "speaker": "sales",
                              "text": sales_text[item_id]})
         elif kind == "conversation.item.input_audio_transcription.completed":

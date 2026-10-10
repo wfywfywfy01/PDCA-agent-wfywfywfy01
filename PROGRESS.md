@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-10-10: Omega phone control failure states
+
+- Based on production `97aad040baf028d333fec3581cd4a24442210938` in isolated branch `codex/omega-phone-control-errors`. Frontend failures now enter an explicit error phase, stop playback and PCM forwarding, clear pending control/timers, and keep hangup available. Only an error matching the current request key may bypass the lower-epoch filter; the epoch never rolls back. A timeout rejects late success ACKs instead of remaining in `resuming`.
+- Known incomplete-tail errors disable recovery on the current connection and instruct the seller to end the call, check the transcript and start a new practice. Failure no longer displays the private coach as ready. Report completion updates the stale generating notice to the saved-result notice.
+- Fresh verification: the expanded real Vue/mobile browser regression failed against the original production frontend, then passed after the fix. It covers matching older-epoch error, timeout, late success, stale spontaneous error, fatal-tail recovery denial, paused microphone, normal recovery and hangup cleanup, and the report notice. APIs/database are isolated and real; voice WebSocket/audio are synthetic substitutes. `npm test` passed 23/23; `npm run typecheck`, `npm run build` and `git diff --check` passed. Logs and mobile screenshots are under `D:/Vertu/data/excel/26年数据/10月/部门工作画像/督战官文件/Omega_手机控制错误修复_2026-10-10/`.
+- No backend voice logic, persisted tail/job state or report guard was changed. No production deployment, merge, physical-phone or provider-content validation was performed for this frontend candidate; the underlying production pause-tail defect remains unresolved.
+
 ## 2026-09-29: Omega Doubao live voice cutover and transcription repair
 
 - After the `volc.speech.dialog` grant, deployed commit `a6ec5a6a8f52277e8ff79405a60eedb859e91f00` with `PDCA_OMEGA_REALTIME_PROVIDER=doubao`; the same production container uses `https://api.deepseek.com` / `deepseek-flash` for text. A dedicated SSH Docker account now carries deployment secrets instead of the unauthenticated TCP 2375 transport. Public `/health` returned 200 at that revision; Web and Omega worker were running.

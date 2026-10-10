@@ -104,7 +104,8 @@ const textReady = ref(false)
 const multiVoiceReady = ref(false)
 const setupOpen = ref(true)
 const profilesOpen = ref(false)
-const voicePhase = ref<'live' | 'pausing' | 'coaching' | 'resuming'>('live')
+const voicePhase = ref<'live' | 'pausing' | 'coaching' | 'resuming' | 'error'>('live')
+const voiceRecoveryBlocked = ref(false)
 const voiceEpoch = ref(0)
 let packetEpoch = 0
 const currentSpeakerId = ref('')
@@ -597,6 +598,7 @@ async function pollJob() {
         const result = await apiGet<Report>(`/api/omega/reports/${job.result_id}`)
         if (chosenSession.value?.id !== sessionId) return
         report.value = result
+        notice.value = '复盘已生成，对话和评分已保存。'
       }
       await refreshSession()
       if (job.result_id) await loadLists()
@@ -709,17 +711,38 @@ function stopVoice(intentional = false) {
   if (coachTimer) clearTimeout(coachTimer)
   if (controlTimer) clearTimeout(controlTimer)
 }
+function failVoiceControl(message: string) {
+  stopVoicePlayback()
+  voicePhase.value = 'error'
+  coachBusy.value = false
+  pendingControlKey = ''
+  if (coachTimer) clearTimeout(coachTimer)
+  if (controlTimer) clearTimeout(controlTimer)
+  if (message.includes('语音尾稿未完成')) voiceRecoveryBlocked.value = true
+  coachError.value = voiceRecoveryBlocked.value
+    ? '语音尾稿未完成，本场无法恢复。请结束通话，核对逐字稿后新开练。'
+    : message
+}
 function controlVoice(action: 'pause' | 'resume') {
   const socket = voiceSocket
-  if (!socket || socket.readyState !== WebSocket.OPEN || voiceClosing.value) return
+  if (voiceClosing.value || voiceRecoveryBlocked.value) return
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    failVoiceControl('语音连接不可用，麦克风保持暂停。请结束通话后重连。')
+    return
+  }
   voicePhase.value = action === 'pause' ? 'pausing' : 'resuming'
   voiceEpoch.value++
   stopVoicePlayback()
   coachError.value = ''
   pendingControlKey = key()
-  socket.send(JSON.stringify({ type: 'control', action, request_key: pendingControlKey, audio_epoch: voiceEpoch.value }))
   if (controlTimer) clearTimeout(controlTimer)
-  controlTimer = setTimeout(() => { if (voicePhase.value === 'pausing' || voicePhase.value === 'resuming') coachError.value = '状态确认超时，麦克风保持暂停。请重试恢复或结束通话。' }, 15000)
+  controlTimer = setTimeout(() => {
+    if (voicePhase.value === 'pausing' || voicePhase.value === 'resuming') {
+      failVoiceControl('状态确认超时，麦克风保持暂停。请重试恢复或结束通话。')
+    }
+  }, 15000)
+  try { socket.send(JSON.stringify({ type: 'control', action, request_key: pendingControlKey, audio_epoch: voiceEpoch.value })) }
+  catch (err) { failVoiceControl(`语音控制发送失败，麦克风保持暂停：${detail(err)}`) }
 }
 async function requestCoach() {
   const id = chosenSession.value?.id
@@ -751,10 +774,11 @@ async function requestCoach() {
   } catch (err) { if (token === voiceToken) { coachBusy.value = false; coachError.value = detail(err) } }
 }
 async function resumeVoice() {
+  if (voiceRecoveryBlocked.value || voiceClosing.value || !['coaching', 'error'].includes(voicePhase.value)) return
   if (coachTimer) clearTimeout(coachTimer)
   coachBusy.value = false
   try { await voiceOutput?.resume(); await voiceInput?.resume(); controlVoice('resume') }
-  catch (err) { coachError.value = detail(err) }
+  catch (err) { failVoiceControl(`语音恢复失败，麦克风保持暂停：${detail(err)}`) }
 }
 async function hangupVoice() {
   const socket = voiceSocket
@@ -832,6 +856,7 @@ async function startVoice() {
   voiceConnecting.value = true
   voiceInterrupted.value = false
   voicePhase.value = 'live'
+  voiceRecoveryBlocked.value = false
   voiceEpoch.value = 0
   packetEpoch = 0
   coachText.value = ''
@@ -872,9 +897,13 @@ async function startVoice() {
         if (message.type === 'audio') { packetEpoch = message.audio_epoch ?? 0; currentSpeakerId.value = message.speaker_id || currentSpeakerId.value; return }
         if (message.type === 'state') {
           const spontaneousError = message.state === 'error' && !message.request_key
-          if (typeof message.audio_epoch !== 'number' || message.audio_epoch < voiceEpoch.value || (!spontaneousError && (!pendingControlKey || message.request_key !== pendingControlKey))) return
-          voiceEpoch.value = message.audio_epoch
-          packetEpoch = message.audio_epoch
+          const currentControl = !!pendingControlKey && message.request_key === pendingControlKey
+          const currentError = message.state === 'error' && currentControl
+          if (typeof message.audio_epoch !== 'number' || (message.audio_epoch < voiceEpoch.value && !currentError) || (!spontaneousError && !currentControl)) return
+          // An interrupt can advance the epoch before a matching failure ACK arrives.
+          // Fail closed without rolling back the epoch or accepting stale success ACKs.
+          voiceEpoch.value = Math.max(voiceEpoch.value, message.audio_epoch)
+          packetEpoch = voiceEpoch.value
           if (message.state === 'coaching') {
             voicePhase.value = 'coaching'
             pendingControlKey = ''
@@ -885,13 +914,7 @@ async function startVoice() {
             pendingControlKey = ''
             if (controlTimer) clearTimeout(controlTimer)
           } else if (message.state === 'error') {
-            stopVoicePlayback()
-            voicePhase.value = 'coaching'
-            coachBusy.value = false
-            if (coachTimer) clearTimeout(coachTimer)
-            pendingControlKey = ''
-            coachError.value = message.message || '暂停或恢复失败，麦克风保持关闭。可重试恢复或结束通话。'
-            if (controlTimer) clearTimeout(controlTimer)
+            failVoiceControl(message.message || '暂停或恢复失败，麦克风保持暂停。可重试恢复或结束通话。')
           }
           return
         }
@@ -908,8 +931,10 @@ async function startVoice() {
         if (message.type !== 'ready') return
         voiceEpoch.value = message.audio_epoch ?? 0
         packetEpoch = voiceEpoch.value
-        voicePhase.value = ['coaching', 'pausing', 'resuming', 'error'].includes(message.state || '') ? 'coaching' : 'live'
-        if (message.state === 'error') coachError.value = '上次语音未能继续，麦克风保持暂停。可重试恢复或结束通话。'
+        voicePhase.value = message.state === 'coaching' ? 'coaching' : 'live'
+        if (['pausing', 'resuming', 'error'].includes(message.state || '')) {
+          failVoiceControl(message.message || '上次暂停或恢复未完成，麦克风保持暂停。可重试恢复或结束通话。')
+        }
         voiceInput ||= new AudioContext({ sampleRate: 16000 })
         await voiceInput.audioWorklet.addModule(new URL(`${import.meta.env.BASE_URL}omega-capture-worklet.js`, location.origin).toString())
         if (token !== voiceToken || voiceSocket !== socket) return
@@ -1302,8 +1327,8 @@ onBeforeUnmount(() => {
       <div class="omega-call-top"><span>谈判陪练 · 实时对话</span><span>{{ chosenSession ? caseName(chosenSession.case_id) : '' }}</span></div>
       <div class="omega-call-center">
         <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting, 'is-paused': voicePhase !== 'live' }" aria-hidden="true"></div>
-        <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>
-        <p>{{ voicePhase !== 'live' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
+        <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'error' ? '演练已暂停' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>
+        <p>{{ voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : voicePhase !== 'live' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
         <div v-if="participants.length > 1" class="omega-participants" aria-label="对手参会人"><span v-for="person in participants" :key="person.id" :class="{ active: voiceSpeaking && currentSpeakerId === person.id }">{{ person.name }} · {{ person.role }}</span></div>
         <div v-if="voicePhase === 'coaching'" class="omega-private-coach" role="status"><p>{{ coachBusy ? '教练正在看本场对话…' : coachText || '可向教练求助，也可直接继续演练。' }}</p><button v-if="!coachBusy" class="btn btn-sm btn-ghost" type="button" @click="requestCoach">再给一条建议</button></div>
         <p v-if="coachError" class="omega-call-error" role="alert">{{ coachError }}</p>
@@ -1311,7 +1336,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="omega-call-bottom">
         <button v-if="voiceConnected && voicePhase === 'live'" class="btn omega-coach-button" type="button" :disabled="voiceClosing" @click="controlVoice('pause')">暂停，问问教练</button>
-        <button v-else-if="voiceConnected" class="btn btn-primary omega-coach-button" type="button" :disabled="voiceClosing || (!coachError && voicePhase !== 'coaching')" @click="resumeVoice">{{ voicePhase === 'resuming' ? '正在恢复…' : '继续演练' }}</button>
+        <button v-else-if="voiceConnected" class="btn btn-primary omega-coach-button" type="button" :disabled="voiceClosing || voiceRecoveryBlocked || !['coaching', 'error'].includes(voicePhase)" @click="resumeVoice">{{ voiceRecoveryBlocked ? '本场无法恢复' : voicePhase === 'resuming' ? '正在恢复…' : voicePhase === 'error' ? '重试恢复' : '继续演练' }}</button>
         <label for="omega-call-volume">对手音量 <span>{{ Math.round(voiceVolume * 100) }}%</span></label>
         <input id="omega-call-volume" v-model.number="voiceVolume" type="range" min="1" max="2.5" step="0.1" aria-label="对手音量">
         <button class="btn omega-call-hangup" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '结束中…' : voiceConnecting ? '取消连接' : '结束通话' }}</button>

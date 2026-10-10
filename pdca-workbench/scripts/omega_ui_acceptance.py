@@ -131,7 +131,12 @@ def main():
             page.get_by_role('button', name='发送', exact=True).click()
             expect(page.get_by_text('请明确下一步的负责人和确认时间。')).to_be_visible(timeout=10000)
             page.evaluate("""() => {
-              window.__voicePackets=0;window.__controls=[];
+              window.__voicePackets=0;window.__controls=[];window.__controlFault='';
+              const nativeSetTimeout=window.setTimeout;
+              window.setTimeout=(callback,delay,...args)=>{
+                if(delay===15000)window.__controlTimeout=callback;
+                return nativeSetTimeout(callback,delay,...args);
+              };
               const audio = window.__testAudio = new AudioContext();
               const oscillator = window.__testOscillator = audio.createOscillator();
               const output = audio.createMediaStreamDestination(); oscillator.connect(output); oscillator.start();
@@ -145,6 +150,14 @@ def main():
                   // A provider interrupt can advance the server before the browser sees it.
                   if(control.action==='pause') control.audio_epoch++;
                   await fetch('/api/omega/__qa/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(control)});
+                  if(window.__controlFault==='timeout')return;
+                  if(window.__controlFault==='older-error'){
+                    this.onmessage({data:JSON.stringify({type:'interrupt',audio_epoch:control.audio_epoch+1})});
+                    this.onmessage({data:JSON.stringify({type:'state',state:'error',audio_epoch:control.audio_epoch,request_key:control.request_key,message:'暂停或恢复失败，麦克风保持关闭'})});return;
+                  }
+                  if(window.__controlFault==='tail'){
+                    this.onmessage({data:JSON.stringify({type:'state',state:'error',audio_epoch:control.audio_epoch,request_key:control.request_key,message:'语音尾稿未完成，请检查逐字稿后重新演练'})});return;
+                  }
                   this.onmessage({data:JSON.stringify({type:'state',state:control.action==='pause'?'coaching':'listening',audio_epoch:control.audio_epoch,request_key:control.request_key})});
                 }
                 close(){this.readyState=3;this.onclose?.()}
@@ -181,20 +194,72 @@ def main():
             assert page.evaluate('window.__controls[1].audio_epoch') == 5, 'resume ignored the server-authoritative pause epoch'
             page.wait_for_function(f'window.__voicePackets > {packet_count}')
             page.evaluate("window.__socket.onmessage({data:JSON.stringify({type:'state',state:'error',audio_epoch:5,message:'语音回复失败，请恢复后重试'})})")
-            expect(dialog.get_by_role('heading', name='教练时间')).to_be_visible()
+            expect(dialog.get_by_role('heading', name='演练已暂停')).to_be_visible()
             expect(dialog.get_by_role('alert')).to_contain_text('语音回复失败')
             packet_count = page.evaluate('window.__voicePackets')
             page.wait_for_timeout(300)
             assert page.evaluate('window.__voicePackets') == packet_count, 'microphone leaked after autonomous server error'
-            dialog.get_by_role('button', name='继续演练', exact=True).click()
+            dialog.get_by_role('button', name='重试恢复', exact=True).click()
             expect(dialog.get_by_role('heading', name='正在听')).to_be_visible()
             assert page.evaluate('window.__controls[2].audio_epoch') == 6
+
+            # A matching error ACK remains relevant after an interrupt advances epoch.
+            page.evaluate("window.__controlFault='older-error'")
+            dialog.get_by_role('button', name='暂停，问问教练').click()
+            expect(dialog.get_by_role('heading', name='演练已暂停')).to_be_visible()
+            expect(dialog.locator('.omega-private-coach')).to_have_count(0)
+            packet_count = page.evaluate('window.__voicePackets')
+            page.wait_for_timeout(150)
+            assert page.evaluate('window.__voicePackets') == packet_count, 'error ACK reopened microphone'
+            page.evaluate("window.__controlFault=''")
+            dialog.get_by_role('button', name='重试恢复', exact=True).click()
+            expect(dialog.get_by_role('heading', name='正在听')).to_be_visible()
+            assert page.evaluate('window.__controls[4].audio_epoch===window.__controls[3].audio_epoch+3'), 'error ACK rolled back interrupt epoch'
+
+            dialog.get_by_role('button', name='暂停，问问教练').click()
+            expect(dialog.get_by_role('heading', name='教练时间')).to_be_visible()
+            page.evaluate("window.__controlFault='timeout'")
+            dialog.get_by_role('button', name='继续演练', exact=True).click()
+            expect(dialog.get_by_role('heading', name='正在恢复')).to_be_visible()
+            page.evaluate('window.__controlTimeout()')
+            expect(dialog.get_by_role('heading', name='演练已暂停')).to_be_visible()
+            expect(dialog.get_by_role('alert')).to_contain_text('状态确认超时')
+            if output := os.environ.get('OMEGA_BROWSER_SCREENSHOT'):
+                page.screenshot(path=str(Path(output).with_stem(Path(output).stem + '-control-timeout')))
+            packet_count = page.evaluate('window.__voicePackets')
+            page.evaluate("""() => {
+              const control=window.__controls.at(-1);
+              window.__socket.onmessage({data:JSON.stringify({type:'state',state:'listening',audio_epoch:control.audio_epoch,request_key:control.request_key})});
+              window.__socket.onmessage({data:JSON.stringify({type:'audio',audio_epoch:control.audio_epoch})});
+              window.__socket.onmessage({data:new Int16Array(24000).buffer});
+            }""")
+            expect(dialog.get_by_role('heading', name='演练已暂停')).to_be_visible()
+            page.wait_for_timeout(150)
+            assert page.evaluate('window.__voicePackets') == packet_count, 'late success ACK reopened microphone after timeout'
+            page.evaluate("window.__controlFault=''")
+            dialog.get_by_role('button', name='重试恢复', exact=True).click()
+            expect(dialog.get_by_role('heading', name='正在听')).to_be_visible()
+            page.evaluate("window.__socket.onmessage({data:JSON.stringify({type:'state',state:'error',audio_epoch:0,message:'旧代次错误'})})")
+            expect(dialog.get_by_role('heading', name='正在听')).to_be_visible()
+
+            # A known incomplete tail cannot be recovered on this connection.
+            page.evaluate("window.__controlFault='tail'")
+            dialog.get_by_role('button', name='暂停，问问教练').click()
+            expect(dialog.get_by_role('heading', name='演练已暂停')).to_be_visible()
+            expect(dialog.get_by_role('alert')).to_contain_text('请结束通话')
+            expect(dialog.get_by_role('alert')).to_contain_text('新开练')
+            expect(dialog.get_by_role('button', name='本场无法恢复', exact=True)).to_be_disabled()
+            expect(dialog.locator('.omega-private-coach')).to_have_count(0)
+            if output := os.environ.get('OMEGA_BROWSER_SCREENSHOT'):
+                page.screenshot(path=str(Path(output).with_stem(Path(output).stem + '-tail-error')))
             dialog.get_by_role('button', name='结束通话').click()
             expect(dialog).to_be_hidden()
             page.wait_for_function("window.__testStream.getAudioTracks()[0].readyState==='ended'")
             page.evaluate('window.__testOscillator.stop();window.__testAudio.close()')
             page.get_by_role('button', name='结束并复盘').click()
             expect(page.get_by_role('heading', name='复盘报告')).to_be_visible(timeout=10000)
+            expect(page.get_by_text('复盘已生成，对话和评分已保存。', exact=True)).to_be_visible()
+            expect(page.get_by_text('对话已保存，正在生成复盘。', exact=True)).to_have_count(0)
             expect(page.get_by_text('已获 6 分／可评分 10 分，暂不折算总分')).to_be_visible()
             expect(page.get_by_role('button', name='确认并更新档案')).to_be_visible(timeout=10000)
             before = fixture.client.get('/api/omega/profiles?kind=sales&subject_id=1').json()
@@ -239,7 +304,7 @@ def main():
             if output:
                 page.screenshot(path=output, full_page=True)
             browser.close()
-        print('PASS: real isolated APIs + mobile cards/edits/text/report/pending-confirmed memory/profile; two-tap voice start, mock audio pause/resume/epoch/error/mic cleanup')
+        print('PASS: real isolated APIs + mobile cards/edits/text/report/pending-confirmed memory/profile; mock voice matching older-epoch error, timeout, late ACK rejection, fatal-tail no-resume, microphone gate and cleanup; report-completed notice')
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=5)
         fixture.tearDown()
