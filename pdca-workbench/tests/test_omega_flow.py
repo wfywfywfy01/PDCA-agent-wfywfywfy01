@@ -786,8 +786,8 @@ class OmegaReportGenerationTests(unittest.TestCase):
         settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
                     "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
                     "PDCA_SUPERVISOR_API_KEY": "test-only"}
-        for kind, limit in (("report", 16384), ("report_audit", 16384),
-                            ("practice", 4096), ("memory", 4000)):
+        for kind, limit, effort in (("report", 16384, "high"), ("report_audit", 16384, "low"),
+                                    ("practice", 4096, "high"), ("memory", 4000, None)):
             with self.subTest(kind=kind), patch.dict("os.environ", settings), \
                     patch("app.omega.jobs.httpx.post") as post:
                 post.return_value.json.return_value = {
@@ -799,7 +799,7 @@ class OmegaReportGenerationTests(unittest.TestCase):
                     self.assertNotIn("reasoning_effort", payload)
                 else:
                     self.assertEqual(payload["thinking"], {"type": "enabled"})
-                    self.assertEqual(payload["reasoning_effort"], "high")
+                    self.assertEqual(payload["reasoning_effort"], effort)
                 self.assertEqual(payload["response_format"], {"type": "json_object"})
                 self.assertEqual(payload["max_tokens"], limit)
                 self.assertNotIn("temperature", payload)

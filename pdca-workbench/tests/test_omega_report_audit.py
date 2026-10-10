@@ -55,22 +55,23 @@ class ReportAuditValidationTests(unittest.TestCase):
             with self.subTest(code=code), self.assertRaisesRegex(ValueError, '复盘事实核验未通过'):
                 validate_report_audit(json.dumps({'consistent': False, 'issues': [code]}))
 
-    def test_deepseek_report_stages_use_high_thinking_json_and_stage_timeout(self):
+    def test_deepseek_report_stages_use_kind_specific_thinking_json_and_stage_timeout(self):
         with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
                 'PDCA_SUPERVISOR_MODEL': 'deepseek-flash', 'PDCA_SUPERVISOR_API_KEY': 'test-only'}), \
                 patch('app.omega.jobs.httpx.post') as post:
             post.return_value.json.return_value = {'choices': [{'finish_reason': 'stop',
                 'message': {'content': '{"consistent":true,"issues":[]}',
                             'reasoning_content': 'private reasoning must not become report text'}}]}
-            for kind, limit, timeout in [('report', 16384, 90), ('report_audit', 16384, 90),
-                                         ('practice', 4096, 30)]:
+            for kind, limit, effort, timeout in [('report', 16384, 'high', 90),
+                                                 ('report_audit', 16384, 'low', 90),
+                                                 ('practice', 4096, 'high', 30)]:
                 with self.subTest(kind=kind):
                     self.assertEqual(_default_generate(kind, [{'role': 'user', 'content': 'JSON'}], limit),
                                      '{"consistent":true,"issues":[]}')
                     payload = post.call_args.kwargs['json']
                     self.assertEqual(payload['response_format'], {'type': 'json_object'})
                     self.assertEqual(payload['thinking'], {'type': 'enabled'})
-                    self.assertEqual(payload['reasoning_effort'], 'high')
+                    self.assertEqual(payload['reasoning_effort'], effort)
                     self.assertEqual(payload['max_tokens'], limit)
                     self.assertNotIn('temperature', payload)
                     self.assertEqual(post.call_args.kwargs['timeout'], timeout)

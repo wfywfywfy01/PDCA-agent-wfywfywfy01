@@ -39,7 +39,7 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
         reasoning = kind in {"report", "report_audit", "practice"}
         payload["thinking"] = {"type": "enabled" if reasoning else "disabled"}
         if reasoning:
-            payload["reasoning_effort"] = "high"
+            payload["reasoning_effort"] = "low" if kind == "report_audit" else "high"
             timeout = {"report": 90, "report_audit": 90, "practice": 30}[kind]
         if kind in {"report", "report_audit", "memory", "practice"}:
             payload["response_format"] = {"type": "json_object"}
