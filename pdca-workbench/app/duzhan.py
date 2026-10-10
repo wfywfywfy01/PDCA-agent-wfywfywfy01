@@ -49,12 +49,7 @@ class DuzhanGroup:
 
 
 GROUPS: tuple[DuzhanGroup, ...] = (
-    DuzhanGroup(
-        "新人小组业绩达标群",
-        "850d06d0-5dd8-4a43-ad35-1cb3fcf6d484",
-        "zh",
-        TZ_SHANGHAI,
-    ),
+    # 老板 2026-10-10：新人小组群停止推送（5 个人已分到各组长群与 Q4五百万群）
     DuzhanGroup(
         "于冰业绩达标群",
         "df41ad35-0e26-4431-ac36-10789ff51a1c",
@@ -78,6 +73,13 @@ GROUPS: tuple[DuzhanGroup, ...] = (
         "e435ab5d-d425-4ccd-a247-c7207efbb4f6",
         "en",
         TZ_PARIS,
+    ),
+    # 老板 2026-10-10 新增：Q4 五百万专项群（刘春梅 + 邓琳莹）
+    DuzhanGroup(
+        "Q4五百万",
+        "b0f2deaf-dea1-463a-98dd-970a1ddd1415",
+        "zh",
+        TZ_SHANGHAI,
     ),
 )
 
@@ -110,12 +112,13 @@ _SLOT_EN = {
         "Verify deliverables and evidence; unfinished items roll to tomorrow's first action.",
     ),
 }
+#: 群级兜底汇报人（没配人时用）；老板 2026-10-10 重新分组后按新名单维护
 _REPORTER = {
-    "新人小组业绩达标群": "邓琳莹 / Safae / 王宇彤 / 张月馨",
     "于冰业绩达标群": "于冰",
-    "杨晶晶业绩达标群": "杨晶晶 / 何海文",
-    "viki业绩达标群": "Viki",
-    "Lina业绩达标群": "Lina",
+    "杨晶晶业绩达标群": "杨晶晶 / 何海文 / 王宇彤",
+    "viki业绩达标群": "Viki / 江旭 / 张月馨",
+    "Lina业绩达标群": "Lina / Safae",
+    "Q4五百万": "刘春梅 / 邓琳莹",
 }
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
@@ -303,16 +306,24 @@ def _idempotency_key(
     hour: int,
     channel_id: str = "",
     producer: str = "duzhan",
+    person: str = "",
 ) -> str:
     """催收同款：producer-YYYYMMDD-HHMM-时区，群维度再拼 channel 前 8 位。
 
     producer 必须区分「确定性三追推送」与「Agent/Outbox 草稿推送」：两者
     同一群同一档内容完全不同，若共用键会被服务端静默去重掉一条。
+    `person` 有值时按人再分一档：老板 2026-10-10 要求每人一条消息，
+    同一个群里多人各发各的，谁都不能把谁的重复键吃掉。
     """
     slug = tz_name.lower().replace("/", "")
     base = f"{producer}-{day.replace('-', '')}-{hour:02d}00-{slug}"
     if channel_id:
-        return f"{base}-{channel_id[:8]}"
+        base = f"{base}-{channel_id[:8]}"
+    if person:
+        import hashlib
+
+        digest = hashlib.sha1(person.encode("utf-8")).hexdigest()[:6]
+        base = f"{base}-{digest}"
     return base
 
 
@@ -364,9 +375,13 @@ def prepare_duzhan(
     from app.duzhan_admin import ai_rules
 
     messages = {}
+    person_messages: dict[str, list[dict]] = {}
     for group in groups_for_tz(tz_name, channel_ids):
         override = ai_rules.focus_for(group, hour, day, ledger)
         messages[group.channel_id] = render_brief(
+            group, hour, now, ledger, prev_ledger, focus_override=override
+        )
+        person_messages[group.channel_id] = render_person_briefs(
             group, hour, now, ledger, prev_ledger, focus_override=override
         )
     payload = {
@@ -377,6 +392,8 @@ def prepare_duzhan(
         "idempotency_key": _idempotency_key(tz_name, day, hour),
         "ledger": ledger,
         "messages": messages,
+        # 老板 2026-10-10：按人拆开发；推送端优先用它，缺失时退回 messages
+        "person_messages": person_messages,
     }
     slot_key = _slot_key(channel_ids)
     slot_path = _slot_path(tz_name, day, hour, slot_key) if slot_key else _slot_path(tz_name, day, hour)
@@ -443,14 +460,56 @@ def render_brief(
         ]
     else:
         blocks = [_render_person(group, hour, day, slot, slogan, None, None, use_diff, focus_override)]
-    board = _board_text(
-        ledger,
-        hour,
-        group.lang,
-        compact=bool(getattr(get_settings(), "duzhan_compact", True)),
-        strict_holiday=group.channel_id in strict_holiday_channels(),
-    )
-    return "\n\n".join(blocks) + board
+    # 老板 2026-10-10：红榜/黑榜/奖励台账/扣罚台账这一块不要了（部门口径的全员可见榜停发）
+    return "\n\n".join(blocks)
+
+
+def render_person_briefs(
+    group: DuzhanGroup,
+    hour: int,
+    now: datetime,
+    ledger: dict | None = None,
+    prev_ledger: dict | None = None,
+    *,
+    focus_override: str | None = None,
+) -> list[dict]:
+    """按人拆分的消息：每人一条，各自 @ 到人（老板 2026-10-10「分开追、对应到人」）。
+
+    返回 [{"display": 人名, "text": 该人一条完整消息}]；
+    没有名单时退回一条群级消息（display 为空串），保证任何配置下都发得出去。
+    """
+    local = now.astimezone(ZoneInfo(group.tz))
+    day = local.strftime("%Y-%m-%d")
+    slot = f"{hour:02d}:00"
+    people = people_for(group.name, ledger)
+    slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
+    prev_people = {
+        str(item.get("display") or ""): item
+        for item in people_for(group.name, prev_ledger)
+    }
+    use_diff = hour in (15, 20) and prev_ledger is not None
+    if not people:
+        people = [None]
+    out: list[dict] = []
+    for index, item in enumerate(people):
+        display = str((item or {}).get("display") or "")
+        payload = item
+        if index and isinstance(item, dict) and item.get("meeting_todos"):
+            # 早会待办是群级信息（同群每人一份完全一样）：只在第一条里出一次，别刷屏
+            payload = {**item, "meeting_todos": ""}
+        text = _render_person(
+            group,
+            hour,
+            day,
+            slot,
+            slogan,
+            payload,
+            prev_people.get(display),
+            use_diff,
+            focus_override,
+        )
+        out.append({"display": display, "text": text.strip()})
+    return out
 
 
 def _render_person(
@@ -1425,28 +1484,59 @@ def run_duzhan(
                 "督战官无快照且兜底采集失败",
                 f"{tz_name} {day} {hour:02d}:00 将按空表推送（全部待确认）",
             )
+    person_bodies = snapshot.get("person_messages") if snapshot else None
     sent: list[str] = []
     failed: list[str] = []
+    pushed = 0
     for group in groups_for_tz(tz_name, channel_ids):
-        body = ""
-        if isinstance(bodies, dict):
-            body = str(bodies.get(group.channel_id) or "")
-        if not body:
-            from app.duzhan_admin import ai_rules
+        parts: list[tuple[str, str]] = []
+        if isinstance(person_bodies, dict):
+            rows = person_bodies.get(group.channel_id) or []
+            if isinstance(rows, list):
+                parts = [
+                    (str(row.get("display") or ""), str(row.get("text") or ""))
+                    for row in rows
+                    if isinstance(row, dict) and str(row.get("text") or "").strip()
+                ]
+        if not parts:
+            # 老快照没有按人拆的消息（或 db 源只存了群消息）：退回一条群消息
+            body = ""
+            if isinstance(bodies, dict):
+                body = str(bodies.get(group.channel_id) or "")
+            if not body:
+                from app.duzhan_admin import ai_rules
 
-            override = ai_rules.focus_for(group, hour, day, ledger)
-            body = render_brief(group, hour, now, ledger, prev_ledger, focus_override=override)
-        ok = push_duzhan_message(
-            body,
-            group.channel_id,
-            idempotency_key=_idempotency_key(tz_name, day, hour, group.channel_id),
-        )
-        if ok:
+                override = ai_rules.focus_for(group, hour, day, ledger)
+                body = render_brief(group, hour, now, ledger, prev_ledger, focus_override=override)
+            parts = [("", body)]
+        group_ok = True
+        for display, body in parts:
+            if not body.strip():
+                continue
+            ok = push_duzhan_message(
+                body,
+                group.channel_id,
+                idempotency_key=_idempotency_key(
+                    tz_name, day, hour, group.channel_id, person=display
+                ),
+            )
+            if ok:
+                pushed += 1
+            else:
+                group_ok = False
+                logger.warning("督战官推送失败 {} {} {}", group.name, group.channel_id, display)
+        if group_ok:
             sent.append(group.name)
         else:
             failed.append(group.name)
-            logger.warning("督战官推送失败 {} {}", group.name, group.channel_id)
-    return {"tz": tz_name, "hour": hour, "sent": sent, "failed": failed, "from_snapshot": bool(snapshot)}
+    return {
+        "tz": tz_name,
+        "hour": hour,
+        "sent": sent,
+        "failed": failed,
+        "messages": pushed,
+        "from_snapshot": bool(snapshot),
+    }
 
 
 BOT_NAME = "海外渠道督战官"

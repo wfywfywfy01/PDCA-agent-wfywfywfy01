@@ -20,7 +20,8 @@ GOOD_BLOCKS = {
     "blocks": [
         {"type": "group", "channel_id": GROUPS[0].channel_id, "label": GROUPS[0].name},
         {"type": "times", "slots": ["10:00", "15:00", "20:00"]},
-        {"type": "people", "names": ["邓琳莹"]},
+        # 人必须属于第一块 group 指的那个群（2026-10-10 重新分组后 GROUPS[0] 是于冰群）
+        {"type": "people", "names": [GROUPS[0].name.replace("业绩达标群", "")]},
         {"type": "source", "key": "wa_summary"},
         {"type": "rule", "text": "本档动作：核验交付物与证据", "when": "always"},
         {"type": "condition", "key": "workday", "value": True},
@@ -230,7 +231,7 @@ class DuzhanAgentApiTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["errors"], [])
         self.assertEqual(body["spec"]["slots"], ["10:00", "15:00", "20:00"])
-        self.assertEqual(body["spec"]["people"], ["邓琳莹"])
+        self.assertEqual(body["spec"]["people"], [GROUPS[0].name.replace("业绩达标群", "")])
         self.assertEqual(body["spec"]["renderer"], "duzhan.render_brief")
         joined = "\n".join(body["summary"])
         self.assertIn(GROUPS[0].name, joined)

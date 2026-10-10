@@ -50,56 +50,17 @@ class Owner:
     follow_channel_id: str = ""
     # 新人 100 万是新部合计，不拆到个人，target_wan 留空。
     target_wan: float | None = None
+    #: True = 跟踪但不背月目标（例如中台/管理岗）：不参与「目标文件覆盖全员」告警
+    target_optional: bool = False
 
 
-# 新人小组：邓琳莹/Safae/王宇彤/张月馨/江旭（Sana）。
+# 老板 2026-10-10 拍板：按「谁追谁」把人放到对应达标群，各追各的、对应到人：
+#   杨晶晶群：杨晶晶 / 何海文 / 王宇彤
+#   viki 群：Viki(尤文静) / 江旭(Sana) / 张月馨
+#   Lina 群：Lina(DEH) / Safae
+#   Q4五百万群：刘春梅 / 邓琳莹（新人小组群停推，5 个人全部分流）
 # 老板 2026-09-18 拍板：江旭就是 Sana，要加；吴楠、杨成凤、张倩不加。
 OWNERS: tuple[Owner, ...] = (
-    Owner(
-        "新人小组业绩达标群",
-        "邓琳莹",
-        cli_name="邓琳莹",
-        employee_id=36,
-        im_user_id=14247,
-        follow_channel_id="8bb5ae97-3ffb-42e7-869d-c5cef358510a",
-    ),
-    Owner(
-        "新人小组业绩达标群",
-        "Safae",
-        cli_name="Safae Ben M'hamed",
-        employee_id=305,
-        im_user_id=14460,
-        vps_names=("Safae Ben M'hamed", "Safae"),
-        follow_channel_id="8cf4b40b-0e60-4819-9120-a22f3c808a00",
-    ),
-    Owner(
-        "新人小组业绩达标群",
-        "王宇彤",
-        cli_name="王宇彤",
-        employee_id=278,
-        im_user_id=14344,
-        vemory_user_id=121,
-        follow_channel_id="792c8c09-4c4f-4162-b0cb-45f6d009b504",
-    ),
-    Owner(
-        "新人小组业绩达标群",
-        "张月馨",
-        cli_name="张月馨",
-        employee_id=559,
-        # ponytail: 月馨群仅 14660 回飞书表；组织搜索无名。错了再改。
-        im_user_id=14660,
-        follow_channel_id="743227fa-07cc-4bfd-be74-9242aaa56e71",
-    ),
-    Owner(
-        "新人小组业绩达标群",
-        "江旭",
-        cli_name="江旭",
-        employee_id=388,
-        im_user_id=14549,
-        vps_names=("江旭", "Sana"),
-        # Sana客户跟进群（老板 2026-09-18 确认江旭=Sana）
-        follow_channel_id="d038caa8-3bd3-432b-b91a-9bf58180e855",
-    ),
     Owner(
         "于冰业绩达标群",
         "于冰",
@@ -131,6 +92,15 @@ OWNERS: tuple[Owner, ...] = (
         target_wan=95,
     ),
     Owner(
+        "杨晶晶业绩达标群",
+        "王宇彤",
+        cli_name="王宇彤",
+        employee_id=278,
+        im_user_id=14344,
+        vemory_user_id=121,
+        follow_channel_id="792c8c09-4c4f-4162-b0cb-45f6d009b504",
+    ),
+    Owner(
         "viki业绩达标群",
         "Viki",
         cli_name="尤文静",
@@ -142,6 +112,25 @@ OWNERS: tuple[Owner, ...] = (
         target_wan=100,
     ),
     Owner(
+        "viki业绩达标群",
+        "江旭",
+        cli_name="江旭",
+        employee_id=388,
+        im_user_id=14549,
+        vps_names=("江旭", "Sana"),
+        # Sana客户跟进群（老板 2026-09-18 确认江旭=Sana）
+        follow_channel_id="d038caa8-3bd3-432b-b91a-9bf58180e855",
+    ),
+    Owner(
+        "viki业绩达标群",
+        "张月馨",
+        cli_name="张月馨",
+        employee_id=559,
+        # ponytail: 月馨群仅 14660 回飞书表；组织搜索无名。错了再改。
+        im_user_id=14660,
+        follow_channel_id="743227fa-07cc-4bfd-be74-9242aaa56e71",
+    ),
+    Owner(
         "Lina业绩达标群",
         "Lina",
         cli_name="DEHDAHOUMAIMA",
@@ -150,6 +139,34 @@ OWNERS: tuple[Owner, ...] = (
         im_user_id=13050,
         vps_names=("DEHDAHOUMAIMA", "丽娜"),
         target_wan=400,
+    ),
+    Owner(
+        "Lina业绩达标群",
+        "Safae",
+        cli_name="Safae Ben M'hamed",
+        employee_id=305,
+        im_user_id=14460,
+        vps_names=("Safae Ben M'hamed", "Safae"),
+        follow_channel_id="8cf4b40b-0e60-4819-9120-a22f3c808a00",
+    ),
+    Owner(
+        # 老板 2026-10-10：Q4 五百万专项群，和邓琳莹一起追
+        "Q4五百万",
+        "刘春梅",
+        cli_name="刘春梅",
+        target_name="刘春梅",
+        im_user_id=12564,
+        vps_names=("刘春梅",),
+        # 中台负责人：跟踪她的进度，但不背个人月目标，目标文件没她也别告警
+        target_optional=True,
+    ),
+    Owner(
+        "Q4五百万",
+        "邓琳莹",
+        cli_name="邓琳莹",
+        employee_id=36,
+        im_user_id=14247,
+        follow_channel_id="8bb5ae97-3ffb-42e7-869d-c5cef358510a",
     ),
 )
 
@@ -746,7 +763,9 @@ def resolve_month_target(
 
 def month_target_scope(day: str, monthly_targets: dict[str, float]) -> tuple[bool, list[str]]:
     """当月目标文件覆盖情况：返回 (是否覆盖到人, 文件没覆盖、只能兜底的人)。"""
-    tracked = [item for item in OWNERS if item.target_wan or item.group]
+    tracked = [
+        item for item in OWNERS if (item.target_wan or item.group) and not item.target_optional
+    ]
     if not monthly_targets:
         return False, [item.display for item in tracked]
     missing = [
@@ -785,10 +804,13 @@ def warn_target_fallback(day: str, monthly_targets: dict[str, float]) -> list[st
 
 
 def _group_entry_of(display: str, day: str) -> tuple[dict, list[str]] | None:
-    """按“达标群”回查目标文件里的小组条目，返回 (条目, 该群实际跟踪的人)。
+    """按目标文件的成员名单回查小组条目，返回 (条目, 名单里的人)。
 
-    不依赖目标文件成员名单与跟踪名单完全一致：江旭（Sana）后加进来也能算进去，
-    而目标文件本身保持原样（核心日报的成员文案不变）。
+    老板 2026-10-10 重新分组后，「按达标群推断谁属于哪个小组」不再成立：
+    新部的人被分到 Q4五百万 / Lina / 杨晶晶 / viki 四个群里，继续按群推断
+    会把这几个群的其他人（例如刘春梅）也算进新部，分母也会变成群人数。
+    现在以**目标文件的 members 名单**为准：谁在名单里就摊给谁，分母就是名单人数。
+    江旭（Sana）按老板 2026-09-18 的口径列进新部名单，数字与此前一致（100/5=20 万）。
     """
     month = day[:7]
     try:
@@ -796,12 +818,10 @@ def _group_entry_of(display: str, day: str) -> tuple[dict, list[str]] | None:
     except (OSError, json.JSONDecodeError):
         return None
     entries = (payload.get(month) or {}).get("entries") or []
-    owner = next((item for item in OWNERS if item.display == display), None)
-    same_group = [item.display for item in OWNERS if owner and item.group == owner.group]
     for item in entries:
         members = [str(name) for name in (item.get("members") or []) if name]
-        if set(members) & set(same_group):
-            return item, (same_group or members)
+        if display in members:
+            return item, members
     return None
 
 

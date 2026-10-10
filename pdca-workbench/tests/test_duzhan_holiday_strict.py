@@ -54,8 +54,17 @@ def compact_off():
 
 
 def body_for(group: DuzhanGroup, day: str, now: datetime) -> str:
+    """红黑榜那一块 2026-10-10 起不再进群消息（老板要求停发）；豁免规则仍在 _board_text 里，直接测它。"""
+    from app.duzhan import _board_text
+
     with compact_off():
-        return render_brief(group, 20, now, ledger_for(day), None)
+        return _board_text(
+            ledger_for(day),
+            20,
+            group.lang,
+            compact=False,
+            strict_holiday=group.channel_id in strict_holiday_channels(),
+        )
 
 
 class StrictHolidayTests(unittest.TestCase):
