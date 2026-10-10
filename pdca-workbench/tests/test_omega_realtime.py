@@ -267,6 +267,7 @@ class RealtimeSessionTests(unittest.TestCase):
             def __init__(self):
                 self.queue = asyncio.Queue()
                 self.sent = []
+                self.input_seen = self.flushed = False
 
             async def __aenter__(self):
                 return self
@@ -279,8 +280,13 @@ class RealtimeSessionTests(unittest.TestCase):
                 self.sent.append(event)
                 if event["type"] == "session.create":
                     self.queue.put_nowait(json.dumps({"type": "session.created", "session": {"id": "one"}}))
-                elif event["type"] == "input_audio_buffer.commit":
-                    self.queue.put_nowait(json.dumps({"type": "input_audio_buffer.committed"}))
+                elif event["type"] == "input_audio_buffer.append":
+                    if any(base64.b64decode(event["audio"])):
+                        self.input_seen = True
+                        return
+                    if not self.input_seen or self.flushed:
+                        return
+                    self.flushed = True
                     for item in (
                         {"type": "conversation.item.input_audio_transcription.started", "item_id": "sales-1"},
                         {"type": "conversation.item.input_audio_transcription.completed",
@@ -314,7 +320,7 @@ class RealtimeSessionTests(unittest.TestCase):
                 headers={"Origin": "http://testserver"},
             ) as socket:
                 self.assertEqual(socket.receive_json(), {"type": "ready", "audio_epoch": 1, "state": "listening"})
-                socket.send_bytes(b"\x00\x00" * 320)
+                socket.send_bytes(b"\x00\x20" * 320)
                 socket.send_text("stop")
                 segments, audio = [], None
                 for _ in range(8):
@@ -336,7 +342,7 @@ class RealtimeSessionTests(unittest.TestCase):
         self.assertEqual(provider.sent[0]["session"]["model"], "1.2.6.1")
         self.assertEqual(provider.sent[0]["session"]["audio"]["output"]["format"]["type"],
                          "pcm_s16le")
-        self.assertIn("input_audio_buffer.commit", [item["type"] for item in provider.sent])
+        self.assertNotIn("input_audio_buffer.commit", [item["type"] for item in provider.sent])
         self.assertEqual(provider.sent[-1]["type"], "session.close")
         with Session(self.engine) as db:
             self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 2)
@@ -396,6 +402,7 @@ class RealtimeSessionTests(unittest.TestCase):
             def __init__(self):
                 self.queue = asyncio.Queue()
                 self.sent = []
+                self.input_seen = self.flushed = False
 
             async def __aenter__(self):
                 return self
@@ -408,9 +415,14 @@ class RealtimeSessionTests(unittest.TestCase):
                 self.sent.append(event["type"])
                 if event["type"] == "session.create":
                     self.queue.put_nowait(json.dumps({"type": "session.created"}))
-                elif event["type"] == "input_audio_buffer.commit":
+                elif event["type"] == "input_audio_buffer.append":
+                    if any(base64.b64decode(event["audio"])):
+                        self.input_seen = True
+                        return
+                    if not self.input_seen or self.flushed:
+                        return
+                    self.flushed = True
                     for item in (
-                        {"type": "input_audio_buffer.committed"},
                         {"type": "conversation.item.input_audio_transcription.started", "item_id": "sales-1"},
                         {"type": "conversation.item.input_audio_transcription.completed",
                          "item_id": "sales-1", "transcript": "请确认付款时间。"},
@@ -440,10 +452,10 @@ class RealtimeSessionTests(unittest.TestCase):
                 headers={"Origin": "http://testserver"},
             ) as socket:
                 self.assertEqual(socket.receive_json(), {"type": "ready", "audio_epoch": 1, "state": "listening"})
-                socket.send_bytes(b"\x00\x00" * 320)
+                socket.send_bytes(b"\x00\x20" * 320)
                 socket.close()
                 self.assertTrue(closed.wait(5), "Provider must drain after browser disconnect")
-        self.assertIn("input_audio_buffer.commit", provider.sent)
+        self.assertNotIn("input_audio_buffer.commit", provider.sent)
         self.assertEqual(provider.sent[-1], "session.close")
         with Session(self.engine) as db:
             self.assertEqual([part.speaker for part in db.exec(select(OmegaSegment)
@@ -452,7 +464,7 @@ class RealtimeSessionTests(unittest.TestCase):
     def test_stop_waits_three_seconds_for_accepted_native_asr_tail(self):
         self._stop_with_delayed_native_tail(delayed_started=False)
 
-    def test_stop_waits_for_asr_started_after_commit_ack(self):
+    def test_stop_waits_for_asr_started_after_silence_flush(self):
         self._stop_with_delayed_native_tail(delayed_started=True)
 
     def test_stop_tracks_pcm_accepted_while_previous_asr_is_active(self):
@@ -468,19 +480,22 @@ class RealtimeSessionTests(unittest.TestCase):
                 if self.tail:
                     self.tail.cancel()
             async def send(self, raw):
-                kind = json.loads(raw)["type"]
+                event = json.loads(raw)
+                kind = event["type"]
                 if kind == "session.create":
                     self.queue.put_nowait(json.dumps({"type": "session.created"}))
                 elif kind == "input_audio_buffer.append":
-                    self.frames += 1
-                    if not delayed_started or two_utterances and self.frames == 1:
-                        self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.started",
-                            "item_id": "first-input" if two_utterances else "slow-tail"}))
-                elif kind == "input_audio_buffer.commit":
+                    if any(base64.b64decode(event["audio"])):
+                        self.frames += 1
+                        if not delayed_started or two_utterances and self.frames == 1:
+                            self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.started",
+                                "item_id": "first-input" if two_utterances else "slow-tail"}))
+                        return
+                    if not self.frames or self.tail:
+                        return
                     if two_utterances:
                         self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.completed",
                             "item_id": "first-input", "text": "First accepted public sentence"}))
-                    self.queue.put_nowait(json.dumps({"type": "input_audio_buffer.committed"}))
                     async def finish():
                         if delayed_started:
                             await asyncio.sleep(.1)
