@@ -14,14 +14,14 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.auth.models import User
-from app.omega.context import actor_messages, audit_messages, coach_messages, practice_messages, select_next_speaker
+from app.omega.context import actor_messages, audit_message_batches, coach_messages, practice_messages, select_next_speaker
 from app.omega.models import (
     OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment,
     OmegaSession, new_id, utcnow,
     OmegaWorkerHeartbeat,
 )
 from app.omega.policy import require_case, require_session_source
-from app.omega.reports import ReportAuditRejected, WEIGHTS, report_audit_claims, report_summary, validate_next_practice, validate_report, validate_report_audit
+from app.omega.reports import ReportAuditRejected, WEIGHTS, report_audit_checks, report_audit_claims, report_summary, validate_next_practice, validate_report, validate_report_audit
 from app.omega.router import digest, report_input_hash, transcript_digest
 
 
@@ -266,11 +266,16 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             result["summary"] = report_summary(result)
             if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
                 return True
-            audit_raw = generate("report_audit", audit_messages(
-                segments, result, include_practice=True), 32768)
-            if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
-                return True
-            validate_report_audit(audit_raw, result, include_practice=True)
+            checks = []
+            for messages in audit_message_batches(segments, result, include_practice=True):
+                if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                    return True
+                audit_raw = generate("report_audit", messages, 32768)
+                if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                    return True
+                expected = {claim["claim_id"] for claim in json.loads(messages[-1]["content"])["claims"]}
+                checks.extend(report_audit_checks(audit_raw, expected, include_practice=True))
+            validate_report_audit(json.dumps({"checks": checks}), result, include_practice=True)
             result["hints_used"] = hints_used
         elif kind == "memory":
             result = generate(kind, memory_messages, 4000)

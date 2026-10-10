@@ -68,7 +68,7 @@ class OmegaPracticeTests(unittest.TestCase):
         self.assertTrue(run_once(self.engine, generate=generate))
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'succeeded', job)
-        self.assertEqual(calls, ['report', 'practice', 'report_audit'])
+        self.assertEqual(calls, ['report', 'practice'] + ['report_audit'] * 3)
         published = self.client.get('/api/omega/reports/' + job['result_id']).json()
         self.assertEqual(self.report_rows()[0].prompt_version, 'coach-v4')
         report = published['content']
@@ -113,7 +113,7 @@ class OmegaPracticeTests(unittest.TestCase):
         calls = []
         run_once(self.engine, generate=lambda kind, messages, *_: calls.append(kind) or json.dumps(
             flow_tests.positive_report_audit(messages) if kind == 'report_audit' else self.raw))
-        self.assertEqual(calls, ['report', 'report_audit'])
+        self.assertEqual(calls, ['report'] + ['report_audit'] * 3)
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'succeeded')
 
     def test_practice_uses_json_thinking_budget_and_timeout(self):

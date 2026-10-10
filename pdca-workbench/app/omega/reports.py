@@ -99,10 +99,8 @@ class ReportAuditRejected(ValueError):
         self.rejected_claims = rejected_claims
 
 
-def validate_report_audit(raw: str, report: dict, *, include_practice: bool = False) -> None:
-    """Require an exact, positive check for every slot in the same validated report."""
-    claims = report_audit_claims(report, include_practice=include_practice)
-    expected = {claim["claim_id"] for claim in claims}
+def report_audit_checks(raw: str, expected: set[str], *, include_practice: bool = False) -> list[dict]:
+    """Parse a complete audit batch without turning partial results into feedback."""
     def unique_object(pairs):
         if len(dict(pairs)) != len(pairs):
             raise ValueError("复盘事实核验无效")
@@ -116,7 +114,7 @@ def validate_report_audit(raw: str, report: dict, *, include_practice: bool = Fa
              "answered_fact_omitted", "unsupported_fact"}
     if not isinstance(audit, dict) or set(audit) != {"checks"} or not isinstance(audit["checks"], list):
         raise ValueError("复盘事实核验无效")
-    seen, consistent = set(), True
+    seen = set()
     for check in audit["checks"]:
         if (not isinstance(check, dict) or set(check) != {"claim_id", "consistent", "issues"}
                 or not isinstance(check["claim_id"], str) or check["claim_id"] not in expected
@@ -129,11 +127,17 @@ def validate_report_audit(raw: str, report: dict, *, include_practice: bool = Fa
                 or check["consistent"] != (not check["issues"])):
             raise ValueError("复盘事实核验无效")
         seen.add(check["claim_id"])
-        consistent = consistent and check["consistent"]
     if seen != expected:
         raise ValueError("复盘事实核验无效")
-    if not consistent:
-        checks = {check["claim_id"]: check for check in audit["checks"]}
+    return audit["checks"]
+
+
+def validate_report_audit(raw: str, report: dict, *, include_practice: bool = False) -> None:
+    """Require an exact, positive check for every slot in the same validated report."""
+    claims = report_audit_claims(report, include_practice=include_practice)
+    parsed = report_audit_checks(raw, {claim["claim_id"] for claim in claims}, include_practice=include_practice)
+    if not all(check["consistent"] for check in parsed):
+        checks = {check["claim_id"]: check for check in parsed}
         raise ReportAuditRejected([
             dict(claim, issues=list(checks[claim["claim_id"]]["issues"]))
             for claim in claims if not checks[claim["claim_id"]]["consistent"]

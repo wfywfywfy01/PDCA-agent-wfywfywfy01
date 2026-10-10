@@ -248,6 +248,17 @@ def audit_messages(segments: list[dict], report: dict, *, include_practice: bool
     return messages
 
 
+def audit_message_batches(segments: list[dict], report: dict, *,
+                          include_practice: bool = False) -> list[list[dict[str, str]]]:
+    """Keep the whole public context while checking at most four original slots per call."""
+    messages = audit_messages(segments, report, include_practice=include_practice)
+    payload = json.loads(messages[-1]["content"])
+    claims = payload["claims"]
+    return [[messages[0], {"role": "user", "content": json.dumps(
+        dict(payload, claims=claims[index:index + 4]), ensure_ascii=False)}]
+        for index in range(0, len(claims), 4)]
+
+
 def practice_messages(snapshot: dict, segments: list[dict], report: dict, *,
                       audit_feedback: list[dict] | None = None) -> list[dict[str, str]]:
     """Generate one action for the validated blocker, without reopening scoring."""
