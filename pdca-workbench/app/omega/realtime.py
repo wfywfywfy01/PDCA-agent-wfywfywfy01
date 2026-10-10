@@ -66,6 +66,8 @@ class VoiceControl:
         self.ending = False
         self.output_task = None
         self.model_task = None
+        self.silence_task = None
+        self.silence_error = None
         self.pending_input = None
         self.pending_nonzero = False
         self.sent_pcm_frames = 0
@@ -79,7 +81,7 @@ class VoiceControl:
     def sent_audio(self, chunk=None):
         self.sent_pcm_frames += 1
         self.input_activity += 1
-        if self.pending_input is None:
+        if self.pending_input is None or self.pending_input[1] != self.epoch:
             self.pending_input = (new_id(), self.epoch)
             self.pending_nonzero = False
             self.input_final.clear()
@@ -153,6 +155,32 @@ class VoiceControl:
             self.output_task.cancel()
             await asyncio.gather(self.output_task, return_exceptions=True)
 
+    async def stop_silence(self):
+        task, self.silence_task = self.silence_task, None
+        if task:
+            if not task.done():
+                task.cancel()
+            result, = await asyncio.gather(task, return_exceptions=True)
+            if isinstance(result, Exception):
+                raise result
+
+    async def start_silence(self, provider):
+        if self.silence_task and not self.silence_task.done():
+            return
+        await self.stop_silence()
+        frame = json.dumps({"type": "input_audio_buffer.append",
+                            "audio": base64.b64encode(bytes(640)).decode("ascii")})
+        await provider.send(frame)
+        async def keep_alive():
+            try:
+                while True:
+                    await asyncio.sleep(.02)
+                    await provider.send(frame)
+            except Exception as exc:
+                self.silence_error = exc
+                raise
+        self.silence_task = asyncio.create_task(keep_alive())
+
     async def handle(self, ws, provider, message):
         if (set(message) != {"type", "action", "request_key", "audio_epoch"}
                 or message.get("type") != "control" or message.get("action") not in {"pause", "resume"}
@@ -183,17 +211,23 @@ class VoiceControl:
         await ws.send_json({"type": "state", "state": self.state,
                             "audio_epoch": self.epoch, "request_key": key})
         try:
-            await provider.send(json.dumps({"type": "response.cancel"}))
             if provider_name() == "doubao":
-                if action == "pause" and (self.pending_input or self.active_inputs):
-                    await provider.send(json.dumps({"type": "input_audio_buffer.commit"}))
-                await provider.send(json.dumps({"type": f"input_audio_{'mute' if action == 'pause' else 'unmute'}.commit"}))
-                # Mute ends VAD; update only after its final ASR has been durably saved.
-                if action == "pause" and self.confirmed:
+                # Recorder pause: keep native VAD draining accepted speech with zero PCM.
+                # Cancel/commit/mute can open an ASR identity that never receives a final.
+                if action == "pause":
+                    await self.start_silence(provider)
+                else:
+                    # No new microphone PCM until all pre-pause input identities are final.
+                    # The zero stream keeps VAD running, including during this drain.
                     await self.wait_input_tail()
-                    await provider.send(json.dumps({"type": "response.cancel"}))
+                    await self.stop_silence()
+                self._save("coaching" if action == "pause" else "listening", key, action,
+                           request_epoch=message["audio_epoch"])
+                await ws.send_json({"type": "state", "state": self.state,
+                                    "audio_epoch": self.epoch, "request_key": key})
+                return
+            await provider.send(json.dumps({"type": "response.cancel"}))
             self.updated.clear()
-            # Mute has no ack; session.updated confirms the ordered configuration barrier.
             await provider.send(json.dumps({"type": "session.update", "event_id": key,
                 "session": {"instructions": self.role + f"\nRealtime control generation {self.epoch}: {action}."}}))
             if self.confirmed:
@@ -600,6 +634,8 @@ async def _send_audio(ws: WebSocket, provider, engine, session_id: str,
     last_renewed = asyncio.get_running_loop().time()
     frames = 0
     while True:
+        if control and control.silence_error:
+            raise control.silence_error
         try:
             message = await asyncio.wait_for(ws.receive(), 4)
         except TimeoutError:
@@ -812,13 +848,12 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
             pending_replies.clear()
             # A final transcript for accepted pre-pause PCM still belongs to its original turn.
             if not (kind == "conversation.item.input_audio_transcription.completed" and input_context
+                    or kind == "conversation.item.input_audio_transcription.delta" and input_context
                     or kind == "conversation.item.input_audio_transcription.started" and control.pending_input
                     or kind == "input_audio_buffer.committed"):
                 continue
         if control and control.multi and kind and kind.startswith("response."):
             # ASR socket's automatic response is never attributed to a selected participant.
-            if kind == "response.output_audio.started":
-                await provider.send(json.dumps({"type": "response.cancel"}))
             continue
         if control and kind and kind.startswith("response.output_"):
             context = question_turns.get(question_id)
@@ -861,41 +896,45 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
             if not control or not control.paused:
                 await emit_json({"type": "interrupt"})
         elif kind == "conversation.item.input_audio_transcription.delta":
-            if control and (not input_context or input_context[1] != control.epoch):
+            if control and not input_context:
                 continue
-            item_id = str(event.get("item_id") or "")
+            item_id = input_id
             # Doubao's full-duplex Web demo replaces ASR hypotheses; only Chat deltas append.
             sales_text[item_id] = str(event.get("delta") or "")
-            await emit_json({"type": "caption", "speaker": "sales",
-                             "text": sales_text[item_id]})
+            if not control or not control.paused and input_context[1] == control.epoch:
+                await emit_json({"type": "caption", "speaker": "sales",
+                                 "text": sales_text[item_id]})
         elif kind == "conversation.item.input_audio_transcription.completed":
             item_id = input_id
-            sales_text.pop(item_id, None)
-            content = str(event.get("text") or event.get("transcript") or "").strip()
-            if content and item_id not in saved_sales:
-                identity = {}
-                if control:
-                    if not input_context:
-                        continue
-                    question_turns[item_id] = input_context
-                    if event.get("question_id"):
-                        question_turns[str(event["question_id"])] = input_context
-                    if input_context[1] == control.epoch and not control.paused:
-                        control.awaiting_input = False
-                    identity = {"speaker_id": "sales", "turn_id": input_context[0],
-                                "provider_event_id": f"doubao:asr:{item_id}"}
-                part = _append(engine, session_id, job_id, token, "sales", content, **identity)
-                if control:
-                    if (input_context[1] == control.epoch or control.pending_input
-                            and input_context[1] == control.pending_input[1]):
-                        control.final_pcm_frames = control.sent_pcm_frames
-                        control.pending_nonzero = False
-                    control.input_activity += 1
-                    control.active_inputs.discard(item_id)
-                    control.active_inputs.discard(str(event.get("question_id") or ""))
-                    if not control.active_inputs:
-                        control.input_final.set()
-                saved_sales.add(item_id)
+            hypothesis = sales_text.pop(item_id, "")
+            content = str(event.get("text") or event.get("transcript") or hypothesis).strip()
+            if item_id in saved_sales or control and not input_context:
+                continue
+            identity = {}
+            if control:
+                question_turns[item_id] = input_context
+                if event.get("question_id"):
+                    question_turns[str(event["question_id"])] = input_context
+                identity = {"speaker_id": "sales", "turn_id": input_context[0],
+                            "provider_event_id": f"doubao:asr:{item_id}"}
+            part = _append(engine, session_id, job_id, token, "sales", content, **identity) if content else None
+            if control and not part:
+                _renew(engine, session_id, job_id, token)
+            # ASREnded may carry only an identity; closing it does not invent speech.
+            if control:
+                if (input_context[1] == control.epoch or control.pending_input
+                        and input_context[1] == control.pending_input[1]):
+                    control.final_pcm_frames = control.sent_pcm_frames
+                    control.pending_nonzero = False
+                control.input_activity += 1
+                control.active_inputs.discard(item_id)
+                control.active_inputs.discard(str(event.get("question_id") or ""))
+                if not control.active_inputs:
+                    control.input_final.set()
+            saved_sales.add(item_id)
+            if part:
+                if control and input_context[1] == control.epoch and not control.paused:
+                    control.awaiting_input = False
                 unanswered_sales += 1
                 if asr_completed:
                     asr_completed.set()
@@ -990,7 +1029,7 @@ async def realtime_session(ws: WebSocket, session_id: str,
             await (_doubao_handshake(provider, role) if name == "doubao"
                    else _handshake(provider, role))
             if control.paused and name == "doubao":
-                await provider.send(json.dumps({"type": "input_audio_mute.commit"}))
+                await control.start_silence(provider)
             await ws.send_json({"type": "ready", "audio_epoch": control.epoch,
                                 "state": control.state,
                                 **({"voice_mode": "controlled_multi"} if control.multi else {})})
@@ -1014,14 +1053,9 @@ async def realtime_session(ws: WebSocket, session_id: str,
                     if control.multi:
                         await control.cancel_output()
                     if sending.result():
-                        asr_completed.clear()
-                        commit_ack.clear()
-                        await provider.send(json.dumps({"type": "input_audio_buffer.commit"}))
-                        try:
-                            await asyncio.wait_for(commit_ack.wait(), 1)
-                        except TimeoutError:
-                            pass
+                        await control.start_silence(provider)
                         await control.wait_input_tail()
+                    await control.stop_silence()
                     await provider.send(json.dumps({"type": "session.close"}))
                     try:
                         await asyncio.wait_for(receiving, 3)
@@ -1030,11 +1064,14 @@ async def realtime_session(ws: WebSocket, session_id: str,
                 for task in done:
                     task.result()
             finally:
+                await asyncio.gather(control.stop_silence(), return_exceptions=True)
                 await control.cancel_output()
                 for task in (sending, receiving):
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(sending, receiving, return_exceptions=True)
+            if control.silence_error:
+                raise control.silence_error
             failed = False
     except (WebSocketDisconnect, asyncio.CancelledError):
         failed = False
@@ -1050,7 +1087,8 @@ async def realtime_session(ws: WebSocket, session_id: str,
         except (RuntimeError, WebSocketDisconnect):
             pass
     finally:
-        _release(engine, job_id, token, failed=failed,
+        await asyncio.gather(control.stop_silence(), return_exceptions=True)
+        _release(engine, job_id, token, failed=failed or bool(control.silence_error),
                  incomplete=control.tail_incomplete or bool(control.active_inputs)
                  or bool(control.pending_input and control.pending_nonzero))
         try:
