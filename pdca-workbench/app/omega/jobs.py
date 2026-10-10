@@ -39,8 +39,8 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
         reasoning = kind in {"report", "report_audit", "practice"}
         payload["thinking"] = {"type": "enabled" if reasoning else "disabled"}
         if reasoning:
-            payload["reasoning_effort"] = "low" if kind == "report_audit" else "high"
-            timeout = {"report": 90, "report_audit": 90, "practice": 30}[kind]
+            payload["reasoning_effort"] = "high"
+            timeout = {"report": 90, "report_audit": 150, "practice": 30}[kind]
         if kind in {"report", "report_audit", "memory", "practice"}:
             payload["response_format"] = {"type": "json_object"}
     response = httpx.post(
@@ -179,7 +179,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                                      goal_timing=goal_timing, weights=weights)
             if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
                 return True
-            validate_report_audit(generate("report_audit", audit_messages(segments, result), 16384))
+            validate_report_audit(generate("report_audit", audit_messages(segments, result), 32768))
             if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
                 return True
             if report_summary(result)["blocker"]:

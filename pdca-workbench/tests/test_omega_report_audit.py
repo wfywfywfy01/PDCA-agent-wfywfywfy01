@@ -18,7 +18,10 @@ class ReportAuditValidationTests(unittest.TestCase):
     def test_coach_prompt_separates_parallel_answered_facts_and_unanswered_numbers(self):
         system = coach_messages({}, [], WEIGHTS)[0]['content']
         for clause in ('并列事项须逐项核对', '已答的定性顾虑', '周期、资金等数字必须分写',
-                       '否定覆盖全部并列事项', '未进一步追问', '回答细节不足'):
+                       '否定覆盖全部并列事项', '未进一步追问', '回答细节不足',
+                       '次数、连续性和语气强度必须逐条由原话支持', '不能重复计数',
+                       '不得仅凭提问或列举选项写成坚持、要求或同意',
+                       '询问文件形式不自动等于坚持某选项'):
             with self.subTest(clause=clause):
                 self.assertIn(clause, system)
 
@@ -31,7 +34,12 @@ class ReportAuditValidationTests(unittest.TestCase):
                        '同一条件在 outcome.reason', '即使 status=partial',
                        '不得声称已符合最低目标', '提问或单方计划不能当作对方确认',
                        '判 condition_unconfirmed', '不能只凭 partial 拒绝',
-                       '不混淆理想目标与最低目标'):
+                       '不混淆理想目标与最低目标',
+                       '次数、连续性和语气强度必须逐条由原话支持', '不能重复计数',
+                       '不得仅凭提问或列举选项写成坚持、要求或同意',
+                       '询问文件形式不自动等于坚持某选项',
+                       '次数或语气强度超出原话支持时，判 unsupported_fact',
+                       '准确保留提问或条件的概括不得因此拒绝'):
             with self.subTest(clause=clause):
                 self.assertIn(clause, system)
 
@@ -68,7 +76,7 @@ class ReportAuditValidationTests(unittest.TestCase):
                 'message': {'content': '{"consistent":true,"issues":[]}',
                             'reasoning_content': 'private reasoning must not become report text'}}]}
             for kind, limit, effort, timeout in [('report', 16384, 'high', 90),
-                                                 ('report_audit', 16384, 'low', 90),
+                                                 ('report_audit', 32768, 'high', 150),
                                                  ('practice', 4096, 'high', 30)]:
                 with self.subTest(kind=kind):
                     self.assertEqual(_default_generate(kind, [{'role': 'user', 'content': 'JSON'}], limit),
@@ -76,10 +84,10 @@ class ReportAuditValidationTests(unittest.TestCase):
                     payload = post.call_args.kwargs['json']
                     self.assertEqual(payload['response_format'], {'type': 'json_object'})
                     self.assertEqual(payload['thinking'], {'type': 'enabled'})
-                    self.assertEqual(payload['reasoning_effort'], effort)
+                    self.assertEqual((payload['reasoning_effort'], post.call_args.kwargs['timeout']),
+                                     (effort, timeout))
                     self.assertEqual(payload['max_tokens'], limit)
                     self.assertNotIn('temperature', payload)
-                    self.assertEqual(post.call_args.kwargs['timeout'], timeout)
 
     def test_other_deepseek_kinds_keep_disabled_thinking_and_existing_budget(self):
         with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
@@ -264,7 +272,7 @@ class ReportAuditTests(unittest.TestCase):
                 self.assertEqual(limit, 16384)
                 return json.dumps(self.raw)
             if kind == 'report_audit':
-                self.assertEqual(limit, 16384)
+                self.assertEqual(limit, 32768)
                 payload = json.loads(messages[-1]['content'])
                 self.assertEqual(set(payload), {'transcript', 'report'})
                 self.assertEqual([p['seq'] for p in payload['transcript']], [1, 2])
