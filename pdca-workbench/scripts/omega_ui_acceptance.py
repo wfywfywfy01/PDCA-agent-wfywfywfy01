@@ -32,6 +32,8 @@ def generate(kind, messages, _limit):
         return '请明确下一步的负责人和确认时间。'
     if kind == 'coach_hint':
         return '先问清谁能确认采购，再争取一个明确的回复时间。'
+    if kind == 'practice':
+        return json.dumps({'next_practice': '先核对采购决策流程，再约定具体的确认动作。'}, ensure_ascii=False)
     data = json.loads(messages[-1]['content'])
     quote = next(item for item in data['quote_candidates'] if item['speaker'] == 'sales')
     if kind == 'memory':
