@@ -27,6 +27,15 @@ from app.duzhan import (
 )
 
 
+def _group(name: str):
+    """按群名取群：群清单随业务调整（2026-10-10 新人小组群停推、新增 Q4五百万），
+    测试一律按名字取，不用下标 —— 顺序一变，下标就会打到别的群上。"""
+    for group in groups_for_tz(TZ_SHANGHAI) + groups_for_tz(TZ_PARIS):
+        if group.name == name:
+            return group
+    raise AssertionError(f"群清单里没有这个群：{name}")
+
+
 class LongFormatMixin:
     """断言老长版文案时，把精简档位关掉（2026-09-19 起默认精简）。"""
 
@@ -57,13 +66,16 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertEqual(
             names,
             [
-                "新人小组业绩达标群",
                 "于冰业绩达标群",
                 "杨晶晶业绩达标群",
                 "viki业绩达标群",
+                "Q4五百万",
             ],
         )
         self.assertTrue(all(g.lang == "zh" for g in shanghai))
+        q4 = _group("Q4五百万")
+        self.assertEqual(q4.channel_id, "b0f2deaf-dea1-463a-98dd-970a1ddd1415")
+        self.assertEqual(q4.tz, TZ_SHANGHAI)
 
     def test_cron_registers_both_timezones(self):
         self.assertEqual(cron_timezones(), [TZ_SHANGHAI, TZ_PARIS])
@@ -78,7 +90,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertEqual(collect_clock(10, 10), (9, 50))
 
     def test_lina_brief_uses_paris_clock(self):
-        group = groups_for_tz(TZ_PARIS)[0]
+        group = _group("Lina业绩达标群")
         now = datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_PARIS))
         text = render_brief(group, 10, now)
         self.assertIn("Paris time", text)
@@ -94,7 +106,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertNotIn("客户A", text)
 
     def test_lina_ledger_body_is_english(self):
-        group = groups_for_tz(TZ_PARIS)[0]
+        group = _group("Lina业绩达标群")
         now = datetime(2026, 9, 15, 20, 0, tzinfo=ZoneInfo(TZ_PARIS))
         ledger = {
             "today_target": "1300万战役",
@@ -125,8 +137,12 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         text = render_brief(group, 20, now, ledger)
         self.assertIn("Turkey contract", text)
         self.assertIn("discount", text)
-        self.assertIn("WhatsApp not covered", text)
-        self.assertIn("MTD booked 0", text)
+        # 老板 2026-10-10：render_brief 不再追加红榜/黑榜/奖励台账/扣罚台账整块，
+        # 英文档同款停发 —— 台账里就算带着 red/black，群里也不再出现。
+        self.assertNotIn("Red TOP3", text)
+        self.assertNotIn("Black", text)
+        self.assertNotIn("Reward ledger", text)
+        self.assertNotIn("Penalty ledger", text)
         self.assertNotIn("待确认", text)
         self.assertNotIn("土耳其", text)
         # 英文档里不允许漏出中文：文案映射表（duzhan.py 的 zh→en 映射）与生成端
@@ -137,7 +153,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertNotIn("本月回款", text)
 
     def test_shanghai_brief_uses_beijing_clock(self):
-        group = groups_for_tz(TZ_SHANGHAI)[0]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         text = render_brief(group, 10, now)
         self.assertIn("北京时间", text)
@@ -147,7 +163,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("1300万战役", text)
 
     def test_midday_and_evening_slot_titles(self):
-        group = groups_for_tz(TZ_SHANGHAI)[0]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 15, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         self.assertIn("中追·追变化", render_brief(group, 15, now))
         self.assertIn("晚追·验兑现", render_brief(group, 20, now))
@@ -161,7 +177,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         push.assert_not_called()
 
     def test_midday_renders_only_changes(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 16, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         prev = {
             "people": [
@@ -202,7 +218,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
 
     def test_missing_snapshot_collects_live_not_empty(self):
         """快照缺失时必须现场补采，不能把整屏“待确认”推给群（2026-09-18 20:00 事故）。"""
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         ledger = {
             "day": "2026-09-18",
             "today_target": "1300万战役",
@@ -743,7 +759,8 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertEqual(est["parts"]["vps"], 30.0)
 
     def test_render_fills_ledger_and_evening_board(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        """长版台账字段照旧填满；20:00 自 2026-10-10 起不再追加红黑榜板块。"""
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 15, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         ledger = {
             "today_target": "1300万战役",
@@ -817,12 +834,13 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("Vemory 会议录音：1场 迪拜 Billionaire 0915 https://audio/m1.wav", text)
         self.assertIn("柬埔寨支付订单", text)
         self.assertIn("XSD-DL26091502472", text)
-        # 红榜双口径：综合 = 过程 50% + 业绩 50%（业绩缺口径时写“业绩待确认”）
-        self.assertIn("红榜 TOP3（部门口径·全员可见｜综合=过程50%+业绩50%）：", text)
-        self.assertIn("@于冰", text)
-        self.assertIn("业绩待确认", text)
-        self.assertIn("黑榜 待改进（部门口径·全员可见）：@新人小组 本月已录单0 / @Lina WhatsApp未覆盖", text)
-        self.assertIn("扣罚台账：今日无扣罚记录", text)
+        # 老板 2026-10-10：红榜/黑榜/奖励台账/扣罚台账整块停发 —— 台账里带着
+        # red/black/penalties，群里也不再出现部门口径的全员榜。
+        self.assertNotIn("红榜", text)
+        self.assertNotIn("黑榜", text)
+        self.assertNotIn("奖励台账", text)
+        self.assertNotIn("扣罚台账", text)
+        self.assertNotIn("@于冰", text)
         self.assertNotIn("红榜", render_brief(group, 10, now, ledger))
 
     def test_parse_mto_skips_bot_and_revoked(self):
@@ -945,22 +963,39 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertEqual(matched.get("item_count"), 3)
 
     def test_xinren_owners_exclude_zhangqian(self):
-        """老板 2026-09-18 拍板：加上江旭（Sana）；吴楠、杨成凤、张倩不加。"""
+        """老板 2026-09-18 拍板：加上江旭（Sana）；吴楠、杨成凤、张倩不加。
+
+        老板 2026-10-10 拍板：新人小组群停推，5 个人按「谁追谁」分流到各组长群与
+        Q4五百万 —— 新人小组群名下不再挂人。
+        """
         from app.duzhan_ledger import OWNERS
 
-        xin = [item.display for item in OWNERS if item.group == "新人小组业绩达标群"]
-        self.assertEqual(xin, ["邓琳莹", "Safae", "王宇彤", "张月馨", "江旭"])
+        by_group: dict[str, list[str]] = {}
+        for item in OWNERS:
+            by_group.setdefault(item.group, []).append(item.display)
+        self.assertEqual(
+            by_group,
+            {
+                "于冰业绩达标群": ["于冰"],
+                "杨晶晶业绩达标群": ["杨晶晶", "何海文", "王宇彤"],
+                "viki业绩达标群": ["Viki", "江旭", "张月馨"],
+                "Lina业绩达标群": ["Lina", "Safae"],
+                "Q4五百万": ["刘春梅", "邓琳莹"],
+            },
+        )
+        self.assertNotIn("新人小组业绩达标群", by_group, "新人小组群不再有任何成员")
+        displays = [item.display for item in OWNERS]
         jiangxu = [item for item in OWNERS if item.display == "江旭"][0]
         self.assertEqual(jiangxu.employee_id, 388)
         self.assertEqual(jiangxu.im_user_id, 14549)
-        self.assertIsNone(jiangxu.target_wan, "新人 100 万是小组目标，不摊到个人")
+        self.assertIsNone(jiangxu.target_wan, "小组目标是群口径，不摊到个人")
         self.assertEqual(
             jiangxu.follow_channel_id,
             "d038caa8-3bd3-432b-b91a-9bf58180e855",
             "江旭（Sana）要带上 Sana客户跟进群",
         )
         for name in ("吴楠", "杨成凤", "张倩"):
-            self.assertNotIn(name, xin, name + " 按老板口径不纳入")
+            self.assertNotIn(name, displays, name + " 按老板口径不纳入")
         by_target = {item.display: item.target_wan for item in OWNERS}
         self.assertEqual(by_target["于冰"], 200)
         self.assertEqual(by_target["杨晶晶"], 333)
@@ -968,10 +1003,10 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertEqual(by_target["Viki"], 100)
         self.assertEqual(by_target["Lina"], 400)
         self.assertIsNone(by_target["邓琳莹"])
-        self.assertNotIn("张倩", xin)
-        self.assertNotIn("李浩然", xin)
-        self.assertNotIn("邢哲夫", xin)
-        self.assertNotIn("陈鹏飞", xin)
+        self.assertNotIn("张倩", displays)
+        self.assertNotIn("李浩然", displays)
+        self.assertNotIn("邢哲夫", displays)
+        self.assertNotIn("陈鹏飞", displays)
         follow = {item.display: item.follow_channel_id for item in OWNERS}
         self.assertEqual(follow["邓琳莹"], "8bb5ae97-3ffb-42e7-869d-c5cef358510a")
         self.assertEqual(follow["Safae"], "8cf4b40b-0e60-4819-9120-a22f3c808a00")
@@ -1238,7 +1273,7 @@ class DuzhanCompactSlotTests(unittest.TestCase):
         return {"day": "2026-09-19", "today_target": "1300万战役", "people": [person], "red": [], "black": []}
 
     def test_compact_is_default_and_short(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 19, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         text = render_brief(group, 10, now, self._ledger(self._person()))
         self.assertIn("今日目标：日目标 6.67 万/天，累计应达 123.4 万", text)
@@ -1250,7 +1285,7 @@ class DuzhanCompactSlotTests(unittest.TestCase):
         self.assertLessEqual(len(text.splitlines()), 12)
 
     def test_compact_midday_evening_lines(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now15 = datetime(2026, 9, 19, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         prev = self._person(perf_arrived_wan=150.2)
         text15 = render_brief(group, 15, now15, self._ledger(self._person()), self._ledger(prev))
@@ -1264,7 +1299,7 @@ class DuzhanCompactSlotTests(unittest.TestCase):
         self.assertNotIn("附件证据", text20)
 
     def test_compact_keeps_amount_ping(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 19, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(perf_intent=[{"amount_text": "", "wan": None, "snippet": "意向金额待定"}])
         text = render_brief(group, 15, now, self._ledger(person), self._ledger(self._person()))
@@ -1277,7 +1312,7 @@ class DuzhanCompactSlotTests(unittest.TestCase):
         backup = getattr(settings, "duzhan_compact", True)
         settings.duzhan_compact = False
         try:
-            group = groups_for_tz(TZ_SHANGHAI)[1]
+            group = _group("于冰业绩达标群")
             now = datetime(2026, 9, 19, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
             text = render_brief(group, 10, now, self._ledger(self._person()))
             self.assertIn("业绩三关键词", text)
@@ -1331,7 +1366,7 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         }
 
     def test_morning_slot_locks_target_and_carries_yesterday(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         prev = self._person(
             perf_arrived_wan=140.0,
@@ -1348,7 +1383,7 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("越南尾款 38246$ XSD", text)
 
     def test_morning_slot_without_target_says_pending(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(
             target_wan=None,
@@ -1360,24 +1395,29 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("0. 今日目标（本档先定）：待确认（缺月度目标）", text)
 
     def test_morning_slot_uses_group_level_target_for_newcomers(self):
-        group = groups_for_tz(TZ_SHANGHAI)[0]
+        """小组口径目标：个人没有月目标时按整组目标考核、不摊人头。
+
+        2026-10-10 新人小组群停推，同款口径改由 Q4五百万 群承载。
+        """
+        group = _group("Q4五百万")
         now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(
-            group="新人小组业绩达标群",
+            group="Q4五百万",
             display="邓琳莹",
             target_wan=None,
             daily_target_wan=None,
             rolling_target_wan=None,
             target_gap_wan=None,
-            group_target_wan=100.0,
-            group_target_name="新部",
+            group_target_wan=500.0,
+            group_target_name="Q4五百万",
         )
         text = render_brief(group, 10, now, self._ledger(person))
-        self.assertIn("0. 今日目标（本档先定）：小组口径 新部 100 万/月", text)
+        self.assertIn("0. 今日目标（本档先定）：小组口径 Q4五百万 500 万/月", text)
+        self.assertIn("（Q4五百万整体考核，不摊人头）", text)
         self.assertNotIn("缺月度目标", text)
 
     def test_morning_pings_missing_amounts_from_prev_slot(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         prev = self._person(
             perf_slip=[{"amount_text": "", "wan": None, "snippet": "水单已回传，金额在邮件里"}],
@@ -1389,7 +1429,7 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("按「客户 / 金额+币种 / 预计到账日 / 品类」补一句", text)
 
     def test_midday_pings_missing_amounts_from_current_slot(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(
             perf_intent=[{"amount_text": "", "wan": None, "snippet": "客户有明确意向，金额待定"}],
@@ -1398,20 +1438,20 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("补一句：水单/意向有 1 条没写金额", text)
 
     def test_no_ping_when_amounts_are_clear(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         text = render_brief(group, 15, now, self._ledger(self._person()), self._ledger(self._person()))
         self.assertNotIn("补一句", text)
 
     def test_evening_slot_has_no_amount_ping(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(perf_intent=[{"amount_text": "", "wan": None, "snippet": "意向待定"}])
         text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
         self.assertNotIn("补一句", text)
 
     def test_midday_slot_reports_delta_not_month_over_day(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         prev = self._person(perf_arrived_wan=150.2)
         text = render_brief(group, 15, now, self._ledger(self._person()), self._ledger(prev))
@@ -1423,13 +1463,13 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertNotIn("完成率", text)
 
     def test_midday_slot_without_prev_says_pending(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         text = render_brief(group, 15, now, self._ledger(self._person()), None)
         self.assertIn("本次新增 待确认（缺上一档口径）", text)
 
     def test_evening_slot_covers_perf_whatsapp_hours_and_tomorrow(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         prev = self._person(
             collections=[
@@ -1449,7 +1489,7 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
 
     def test_meeting_todos_block_is_appended_once(self):
         """回归：第 8 节早会待办只允许拼一次（工作区曾出现重复的一行）。"""
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(meeting_todos="\n【第 8 节｜早会待办】\n   • 事项A")
         text = render_brief(group, 10, now, self._ledger(person), self._ledger(person))
@@ -1457,7 +1497,7 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
 
     def test_evening_slot_shows_mto_scoring(self):
         """MTO 打分放在 20:00 验兑现（2026-09-23 老板要求：10:00 那档早上没图必然 0）。"""
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(
             mto_quotes=[
@@ -1472,14 +1512,14 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("1 张读不出金额", text)
 
     def test_evening_slot_mto_pending_when_no_data(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(mto_count=None, mto_quotes=None)
         text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
         self.assertIn("• MTO 今日达标：待确认", text)
 
     def test_morning_slot_keeps_summary_without_wrapup_line(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         text = render_brief(
             group, 10, now, self._ledger(self._person()), self._ledger(self._person())
@@ -1488,14 +1528,14 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
         self.assertNotIn("• MTO 今日达标：", text)
 
     def test_evening_slot_gives_first_action_when_nothing_open(self):
-        group = groups_for_tz(TZ_SHANGHAI)[1]
+        group = _group("于冰业绩达标群")
         now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(collections=[{"title": "已办完", "status": "done"}])
         text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
         self.assertIn("无未完成事项，按日目标继续推进", text)
 
     def test_lina_slot_sections_are_english(self):
-        group = groups_for_tz(TZ_PARIS)[0]
+        group = _group("Lina业绩达标群")
         now = datetime(2026, 9, 18, 20, 0, tzinfo=ZoneInfo(TZ_PARIS))
         person = self._person(group="Lina业绩达标群", display="Lina")
         text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
