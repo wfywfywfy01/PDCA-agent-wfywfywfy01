@@ -53,11 +53,13 @@ class OmegaPracticeTests(unittest.TestCase):
         def generate(kind, messages, limit):
             calls.append(kind)
             if kind == 'report':
+                self.assertEqual([p['seq'] for p in json.loads(messages[-1]['content'])['transcript']], [1, 2])
                 return json.dumps(self.raw, ensure_ascii=False)
             self.assertEqual(kind, 'practice')
             payload = json.loads(messages[-1]['content'])
             self.assertEqual(payload['target_dimension']['key'], 'value')
             self.assertEqual([p['text'] for p in payload['transcript']], [self.utterance, self.reply])
+            self.assertEqual([p['seq'] for p in payload['transcript']], [1, 2])
             self.assertLessEqual(limit, 1000)
             return json.dumps({'next_practice': action}, ensure_ascii=False)
 
@@ -65,7 +67,9 @@ class OmegaPracticeTests(unittest.TestCase):
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'succeeded', job)
         self.assertEqual(calls, ['report', 'practice'])
-        report = self.client.get('/api/omega/reports/' + job['result_id']).json()['content']
+        published = self.client.get('/api/omega/reports/' + job['result_id']).json()
+        self.assertEqual(self.report_rows()[0].prompt_version, 'coach-v3')
+        report = published['content']
         self.assertEqual(report['next_practice'], action)
         self.assertEqual(report['summary']['next_step'], action)
         expected = validate_report(json.dumps(copy.deepcopy(self.raw)), self.parts)

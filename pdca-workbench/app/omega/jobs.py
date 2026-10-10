@@ -201,7 +201,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                 report = OmegaReport(session_id=session_id, input_hash=input_hash,
                                      content_json=json.dumps(result, ensure_ascii=False),
                                      model=os.environ.get("PDCA_SUPERVISOR_MODEL", "test-model"),
-                                     rubric_version="rubric-v2", prompt_version="coach-v2")
+                                     rubric_version="rubric-v2", prompt_version="coach-v3")
                 db.add(report)
                 job.result_id = report.id
                 published_report_id, published_owner_id = report.id, owner.id
