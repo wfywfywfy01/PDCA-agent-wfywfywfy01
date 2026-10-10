@@ -27,6 +27,7 @@ from app.omega.context import actor_messages, select_next_speaker
 from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession, new_id, utcnow
 from app.omega.policy import require_case, require_session_source, require_writer
 from app.omega.router import digest, is_enabled, owned_session, session_segments
+from app.omega.transcription import normalize_sales_asr
 
 router = APIRouter(prefix="/api/omega", tags=["omega"])
 _model = "qwen-audio-3.1-realtime-plus"
@@ -516,8 +517,9 @@ def _renew(engine, session_id: str, job_id: str, token: str) -> None:
 def _append(engine, session_id: str, job_id: str, token: str,
             speaker: str, content: str, *, speaker_id: str | None = None,
             turn_id: str | None = None, provider_event_id: str | None = None) -> dict:
+    raw_content = content
     content = content.strip()
-    if not content or len(content) > 4000:
+    if not content or len(content) > 4000 or speaker == "sales" and len(raw_content) > 4000:
         raise ValueError("实时转写为空或超出长度上限")
     if any(value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 120)
            for value in (speaker_id, turn_id, provider_event_id)):
@@ -531,10 +533,17 @@ def _append(engine, session_id: str, job_id: str, token: str,
             previous = db.exec(select(OmegaSegment).where(OmegaSegment.session_id == session_id,
                 OmegaSegment.provider_event_id == provider_event_id)).first()
             if previous:
-                if (previous.speaker, previous.speaker_id, previous.turn_id, previous.text) != (speaker, speaker_id, turn_id, content):
+                previous_content = (previous.asr_original or previous.text) if speaker == "sales" else previous.text
+                replay_content = raw_content if speaker == "sales" else content
+                if (previous.speaker, previous.speaker_id, previous.turn_id, previous_content) != (speaker, speaker_id, turn_id, replay_content):
                     raise ValueError("重复事件内容或人物不一致")
                 return _part_view(previous)
         parts = session_segments(db, session_id)
+        if speaker == "sales":
+            from app.omega.memory import session_snapshot
+            snapshot = session_snapshot(game, db.get(OmegaCaseVersion, game.case_version_id))
+            content = normalize_sales_asr(content, snapshot,
+                (part.asr_original or part.text for part in parts))
         if len(parts) >= 120 or sum(len(part.text) for part in parts) + len(content) > 24000:
             raise ValueError("本场演练已达逐字稿上限，请结束并复盘")
         if speaker_id:
@@ -552,7 +561,7 @@ def _append(engine, session_id: str, job_id: str, token: str,
             raise ValueError("对手回复缺少对应的销售发言")
         part = OmegaSegment(session_id=session_id, seq=len(parts) + 1,
                             speaker=speaker, text=content, source="voice",
-                            asr_original=content if speaker == "sales" else "",
+                            asr_original=raw_content if speaker == "sales" else "",
                             request_key=new_id(), speaker_id=speaker_id, turn_id=turn_id,
                             provider_event_id=provider_event_id)
         db.add(part)
@@ -564,6 +573,7 @@ def _append(engine, session_id: str, job_id: str, token: str,
 
 def _part_view(part):
     return {"id": part.id, "seq": part.seq, "speaker": part.speaker, "text": part.text,
+            "asr_original": part.asr_original,
             "speaker_id": part.speaker_id, "turn_id": part.turn_id,
             "provider_event_id": part.provider_event_id}
 
@@ -821,11 +831,12 @@ async def _receive_audio(ws: WebSocket, provider, engine, session_id: str,
                                 "text": str(event.get("text") or "") + str(event.get("stash") or "")})
         elif kind == "conversation.item.input_audio_transcription.completed":
             item_id = str(event.get("item_id") or "")
-            content = str(event.get("transcript") or "").strip()
+            raw_content = str(event.get("transcript") or "")
+            content = raw_content.strip()
             if content and item_id not in saved_sales:
                 if control:
                     control.awaiting_input = False
-                part = _append(engine, session_id, job_id, token, "sales", content)
+                part = _append(engine, session_id, job_id, token, "sales", raw_content)
                 saved_sales.add(item_id)
                 await ws.send_json({"type": "segment", "segment": part})
         elif kind == "response.created":
@@ -1013,8 +1024,9 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
         elif kind == "conversation.item.input_audio_transcription.completed":
             item_id = input_id
             hypothesis = sales_text.pop(item_id, "")
-            content = str(event.get("text") or event.get("transcript") or hypothesis).strip()
-            if item_id in saved_sales or control and not input_context:
+            raw_content = str(event.get("text") or event.get("transcript") or hypothesis)
+            content = raw_content.strip()
+            if control and not input_context:
                 continue
             identity = {}
             if control:
@@ -1023,7 +1035,11 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                     question_turns[str(event["question_id"])] = input_context
                 identity = {"speaker_id": "sales", "turn_id": input_context[0],
                             "provider_event_id": f"doubao:asr:{item_id}"}
-            part = _append(engine, session_id, job_id, token, "sales", content, **identity) if content else None
+            if item_id in saved_sales:
+                if content and control:
+                    _append(engine, session_id, job_id, token, "sales", raw_content, **identity)
+                continue
+            part = _append(engine, session_id, job_id, token, "sales", raw_content, **identity) if content else None
             if control and not part:
                 _renew(engine, session_id, job_id, token)
             # ASREnded may carry only an identity; closing it does not invent speech.

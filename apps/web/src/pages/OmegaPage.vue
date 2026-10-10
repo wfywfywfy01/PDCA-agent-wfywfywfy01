@@ -41,17 +41,18 @@ type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer
   goal?: Partial<Omit<Goal, 'amount_minor'>> & { amount_major?: string }
 }
 type CaseRow = { id: string; kind?: string; title: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
-type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; seq: number }
+type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; asr_original?: string; seq: number }
 type SessionRow = { id: string; case_id: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
-type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
+type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; score_weights?: Record<string, number>; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
 type Assignment = { id: string; case_id: string; assignee_id: number; source_report_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
 
 const defaultWeights: Record<string, number> = { outcome: 25, information: 12, value: 12,
   concessions: 12, objections: 10, listening: 8, compliance: 10, relationship: 6, closure: 5 }
+const dimensionOrder = Object.keys(defaultWeights)
 const dimensionNames: Record<string, string> = { outcome: '结果', information: '信息获取', value: '价值表达',
   concessions: '让步', objections: '异议处理', listening: '倾听', compliance: '底线合规', relationship: '关系', closure: '收尾' }
 const quickScenarios = [
@@ -151,19 +152,22 @@ const caseBriefInput = ref('')
 const analysisBusy = ref(false)
 const analysisReady = ref(false)
 const reviewOpen = ref(false)
+const reportWeights = computed(() => report.value?.content.score_weights || chosenSession.value?.case_snapshot?.score_weights || defaultWeights)
 const coachingPoint = computed(() => {
-  const weights = chosenSession.value?.case_snapshot?.score_weights || defaultWeights
+  const weights = reportWeights.value
   const dimensions = (report.value?.content.dimensions || []).filter((row) => row.key !== 'outcome' && row.score !== null && row.quotes?.length && weights[row.key])
-  return dimensions.sort((a, b) => (a.score! / weights[a.key]!) - (b.score! / weights[b.key]!))[0] || null
+  return dimensions.sort((a, b) => a.score! * weights[b.key]! - b.score! * weights[a.key]!
+    || dimensionOrder.indexOf(a.key) - dimensionOrder.indexOf(b.key))[0] || null
 })
 const strengthPoint = computed(() => {
-  const weights = chosenSession.value?.case_snapshot?.score_weights || defaultWeights
+  const weights = reportWeights.value
   return (report.value?.content.dimensions || []).filter(row => row.key !== 'outcome' && row.score !== null && row.quotes?.length && weights[row.key])
-    .sort((a, b) => (b.score! / weights[b.key]!) - (a.score! / weights[a.key]!))[0] || null
+    .sort((a, b) => b.score! * weights[a.key]! - a.score! * weights[b.key]!
+      || dimensionOrder.indexOf(a.key) - dimensionOrder.indexOf(b.key))[0] || null
 })
 const focusPercent = computed(() => {
   const point = coachingPoint.value
-  const maximum = chosenSession.value?.case_snapshot?.score_weights?.[point?.key || ''] || defaultWeights[point?.key || '']
+  const maximum = reportWeights.value[point?.key || '']
   return point && maximum ? Math.round(point.score! * 100 / maximum) : null
 })
 const focusPassPercent = computed(() => Math.min(100, Math.max(70, (focusPercent.value ?? 0) + 10)))
@@ -1229,7 +1233,7 @@ onBeforeUnmount(() => {
           </header>
           <section class="card omega-conversation" aria-labelledby="omega-conversation-title">
             <div class="omega-conversation-head"><div><p class="omega-kicker">对话实录</p><h3 id="omega-conversation-title">逐字稿</h3></div><span class="omega-turn-count">{{ (chosenSession.segments || []).length }} 条发言</span></div>
-            <ol v-if="chosenSession.segments?.length" class="omega-transcript"><li v-for="part in chosenSession.segments" :key="part.id" :class="part.speaker === 'sales' ? 'is-sales' : 'is-counterparty'"><span class="omega-speaker">{{ part.speaker === 'sales' ? (part.source_speaker || '销售') : participants.find(person => person.id === part.speaker_id)?.name || part.source_speaker || '对手／身份未细分' }}</span><p>{{ part.text }}</p></li></ol>
+            <ol v-if="chosenSession.segments?.length" class="omega-transcript"><li v-for="part in chosenSession.segments" :key="part.id" :class="part.speaker === 'sales' ? 'is-sales' : 'is-counterparty'"><span class="omega-speaker">{{ part.speaker === 'sales' ? (part.source_speaker || '销售') : participants.find(person => person.id === part.speaker_id)?.name || part.source_speaker || '对手／身份未细分' }}</span><p>{{ part.text }}</p><details v-if="part.asr_original && part.asr_original !== part.text" class="omega-asr-original"><summary>查看原始识别</summary><p>{{ part.asr_original }}</p></details></li></ol>
             <div v-else class="omega-transcript-empty"><strong>准备好了就开始对话</strong><p>你的发言和对手回复会按顺序显示在这里。</p></div>
             <p v-if="voiceCaption" class="omega-live-caption" role="status">{{ voiceCaption }}</p>
             <div v-if="activeJob && ['queued', 'running'].includes(activeJob.status)" class="omega-responding" role="status">{{ activeJob.kind === 'turn' ? '对手正在回应…' : '报告生成中…' }}</div>
@@ -1426,6 +1430,8 @@ onBeforeUnmount(() => {
 .omega-transcript li.is-sales .omega-speaker { text-align: right; margin-right: 2px; }
 .omega-transcript li p { margin: 0; padding: 12px 15px; border: 1px solid var(--border); border-radius: 4px 12px 12px; background: var(--card-2); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .omega-transcript li.is-sales p { border-color: rgba(78, 158, 245, .24); border-radius: 12px 4px 12px 12px; background: var(--blue-soft); }
+.omega-asr-original { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.omega-asr-original summary { line-height: 44px; cursor: pointer; }
 .omega-transcript-empty { display: grid; align-content: center; justify-items: center; flex: 1; padding: 56px 16px; text-align: center; }
 .omega-transcript-empty strong { font-size: 15px; }
 .omega-transcript-empty p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }

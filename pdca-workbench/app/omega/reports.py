@@ -39,6 +39,18 @@ def verify_quote(quote: dict, segments: dict[str, dict]) -> bool:
     return end <= len(content) and content[start:end] == quote.get("text")
 
 
+def validate_next_practice(raw: str) -> str:
+    try:
+        action = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("下轮练习建议无效") from exc
+    if (not isinstance(action, dict) or set(action) != {"next_practice"}
+            or not isinstance(action["next_practice"], str)
+            or not 1 <= len(action["next_practice"].strip()) <= 1000):
+        raise ValueError("下轮练习建议无效")
+    return action["next_practice"].strip()
+
+
 def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
                     weights: dict[str, int] | None = None) -> dict:
     weights = weights or WEIGHTS
