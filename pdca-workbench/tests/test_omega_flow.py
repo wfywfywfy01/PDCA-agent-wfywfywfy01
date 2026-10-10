@@ -780,24 +780,30 @@ class OmegaReportGenerationTests(unittest.TestCase):
             "long-turn": {"id": "long-turn", "speaker": "sales", "text": text}}) for quote in candidates))
         self.assertTrue(any("第一笔款最早哪天能付" in quote["text"] for quote in candidates))
 
-    def test_deepseek_structured_jobs_use_json_without_thinking(self):
+    def test_deepseek_structured_jobs_use_json_with_kind_specific_thinking(self):
         from app.omega.jobs import _default_generate
 
         settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
                     "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
                     "PDCA_SUPERVISOR_API_KEY": "test-only"}
-        for kind, limit in (("report", 8000), ("memory", 4000)):
+        for kind, limit in (("report", 16384), ("report_audit", 16384),
+                            ("practice", 4096), ("memory", 4000)):
             with self.subTest(kind=kind), patch.dict("os.environ", settings), \
                     patch("app.omega.jobs.httpx.post") as post:
                 post.return_value.json.return_value = {
                     "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}
                 self.assertEqual(_default_generate(kind, [{"role": "user", "content": "JSON"}], limit), "{}")
                 payload = post.call_args.kwargs["json"]
-                self.assertEqual(payload["thinking"], {"type": "disabled"})
+                if kind == "memory":
+                    self.assertEqual(payload["thinking"], {"type": "disabled"})
+                    self.assertNotIn("reasoning_effort", payload)
+                else:
+                    self.assertEqual(payload["thinking"], {"type": "enabled"})
+                    self.assertEqual(payload["reasoning_effort"], "high")
                 self.assertEqual(payload["response_format"], {"type": "json_object"})
                 self.assertEqual(payload["max_tokens"], limit)
                 self.assertNotIn("temperature", payload)
-                self.assertEqual(post.call_args.kwargs["timeout"], 90)
+                self.assertEqual(post.call_args.kwargs["timeout"], 30 if kind == "practice" else 90)
 
     def test_deepseek_text_jobs_disable_thinking_without_forcing_json(self):
         from app.omega.jobs import _default_generate

@@ -7,7 +7,7 @@ from unittest.mock import patch
 from sqlmodel import Session, select
 
 from app.auth.models import User
-from app.omega.context import audit_messages
+from app.omega.context import audit_messages, coach_messages
 from app.omega.jobs import _default_generate, run_once
 from app.omega.models import OmegaJob, OmegaReport, OmegaSegment, OmegaSession, utcnow
 from app.omega.reports import WEIGHTS, validate_report, validate_report_audit
@@ -15,6 +15,21 @@ from tests import test_omega_flow as flow_tests
 
 
 class ReportAuditValidationTests(unittest.TestCase):
+    def test_coach_prompt_separates_parallel_answered_facts_and_unanswered_numbers(self):
+        system = coach_messages({}, [], WEIGHTS)[0]['content']
+        for clause in ('并列事项须逐项核对', '已答的定性顾虑', '周期、资金等数字必须分写',
+                       '否定覆盖全部并列事项', '未进一步追问', '回答细节不足'):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, system)
+
+    def test_audit_prompt_keeps_parallel_negation_scope_and_qualified_gaps_distinct(self):
+        system = audit_messages([], {})[0]['content']
+        for clause in ('并列事项须逐项核对', '否定覆盖全部并列事项',
+                       '不能擅自缩成只有数字未答', '判answered_fact_omitted',
+                       '未进一步追问', '回答细节不足', '不得因已有定性回答而自动拒绝'):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, system)
+
     def test_duplicate_json_keys_cannot_override_a_rejection(self):
         with self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
             validate_report_audit('{"consistent":false,"consistent":true,"issues":[]}')
