@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from app.omega.reports import report_summary
+from app.omega.reports import report_audit_claims, report_summary
 
 
 _FOCUS_PRESSURE = {
@@ -165,10 +165,13 @@ def audit_messages(segments: list[dict], report: dict) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": (
             "你是独立的谈判复盘事实核验员，只核对已验证报告与公开逐字稿是否一致，不重新评分。"
-            "输出严格 JSON：consistent 为布尔值，issues 为不重复的错误代码数组，最多5项。"
-            "仅返回 consistent、issues 两个字段，禁止 type、schema、response_format 等额外字段或包装。"
+            "输出严格 JSON，仅返回 checks 一个字段，其值为逐条核验数组；禁止 type、schema、response_format 等额外字段或包装。"
+            "checks 每项严格只有 claim_id、consistent、issues；consistent 为布尔值，issues 为不重复的错误代码数组，最多5项。"
+            "按输入 claims 对每个 claim_id 恰好核验一次，不能遗漏、重复或添加 claim_id，也不能只返回整体结论。"
+            "逐条核对 text 的所有陈述，并用完整报告检查跨项矛盾；不能只核对开头一句或已有引文而漏掉其它陈述。"
+            "text=null 或空字符串表示没有文字断言（仅空白亦同），仍须返回该项 consistent=true、issues=[]；不能因此遗漏该项。"
             "只能使用 speaker_mismatch、chronology、condition_unconfirmed、answered_fact_omitted、unsupported_fact。"
-            "一致时 consistent=true 且 issues=[]；存在任一错误时 consistent=false 且 issues 非空。"
+            "每项一致时 consistent=true 且 issues=[]；该项存在任一错误时 consistent=false 且 issues 非空。"
             "只拒绝能定位到报告具体陈述与逐字稿证据的明确事实冲突，不能因措辞差异或合理概括就拒绝。"
             "目标、评分规则与已确认底线是外部评判前提，不要求公开逐字稿复述；不能仅因稿中没有这些配置就判虚构。"
             "据这些前提声称客户已确认、已批准或已完成的事件仍必须有原话支持。"
@@ -205,6 +208,7 @@ def audit_messages(segments: list[dict], report: dict) -> list[dict[str, str]]:
             "report": {key: report[key] for key in (
                 "outcome", "dimensions", "score", "commitments", "concession_costs", "hard_limit_findings")
                 if key in report},
+            "claims": report_audit_claims(report),
         }, ensure_ascii=False)},
     ]
 

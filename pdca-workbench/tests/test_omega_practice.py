@@ -56,7 +56,7 @@ class OmegaPracticeTests(unittest.TestCase):
                 self.assertEqual([p['seq'] for p in json.loads(messages[-1]['content'])['transcript']], [1, 2])
                 return json.dumps(self.raw, ensure_ascii=False)
             if kind == 'report_audit':
-                return json.dumps({'consistent': True, 'issues': []})
+                return json.dumps(flow_tests.positive_report_audit(messages))
             self.assertEqual(kind, 'practice')
             payload = json.loads(messages[-1]['content'])
             self.assertEqual(payload['target_dimension']['key'], 'value')
@@ -80,10 +80,10 @@ class OmegaPracticeTests(unittest.TestCase):
 
     def test_invalid_advice_is_retried_once_without_publishing_stale_recommendation(self):
         calls = []
-        def generate(kind, *_):
+        def generate(kind, messages, *_):
             calls.append(kind)
             if kind == 'report_audit':
-                return json.dumps({'consistent': True, 'issues': []})
+                return json.dumps(flow_tests.positive_report_audit(messages))
             return json.dumps(self.raw) if kind == 'report' else json.dumps({'next_practice': ''})
         run_once(self.engine, generate=generate)
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'queued')
@@ -96,10 +96,10 @@ class OmegaPracticeTests(unittest.TestCase):
 
     def test_advice_cannot_return_replacement_scores_or_facts(self):
         calls = []
-        def generate(kind, *_):
+        def generate(kind, messages, *_):
             calls.append(kind)
             if kind == 'report_audit':
-                return json.dumps({'consistent': True, 'issues': []})
+                return json.dumps(flow_tests.positive_report_audit(messages))
             return json.dumps(self.raw) if kind == 'report' else json.dumps({
                 'next_practice': '确认订单。', 'score': {'total': 100}})
         run_once(self.engine, generate=generate)
@@ -111,8 +111,8 @@ class OmegaPracticeTests(unittest.TestCase):
         for dimension in self.raw['dimensions']:
             dimension.update(score=None, reason='证据不足', quotes=[])
         calls = []
-        run_once(self.engine, generate=lambda kind, *_: calls.append(kind) or json.dumps(
-            {'consistent': True, 'issues': []} if kind == 'report_audit' else self.raw))
+        run_once(self.engine, generate=lambda kind, messages, *_: calls.append(kind) or json.dumps(
+            flow_tests.positive_report_audit(messages) if kind == 'report_audit' else self.raw))
         self.assertEqual(calls, ['report', 'report_audit'])
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'succeeded')
 

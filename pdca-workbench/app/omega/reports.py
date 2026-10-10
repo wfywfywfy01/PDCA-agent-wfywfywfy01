@@ -51,8 +51,44 @@ def validate_next_practice(raw: str) -> str:
     return action["next_practice"].strip()
 
 
-def validate_report_audit(raw: str) -> None:
-    """Accept only a positive fact check; the auditor cannot replace report content."""
+def report_audit_claims(report: dict) -> list[dict]:
+    """Enumerate every narrative slot without changing or shortening its text."""
+    if not isinstance(report, dict):
+        raise ValueError("复盘事实核验无效")
+    outcome, dimensions = report.get("outcome"), report.get("dimensions")
+    if (not isinstance(outcome, dict) or outcome.get("status") not in {
+            "achieved", "partial", "not_achieved", "unverified"}
+            or not isinstance(dimensions, list) or len(dimensions) != len(WEIGHTS)):
+        raise ValueError("复盘事实核验无效")
+    claims = []
+
+    def add(claim_id, text, *, required):
+        if text is None and not required:
+            claims.append({"claim_id": claim_id, "text": None})
+            return
+        if not isinstance(text, str) or (required and not text.strip()):
+            raise ValueError("复盘事实核验无效")
+        claims.append({"claim_id": claim_id, "text": text})
+
+    add("outcome.reason", outcome.get("reason"), required=outcome["status"] != "unverified")
+    for index, dimension in enumerate(dimensions):
+        if not isinstance(dimension, dict):
+            raise ValueError("复盘事实核验无效")
+        add(f"dimensions[{index}].reason", dimension.get("reason"), required=dimension.get("score") is not None)
+    for name in ("commitments", "concession_costs", "hard_limit_findings"):
+        items = report.get(name, [])
+        if not isinstance(items, list):
+            raise ValueError("复盘事实核验无效")
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError("复盘事实核验无效")
+            add(f"{name}[{index}].description", item.get("description"), required=True)
+    return claims
+
+
+def validate_report_audit(raw: str, report: dict) -> None:
+    """Require an exact, positive check for every slot in the same validated report."""
+    expected = {claim["claim_id"] for claim in report_audit_claims(report)}
     def unique_object(pairs):
         if len(dict(pairs)) != len(pairs):
             raise ValueError("复盘事实核验无效")
@@ -64,14 +100,23 @@ def validate_report_audit(raw: str) -> None:
         raise ValueError("复盘事实核验无效") from exc
     codes = {"speaker_mismatch", "chronology", "condition_unconfirmed",
              "answered_fact_omitted", "unsupported_fact"}
-    if (not isinstance(audit, dict) or set(audit) != {"consistent", "issues"}
-            or type(audit["consistent"]) is not bool or not isinstance(audit["issues"], list)
-            or len(audit["issues"]) > 5
-            or not all(isinstance(code, str) and code in codes for code in audit["issues"])
-            or len(set(audit["issues"])) != len(audit["issues"])
-            or audit["consistent"] != (not audit["issues"])):
+    if not isinstance(audit, dict) or set(audit) != {"checks"} or not isinstance(audit["checks"], list):
         raise ValueError("复盘事实核验无效")
-    if not audit["consistent"]:
+    seen, consistent = set(), True
+    for check in audit["checks"]:
+        if (not isinstance(check, dict) or set(check) != {"claim_id", "consistent", "issues"}
+                or not isinstance(check["claim_id"], str) or check["claim_id"] not in expected
+                or check["claim_id"] in seen or type(check["consistent"]) is not bool
+                or not isinstance(check["issues"], list) or len(check["issues"]) > 5
+                or not all(isinstance(code, str) and code in codes for code in check["issues"])
+                or len(set(check["issues"])) != len(check["issues"])
+                or check["consistent"] != (not check["issues"])):
+            raise ValueError("复盘事实核验无效")
+        seen.add(check["claim_id"])
+        consistent = consistent and check["consistent"]
+    if seen != expected:
+        raise ValueError("复盘事实核验无效")
+    if not consistent:
         raise ValueError("复盘事实核验未通过")
 
 

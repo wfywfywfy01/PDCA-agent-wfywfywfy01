@@ -179,7 +179,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                                      goal_timing=goal_timing, weights=weights)
             if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
                 return True
-            validate_report_audit(generate("report_audit", audit_messages(segments, result), 32768))
+            validate_report_audit(generate("report_audit", audit_messages(segments, result), 32768), result)
             if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
                 return True
             if report_summary(result)["blocker"]:

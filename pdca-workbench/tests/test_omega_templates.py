@@ -353,7 +353,7 @@ class OmegaTemplateTests(unittest.TestCase):
         def generate(kind, messages, limit):
             prompts.extend(messages)
             if kind == 'report_audit':
-                return json.dumps({'consistent': True, 'issues': []})
+                return json.dumps(fixtures.positive_report_audit(messages))
             self.assertEqual(kind, 'report')
             return result
         self.assertTrue(run_once(self.engine, generate=generate))
