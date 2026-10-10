@@ -91,9 +91,18 @@ def report_audit_claims(report: dict, *, include_practice: bool = False) -> list
     return claims
 
 
+class ReportAuditRejected(ValueError):
+    """A complete valid audit rejected original slots from this candidate only."""
+
+    def __init__(self, rejected_claims: list[dict]) -> None:
+        super().__init__("复盘事实核验未通过")
+        self.rejected_claims = rejected_claims
+
+
 def validate_report_audit(raw: str, report: dict, *, include_practice: bool = False) -> None:
     """Require an exact, positive check for every slot in the same validated report."""
-    expected = {claim["claim_id"] for claim in report_audit_claims(report, include_practice=include_practice)}
+    claims = report_audit_claims(report, include_practice=include_practice)
+    expected = {claim["claim_id"] for claim in claims}
     def unique_object(pairs):
         if len(dict(pairs)) != len(pairs):
             raise ValueError("复盘事实核验无效")
@@ -124,7 +133,11 @@ def validate_report_audit(raw: str, report: dict, *, include_practice: bool = Fa
     if seen != expected:
         raise ValueError("复盘事实核验无效")
     if not consistent:
-        raise ValueError("复盘事实核验未通过")
+        checks = {check["claim_id"]: check for check in audit["checks"]}
+        raise ReportAuditRejected([
+            dict(claim, issues=list(checks[claim["claim_id"]]["issues"]))
+            for claim in claims if not checks[claim["claim_id"]]["consistent"]
+        ])
 
 
 def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
