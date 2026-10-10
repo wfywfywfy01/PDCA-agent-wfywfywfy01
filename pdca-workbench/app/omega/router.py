@@ -59,7 +59,7 @@ def report_input_hash(game: OmegaSession) -> str:
     return digest([
         game.id, game.transcript_hash, game.case_version_id, game.goal_timing,
         game.context_snapshot_json, game.context_source_session_ids_json,
-        "rubric-v2", "coach-v1", os.environ.get("PDCA_SUPERVISOR_PROVIDER", ""),
+        "rubric-v2", "coach-v2", os.environ.get("PDCA_SUPERVISOR_PROVIDER", ""),
         os.environ.get("PDCA_SUPERVISOR_MODEL", ""),
         os.environ.get("PDCA_RELEASE_SHA", "dev"),
     ])

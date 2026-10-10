@@ -13,14 +13,14 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.auth.models import User
-from app.omega.context import actor_messages, coach_messages, select_next_speaker
+from app.omega.context import actor_messages, coach_messages, practice_messages, select_next_speaker
 from app.omega.models import (
     OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment,
     OmegaSession, new_id, utcnow,
     OmegaWorkerHeartbeat,
 )
 from app.omega.policy import require_case, require_session_source
-from app.omega.reports import WEIGHTS, validate_report
+from app.omega.reports import WEIGHTS, report_summary, validate_next_practice, validate_report
 from app.omega.router import digest, report_input_hash, transcript_digest
 
 
@@ -36,7 +36,7 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
             and model.startswith("deepseek-")):
         payload.pop("temperature")
         payload["thinking"] = {"type": "disabled"}
-        if kind in {"report", "memory"}:
+        if kind in {"report", "memory", "practice"}:
             payload["response_format"] = {"type": "json_object"}
     response = httpx.post(
         provider.rstrip("/") + "/v1/chat/completions",
@@ -145,6 +145,24 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing)
             result = validate_report(generate(kind, messages, 8000), segments,
                                      goal_timing=goal_timing, weights=weights)
+            if report_summary(result)["blocker"]:
+                # Recheck before sending the frozen private context to a second call.
+                with Session(engine) as db:
+                    current_job = db.get(OmegaJob, job_id)
+                    if (current_job.status != "running" or current_job.lease_token != token
+                            or _aware(current_job.lease_until) <= utcnow()):
+                        return True
+                    current_game = db.get(OmegaSession, session_id)
+                    if (current_game.status != "ended" or current_game.revision != expected_revision
+                            or report_input_hash(current_game) != input_hash):
+                        raise ValueError("逐字稿已变化")
+                    current_owner = db.get(User, current_game.owner_id)
+                    if current_owner is None:
+                        raise ValueError("创建者账号已不存在")
+                    require_session_source(current_owner, db, current_game)
+                result["next_practice"] = validate_next_practice(generate(
+                    "practice", practice_messages(snapshot, segments, result), 900))
+                result["summary"] = report_summary(result)
             result["hints_used"] = hints_used
         elif kind == "memory":
             result = generate(kind, memory_messages, 4000)
@@ -183,7 +201,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                 report = OmegaReport(session_id=session_id, input_hash=input_hash,
                                      content_json=json.dumps(result, ensure_ascii=False),
                                      model=os.environ.get("PDCA_SUPERVISOR_MODEL", "test-model"),
-                                     rubric_version="rubric-v2")
+                                     rubric_version="rubric-v2", prompt_version="coach-v2")
                 db.add(report)
                 job.result_id = report.id
                 published_report_id, published_owner_id = report.id, owner.id
@@ -210,7 +228,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             job = db.get(OmegaJob, job_id)
             if job and job.status == "running" and job.lease_token == token:
                 retry = (kind == "report" and isinstance(exc, ValueError)
-                         and str(exc) in {"九维评分缺失", "销售评价缺少销售原话", "引文与当前逐字稿不匹配"}
+                         and str(exc) in {"九维评分缺失", "销售评价缺少销售原话", "引文与当前逐字稿不匹配", "下轮练习建议无效"}
                          and job.attempts < 2)
                 job.status = "queued" if retry else "failed"
                 job.error = "" if retry else str(exc)[:300]
