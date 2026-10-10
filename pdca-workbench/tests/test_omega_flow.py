@@ -21,6 +21,12 @@ from app.main import app
 from app.omega.models import OmegaJob, OmegaWorkerHeartbeat, utcnow
 
 
+def positive_report_audit(messages):
+    claims = json.loads(messages[-1]["content"])["claims"]
+    return {"checks": [{"claim_id": claim["claim_id"], "consistent": True, "issues": []}
+                       for claim in claims]}
+
+
 class OmegaFlowTests(unittest.TestCase):
     @staticmethod
     def case_body():
@@ -495,7 +501,9 @@ class OmegaFlowTests(unittest.TestCase):
         calls = []
         segment = self.client.get(f"/api/omega/sessions/{game['id']}").json()["segments"][0]
 
-        def generate(kind, *_):
+        def generate(kind, messages, *_):
+            if kind == "report_audit":
+                return json.dumps(positive_report_audit(messages))
             if kind == "practice":
                 return json.dumps({"next_practice": "先核对客户拒绝确认日期的原因，再商定可验证的时间表。"})
             calls.append(True)
@@ -528,7 +536,9 @@ class OmegaFlowTests(unittest.TestCase):
         queued = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={"request_key": "report-scorecard-retry"}).json()
         calls = []
 
-        def generate(*_):
+        def generate(kind, messages, *_):
+            if kind == "report_audit":
+                return json.dumps(positive_report_audit(messages))
             calls.append(True)
             return json.dumps({"outcome": {"status": "unverified", "reason": "No commitment", "quotes": []},
                                "dimensions": [] if len(calls) == 1 else [
@@ -569,6 +579,7 @@ class OmegaFlowTests(unittest.TestCase):
             }],
         })
         self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: json.dumps(
+            positive_report_audit(messages) if kind == "report_audit" else
             {"next_practice": "先核对付款审批流程，再确认书面时间表。"} if kind == "practice" else report)))
         job_state = self.client.get(f"/api/omega/jobs/{job['id']}").json()
         self.assertEqual(job_state["status"], "succeeded", job_state)
@@ -620,6 +631,7 @@ class OmegaFlowTests(unittest.TestCase):
                 quotes=[{"segment_id": segment["id"], "speaker": "sales", "start": 0,
                          "end": len(utterance), "text": utterance}])
             self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit: json.dumps(
+                positive_report_audit(messages) if kind == "report_audit" else
                 {"next_practice": "先复述交付顾虑，再约定负责人和书面答复时间。"} if kind == "practice" else content)))
             state = self.client.get(f"/api/omega/jobs/{job['id']}").json()
             self.assertEqual(state["status"], "succeeded", state)
@@ -700,6 +712,7 @@ class OmegaFlowTests(unittest.TestCase):
             quotes=[{"segment_id": game["segments"][0]["id"], "speaker": "sales",
                      "start": 0, "end": len(phrase), "text": phrase}])
         self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit: json.dumps(
+            positive_report_audit(messages) if kind == "report_audit" else
             {"next_practice": "先确认哪项交付风险仍未解决，再约定具体的核对动作。"} if kind == "practice" else content)))
         report_id = self.client.get(f"/api/omega/jobs/{job['id']}").json()["result_id"]
         self.assertTrue(report_id)
@@ -773,24 +786,31 @@ class OmegaReportGenerationTests(unittest.TestCase):
             "long-turn": {"id": "long-turn", "speaker": "sales", "text": text}}) for quote in candidates))
         self.assertTrue(any("第一笔款最早哪天能付" in quote["text"] for quote in candidates))
 
-    def test_deepseek_structured_jobs_use_json_without_thinking(self):
+    def test_deepseek_structured_jobs_use_json_with_kind_specific_thinking(self):
         from app.omega.jobs import _default_generate
 
         settings = {"PDCA_SUPERVISOR_PROVIDER": "https://api.deepseek.com",
                     "PDCA_SUPERVISOR_MODEL": "deepseek-flash",
                     "PDCA_SUPERVISOR_API_KEY": "test-only"}
-        for kind, limit in (("report", 8000), ("memory", 4000)):
+        for kind, limit, effort, timeout in (("report", 16384, "high", 90), ("report_audit", 32768, "high", 150),
+                                             ("practice", 4096, "high", 30), ("memory", 4000, None, 90)):
             with self.subTest(kind=kind), patch.dict("os.environ", settings), \
                     patch("app.omega.jobs.httpx.post") as post:
                 post.return_value.json.return_value = {
                     "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}
                 self.assertEqual(_default_generate(kind, [{"role": "user", "content": "JSON"}], limit), "{}")
                 payload = post.call_args.kwargs["json"]
-                self.assertEqual(payload["thinking"], {"type": "disabled"})
+                if kind == "memory":
+                    self.assertEqual(payload["thinking"], {"type": "disabled"})
+                    self.assertNotIn("reasoning_effort", payload)
+                else:
+                    self.assertEqual(payload["thinking"], {"type": "enabled"})
+                    self.assertEqual((payload["reasoning_effort"], post.call_args.kwargs["timeout"]),
+                                     (effort, timeout))
                 self.assertEqual(payload["response_format"], {"type": "json_object"})
                 self.assertEqual(payload["max_tokens"], limit)
                 self.assertNotIn("temperature", payload)
-                self.assertEqual(post.call_args.kwargs["timeout"], 90)
+                self.assertEqual(post.call_args.kwargs["timeout"], timeout)
 
     def test_deepseek_text_jobs_disable_thinking_without_forcing_json(self):
         from app.omega.jobs import _default_generate

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import threading
 from datetime import timedelta, timezone
@@ -13,14 +14,14 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.auth.models import User
-from app.omega.context import actor_messages, coach_messages, practice_messages, select_next_speaker
+from app.omega.context import actor_messages, audit_message_batches, coach_messages, practice_messages, select_next_speaker
 from app.omega.models import (
     OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment,
     OmegaSession, new_id, utcnow,
     OmegaWorkerHeartbeat,
 )
 from app.omega.policy import require_case, require_session_source
-from app.omega.reports import WEIGHTS, report_summary, validate_next_practice, validate_report
+from app.omega.reports import ReportAuditRejected, WEIGHTS, report_audit_checks, report_audit_claims, report_summary, validate_next_practice, validate_report, validate_report_audit
 from app.omega.router import digest, report_input_hash, transcript_digest
 
 
@@ -32,24 +33,33 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
         raise RuntimeError("Omega 文本模型未配置")
     payload = {"model": model, "messages": messages, "max_tokens": max_tokens,
                "temperature": 0.3 if kind in {"report", "draft", "memory"} else 0.8}
+    timeout = 90 if kind in {"report", "memory"} else 20
     if (urlsplit(provider).hostname == "api.deepseek.com"
             and model.startswith("deepseek-")):
         payload.pop("temperature")
-        payload["thinking"] = {"type": "disabled"}
-        if kind in {"report", "memory", "practice"}:
+        reasoning = kind in {"report", "report_audit", "practice"}
+        payload["thinking"] = {"type": "enabled" if reasoning else "disabled"}
+        if reasoning:
+            payload["reasoning_effort"] = "high"
+            timeout = {"report": 90, "report_audit": 150, "practice": 30}[kind]
+        if kind in {"report", "report_audit", "memory", "practice"}:
             payload["response_format"] = {"type": "json_object"}
     response = httpx.post(
         provider.rstrip("/") + "/v1/chat/completions",
         headers={"Authorization": "Bearer " + key},
         json=payload,
-        timeout=90 if kind in {"report", "memory"} else 20,
+        timeout=timeout,
     )
     response.raise_for_status()
     choice = response.json()["choices"][0]
     if choice.get("finish_reason") == "length":
+        if kind == "report_audit":
+            raise ValueError("复盘事实核验无效")
         raise RuntimeError("模型输出被截断")
     content = (choice["message"].get("content") or "").strip()
     if not content:
+        if kind == "report_audit":
+            raise ValueError("复盘事实核验无效")
         raise RuntimeError("模型没有返回正文")
     return content
 
@@ -65,6 +75,99 @@ def _segments(db: Session, session_id: str) -> list[dict]:
 
 def _aware(value):
     return value.replace(tzinfo=timezone.utc) if value and value.tzinfo is None else value
+
+
+def _report_call_allowed(engine, job_id, token, session_id, revision, input_hash) -> bool:
+    """Revalidate the lease, frozen input and current source permissions between calls."""
+    with Session(engine) as db:
+        job = db.get(OmegaJob, job_id)
+        if (job is None or job.status != "running" or job.lease_token != token
+                or not job.lease_until or _aware(job.lease_until) <= utcnow()):
+            return False
+        game = db.get(OmegaSession, session_id)
+        if (game is None or game.status != "ended" or game.revision != revision
+                or report_input_hash(game) != input_hash
+                or transcript_digest(_segments(db, session_id)) != game.transcript_hash):
+            raise ValueError("逐字稿已变化")
+        owner = db.get(User, game.owner_id)
+        if owner is None:
+            raise ValueError("创建者账号已不存在")
+        if not owner.is_active:
+            raise ValueError("创建者账号已停用")
+        require_session_source(owner, db, game)
+    return True
+
+
+_REPORT_AUDIT_FEEDBACK = "_report_audit_feedback"
+
+
+def _report_payload(job: OmegaJob) -> dict:
+    def unique_object(pairs):
+        if len(dict(pairs)) != len(pairs):
+            raise ValueError("复盘重试反馈无效")
+        return dict(pairs)
+    try:
+        payload = json.loads(job.payload_json, object_pairs_hook=unique_object)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("复盘重试反馈无效") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("复盘重试反馈无效")
+    return payload
+
+
+def _clear_report_feedback(job: OmegaJob) -> None:
+    """Remove only the private key; malformed unrelated data is left untouched."""
+    try:
+        payload = _report_payload(job)
+    except ValueError:
+        return
+    if _REPORT_AUDIT_FEEDBACK in payload:
+        del payload[_REPORT_AUDIT_FEEDBACK]
+        job.payload_json = json.dumps(payload, ensure_ascii=False)
+
+
+def _report_rejection_feedback(job: OmegaJob, claims: list[dict]) -> dict | None:
+    # A null no-assertion slot may be rejected under the existing audit contract.
+    # Preserve that rejection, but never drop it to create partial retry feedback.
+    if not all(isinstance(claim["text"], str) for claim in claims):
+        return None
+    return {"job_id": job.id, "session_id": job.session_id, "input_hash": job.input_hash,
+            "session_revision": job.session_revision, "rejected_attempt": job.attempts,
+            "claims": claims}
+
+
+def _report_retry_feedback(job: OmegaJob) -> list[dict] | None:
+    """Consume only a strict, bound first rejection during the second attempt."""
+    payload = _report_payload(job)
+    if _REPORT_AUDIT_FEEDBACK not in payload:
+        return None
+    feedback = payload[_REPORT_AUDIT_FEEDBACK]
+    binding = {"job_id": job.id, "session_id": job.session_id, "input_hash": job.input_hash,
+               "session_revision": job.session_revision, "rejected_attempt": 1}
+    if (job.attempts != 2 or not isinstance(feedback, dict)
+            or set(feedback) != {*binding, "claims"}
+            or any(type(feedback[key]) is not type(value) or feedback[key] != value
+                   for key, value in binding.items())
+            or not isinstance(feedback["claims"], list) or not feedback["claims"]):
+        raise ValueError("复盘重试反馈无效")
+    codes = {"speaker_mismatch", "chronology", "condition_unconfirmed",
+             "answered_fact_omitted", "unsupported_fact"}
+    seen = set()
+    for claim in feedback["claims"]:
+        if (not isinstance(claim, dict) or set(claim) != {"claim_id", "text", "issues"}
+                or not isinstance(claim["claim_id"], str)
+                or not re.fullmatch(r"outcome\.reason|dimensions\[[0-8]\]\.reason|"
+                                    r"(?:commitments|concession_costs|hard_limit_findings)\[(?:0|[1-9][0-9]*)\]\.description|next_practice",
+                                    claim["claim_id"])
+                or claim["claim_id"] in seen or not isinstance(claim["text"], str)
+                or not isinstance(claim["issues"], list) or not 1 <= len(claim["issues"]) <= 5
+                or not all(isinstance(code, str) and (code in codes or (
+                    claim["claim_id"] == "next_practice" and code == "refusal_precondition"))
+                           for code in claim["issues"])
+                or len(set(claim["issues"])) != len(claim["issues"])):
+            raise ValueError("复盘重试反馈无效")
+        seen.add(claim["claim_id"])
+    return feedback["claims"]
 
 
 def run_once(engine, *, generate=_default_generate) -> bool:
@@ -83,6 +186,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             old.status = "failed" if old.attempts >= 2 else "queued"
             old.lease_token = ""
             old.error = "任务租约过期" if old.status == "failed" else ""
+            if old.kind == "report" and old.status == "failed":
+                _clear_report_feedback(old)
         db.commit()
         job = db.exec(select(OmegaJob).where(
             OmegaJob.status == "queued", OmegaJob.kind.in_(["turn", "report", "memory"]),
@@ -94,7 +199,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
         token = new_id()
         job.status = "running"
         job.lease_token = token
-        job.lease_until = now + timedelta(seconds=180)
+        job.lease_until = now + timedelta(seconds=300 if job.kind == "report" else 180)
         job.attempts += 1
         job.updated_at = now
         job_id, kind = job.id, job.kind
@@ -108,6 +213,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             owner = db.get(User, game.owner_id)
             if owner is None:
                 raise ValueError("创建者账号已不存在")
+            if kind == "report" and not owner.is_active:
+                raise ValueError("创建者账号已停用")
             require_case(owner, db, case)
             require_session_source(owner, db, game)
             version = db.get(OmegaCaseVersion, game.case_version_id)
@@ -141,28 +248,34 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             if len(result) > 4000:
                 raise ValueError("模拟客户回复超出长度上限")
         elif kind == "report":
+            if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                return True
+            audit_feedback = _report_retry_feedback(job)
             weights = snapshot.get("score_weights", WEIGHTS)
-            messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing)
-            result = validate_report(generate(kind, messages, 8000), segments,
+            messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing,
+                                      audit_feedback=audit_feedback)
+            result = validate_report(generate(kind, messages, 16384), segments,
                                      goal_timing=goal_timing, weights=weights)
+            report_audit_claims(result)
+            if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                return True
+            result["next_practice"] = ""
             if report_summary(result)["blocker"]:
-                # Recheck before sending the frozen private context to a second call.
-                with Session(engine) as db:
-                    current_job = db.get(OmegaJob, job_id)
-                    if (current_job.status != "running" or current_job.lease_token != token
-                            or _aware(current_job.lease_until) <= utcnow()):
-                        return True
-                    current_game = db.get(OmegaSession, session_id)
-                    if (current_game.status != "ended" or current_game.revision != expected_revision
-                            or report_input_hash(current_game) != input_hash):
-                        raise ValueError("逐字稿已变化")
-                    current_owner = db.get(User, current_game.owner_id)
-                    if current_owner is None:
-                        raise ValueError("创建者账号已不存在")
-                    require_session_source(current_owner, db, current_game)
                 result["next_practice"] = validate_next_practice(generate(
-                    "practice", practice_messages(snapshot, segments, result), 900))
-                result["summary"] = report_summary(result)
+                    "practice", practice_messages(snapshot, segments, result, audit_feedback=audit_feedback), 4096))
+            result["summary"] = report_summary(result)
+            if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                return True
+            checks = []
+            for messages in audit_message_batches(segments, result, include_practice=True):
+                if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                    return True
+                audit_raw = generate("report_audit", messages, 32768)
+                if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                    return True
+                expected = {claim["claim_id"] for claim in json.loads(messages[-1]["content"])["claims"]}
+                checks.extend(report_audit_checks(audit_raw, expected, include_practice=True))
+            validate_report_audit(json.dumps({"checks": checks}), result, include_practice=True)
             result["hints_used"] = hints_used
         elif kind == "memory":
             result = generate(kind, memory_messages, 4000)
@@ -183,6 +296,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             owner = db.get(User, game.owner_id)
             if owner is None:
                 raise ValueError("创建者账号已不存在")
+            if kind == "report" and not owner.is_active:
+                raise ValueError("创建者账号已停用")
             require_case(owner, db, db.get(OmegaCase, game.case_id))
             require_session_source(owner, db, game)
             if kind == "turn":
@@ -198,10 +313,12 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                 if (game.status != "ended"
                         or report_input_hash(game) != input_hash):
                     return True
+                if transcript_digest(_segments(db, session_id)) != game.transcript_hash:
+                    raise ValueError("逐字稿已变化")
                 report = OmegaReport(session_id=session_id, input_hash=input_hash,
                                      content_json=json.dumps(result, ensure_ascii=False),
                                      model=os.environ.get("PDCA_SUPERVISOR_MODEL", "test-model"),
-                                     rubric_version="rubric-v2", prompt_version="coach-v2")
+                                     rubric_version="rubric-v2", prompt_version="coach-v4")
                 db.add(report)
                 job.result_id = report.id
                 published_report_id, published_owner_id = report.id, owner.id
@@ -209,6 +326,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                 proposal = finish_memory_job(db, owner, job, result)
                 job.result_id = proposal.id
             job.status = "succeeded"
+            if kind == "report":
+                _clear_report_feedback(job)
             job.lease_token = ""
             job.updated_at = utcnow()
             db.commit()
@@ -225,17 +344,56 @@ def run_once(engine, *, generate=_default_generate) -> bool:
         return True
     except Exception as exc:
         with Session(engine) as db:
-            job = db.get(OmegaJob, job_id)
-            if job and job.status == "running" and job.lease_token == token:
+            rejected = kind == "report" and isinstance(exc, ReportAuditRejected)
+            if rejected:
+                game = db.exec(select(OmegaSession).where(
+                    OmegaSession.id == session_id).with_for_update()).first()
+            job = db.exec(select(OmegaJob).where(OmegaJob.id == job_id)
+                          .with_for_update().execution_options(populate_existing=True)).first()
+            if (job and job.status == "running" and job.lease_token == token
+                    and job.lease_until and _aware(job.lease_until) > utcnow()):
                 retry = (kind == "report" and isinstance(exc, ValueError)
-                         and str(exc) in {"九维评分缺失", "销售评价缺少销售原话", "引文与当前逐字稿不匹配", "下轮练习建议无效"}
+                         and str(exc) in {"九维评分缺失", "销售评价缺少销售原话", "引文与当前逐字稿不匹配", "下轮练习建议无效",
+                                          "复盘事实核验未通过", "复盘事实核验无效"}
                          and job.attempts < 2)
+                if retry and rejected:
+                    try:
+                        if (game is None or game.status != "ended" or game.revision != expected_revision
+                                or job.session_revision != expected_revision or job.input_hash != input_hash
+                                or report_input_hash(game) != input_hash
+                                or transcript_digest(_segments(db, session_id)) != game.transcript_hash):
+                            raise ValueError("逐字稿已变化")
+                        owner = db.get(User, game.owner_id)
+                        if owner is None:
+                            raise ValueError("创建者账号已不存在")
+                        if not owner.is_active:
+                            raise ValueError("创建者账号已停用")
+                        require_case(owner, db, db.get(OmegaCase, game.case_id))
+                        require_session_source(owner, db, game)
+                        feedback = _report_rejection_feedback(job, exc.rejected_claims)
+                        if feedback is not None:
+                            payload = _report_payload(job)
+                            payload[_REPORT_AUDIT_FEEDBACK] = feedback
+                            job.payload_json = json.dumps(payload, ensure_ascii=False)
+                        else:
+                            _clear_report_feedback(job)
+                    except Exception as guard_error:
+                        exc, retry = guard_error, False
                 job.status = "queued" if retry else "failed"
+                if kind == "report" and not retry:
+                    _clear_report_feedback(job)
                 job.error = "" if retry else str(exc)[:300]
                 job.lease_token = ""
                 job.updated_at = utcnow()
                 db.commit()
         return True
+    finally:
+        if kind == "report":
+            with Session(engine) as db:
+                job = db.exec(select(OmegaJob).where(OmegaJob.id == job_id).with_for_update()).first()
+                if job and job.status == "cancelled":
+                    _clear_report_feedback(job)
+                    db.commit()
 
 
 def serve_forever(engine, *, interval=0.5):
