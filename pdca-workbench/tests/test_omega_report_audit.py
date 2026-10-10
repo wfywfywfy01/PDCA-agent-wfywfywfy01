@@ -26,7 +26,12 @@ class ReportAuditValidationTests(unittest.TestCase):
         system = audit_messages([], {})[0]['content']
         for clause in ('并列事项须逐项核对', '否定覆盖全部并列事项',
                        '不能擅自缩成只有数字未答', '判answered_fact_omitted',
-                       '未进一步追问', '回答细节不足', '不得因已有定性回答而自动拒绝'):
+                       '未进一步追问', '回答细节不足', '不得因已有定性回答而自动拒绝',
+                       '仅返回 consistent、issues 两个字段', '禁止 type',
+                       '同一条件在 outcome.reason', '即使 status=partial',
+                       '不得声称已符合最低目标', '提问或单方计划不能当作对方确认',
+                       '判 condition_unconfirmed', '不能只凭 partial 拒绝',
+                       '不混淆理想目标与最低目标'):
             with self.subTest(clause=clause):
                 self.assertIn(clause, system)
 
