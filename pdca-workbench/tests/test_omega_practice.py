@@ -68,7 +68,7 @@ class OmegaPracticeTests(unittest.TestCase):
         self.assertTrue(run_once(self.engine, generate=generate))
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'succeeded', job)
-        self.assertEqual(calls, ['report', 'report_audit', 'practice'])
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'])
         published = self.client.get('/api/omega/reports/' + job['result_id']).json()
         self.assertEqual(self.report_rows()[0].prompt_version, 'coach-v4')
         report = published['content']
@@ -92,7 +92,7 @@ class OmegaPracticeTests(unittest.TestCase):
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'failed')
         self.assertEqual(self.report_rows(), [])
-        self.assertEqual(calls, ['report', 'report_audit', 'practice'] * 2)
+        self.assertEqual(calls, ['report', 'practice'] * 2)
 
     def test_advice_cannot_return_replacement_scores_or_facts(self):
         calls = []
@@ -105,7 +105,7 @@ class OmegaPracticeTests(unittest.TestCase):
         run_once(self.engine, generate=generate)
         self.assertEqual(self.report_rows(), [])
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'queued')
-        self.assertEqual(calls, ['report', 'report_audit', 'practice'])
+        self.assertEqual(calls, ['report', 'practice'])
 
     def test_insufficient_evidence_does_not_invent_a_scored_focus(self):
         for dimension in self.raw['dimensions']:

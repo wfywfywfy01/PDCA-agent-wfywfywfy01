@@ -8,7 +8,7 @@ from unittest.mock import patch
 from sqlmodel import Session, select
 
 from app.auth.models import User
-from app.omega.context import audit_messages, coach_messages
+from app.omega.context import audit_messages, coach_messages, practice_messages
 from app.omega.jobs import _default_generate, run_once
 from app.omega.models import OmegaJob, OmegaReport, OmegaSegment, OmegaSession, utcnow
 from app.omega.reports import WEIGHTS, validate_report, validate_report_audit
@@ -59,7 +59,10 @@ class ReportAuditValidationTests(unittest.TestCase):
                        '不得仅凭提问或列举选项写成坚持、要求或同意',
                        '询问文件形式不自动等于坚持某选项',
                        '次数或语气强度超出原话支持时，判 unsupported_fact',
-                       '准确保留提问或条件的概括不得因此拒绝'):
+                       '准确保留提问或条件的概括不得因此拒绝',
+                       '条件性文件选择疑问', '不能将其加入同一要求次数',
+                       '明确次数、连续性、坚持等强断言必须按每次原话逐一成立',
+                       '不能当作措辞差异放行'):
             with self.subTest(clause=clause):
                 self.assertIn(clause, system)
 
@@ -191,6 +194,99 @@ class ReportAuditValidationTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_', json.dumps(messages))
         self.assertEqual(json.dumps([report, parts], ensure_ascii=False, sort_keys=True), before)
 
+    def test_dual_mode_claims_preserve_fact_slots_and_full_practice_without_mutation(self):
+        report = audit_fixture_report()
+        report['next_practice'] = '  先内部核实，再答复客户，不保证批准。' * 70
+        before = json.dumps(report, ensure_ascii=False, sort_keys=True)
+        facts = report_tools.report_audit_claims(report)
+        combined = report_tools.report_audit_claims(report, include_practice=True)
+        self.assertEqual(combined, facts + [{'claim_id': 'next_practice', 'text': report['next_practice']}])
+        self.assertEqual(len(facts), 10)
+        self.assertEqual(len(combined), 11)
+        self.assertEqual(json.dumps(report, ensure_ascii=False, sort_keys=True), before)
+        self.assertEqual(report_tools.report_audit_claims(report, include_practice=False), facts)
+
+    def test_practice_slot_requires_string_and_nonempty_when_blocker_exists(self):
+        for blocker in (False, True):
+            for value in (None, [], {}, 0, False):
+                report = audit_fixture_report()
+                report['next_practice'] = value
+                if blocker:
+                    report['dimensions'][6].update(score=10, quotes=[{'speaker': 'sales'}])
+                with self.subTest(blocker=blocker, value=value), self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+                    report_tools.report_audit_claims(report, include_practice=True)
+        for value in ('', '  '):
+            report = audit_fixture_report()
+            report['next_practice'] = value
+            self.assertEqual(report_tools.report_audit_claims(report, include_practice=True)[-1],
+                             {'claim_id': 'next_practice', 'text': value})
+            report['dimensions'][6].update(score=10, quotes=[{'speaker': 'sales'}])
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+                report_tools.report_audit_claims(report, include_practice=True)
+        with self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+            report_tools.report_audit_claims(audit_fixture_report(), include_practice=True)
+
+    def test_practice_mode_requires_exact_extra_slot_and_scopes_refusal_code(self):
+        report = dict(audit_fixture_report(), next_practice='先请客户填空表，才做内部核实。')
+        valid = audit_fixture_checks()
+        valid['checks'].append({'claim_id': 'next_practice', 'consistent': True, 'issues': []})
+        self.assertIsNone(validate_report_audit(json.dumps(valid), report, include_practice=True))
+        invalid = [audit_fixture_checks(), {'checks': valid['checks'] + [valid['checks'][-1]]},
+                   {'checks': valid['checks'] + [{'claim_id': 'summary.next_step', 'consistent': True, 'issues': []}]}]
+        for payload in invalid:
+            with self.subTest(payload=payload), self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+                validate_report_audit(json.dumps(payload), report, include_practice=True)
+        with self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+            validate_report_audit(json.dumps(valid), report)
+        valid['checks'][-1].update(consistent=False, issues=['refusal_precondition'])
+        with self.assertRaisesRegex(ValueError, '复盘事实核验未通过'):
+            validate_report_audit(json.dumps(valid), report, include_practice=True)
+        valid['checks'][-1].update(consistent=True, issues=[])
+        valid['checks'][0].update(consistent=False, issues=['refusal_precondition'])
+        for flag in (False, True):
+            payload = valid if flag else {'checks': valid['checks'][:-1]}
+            with self.subTest(include_practice=flag), self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+                validate_report_audit(json.dumps(payload), report, include_practice=flag)
+
+    def test_optional_mode_is_keyword_only_on_all_three_helpers(self):
+        import inspect
+        for function in (audit_messages, report_tools.report_audit_claims, validate_report_audit):
+            with self.subTest(function=function.__name__):
+                parameter = inspect.signature(function).parameters['include_practice']
+                self.assertIs(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
+                self.assertIs(parameter.default, False)
+
+    def test_practice_audit_retains_public_scope_and_checks_only_final_advice(self):
+        report = dict(audit_fixture_report(), next_practice='先核实实际边界再答复。',
+                      summary={'next_step': 'EXCLUDED_OLD_ADVICE'}, seller_private='EXCLUDED_PRIVATE',
+                      goal={'minimum': 'EXCLUDED_GOAL'}, memory_context='EXCLUDED_MEMORY')
+        parts = [{'id': 'one', 'speaker': 'counterparty', 'text': '别再拿空表，先确认能出具什么文件。'}]
+        messages = audit_messages(parts, report, include_practice=True)
+        payload = json.loads(messages[-1]['content'])
+        self.assertEqual(set(payload), {'transcript', 'report', 'claims'})
+        self.assertEqual(payload['report']['next_practice'], report['next_practice'])
+        self.assertEqual(payload['claims'][-1], {'claim_id': 'next_practice', 'text': report['next_practice']})
+        self.assertEqual(payload['transcript'][0]['text'], parts[0]['text'])
+        self.assertNotIn('EXCLUDED_', json.dumps(messages))
+        for clause in ('refusal_precondition', '仅用于 next_practice', '先内部核实形成实际结论',
+                       '不能把客户先补口径、填表或圈选作为内部核实的前提',
+                       '不禁止所有表格或再次沟通', '条件性文件选择疑问'):
+            self.assertIn(clause, messages[0]['content'])
+        self.assertNotIn('不要评价分数高低或建议好坏', messages[0]['content'])
+        defaults = audit_messages(parts, report)
+        self.assertNotIn('refusal_precondition', defaults[0]['content'])
+        self.assertNotIn('next_practice', json.loads(defaults[-1]['content'])['report'])
+        self.assertEqual(defaults, audit_messages(parts, report, include_practice=False))
+
+    def test_practice_prompt_requires_internal_results_before_customer_reply(self):
+        system = practice_messages({}, [], audit_fixture_report())[0]['content']
+        for clause in ('先内部核实形成实际结论，再答复客户',
+                       '不能把客户先补口径、填表或圈选作为内部核实的前提',
+                       '空框架只可作内部待核实清单', '未知数据留待核对',
+                       '不能保证获批、盖章或交付正式条款'):
+            self.assertIn(clause, system)
+        self.assertNotIn('据此补待核对材料', system)
+
     def test_deepseek_report_stages_use_kind_specific_thinking_json_and_stage_timeout(self):
         with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
                 'PDCA_SUPERVISOR_MODEL': 'deepseek-flash', 'PDCA_SUPERVISOR_API_KEY': 'test-only'}), \
@@ -310,13 +406,13 @@ class ReportAuditTests(unittest.TestCase):
                 clock['now'] = start + timedelta(seconds=90)
                 return json.dumps(self.raw)
             if kind == 'report_audit':
-                clock['now'] = start + timedelta(seconds=180)
+                clock['now'] = start + timedelta(seconds=final_elapsed)
                 return audit_reply(messages)
-            clock['now'] = start + timedelta(seconds=final_elapsed)
+            clock['now'] = start + timedelta(seconds=120)
             return json.dumps({'next_practice': 'Confirm the permitted public terms.'})
         with patch('app.omega.jobs.utcnow', side_effect=lambda: clock['now']):
             self.assertTrue(run_once(self.engine, generate=generate))
-        self.assertEqual(calls, ['report', 'report_audit', 'practice'])
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'])
         self.assertEqual(leases, [start + timedelta(seconds=300)] * 3)
 
     def test_report_lease_covers_250_seconds_without_renewing_or_bypassing_guards(self):
@@ -356,7 +452,7 @@ class ReportAuditTests(unittest.TestCase):
                 self.assertEqual(leases, [start + timedelta(seconds=180)])
                 self.assertEqual(self.job()['status'], 'failed')
 
-    def test_inconsistent_audit_retries_without_practice_publication_or_memory(self):
+    def test_inconsistent_audit_retries_without_publication_or_memory(self):
         calls = []
 
         def generate(kind, messages, _limit):
@@ -368,11 +464,11 @@ class ReportAuditTests(unittest.TestCase):
             return json.dumps({'next_practice': '先核实正式条款是否可出具。'})
 
         self.assertTrue(run_once(self.engine, generate=generate))
-        self.assertEqual(calls, ['report', 'report_audit'])
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'])
         self.assertEqual(self.job()['status'], 'queued')
         self.assert_unpublished()
         self.assertTrue(run_once(self.engine, generate=generate))
-        self.assertEqual(calls, ['report', 'report_audit'] * 2)
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'] * 2)
         self.assertEqual(self.job()['status'], 'failed')
         self.assertEqual(self.job()['error'], '复盘事实核验未通过')
         self.assert_unpublished()
@@ -381,27 +477,34 @@ class ReportAuditTests(unittest.TestCase):
         calls = []
         def generate(kind, *_):
             calls.append(kind)
-            return json.dumps(self.raw) if kind == 'report' else '{"consistent":"true","issues":[]}'
+            if kind == 'report':
+                return json.dumps(self.raw)
+            if kind == 'practice':
+                return '{"next_practice":"先内部核实。"}'
+            return '{"consistent":"true","issues":[]}'
         for expected in ('queued', 'failed'):
             self.assertTrue(run_once(self.engine, generate=generate))
             self.assertEqual(self.job()['status'], expected)
             self.assert_unpublished()
-        self.assertEqual(calls, ['report', 'report_audit'] * 2)
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'] * 2)
 
-    def test_missing_check_retries_without_practice_publication_or_memory(self):
+    def test_missing_practice_check_retries_without_publication_or_memory(self):
         calls = []
         def generate(kind, messages, _limit):
             calls.append(kind)
             if kind == 'report':
                 return json.dumps(self.raw)
+            if kind == 'practice':
+                return '{"next_practice":"先内部核实。"}'
             payload = json.loads(audit_reply(messages))
-            payload['checks'].pop()
+            missing = payload['checks'].pop()
+            self.assertEqual(missing['claim_id'], 'next_practice')
             return json.dumps(payload)
         for expected in ('queued', 'failed'):
             run_once(self.engine, generate=generate)
             self.assertEqual(self.job()['status'], expected)
             self.assert_unpublished()
-        self.assertEqual(calls, ['report', 'report_audit'] * 2)
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'] * 2)
         self.assertEqual(self.job()['error'], '复盘事实核验无效')
 
     def test_false_check_for_null_scored_reason_blocks_publication(self):
@@ -411,13 +514,15 @@ class ReportAuditTests(unittest.TestCase):
             calls.append(kind)
             if kind == 'report':
                 return json.dumps(self.raw)
+            if kind == 'practice':
+                return '{"next_practice":"先内部核实。"}'
             payload = json.loads(messages[-1]['content'])
             self.assertEqual(payload['claims'][8], {'claim_id': 'dimensions[7].reason',
                                                     'text': self.raw['dimensions'][7]['reason']})
             self.assertIsNone(payload['report']['dimensions'][7]['score'])
             return audit_reply(messages, rejected='dimensions[7].reason')
         run_once(self.engine, generate=generate)
-        self.assertEqual(calls, ['report', 'report_audit'])
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'])
         self.assertEqual(self.job()['status'], 'queued')
         self.assert_unpublished()
 
@@ -450,17 +555,19 @@ class ReportAuditTests(unittest.TestCase):
                 self.assertEqual([p['speaker'] for p in payload['transcript']], ['sales', 'counterparty'])
                 self.assertEqual([p['text'] for p in payload['transcript']], [p['text'] for p in self.parts])
                 self.assertEqual(payload['report']['dimensions'], self.raw['dimensions'])
-                self.assertNotIn('next_practice', payload['report'])
+                self.assertEqual(payload['report']['next_practice'], '先内部核实可公开的条款与替代路径。')
                 self.assertNotIn('summary', payload['report'])
                 self.assertNotIn('PRIVATE_BOTTOM_LINE', json.dumps(messages))
-                self.assertEqual(len(payload['claims']), 10)
+                self.assertEqual(len(payload['claims']), 11)
                 self.assertEqual(payload['claims'][7], {'claim_id': 'dimensions[6].reason', 'text': '明确守住底线'})
+                self.assertEqual(payload['claims'][-1], {'claim_id': 'next_practice',
+                                                      'text': '先内部核实可公开的条款与替代路径。'})
                 return audit_reply(messages)
             self.assertEqual(kind, 'practice')
             self.assertEqual(limit, 4096)
             return json.dumps({'next_practice': '先内部核实可公开的条款与替代路径。'})
         self.assertTrue(run_once(self.engine, generate=generate))
-        self.assertEqual(calls, ['report', 'report_audit', 'practice'])
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'])
         job = self.job()
         self.assertEqual(job['status'], 'succeeded', job)
         published = self.client.get('/api/omega/reports/' + job['result_id']).json()['content']
@@ -490,7 +597,7 @@ class ReportAuditTests(unittest.TestCase):
         run_once(self.engine, generate=generate)
         job = self.job()
         self.assertEqual(job['status'], 'succeeded', job)
-        self.assertEqual(calls, ['report', 'report_audit', 'report', 'report_audit', 'practice'])
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'] * 2)
         report = self.client.get('/api/omega/reports/' + job['result_id']).json()['content']
         self.assertEqual(report['outcome']['reason'], '新报告确认尚未批准')
 
@@ -500,10 +607,76 @@ class ReportAuditTests(unittest.TestCase):
         calls = []
         def generate(kind, messages, _limit):
             calls.append(kind)
-            return json.dumps(self.raw) if kind == 'report' else audit_reply(messages)
+            if kind == 'report':
+                return json.dumps(self.raw)
+            payload = json.loads(messages[-1]['content'])
+            self.assertEqual(payload['claims'][-1], {'claim_id': 'next_practice', 'text': ''})
+            self.assertEqual(payload['report']['next_practice'], '')
+            return audit_reply(messages)
         run_once(self.engine, generate=generate)
         self.assertEqual(calls, ['report', 'report_audit'])
         self.assertEqual(self.job()['status'], 'succeeded')
+        report = self.client.get('/api/omega/reports/' + self.job()['result_id']).json()['content']
+        self.assertEqual(report['next_practice'], '')
+        self.assertEqual(report['summary']['next_step'], '')
+
+    def test_rejected_practice_retries_full_pipeline_without_publishing_or_memory(self):
+        calls = []
+        advice = '请您先补口径并圈选空表，我再据此做内部核实。'
+        def generate(kind, messages, _limit):
+            calls.append(kind)
+            if kind == 'report':
+                return json.dumps(self.raw)
+            if kind == 'practice':
+                return json.dumps({'next_practice': advice})
+            self.assertEqual(json.loads(messages[-1]['content'])['claims'][-1],
+                             {'claim_id': 'next_practice', 'text': advice})
+            return audit_reply(messages, rejected='next_practice', code='refusal_precondition')
+        for expected in ('queued', 'failed'):
+            run_once(self.engine, generate=generate)
+            self.assertEqual(self.job()['status'], expected)
+            self.assert_unpublished()
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'] * 2)
+        self.assertEqual(self.job()['error'], '复盘事实核验未通过')
+
+    def test_bad_practice_cannot_be_replaced_by_audit_and_retry_checks_fresh_report(self):
+        calls, reports = [], []
+        def generate(kind, messages, _limit):
+            calls.append(kind)
+            if kind == 'report':
+                fresh = dict(self.raw, outcome={**self.raw['outcome'], 'reason': f'第{len(reports) + 1}份报告'})
+                reports.append(fresh)
+                return json.dumps(fresh)
+            if kind == 'practice':
+                return json.dumps({'next_practice': '先请客户填表。' if len(reports) == 1 else '先内部核实再答复。'})
+            payload = json.loads(messages[-1]['content'])
+            self.assertEqual(payload['report']['outcome'], reports[-1]['outcome'])
+            self.assertEqual(payload['report']['dimensions'], self.raw['dimensions'])
+            return audit_reply(messages, rejected='next_practice' if len(reports) == 1 else None,
+                               code='refusal_precondition')
+        run_once(self.engine, generate=generate)
+        self.assertEqual(self.job()['status'], 'queued')
+        self.assert_unpublished()
+        run_once(self.engine, generate=generate)
+        job = self.job()
+        self.assertEqual(job['status'], 'succeeded')
+        self.assertEqual(calls, ['report', 'practice', 'report_audit'] * 2)
+        report = self.client.get('/api/omega/reports/' + job['result_id']).json()['content']
+        self.assertEqual(report['outcome'], reports[1]['outcome'])
+        self.assertEqual(report['dimensions'], self.raw['dimensions'])
+        self.assertEqual(report['next_practice'], '先内部核实再答复。')
+
+    def test_empty_practice_retries_before_audit_without_publication(self):
+        calls = []
+        def generate(kind, *_):
+            calls.append(kind)
+            return json.dumps(self.raw) if kind == 'report' else '{"next_practice":" "}'
+        for expected in ('queued', 'failed'):
+            run_once(self.engine, generate=generate)
+            self.assertEqual(self.job()['status'], expected)
+            self.assert_unpublished()
+        self.assertEqual(calls, ['report', 'practice'] * 2)
+        self.assertEqual(self.job()['error'], '下轮练习建议无效')
 
     def test_disabled_owner_during_report_blocks_the_audit(self):
         calls = []
@@ -551,9 +724,11 @@ class ReportAuditTests(unittest.TestCase):
                 return audit_reply(messages)
             return '{"next_practice":"先核实正式条款。"}'
         run_once(self.engine, generate=generate)
-        expected = ['report'] if stage == 'report' else ['report', 'report_audit']
-        if stage == 'practice':
+        expected = ['report']
+        if stage != 'report':
             expected.append('practice')
+        if stage == 'report_audit':
+            expected.append('report_audit')
         self.assertEqual(calls, expected)
         self.assert_unpublished()
         if change == 'lease':
@@ -561,38 +736,53 @@ class ReportAuditTests(unittest.TestCase):
         elif change != 'expired':
             self.assertEqual(self.job()['status'], 'failed')
 
-    def test_permission_revoked_during_report_blocks_audit(self):
+    def test_permission_revoked_during_report_blocks_practice_and_audit(self):
         self.assert_boundary_stops('report', 'permission')
 
-    def test_permission_revoked_during_audit_blocks_practice(self):
+    def test_permission_revoked_during_audit_blocks_publication(self):
         self.assert_boundary_stops('report_audit', 'permission')
 
-    def test_revision_changed_during_report_blocks_audit(self):
+    def test_revision_changed_during_report_blocks_practice_and_audit(self):
         self.assert_boundary_stops('report', 'revision')
 
-    def test_revision_changed_during_audit_blocks_practice(self):
+    def test_revision_changed_during_audit_blocks_publication(self):
         self.assert_boundary_stops('report_audit', 'revision')
 
-    def test_changed_frozen_input_during_audit_blocks_practice(self):
+    def test_changed_frozen_input_during_audit_blocks_publication(self):
         self.assert_boundary_stops('report_audit', 'hash')
 
-    def test_changed_transcript_without_revision_during_audit_blocks_practice(self):
+    def test_changed_transcript_without_revision_during_audit_blocks_publication(self):
         self.assert_boundary_stops('report_audit', 'transcript')
 
-    def test_cancelled_lease_during_report_blocks_audit(self):
+    def test_cancelled_lease_during_report_blocks_practice_and_audit(self):
         self.assert_boundary_stops('report', 'lease')
 
-    def test_expired_lease_during_audit_blocks_practice(self):
+    def test_expired_lease_during_audit_blocks_publication(self):
         self.assert_boundary_stops('report_audit', 'expired')
 
     def test_disabled_owner_during_practice_blocks_publication(self):
         self.assert_boundary_stops('practice', 'disabled')
 
-    def test_disabled_owner_during_audit_blocks_practice(self):
+    def test_disabled_owner_during_audit_blocks_publication(self):
         self.assert_boundary_stops('report_audit', 'disabled')
 
     def test_changed_transcript_without_revision_during_practice_blocks_publication(self):
         self.assert_boundary_stops('practice', 'transcript')
+
+    def test_permission_revoked_during_practice_blocks_audit(self):
+        self.assert_boundary_stops('practice', 'permission')
+
+    def test_revision_changed_during_practice_blocks_audit(self):
+        self.assert_boundary_stops('practice', 'revision')
+
+    def test_frozen_input_changed_during_practice_blocks_audit(self):
+        self.assert_boundary_stops('practice', 'hash')
+
+    def test_cancelled_lease_during_practice_blocks_audit(self):
+        self.assert_boundary_stops('practice', 'lease')
+
+    def test_expired_lease_during_practice_blocks_audit(self):
+        self.assert_boundary_stops('practice', 'expired')
 
 
 if __name__ == '__main__':

@@ -51,7 +51,7 @@ def validate_next_practice(raw: str) -> str:
     return action["next_practice"].strip()
 
 
-def report_audit_claims(report: dict) -> list[dict]:
+def report_audit_claims(report: dict, *, include_practice: bool = False) -> list[dict]:
     """Enumerate every narrative slot without changing or shortening its text."""
     if not isinstance(report, dict):
         raise ValueError("复盘事实核验无效")
@@ -83,12 +83,17 @@ def report_audit_claims(report: dict) -> list[dict]:
             if not isinstance(item, dict):
                 raise ValueError("复盘事实核验无效")
             add(f"{name}[{index}].description", item.get("description"), required=True)
+    if include_practice:
+        practice = report.get("next_practice")
+        if not isinstance(practice, str):
+            raise ValueError("复盘事实核验无效")
+        add("next_practice", practice, required=bool(report_summary(report)["blocker"]))
     return claims
 
 
-def validate_report_audit(raw: str, report: dict) -> None:
+def validate_report_audit(raw: str, report: dict, *, include_practice: bool = False) -> None:
     """Require an exact, positive check for every slot in the same validated report."""
-    expected = {claim["claim_id"] for claim in report_audit_claims(report)}
+    expected = {claim["claim_id"] for claim in report_audit_claims(report, include_practice=include_practice)}
     def unique_object(pairs):
         if len(dict(pairs)) != len(pairs):
             raise ValueError("复盘事实核验无效")
@@ -108,7 +113,9 @@ def validate_report_audit(raw: str, report: dict) -> None:
                 or not isinstance(check["claim_id"], str) or check["claim_id"] not in expected
                 or check["claim_id"] in seen or type(check["consistent"]) is not bool
                 or not isinstance(check["issues"], list) or len(check["issues"]) > 5
-                or not all(isinstance(code, str) and code in codes for code in check["issues"])
+                or not all(isinstance(code, str) and (code in codes or (
+                    include_practice and check["claim_id"] == "next_practice" and code == "refusal_precondition"))
+                           for code in check["issues"])
                 or len(set(check["issues"])) != len(check["issues"])
                 or check["consistent"] != (not check["issues"])):
             raise ValueError("复盘事实核验无效")

@@ -160,9 +160,9 @@ def coach_messages(snapshot: dict, segments: list[dict], weights: dict[str, int]
     ]
 
 
-def audit_messages(segments: list[dict], report: dict) -> list[dict[str, str]]:
+def audit_messages(segments: list[dict], report: dict, *, include_practice: bool = False) -> list[dict[str, str]]:
     """Check factual claims against public speech without modifying the scoring."""
-    return [
+    messages = [
         {"role": "system", "content": (
             "你是独立的谈判复盘事实核验员，只核对已验证报告与公开逐字稿是否一致，不重新评分。"
             "输出严格 JSON，仅返回 checks 一个字段，其值为逐条核验数组；禁止 type、schema、response_format 等额外字段或包装。"
@@ -179,6 +179,9 @@ def audit_messages(segments: list[dict], report: dict) -> list[dict[str, str]]:
             "次数、连续性和语气强度必须逐条由原话支持，不能重复计数或把不同事项合并为同一要求。"
             "不得仅凭提问或列举选项写成坚持、要求或同意；询问文件形式不自动等于坚持某选项。"
             "次数或语气强度超出原话支持时，判 unsupported_fact；准确保留提问或条件的概括不得因此拒绝。"
+            "‘若/如果/获批后给A还是B’是条件性文件选择疑问，不能把其中A当成当下要求或坚持，不能将其加入同一要求次数。"
+            "与合理概括条款冲突时，明确次数、连续性、坚持等强断言必须按每次原话逐一成立；"
+            "任一被计入的发言仅为条件疑问或不同事项，就判 unsupported_fact，不能当作措辞差异放行。"
             "提及收件人、转交人或老板财务，不等于确认其审批权限，也不等于已经承诺转交或认可销售方案。"
             "提出计划、作出承诺与已经产出资料、完成申请或取得批准必须区分。"
             "后来的拒绝不能写成早先未提问，也不能用后来的追问反过来解释先前已经做过的动作。"
@@ -208,9 +211,27 @@ def audit_messages(segments: list[dict], report: dict) -> list[dict[str, str]]:
             "report": {key: report[key] for key in (
                 "outcome", "dimensions", "score", "commitments", "concession_costs", "hard_limit_findings")
                 if key in report},
-            "claims": report_audit_claims(report),
+            "claims": report_audit_claims(report, include_practice=include_practice),
         }, ensure_ascii=False)},
     ]
+    if include_practice:
+        messages[0]["content"] = messages[0]["content"].replace(
+            "不要评价分数高低或建议好坏，不返回分数、改写报告、事实或引文。",
+            "不评价分数高低或泛化建议优劣；同时核对最终 next_practice 的公开事实与拒绝前提，不返回分数或改写任何内容。")
+        messages[0]["content"] += (
+            "next_practice 还可使用 refusal_precondition，仅用于 next_practice："
+            "建议绕过对手已明确拒绝的前提，或以换表、补口径、圈选等方式重复被拒请求。"
+            "若对手已拒绝空框架或待审批材料并要求先明确正式文件效力、可批边界或未批替代路径，"
+            "建议必须先内部核实形成实际结论，再答复客户；不能把客户先补口径、填表或圈选作为内部核实的前提。"
+            "仅说同步内部核实，却随后让客户先指出口径再据此补内部评估，仍未满足此前提。"
+            "不禁止所有表格或再次沟通：内部待核实清单、实际核查后区分已核实与待核实的答复，"
+            "或客户未拒绝的新条件交换，不因形式相似自动判错。"
+            "未知数字可留待核对，内部核实不保证批准、盖章或正式条款交付；不要将其当作已有承诺。"
+            "其它事实槽仍只能使用原五种事实错误代码；空 next_practice 槽没有断言但仍须返回其核验项。")
+        payload = json.loads(messages[-1]["content"])
+        payload["report"]["next_practice"] = report["next_practice"]
+        messages[-1]["content"] = json.dumps(payload, ensure_ascii=False)
+    return messages
 
 
 def practice_messages(snapshot: dict, segments: list[dict], report: dict) -> list[dict[str, str]]:
@@ -222,8 +243,8 @@ def practice_messages(snapshot: dict, segments: list[dict], report: dict) -> lis
             "先沿完整逐字稿检查销售做过什么、对手如何回应、哪些问题仍未解决。"
             "已问过而被拒答、回避或附条件的问题，不能当作从未问过而原样再建议；"
             "应先处理拒答的前提、换可核对的材料或提出新的条件交换，并给一句能直接说的话或具体产物。"
-            "如果对手要先明确风险条件才给数据，且风险框架尚未提出，可让销售准备可核对的投入/风险评估框架，未知数据留空，"
-            "请对手指出需要先明确的边界；不要换个说法继续索要已拒绝的资金、销量或周转数据。"
+            "如果对手要先明确风险条件才给数据，应先内部核实形成实际结论，再答复客户；"
+            "不能把客户先补口径、填表或圈选作为内部核实的前提，不要换个说法继续索要已拒绝的资金、销量或周转数据。"
             "如果风险框架、待审批表或候选方案已被对手拒绝，不得换成情景表再请客户圈选、填写或递给老板财务；"
             "必须先处理拒绝的前提。对方只认正式条款时，下一动作可先在内部核实候选处理方案的库存/资金风险、"
             "可批边界、文件效力及未获批时的替代路径，形成可核对的答复；不要让客户先选择才开始内部核实。"
@@ -235,9 +256,10 @@ def practice_messages(snapshot: dict, segments: list[dict], report: dict) -> lis
             "申请内部核实是当下可执行的动作，但不能保证获批、盖章或交付正式条款。只给一项当下可练的动作。"
             "示例：销售已问资金上限与周转周期，客户说先有书面风控条件才肯给数据。"
             "坏建议：拿空表让客户填资金上限和周转天数。即使换成表格，仍重复了被拒绝的提问。"
-            "好建议：销售准备一页投入与风险的比较框架，所有未知金额、销量、周期留空；"
-            "说‘我先不请您报数字，请指出哪些风险边界需要先明确，您才愿意共同测算’，"
-            "据此补待核对材料，不声称任何条款已批。"
+            "好建议：先内部核实能出具的文件形式、实际可批边界、未批替代路径及投入风险，"
+            "形成区分已核实与待核实的答复，再向客户说明，不声称任何条款已批。"
+            "空框架只可作内部待核实清单，未知金额、销量、周期留待核对；"
+            "不得在客户已拒之后让客户先补口径，才开始内部核实或补内部评估。"
             "例外：若这张框架也已被拒，坏建议是再换成30/60/90天待审批情景表让客户圈选后递交；"
             "好建议是先提交内部核查：分别核对能否出具正式条款、不能批准时有哪些可公开的替代路径及风险边界，"
             "拿实际核查结论答复客户，不承诺一定批准，也不再次要求客户递交待审批表。"

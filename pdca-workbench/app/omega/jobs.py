@@ -20,7 +20,7 @@ from app.omega.models import (
     OmegaWorkerHeartbeat,
 )
 from app.omega.policy import require_case, require_session_source
-from app.omega.reports import WEIGHTS, report_summary, validate_next_practice, validate_report, validate_report_audit
+from app.omega.reports import WEIGHTS, report_audit_claims, report_summary, validate_next_practice, validate_report, validate_report_audit
 from app.omega.router import digest, report_input_hash, transcript_digest
 
 
@@ -177,15 +177,20 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing)
             result = validate_report(generate(kind, messages, 16384), segments,
                                      goal_timing=goal_timing, weights=weights)
+            report_audit_claims(result)
             if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
                 return True
-            validate_report_audit(generate("report_audit", audit_messages(segments, result), 32768), result)
-            if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
-                return True
+            result["next_practice"] = ""
             if report_summary(result)["blocker"]:
                 result["next_practice"] = validate_next_practice(generate(
                     "practice", practice_messages(snapshot, segments, result), 4096))
-                result["summary"] = report_summary(result)
+            result["summary"] = report_summary(result)
+            if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                return True
+            validate_report_audit(generate("report_audit", audit_messages(
+                segments, result, include_practice=True), 32768), result, include_practice=True)
+            if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):
+                return True
             result["hints_used"] = hints_used
         elif kind == "memory":
             result = generate(kind, memory_messages, 4000)
