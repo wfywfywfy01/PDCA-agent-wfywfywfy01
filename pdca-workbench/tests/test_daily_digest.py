@@ -270,11 +270,15 @@ class DigestStructureTests(unittest.TestCase):
         ]
         led["black"] = [{"display": "Lina", "reason": "任务完成0/12；逾期2项"}]
         text = build_digest("2026-09-19", led, ledger_day="2026-09-18")
-        self.assertIn("红榜（过程+业绩综合）：", text)
-        self.assertIn("@邓琳莹 综合12｜过程12｜业绩按小组口径", text)
-        self.assertIn("@于冰 综合118｜过程119｜业绩117%（已录单170.2万）", text)
-        self.assertNotIn("本月未出单", text)
-        self.assertIn("黑榜（待改进）", text)
+        # 老板 2026-10-10：08:00 日报里的红榜/黑榜也停发
+        self.assertNotIn("红榜", text)
+        self.assertNotIn("黑榜", text)
+        # 排版口径本身仍要正确：小组口径的人不能写成 0 万，也不写「本月未出单」
+        from app.daily_digest import _red_text
+
+        self.assertIn("@邓琳莹 综合12｜过程12｜业绩按小组口径", _red_text(led["red"][0]))
+        self.assertIn("@于冰 综合118｜过程119｜业绩117%（已录单170.2万）", _red_text(led["red"][1]))
+        self.assertNotIn("本月未出单", _red_text(led["red"][0]))
 
 
 class DigestPushTests(unittest.TestCase):

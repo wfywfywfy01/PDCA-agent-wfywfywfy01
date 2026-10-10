@@ -182,21 +182,7 @@ def build_digest(
         )
     else:
         lines.append(f"   • MTO / 工时：待确认（未取到人员台账）｜战役 {TODAY_SLOGAN}")
-    red = ledger.get("red") or []
-    black = ledger.get("black") or []
-    if red:
-        lines.append(
-            "   • 红榜（过程+业绩综合）："
-            + " / ".join(_red_text(item) for item in red[:3])
-        )
-    if black:
-        lines.append(
-            "   • 黑榜（待改进）："
-            + " / ".join(
-                f"@{item.get('display')} {_clip(str(item.get('reason') or '待补充'), 40)}"
-                for item in black[:3]
-            )
-        )
+    # 老板 2026-10-10：08:00 日报里的红榜/黑榜也一起去掉（与三追同步停发）
     lines.append("")
     lines.append("二、小部门（各小组/群）")
     for group_name in _group_order(people):
