@@ -69,8 +69,12 @@
         ]
       },
       {
+        "name": "刘春梅",
+        "target_wan": 100
+      },
+      {
         "name": "其他（待拆解）",
-        "target_wan": 550
+        "target_wan": 450
       }
     ],
     "department_target_wan": 1525
