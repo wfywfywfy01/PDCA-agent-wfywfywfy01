@@ -710,7 +710,8 @@ class OmegaMemoryTests(unittest.TestCase):
         report_content = {"outcome": {"status": "unverified", "reason": "无承诺", "quotes": []},
                           "dimensions": [{"key": key, "score": None, "reason": "证据不足", "quotes": []}
                                          for key in WEIGHTS]}
-        self.assertTrue(run_once(self.engine, generate=lambda *args: json.dumps(report_content)))
+        self.assertTrue(run_once(self.engine, generate=lambda kind, *args: json.dumps(
+            {"consistent": True, "issues": []} if kind == "report_audit" else report_content)))
         self.db.expire_all()
         report_id = self.db.get(OmegaJob, job_id).result_id
         memory_jobs = self.db.exec(select(OmegaJob).where(OmegaJob.kind == "memory")).all()

@@ -55,20 +55,22 @@ class OmegaPracticeTests(unittest.TestCase):
             if kind == 'report':
                 self.assertEqual([p['seq'] for p in json.loads(messages[-1]['content'])['transcript']], [1, 2])
                 return json.dumps(self.raw, ensure_ascii=False)
+            if kind == 'report_audit':
+                return json.dumps({'consistent': True, 'issues': []})
             self.assertEqual(kind, 'practice')
             payload = json.loads(messages[-1]['content'])
             self.assertEqual(payload['target_dimension']['key'], 'value')
             self.assertEqual([p['text'] for p in payload['transcript']], [self.utterance, self.reply])
             self.assertEqual([p['seq'] for p in payload['transcript']], [1, 2])
-            self.assertLessEqual(limit, 1000)
+            self.assertEqual(limit, 4096)
             return json.dumps({'next_practice': action}, ensure_ascii=False)
 
         self.assertTrue(run_once(self.engine, generate=generate))
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'succeeded', job)
-        self.assertEqual(calls, ['report', 'practice'])
+        self.assertEqual(calls, ['report', 'report_audit', 'practice'])
         published = self.client.get('/api/omega/reports/' + job['result_id']).json()
-        self.assertEqual(self.report_rows()[0].prompt_version, 'coach-v3')
+        self.assertEqual(self.report_rows()[0].prompt_version, 'coach-v4')
         report = published['content']
         self.assertEqual(report['next_practice'], action)
         self.assertEqual(report['summary']['next_step'], action)
@@ -77,7 +79,11 @@ class OmegaPracticeTests(unittest.TestCase):
             self.assertEqual(report[key], expected[key], key)
 
     def test_invalid_advice_is_retried_once_without_publishing_stale_recommendation(self):
+        calls = []
         def generate(kind, *_):
+            calls.append(kind)
+            if kind == 'report_audit':
+                return json.dumps({'consistent': True, 'issues': []})
             return json.dumps(self.raw) if kind == 'report' else json.dumps({'next_practice': ''})
         run_once(self.engine, generate=generate)
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'queued')
@@ -86,24 +92,31 @@ class OmegaPracticeTests(unittest.TestCase):
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'failed')
         self.assertEqual(self.report_rows(), [])
+        self.assertEqual(calls, ['report', 'report_audit', 'practice'] * 2)
 
     def test_advice_cannot_return_replacement_scores_or_facts(self):
+        calls = []
         def generate(kind, *_):
+            calls.append(kind)
+            if kind == 'report_audit':
+                return json.dumps({'consistent': True, 'issues': []})
             return json.dumps(self.raw) if kind == 'report' else json.dumps({
                 'next_practice': '确认订单。', 'score': {'total': 100}})
         run_once(self.engine, generate=generate)
         self.assertEqual(self.report_rows(), [])
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'queued')
+        self.assertEqual(calls, ['report', 'report_audit', 'practice'])
 
     def test_insufficient_evidence_does_not_invent_a_scored_focus(self):
         for dimension in self.raw['dimensions']:
             dimension.update(score=None, reason='证据不足', quotes=[])
         calls = []
-        run_once(self.engine, generate=lambda kind, *_: calls.append(kind) or json.dumps(self.raw))
-        self.assertEqual(calls, ['report'])
+        run_once(self.engine, generate=lambda kind, *_: calls.append(kind) or json.dumps(
+            {'consistent': True, 'issues': []} if kind == 'report_audit' else self.raw))
+        self.assertEqual(calls, ['report', 'report_audit'])
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'succeeded')
 
-    def test_practice_uses_json_and_short_timeout(self):
+    def test_practice_uses_json_thinking_budget_and_timeout(self):
         from unittest.mock import patch
         from app.omega.jobs import _default_generate
         with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
@@ -111,9 +124,12 @@ class OmegaPracticeTests(unittest.TestCase):
                 patch('app.omega.jobs.httpx.post') as post:
             post.return_value.json.return_value = {'choices': [{'finish_reason': 'stop',
                 'message': {'content': '{"next_practice":"核对拒答原因。"}'}}]}
-            _default_generate('practice', [{'role': 'user', 'content': 'JSON'}], 900)
+            _default_generate('practice', [{'role': 'user', 'content': 'JSON'}], 4096)
             self.assertEqual(post.call_args.kwargs['json']['response_format'], {'type': 'json_object'})
-            self.assertEqual(post.call_args.kwargs['timeout'], 20)
+            self.assertEqual(post.call_args.kwargs['json']['max_tokens'], 4096)
+            self.assertEqual(post.call_args.kwargs['json']['thinking'], {'type': 'enabled'})
+            self.assertEqual(post.call_args.kwargs['json']['reasoning_effort'], 'high')
+            self.assertEqual(post.call_args.kwargs['timeout'], 30)
 
     def test_lost_source_permission_stops_second_external_call(self):
         calls = []

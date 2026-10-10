@@ -235,7 +235,7 @@ class MonthlyTargetSourceTests(unittest.TestCase):
     def test_scope_flags_unconfigured_month(self):
         from app.duzhan_ledger import load_month_targets, month_target_scope
 
-        covered, missing = month_target_scope("2026-09-18", load_month_targets("2026-09-18"))
+        covered, missing = month_target_scope("2026-10-10", load_month_targets("2026-10-10"))
         self.assertTrue(covered, f"当月目标文件应覆盖全员，缺: {missing}")
         covered, missing = month_target_scope("2026-10-02", {})
         self.assertFalse(covered)
@@ -248,7 +248,7 @@ class MonthlyTargetSourceTests(unittest.TestCase):
         sent: list = []
         try:
             with mock.patch("app.duzhan_ledger.notify", side_effect=lambda *a, **k: sent.append(a)):
-                dl.warn_target_fallback("2026-09-18", dl.load_month_targets("2026-09-18"))
+                dl.warn_target_fallback("2026-10-10", dl.load_month_targets("2026-10-10"))
                 self.assertEqual(sent, [], "文件覆盖时不该告警")
                 self.assertIn("于冰", dl.warn_target_fallback("2026-11-03", {}))
                 dl.warn_target_fallback("2026-11-04", {})

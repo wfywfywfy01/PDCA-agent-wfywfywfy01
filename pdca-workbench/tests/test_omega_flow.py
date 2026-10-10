@@ -496,6 +496,8 @@ class OmegaFlowTests(unittest.TestCase):
         segment = self.client.get(f"/api/omega/sessions/{game['id']}").json()["segments"][0]
 
         def generate(kind, *_):
+            if kind == "report_audit":
+                return json.dumps({"consistent": True, "issues": []})
             if kind == "practice":
                 return json.dumps({"next_practice": "先核对客户拒绝确认日期的原因，再商定可验证的时间表。"})
             calls.append(True)
@@ -528,7 +530,9 @@ class OmegaFlowTests(unittest.TestCase):
         queued = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={"request_key": "report-scorecard-retry"}).json()
         calls = []
 
-        def generate(*_):
+        def generate(kind, *_):
+            if kind == "report_audit":
+                return json.dumps({"consistent": True, "issues": []})
             calls.append(True)
             return json.dumps({"outcome": {"status": "unverified", "reason": "No commitment", "quotes": []},
                                "dimensions": [] if len(calls) == 1 else [
@@ -569,6 +573,7 @@ class OmegaFlowTests(unittest.TestCase):
             }],
         })
         self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: json.dumps(
+            {"consistent": True, "issues": []} if kind == "report_audit" else
             {"next_practice": "先核对付款审批流程，再确认书面时间表。"} if kind == "practice" else report)))
         job_state = self.client.get(f"/api/omega/jobs/{job['id']}").json()
         self.assertEqual(job_state["status"], "succeeded", job_state)
@@ -620,6 +625,7 @@ class OmegaFlowTests(unittest.TestCase):
                 quotes=[{"segment_id": segment["id"], "speaker": "sales", "start": 0,
                          "end": len(utterance), "text": utterance}])
             self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit: json.dumps(
+                {"consistent": True, "issues": []} if kind == "report_audit" else
                 {"next_practice": "先复述交付顾虑，再约定负责人和书面答复时间。"} if kind == "practice" else content)))
             state = self.client.get(f"/api/omega/jobs/{job['id']}").json()
             self.assertEqual(state["status"], "succeeded", state)
@@ -700,6 +706,7 @@ class OmegaFlowTests(unittest.TestCase):
             quotes=[{"segment_id": game["segments"][0]["id"], "speaker": "sales",
                      "start": 0, "end": len(phrase), "text": phrase}])
         self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit: json.dumps(
+            {"consistent": True, "issues": []} if kind == "report_audit" else
             {"next_practice": "先确认哪项交付风险仍未解决，再约定具体的核对动作。"} if kind == "practice" else content)))
         report_id = self.client.get(f"/api/omega/jobs/{job['id']}").json()["result_id"]
         self.assertTrue(report_id)

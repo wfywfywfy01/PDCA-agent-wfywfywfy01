@@ -50,8 +50,6 @@ class Owner:
     follow_channel_id: str = ""
     # 新人 100 万是新部合计，不拆到个人，target_wan 留空。
     target_wan: float | None = None
-    #: True = 跟踪但不背月目标（例如中台/管理岗）：不参与「目标文件覆盖全员」告警
-    target_optional: bool = False
 
 
 # 老板 2026-10-10 拍板：按「谁追谁」把人放到对应达标群，各追各的、对应到人：
@@ -157,8 +155,8 @@ OWNERS: tuple[Owner, ...] = (
         target_name="刘春梅",
         im_user_id=12564,
         vps_names=("刘春梅",),
-        # 中台负责人：跟踪她的进度，但不背个人月目标，目标文件没她也别告警
-        target_optional=True,
+        # 老板 2026-10-10：10 月给刘春梅 100 万（从「其他（待拆解）」里挪，总额仍是 1525 万）
+        target_wan=100,
     ),
     Owner(
         "Q4五百万",
@@ -763,9 +761,7 @@ def resolve_month_target(
 
 def month_target_scope(day: str, monthly_targets: dict[str, float]) -> tuple[bool, list[str]]:
     """当月目标文件覆盖情况：返回 (是否覆盖到人, 文件没覆盖、只能兜底的人)。"""
-    tracked = [
-        item for item in OWNERS if (item.target_wan or item.group) and not item.target_optional
-    ]
+    tracked = [item for item in OWNERS if item.target_wan or item.group]
     if not monthly_targets:
         return False, [item.display for item in tracked]
     missing = [

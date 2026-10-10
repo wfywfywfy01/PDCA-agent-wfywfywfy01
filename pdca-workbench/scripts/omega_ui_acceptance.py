@@ -30,6 +30,8 @@ from tests.test_omega_flow import OmegaFlowTests
 def generate(kind, messages, _limit):
     if kind == 'turn':
         return '请明确下一步的负责人和确认时间。'
+    if kind == 'report_audit':
+        return json.dumps({'consistent': True, 'issues': []})
     if kind == 'coach_hint':
         return '先问清谁能确认采购，再争取一个明确的回复时间。'
     if kind == 'practice':

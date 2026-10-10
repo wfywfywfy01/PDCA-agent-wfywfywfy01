@@ -51,6 +51,30 @@ def validate_next_practice(raw: str) -> str:
     return action["next_practice"].strip()
 
 
+def validate_report_audit(raw: str) -> None:
+    """Accept only a positive fact check; the auditor cannot replace report content."""
+    def unique_object(pairs):
+        if len(dict(pairs)) != len(pairs):
+            raise ValueError("复盘事实核验无效")
+        return dict(pairs)
+
+    try:
+        audit = json.loads(raw, object_pairs_hook=unique_object)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("复盘事实核验无效") from exc
+    codes = {"speaker_mismatch", "chronology", "condition_unconfirmed",
+             "answered_fact_omitted", "unsupported_fact"}
+    if (not isinstance(audit, dict) or set(audit) != {"consistent", "issues"}
+            or type(audit["consistent"]) is not bool or not isinstance(audit["issues"], list)
+            or len(audit["issues"]) > 5
+            or not all(isinstance(code, str) and code in codes for code in audit["issues"])
+            or len(set(audit["issues"])) != len(audit["issues"])
+            or audit["consistent"] != (not audit["issues"])):
+        raise ValueError("复盘事实核验无效")
+    if not audit["consistent"]:
+        raise ValueError("复盘事实核验未通过")
+
+
 def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
                     weights: dict[str, int] | None = None) -> dict:
     weights = weights or WEIGHTS
