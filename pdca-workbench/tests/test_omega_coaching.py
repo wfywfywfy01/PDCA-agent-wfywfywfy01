@@ -435,6 +435,41 @@ class CoachingTests(unittest.TestCase):
             self.job_id, self.token, control=control))
         return browser
 
+    def test_doubao_asr_captions_replace_hypotheses_but_chat_deltas_append(self):
+        hypotheses = ["请", "请确认周四付款", "请确认周五付款", "请确认周五"]
+        final = "最终确认周五付款。"
+        browser = self.run_controlled_receiver([
+            "pcm",
+            {"type": "conversation.item.input_audio_transcription.started", "item_id": "draft-sales"},
+            *({"type": "conversation.item.input_audio_transcription.delta", "item_id": "draft-sales",
+               "delta": text} for text in hypotheses),
+            {"type": "conversation.item.input_audio_transcription.completed", "item_id": "draft-sales",
+             "text": final},
+            {"type": "conversation.item.input_audio_transcription.completed", "item_id": "draft-sales",
+             "text": final},
+            {"type": "response.output_text.delta", "response_id": "draft-reply",
+             "question_id": "draft-sales", "delta": "可以"},
+            {"type": "response.output_text.delta", "response_id": "draft-reply",
+             "question_id": "draft-sales", "delta": "付款。"},
+            {"type": "response.output_text.done", "response_id": "draft-reply",
+             "question_id": "draft-sales", "text": "可以付款。"},
+            {"type": "response.output_audio.done", "response_id": "draft-reply",
+             "question_id": "draft-sales"},
+            {"type": "session.closed"},
+        ])
+        captions = [event for event in browser.events if event["type"] == "caption"]
+        self.assertEqual([event["text"] for event in captions if event["speaker"] == "sales"], hypotheses)
+        self.assertEqual([event["text"] for event in captions if event["speaker"] == "counterparty"],
+                         ["可以", "可以付款。"])
+        with Session(self.engine) as db:
+            sales = db.exec(select(OmegaSegment).where(OmegaSegment.speaker == "sales")).one()
+            self.assertEqual(sales.text, final)
+            self.assertEqual(sales.asr_original, final)
+            self.assertEqual(sales.provider_event_id, "doubao:asr:draft-sales")
+            reply = db.exec(select(OmegaSegment).where(OmegaSegment.speaker == "counterparty")).one()
+            self.assertEqual(reply.text, "可以付款。")
+        self.assertEqual(len([event for event in browser.events if event["type"] == "segment"]), 2)
+
     def test_pre_pause_accepted_asr_tail_is_saved_in_original_turn(self):
         browser = self.run_controlled_receiver([
             "pcm",
