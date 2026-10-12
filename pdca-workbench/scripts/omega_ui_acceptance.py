@@ -147,7 +147,10 @@ def main():
                 static OPEN=1;
                 constructor(){this.readyState=1;this.bufferedAmount=0;window.__socket=this;setTimeout(()=>this.onmessage({data:JSON.stringify({type:'ready',audio_epoch:0})}),20)}
                 async send(value){if(value instanceof ArrayBuffer){window.__voicePackets++;return}
-                  if(value==='stop'){setTimeout(()=>{this.onmessage({data:JSON.stringify({type:'closed'})});this.close()},20);return}
+                  if(value==='stop'){setTimeout(()=>{
+                    if(window.__hangupFault==='tail')this.onmessage({data:JSON.stringify({type:'error',message:'语音尾稿未完成，请检查逐字稿后重新演练'})});
+                    this.onmessage({data:JSON.stringify({type:'closed'})});this.close();
+                  },20);return}
                   const control=JSON.parse(value);window.__controls.push({...control});
                   // A provider interrupt can advance the server before the browser sees it.
                   if(control.action==='pause') control.audio_epoch++;
@@ -296,8 +299,11 @@ def main():
             assert page.evaluate("window.__primedContexts.length===2 && window.__primedContexts.every(context=>context.state!=='closed')"), 'session selection closed or replaced the audio contexts unlocked by the tap'
             if output:
                 page.screenshot(path=str(Path(output).with_stem(Path(output).stem + '-voice')))
+            # Server errors during an intentional hangup must remain visible after cleanup.
+            page.evaluate("window.__hangupFault='tail'")
             dialog.get_by_role('button', name='结束通话', exact=True).click()
             expect(dialog).to_be_hidden()
+            expect(page.get_by_role('alert')).to_contain_text('语音尾稿未完成，请检查逐字稿后重新演练')
             page.wait_for_function("window.__testStream.getAudioTracks()[0].readyState==='ended'")
             page.wait_for_function("window.__primedContexts.every(context=>context.state==='closed')")
             page.evaluate('window.__testOscillator.stop();window.__testAudio.close()')
