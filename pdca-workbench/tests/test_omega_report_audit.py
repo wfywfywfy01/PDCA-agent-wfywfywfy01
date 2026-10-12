@@ -443,7 +443,6 @@ class ReportAuditValidationTests(unittest.TestCase):
                 'message': {'content': '{"consistent":true,"issues":[]}',
                             'reasoning_content': 'private reasoning must not become report text'}}]}
             for kind, limit, effort, timeout in [('report', 16384, 'high', 90),
-                                                 ('report_audit', 32768, 'high', 150),
                                                  ('practice', 4096, 'high', 30)]:
                 with self.subTest(kind=kind):
                     self.assertEqual(_default_generate(kind, [{'role': 'user', 'content': 'JSON'}], limit),
@@ -495,12 +494,114 @@ class ReportAuditValidationTests(unittest.TestCase):
         with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
                 'PDCA_SUPERVISOR_MODEL': 'deepseek-flash', 'PDCA_SUPERVISOR_API_KEY': 'test-only'}), \
                 patch('app.omega.jobs.httpx.post') as post:
-            for finish, content in (('length', '{"consistent":'), ('stop', '')):
-                with self.subTest(finish=finish):
-                    post.return_value.json.return_value = {'choices': [{'finish_reason': finish,
-                        'message': {'content': content}}]}
+            messages = [{'role': 'user', 'content': '{"claims":[{"claim_id":"outcome.reason","text":null}]}'}]
+            for status, content in (('incomplete', '{"checks":'), ('completed', '')):
+                with self.subTest(status=status):
+                    post.return_value.json.return_value = {'status': status, 'output': [
+                        {'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': content}]}]}
                     with self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
-                        _default_generate('report_audit', [], 1000)
+                        _default_generate('report_audit', messages, 1000)
+
+
+class StructuredAuditTransportTests(unittest.TestCase):
+    def messages(self):
+        return [{'role': 'system', 'content': '核验事实。'}, {'role': 'user', 'content': json.dumps({'claims': [
+            {'claim_id': 'outcome.reason', 'text': None},
+            {'claim_id': 'next_practice', 'text': '必须先补填已被拒绝的空表'},
+        ]})}]
+
+    def response(self, raw, *, status='completed'):
+        return {'status': status, 'output': [
+            {'type': 'reasoning', 'content': [{'type': 'reasoning_text', 'text': 'private reasoning'}]},
+            {'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': raw}]},
+        ]}
+
+    def test_schema_requires_every_original_slot_and_keeps_negative_verdict(self):
+        raw = json.dumps({'checks': {'next_practice': {'consistent': False, 'issues': ['refusal_precondition']},
+                                    'outcome.reason': {'consistent': True, 'issues': []}}})
+        messages = self.messages()
+        original = json.loads(json.dumps(messages))
+        with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
+                'PDCA_SUPERVISOR_MODEL': 'deepseek-flash', 'PDCA_SUPERVISOR_API_KEY': 'test-only'}), \
+                patch('app.omega.jobs.httpx.post') as post:
+            post.return_value.json.return_value = self.response(raw)
+            result = _default_generate('report_audit', messages, 32768)
+        self.assertEqual(messages, original, 'the domain prompt and original slot indices remain immutable')
+        self.assertEqual(json.loads(result), {'checks': [
+            {'claim_id': 'next_practice', 'consistent': False, 'issues': ['refusal_precondition']},
+            {'claim_id': 'outcome.reason', 'consistent': True, 'issues': []},
+        ]})
+        self.assertNotIn('private reasoning', result)
+        self.assertEqual(post.call_args.args[0], 'https://api.deepseek.com/v1/responses')
+        payload = post.call_args.kwargs['json']
+        self.assertEqual(payload['reasoning'], {'effort': 'high'})
+        self.assertEqual(payload['max_output_tokens'], 32768)
+        self.assertEqual(post.call_args.kwargs['timeout'], 150)
+        format_ = payload['text']['format']
+        self.assertEqual(format_['type'], 'json_schema')
+        schema = format_['schema']['properties']['checks']
+        self.assertEqual(set(schema['required']), {'outcome.reason', 'next_practice'})
+        self.assertFalse(schema['additionalProperties'])
+        for claim_id in schema['required']:
+            row = schema['properties'][claim_id]
+            self.assertEqual(set(row['required']), {'consistent', 'issues'})
+            self.assertFalse(row['additionalProperties'])
+            codes = row['properties']['issues']['items']['enum']
+            self.assertEqual('refusal_precondition' in codes, claim_id == 'next_practice')
+
+    def test_schema_does_not_replace_local_validation_or_fill_missing_results(self):
+        valid = {'consistent': True, 'issues': []}
+        invalid = [
+            {'checks': {'outcome.reason': valid}},
+            {'checks': {'outcome.reason': valid, 'next_practice': valid, 'unknown': valid}},
+            {'checks': {'outcome.reason': valid, 'next_practice': valid}, 'extra': True},
+            {'checks': {'outcome.reason': dict(valid, extra=True), 'next_practice': valid}},
+            {'checks': {'outcome.reason': dict(valid, claim_id='next_practice'), 'next_practice': valid}},
+            {'checks': {'outcome.reason': {'consistent': False, 'issues': ['refusal_precondition']}, 'next_practice': valid}},
+            {'checks': {'outcome.reason': dict(valid, consistent=1), 'next_practice': valid}},
+            {'checks': {'outcome.reason': {'consistent': False, 'issues': []}, 'next_practice': valid}},
+            {'checks': {'outcome.reason': valid, 'next_practice': {'consistent': False, 'issues': ['chronology', 'chronology']}}},
+        ]
+        raws = [json.dumps(value) for value in invalid] + [
+            '{"checks":{"outcome.reason":{"consistent":true,"issues":[]},"outcome.reason":{"consistent":false,"issues":["unsupported_fact"]},"next_practice":{"consistent":true,"issues":[]}}}',
+            '{"checks":{"outcome.reason":{"consistent":false,"consistent":true,"issues":[]},"next_practice":{"consistent":true,"issues":[]}}}',
+        ]
+        with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
+                'PDCA_SUPERVISOR_MODEL': 'deepseek-flash', 'PDCA_SUPERVISOR_API_KEY': 'test-only'}), \
+                patch('app.omega.jobs.httpx.post') as post:
+            for raw in raws:
+                with self.subTest(raw=raw):
+                    post.return_value.json.return_value = self.response(raw)
+                    with self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+                        _default_generate('report_audit', self.messages(), 32768)
+
+    def test_invalid_response_envelopes_use_the_existing_invalid_audit_retry(self):
+        raw = json.dumps({'checks': {'outcome.reason': {'consistent': True, 'issues': []},
+                                    'next_practice': {'consistent': True, 'issues': []}}})
+        invalid = [None, [], {'status': 'completed', 'output': None},
+                   {'status': 'completed', 'output': [None]},
+                   self.response(raw, status='failed'), self.response(raw, status='incomplete'),
+                   dict(self.response(raw), error={'code': 'server_error'})]
+        for part in (None, {}, {'type': 'output_text'}, {'type': 'output_text', 'text': 1},
+                     {'type': 'refusal', 'refusal': 'refused'}):
+            invalid.append({'status': 'completed', 'output': [
+                {'type': 'message', 'role': 'assistant', 'content': [part]}]})
+        invalid.append({'status': 'completed', 'output': [
+            {'type': 'message', 'role': 'assistant', 'content': [
+                {'type': 'output_text', 'text': raw}, {'type': 'refusal', 'refusal': 'refused'}]}]})
+        invalid.append(self.response(raw))
+        invalid[-1]['output'].append(invalid[-1]['output'][-1])
+        with patch.dict('os.environ', {'PDCA_SUPERVISOR_PROVIDER': 'https://api.deepseek.com',
+                'PDCA_SUPERVISOR_MODEL': 'deepseek-flash', 'PDCA_SUPERVISOR_API_KEY': 'test-only'}), \
+                patch('app.omega.jobs.httpx.post') as post:
+            for envelope in invalid:
+                with self.subTest(envelope=envelope):
+                    post.return_value.json.return_value = envelope
+                    with self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+                        _default_generate('report_audit', self.messages(), 32768)
+            post.return_value.json.side_effect = json.JSONDecodeError('invalid JSON', '', 0)
+            with self.assertRaisesRegex(ValueError, '复盘事实核验无效'):
+                _default_generate('report_audit', self.messages(), 32768)
 
 
 class ReportAuditTests(unittest.TestCase):

@@ -21,7 +21,7 @@ from app.omega.models import (
     OmegaWorkerHeartbeat,
 )
 from app.omega.policy import require_case, require_session_source
-from app.omega.reports import ReportAuditRejected, WEIGHTS, report_audit_checks, report_audit_claims, report_summary, validate_next_practice, validate_report, validate_report_audit
+from app.omega.reports import ReportAuditRejected, WEIGHTS, report_audit_checks, report_audit_claims, report_audit_schema, report_summary, validate_next_practice, validate_report, validate_report_audit
 from app.omega.router import digest, report_input_hash, transcript_digest
 
 
@@ -31,6 +31,38 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
     key = os.environ.get("PDCA_SUPERVISOR_API_KEY", "").strip()
     if not (provider.startswith("https://") and model and key):
         raise RuntimeError("Omega 文本模型未配置")
+    if (kind == "report_audit" and urlsplit(provider).hostname == "api.deepseek.com"
+            and model.startswith("deepseek-")):
+        claims = json.loads(messages[-1]["content"])["claims"]
+        wire_messages = [dict(message) for message in messages]
+        wire_messages[0]["content"] = wire_messages[0]["content"].replace(
+            "其值为逐条核验数组", "其值为按原 claim_id 为键的核验对象").replace(
+            "checks 每项严格只有 claim_id、consistent、issues", "checks 每个键的值严格只有 consistent、issues")
+        response = httpx.post(
+            provider.rstrip("/") + "/v1/responses",
+            headers={"Authorization": "Bearer " + key},
+            json={"model": model, "input": wire_messages, "max_output_tokens": max_tokens,
+                  "reasoning": {"effort": "high"}, "text": {"format": {
+                      "type": "json_schema", "name": "omega_report_audit",
+                      "schema": report_audit_schema(claims)}}},
+            timeout=150,
+        )
+        response.raise_for_status()
+        try:
+            decoded = response.json()
+            parts = [part for item in decoded.get("output", [])
+                     if item.get("type") == "message" and item.get("role") == "assistant"
+                     for part in item.get("content", [])]
+            if (decoded.get("status") != "completed" or decoded.get("error") is not None
+                    or len(parts) != 1 or parts[0].get("type") != "output_text"
+                    or not isinstance(parts[0]["text"], str)):
+                raise ValueError("复盘事实核验无效")
+        except (TypeError, KeyError, AttributeError, json.JSONDecodeError) as exc:
+            raise ValueError("复盘事实核验无效") from exc
+        checks = report_audit_checks(parts[0]["text"], {claim["claim_id"] for claim in claims},
+                                     include_practice=any(claim["claim_id"] == "next_practice" for claim in claims),
+                                     keyed=True)
+        return json.dumps({"checks": checks}, ensure_ascii=False)
     payload = {"model": model, "messages": messages, "max_tokens": max_tokens,
                "temperature": 0.3 if kind in {"report", "draft", "memory"} else 0.8}
     timeout = 90 if kind in {"report", "memory"} else 20

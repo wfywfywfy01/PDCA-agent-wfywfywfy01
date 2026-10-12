@@ -796,6 +796,24 @@ class OmegaReportGenerationTests(unittest.TestCase):
                                              ("practice", 4096, "high", 30), ("memory", 4000, None, 90)):
             with self.subTest(kind=kind), patch.dict("os.environ", settings), \
                     patch("app.omega.jobs.httpx.post") as post:
+                if kind == "report_audit":
+                    raw = '{"checks":{"outcome.reason":{"consistent":true,"issues":[]}}}'
+                    post.return_value.json.return_value = {"status": "completed", "output": [
+                        {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": raw}]}]}
+                    result = _default_generate(kind, [{"role": "user", "content": json.dumps({"claims": [
+                        {"claim_id": "outcome.reason", "text": None}]})}], limit)
+                    self.assertEqual(json.loads(result), {"checks": [
+                        {"claim_id": "outcome.reason", "consistent": True, "issues": []}]})
+                    payload = post.call_args.kwargs["json"]
+                    self.assertEqual(post.call_args.args[0], "https://api.deepseek.com/v1/responses")
+                    self.assertEqual(payload["reasoning"], {"effort": effort})
+                    self.assertEqual(payload["max_output_tokens"], limit)
+                    self.assertEqual(payload["text"]["format"]["type"], "json_schema")
+                    self.assertEqual(payload["text"]["format"]["schema"]["properties"]["checks"]["required"],
+                                     ["outcome.reason"])
+                    self.assertNotIn("temperature", payload)
+                    self.assertEqual(post.call_args.kwargs["timeout"], timeout)
+                    continue
                 post.return_value.json.return_value = {
                     "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}
                 self.assertEqual(_default_generate(kind, [{"role": "user", "content": "JSON"}], limit), "{}")

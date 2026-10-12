@@ -99,7 +99,28 @@ class ReportAuditRejected(ValueError):
         self.rejected_claims = rejected_claims
 
 
-def report_audit_checks(raw: str, expected: set[str], *, include_practice: bool = False) -> list[dict]:
+def report_audit_schema(claims: list[dict]) -> dict:
+    """Require each original slot as a separate key in the provider response."""
+    properties = {}
+    for claim in claims:
+        codes = ["speaker_mismatch", "chronology", "condition_unconfirmed",
+                 "answered_fact_omitted", "unsupported_fact"]
+        if claim["claim_id"] == "next_practice":
+            codes.append("refusal_precondition")
+        properties[claim["claim_id"]] = {
+            "type": "object", "properties": {
+                "consistent": {"type": "boolean"},
+                "issues": {"type": "array", "items": {"type": "string", "enum": codes}},
+            }, "required": ["consistent", "issues"], "additionalProperties": False,
+        }
+    return {"type": "object", "properties": {"checks": {
+        "type": "object", "properties": properties,
+        "required": list(properties), "additionalProperties": False,
+    }}, "required": ["checks"], "additionalProperties": False}
+
+
+def report_audit_checks(raw: str, expected: set[str], *, include_practice: bool = False,
+                        keyed: bool = False) -> list[dict]:
     """Parse a complete audit batch without turning partial results into feedback."""
     def unique_object(pairs):
         if len(dict(pairs)) != len(pairs):
@@ -112,7 +133,15 @@ def report_audit_checks(raw: str, expected: set[str], *, include_practice: bool 
         raise ValueError("复盘事实核验无效") from exc
     codes = {"speaker_mismatch", "chronology", "condition_unconfirmed",
              "answered_fact_omitted", "unsupported_fact"}
-    if not isinstance(audit, dict) or set(audit) != {"checks"} or not isinstance(audit["checks"], list):
+    if not isinstance(audit, dict) or set(audit) != {"checks"}:
+        raise ValueError("复盘事实核验无效")
+    if keyed:
+        if (not isinstance(audit["checks"], dict) or set(audit["checks"]) != expected
+                or any(not isinstance(value, dict) or set(value) != {"consistent", "issues"}
+                       for value in audit["checks"].values())):
+            raise ValueError("复盘事实核验无效")
+        audit["checks"] = [dict(claim_id=claim_id, **value) for claim_id, value in audit["checks"].items()]
+    if not isinstance(audit["checks"], list):
         raise ValueError("复盘事实核验无效")
     seen = set()
     for check in audit["checks"]:
