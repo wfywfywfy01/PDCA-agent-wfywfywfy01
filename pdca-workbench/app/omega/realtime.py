@@ -1022,6 +1022,10 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
             control.updated.set()
             continue
         if kind == "error":
+            error = event.get("error")
+            code = error.get("code") if isinstance(error, dict) else None
+            if type(code) in (int, str) and str(code) == "45000003":
+                raise ValueError("超过10分钟未交谈，语音连接已释放。可点继续实时对话；已保存的逐字稿仍保留。")
             raise RuntimeError("豆包实时语音处理失败")
         if kind == "session.closed":
             return

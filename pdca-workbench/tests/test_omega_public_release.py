@@ -204,3 +204,97 @@ class PublicWorkerRevocation(unittest.TestCase):
             return '这条回复不能发布。'
         run_once(self.engine, generate=generate)
         self.assert_unpublished(job_id)
+
+
+class PublicProviderIdleErrors(unittest.TestCase):
+    setUp = voice_fixture.RealtimeSessionTests.setUp
+    tearDown = voice_fixture.RealtimeSessionTests.tearDown
+
+    def test_known_idle_code_has_fixed_message_without_provider_text(self):
+        from app.omega.realtime import _receive_doubao_audio
+        for code in (45000003, '45000003'):
+            with self.subTest(code=code):
+                provider = SimpleNamespace(recv=AsyncMock(return_value=json.dumps({
+                    'type': 'error', 'error': {'code': code, 'message': 'PRIVATE_UPSTREAM_MESSAGE'}})))
+                with self.assertRaisesRegex(ValueError, '超过10分钟未交谈') as caught:
+                    asyncio.run(_receive_doubao_audio(SimpleNamespace(), provider, self.engine,
+                        self.session_id, 'unused', 'unused'))
+                self.assertNotIn('PRIVATE_UPSTREAM_MESSAGE', str(caught.exception))
+
+    def test_other_errors_and_malformed_error_keep_generic_failure(self):
+        from app.omega.realtime import _receive_doubao_audio
+        for error in ({'code': 55000001}, {'code': '450000030'}, {'code': 45000003.0},
+                      {'code': True}, None, [], '45000003'):
+            with self.subTest(error=error):
+                provider = SimpleNamespace(recv=AsyncMock(return_value=json.dumps({
+                    'type': 'error', 'error': error, 'message': 'PRIVATE_UPSTREAM_MESSAGE'})))
+                with self.assertRaisesRegex(RuntimeError, '豆包实时语音处理失败'):
+                    asyncio.run(_receive_doubao_audio(SimpleNamespace(), provider, self.engine,
+                        self.session_id, 'unused', 'unused'))
+
+    def exercise_idle_failure(self, *, unfinished=False):
+        from app.omega.realtime import _append
+        previous, token, _ = _acquire(self.engine, self.user, self.session_id)
+        _append(self.engine, self.session_id, previous, token, 'sales', '请确认审批负责人。')
+        _append(self.engine, self.session_id, previous, token, 'counterparty', '先说明库存风险。')
+        _release(self.engine, previous, token, failed=False)
+
+        class Provider:
+            def __init__(self, idle):
+                self.idle = idle
+                self.events = asyncio.Queue()
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return None
+            async def send(self, raw):
+                event = json.loads(raw)
+                if event['type'] == 'session.create':
+                    self.events.put_nowait({'type': 'session.created'})
+                elif event['type'] == 'input_audio_buffer.append' and self.idle:
+                    self.idle = False
+                    self.events.put_nowait({'type': 'error', 'error': {
+                        'code': 45000003, 'message': 'PRIVATE_UPSTREAM_MESSAGE'}})
+                elif event['type'] == 'session.close':
+                    self.events.put_nowait({'type': 'session.closed'})
+            async def recv(self): return json.dumps(await self.events.get())
+
+        async def authorize(*_): return self.user
+        first, second = Provider(True), Provider(False)
+        with patch('app.omega.realtime.is_enabled', return_value=True), \
+                patch('app.omega.realtime.ws_user', side_effect=authorize), \
+                patch('app.omega.realtime.connect', side_effect=[first, second]), \
+                patch.dict('os.environ', {'PDCA_OMEGA_REALTIME_PROVIDER': 'doubao',
+                                         'PDCA_DOUBAO_REALTIME_API_KEY': 'synthetic-test-only'}):
+            url = f'/api/omega/sessions/{self.session_id}/realtime'
+            with self.client.websocket_connect(url, headers={'Origin': 'http://testserver'}) as socket:
+                ready = socket.receive_json(); self.assertEqual(ready['type'], 'ready')
+                socket.send_bytes(b"\x20\x00" * 320 if unfinished else bytes(640))
+                failure = socket.receive_json(); self.assertEqual(failure['type'], 'error')
+                self.assertIn('超过10分钟未交谈', failure['message'])
+                self.assertNotIn('PRIVATE_UPSTREAM_MESSAGE', failure['message'])
+                self.assertEqual(socket.receive_json()['type'], 'closed')
+            with Session(self.engine) as db:
+                jobs = db.exec(select(OmegaJob).where(OmegaJob.kind == 'realtime')).all()
+                self.assertEqual(sorted(job.status for job in jobs), ['failed', 'succeeded'])
+                self.assertEqual(db.get(OmegaSession, self.session_id).status, 'active')
+                self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 2)
+                if unfinished:
+                    from app.omega.router import require_complete_voice_tail
+                    self.assertTrue(any(job.error == '语音尾稿未完成，请检查逐字稿后重新演练' for job in jobs))
+                    with self.assertRaises(HTTPException) as blocked:
+                        require_complete_voice_tail(db, db.get(OmegaSession, self.session_id))
+                    self.assertEqual(blocked.exception.status_code, 409)
+                    return
+            with self.client.websocket_connect(url, headers={'Origin': 'http://testserver'}) as socket:
+                resumed = socket.receive_json();self.assertEqual(resumed['type'], 'ready')
+                self.assertGreater(resumed['audio_epoch'], ready['audio_epoch'])
+                socket.send_text('stop')
+                self.assertEqual(socket.receive_json()['type'], 'closed')
+            with Session(self.engine) as db:
+                self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 2)
+                self.assertEqual(db.get(OmegaSession, self.session_id).status, 'active')
+
+    def test_idle_failure_preserves_saved_segments_and_manual_reconnect_revalidates_epoch(self):
+        self.exercise_idle_failure()
+
+    def test_idle_failure_with_unfinished_pcm_still_blocks_report(self):
+        self.exercise_idle_failure(unfinished=True)
