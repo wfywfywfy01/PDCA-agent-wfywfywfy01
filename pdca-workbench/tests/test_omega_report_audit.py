@@ -442,7 +442,7 @@ class ReportAuditValidationTests(unittest.TestCase):
             post.return_value.json.return_value = {'choices': [{'finish_reason': 'stop',
                 'message': {'content': '{"consistent":true,"issues":[]}',
                             'reasoning_content': 'private reasoning must not become report text'}}]}
-            for kind, limit, effort, timeout in [('report', 16384, 'high', 90),
+            for kind, limit, effort, timeout in [('report', 32768, 'high', 150),
                                                  ('practice', 4096, 'high', 30)]:
                 with self.subTest(kind=kind):
                     self.assertEqual(_default_generate(kind, [{'role': 'user', 'content': 'JSON'}], limit),
@@ -1117,7 +1117,7 @@ class ReportAuditTests(unittest.TestCase):
         def generate(kind, messages, limit):
             calls.append(kind)
             if kind == 'report':
-                self.assertEqual(limit, 16384)
+                self.assertEqual(limit, 32768)
                 return json.dumps(self.raw)
             if kind == 'report_audit':
                 self.assertEqual(limit, 32768)

@@ -73,7 +73,7 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
         payload["thinking"] = {"type": "enabled" if reasoning else "disabled"}
         if reasoning:
             payload["reasoning_effort"] = "high"
-            timeout = {"report": 90, "report_audit": 150, "practice": 30}[kind]
+            timeout = {"report": 150, "report_audit": 150, "practice": 30}[kind]
         if kind in {"report", "report_audit", "memory", "practice"}:
             payload["response_format"] = {"type": "json_object"}
     response = httpx.post(
@@ -286,7 +286,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             weights = snapshot.get("score_weights", WEIGHTS)
             messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing,
                                       audit_feedback=audit_feedback)
-            result = validate_report(generate(kind, messages, 16384), segments,
+            result = validate_report(generate(kind, messages, 32768), segments,
                                      goal_timing=goal_timing, weights=weights)
             report_audit_claims(result)
             if not _report_call_allowed(engine, job_id, token, session_id, expected_revision, input_hash):

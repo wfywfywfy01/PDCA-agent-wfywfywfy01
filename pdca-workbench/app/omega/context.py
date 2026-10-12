@@ -188,7 +188,9 @@ def audit_messages(segments: list[dict], report: dict, *, include_practice: bool
     """Check factual claims against public speech without modifying the scoring."""
     messages = [
         {"role": "system", "content": (
-            "你是独立的谈判复盘事实核验员，只核对已验证报告与公开逐字稿是否一致，不重新评分。"
+            "你是独立的谈判复盘事实核验员，只核对待核验报告与公开逐字稿是否一致，不重新评分。"
+            "报告已通过的只是结构和引文校验，其理由和事实描述仍须独立核验。公开事实的依据仅为 transcript 原话。"
+            "完整 report 用于发现跨项矛盾；不同理由中重复出现同一说法不构成事实佐证，也不能用待核验陈述解释或补全逐字稿。"
             "输出严格 JSON，仅返回 checks 一个字段，其值为逐条核验数组；禁止 type、schema、response_format 等额外字段或包装。"
             "checks 每项严格只有 claim_id、consistent、issues；consistent 为布尔值，issues 为不重复的错误代码数组，最多5项。"
             "按输入 claims 对每个 claim_id 恰好核验一次，不能遗漏、重复或添加 claim_id，也不能只返回整体结论。"
