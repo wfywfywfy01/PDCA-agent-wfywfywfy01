@@ -24,12 +24,14 @@ from sqlmodel import Session, select
 from app.omega.jobs import run_once
 from app.omega.models import OmegaSession, OmegaWorkerHeartbeat
 from app.omega.reports import WEIGHTS
-from tests.test_omega_flow import OmegaFlowTests
+from tests.test_omega_flow import OmegaFlowTests, positive_report_audit
 
 
 def generate(kind, messages, _limit):
     if kind == 'turn':
         return '请明确下一步的负责人和确认时间。'
+    if kind == 'report_audit':
+        return json.dumps(positive_report_audit(messages))
     if kind == 'coach_hint':
         return '先问清谁能确认采购，再争取一个明确的回复时间。'
     if kind == 'practice':

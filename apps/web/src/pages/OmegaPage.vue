@@ -262,11 +262,12 @@ function toMinor(amount: string, currency: string | null): number {
   return value
 }
 
-async function loadLists() {
+async function loadLists(isCurrent: () => boolean = () => true) {
   const [caseRows, sessionRows, assignmentRows] = await Promise.all([
     apiGet<CaseRow[]>('/api/omega/cases'), apiGet<SessionRow[]>('/api/omega/sessions'),
     apiGet<Assignment[]>('/api/omega/assignments'),
   ])
+  if (!isCurrent()) return
   cases.value = caseRows.filter(row => row.kind !== 'template')
   sessions.value = sessionRows
   assignments.value = assignmentRows
@@ -334,11 +335,11 @@ async function startedTemplate(result: TemplateStart, autoVoice = false) {
   if (autoVoice && result.session_id && chosenSession.value?.id === result.session_id) await startVoice()
   else cancelTemplateVoice()
 }
-async function refreshSession() {
+async function refreshSession(isCurrent: () => boolean = () => true) {
   const id = chosenSession.value?.id
   if (id) {
     const game = await apiGet<SessionRow>(`/api/omega/sessions/${id}`)
-    if (chosenSession.value?.id === id) chosenSession.value = game
+    if (isCurrent() && chosenSession.value?.id === id) chosenSession.value = game
   }
 }
 async function run(action: () => Promise<void>) {
@@ -589,31 +590,40 @@ async function makeReport() {
     schedulePoll()
   })
 }
-async function pollJob() {
-  if (!activeJob.value) return
+async function pollJob(recoveryError?: string) {
+  if (!activeJob.value || !chosenSession.value) return
+  const token = openToken
   const jobId = activeJob.value.id
-  const sessionId = chosenSession.value?.id
+  const sessionId = chosenSession.value.id
+  const isCurrent = () => token === openToken && activeJob.value?.id === jobId && chosenSession.value?.id === sessionId
   try {
     const job = await apiGet<Job>(`/api/omega/jobs/${jobId}`)
-    if (activeJob.value?.id !== jobId || chosenSession.value?.id !== sessionId) return
+    if (!isCurrent()) return
+    if (recoveryError !== undefined && error.value === recoveryError) error.value = ''
     activeJob.value = job
     if (job.status === 'succeeded') {
       if (job.result_id) {
         const result = await apiGet<Report>(`/api/omega/reports/${job.result_id}`)
-        if (chosenSession.value?.id !== sessionId) return
+        if (!isCurrent()) return
         report.value = result
         notice.value = '复盘已生成，对话和评分已保存。'
       }
-      await refreshSession()
-      if (job.result_id) await loadLists()
+      await refreshSession(isCurrent)
+      if (isCurrent() && job.result_id) await loadLists(isCurrent)
     } else if (job.status === 'failed' || job.status === 'cancelled') {
+      notice.value = ''
       error.value = job.error || '任务已取消，请重试'
     } else schedulePoll()
-  } catch (err) { error.value = detail(err) }
+  } catch (err) {
+    if (!isCurrent()) return
+    error.value = detail(err)
+    if (err instanceof HttpError ? err.status >= 500 : err instanceof TypeError) schedulePoll(3000, error.value)
+    else notice.value = ''
+  }
 }
-function schedulePoll() {
+function schedulePoll(delay = 1200, recoveryError?: string) {
   if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = setTimeout(pollJob, 1200)
+  pollTimer = setTimeout(() => pollJob(recoveryError), delay)
 }
 async function reviewReport() {
   if (!report.value) return

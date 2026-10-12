@@ -351,8 +351,10 @@ class OmegaTemplateTests(unittest.TestCase):
                                             for key in WEIGHTS], 'next_practice': '确认负责人。'})
         prompts = []
         def generate(kind, messages, limit):
-            self.assertEqual(kind, 'report')
             prompts.extend(messages)
+            if kind == 'report_audit':
+                return json.dumps(fixtures.positive_report_audit(messages))
+            self.assertEqual(kind, 'report')
             return result
         self.assertTrue(run_once(self.engine, generate=generate))
         with Session(self.engine) as db:
