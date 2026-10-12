@@ -18,7 +18,8 @@ class VoiceBoundaryTests(unittest.TestCase):
     tearDown = fixture.CoachingTests.tearDown
 
     async def exercise(self, *, late_final=False, missing_final=False, revoke=False,
-                       missing_close=False, stop_only=False, reuse_ids=False):
+                       missing_close=False, stop_only=False, reuse_ids=False,
+                       commit_required=False, commit_ack_only=False):
         owner = self
         transports = []
 
@@ -43,6 +44,11 @@ class VoiceBoundaryTests(unittest.TestCase):
                 if event['type'] == 'session.create':
                     self.roles.append(event['session']['instructions'])
                     self.events.put_nowait({'type': 'session.created'})
+                elif event['type'] == 'input_audio_buffer.commit':
+                    self.events.put_nowait({'type': 'input_audio_buffer.committed'})
+                    if commit_required and not commit_ack_only:
+                        self.events.put_nowait({'type': 'conversation.item.input_audio_transcription.completed',
+                                                'item_id': 'unfinished', 'text': 'Accepted unfinished public speech'})
                 elif event['type'] == 'session.close':
                     if self.generation == 0 and (late_final or missing_final):
                         self.events.put_nowait({'type': 'conversation.item.input_audio_transcription.started', 'item_id': 'late-old'})
@@ -58,6 +64,12 @@ class VoiceBoundaryTests(unittest.TestCase):
                         self.events.put_nowait({'type': 'session.closed'})
                 elif event['type'] == 'input_audio_buffer.append':
                     pcm = base64.b64decode(event['audio'])
+                    if commit_required and self.generation == 0:
+                        if not self.spoken and any(pcm):
+                            self.spoken = True
+                            self.events.put_nowait({'type': 'conversation.item.input_audio_transcription.started',
+                                                    'item_id': 'unfinished'})
+                        return
                     if pcm != b'\x20\x00' * 320 or self.spoken:
                         return
                     self.spoken = True
@@ -80,6 +92,7 @@ class VoiceBoundaryTests(unittest.TestCase):
             def __init__(self):
                 self.incoming = asyncio.Queue()
                 self.events, self.audio = [], []
+                self.boundary_triggered = False
 
             async def accept(self):
                 pass
@@ -98,9 +111,13 @@ class VoiceBoundaryTests(unittest.TestCase):
                 self.events.append(event)
                 if event['type'] == 'ready':
                     self.incoming.put_nowait({'type': 'websocket.receive', 'bytes': b'\x01\x00' * 320})
-                    self.incoming.put_nowait({'type': 'websocket.receive', 'text': 'stop' if stop_only else json.dumps({'type': 'control', 'action': 'pause', 'request_key': 'boundary-pause', 'audio_epoch': 2})})
+                    if not commit_required:
+                        self.incoming.put_nowait({'type': 'websocket.receive', 'text': 'stop' if stop_only else json.dumps({'type': 'control', 'action': 'pause', 'request_key': 'boundary-pause', 'audio_epoch': 2})})
+                elif event['type'] == 'interrupt' and commit_required and not self.boundary_triggered:
+                    self.boundary_triggered = True
+                    self.incoming.put_nowait({'type': 'websocket.receive', 'text': 'stop' if stop_only else json.dumps({'type': 'control', 'action': 'pause', 'request_key': 'boundary-pause', 'audio_epoch': event['audio_epoch'] + 1})})
                 elif event.get('request_key') == 'boundary-pause' and event.get('state') == 'coaching':
-                    self.incoming.put_nowait({'type': 'websocket.receive', 'text': json.dumps({'type': 'control', 'action': 'resume', 'request_key': 'boundary-resume', 'audio_epoch': 3})})
+                    self.incoming.put_nowait({'type': 'websocket.receive', 'text': json.dumps({'type': 'control', 'action': 'resume', 'request_key': 'boundary-resume', 'audio_epoch': event['audio_epoch'] + 1})})
                 elif event.get('request_key') == 'boundary-resume' and event.get('state') == 'listening':
                     self.incoming.put_nowait({'type': 'websocket.receive', 'bytes': b'\x20\x00' * 320})
                     if reuse_ids:
@@ -128,7 +145,7 @@ class VoiceBoundaryTests(unittest.TestCase):
         with Session(self.engine) as db:
             job = db.get(OmegaJob, self.job_id)
             saved = list(db.exec(select(OmegaSegment).order_by(OmegaSegment.seq)))
-            if missing_final or revoke or missing_close:
+            if missing_final or revoke or missing_close or commit_ack_only:
                 self.assertEqual(job.status, 'failed')
                 self.assertEqual(len(transports), 1)
                 self.assertEqual(browser.audio, [])
@@ -136,18 +153,28 @@ class VoiceBoundaryTests(unittest.TestCase):
                 self.assertEqual(job.status, 'succeeded')
                 self.assertEqual(len(transports), 1)
                 self.assertEqual(browser.audio, [])
-                self.assertEqual(saved, [])
+                self.assertEqual([p.text for p in saved], ['Accepted unfinished public speech'] if commit_required else [])
             else:
                 self.assertEqual(job.status, 'succeeded')
                 self.assertEqual(len(transports), 2)
                 self.assertEqual(browser.audio, [b'\x00\x30'])
                 self.assertEqual([p.text for p in saved],
-                    (['Accepted old public speech'] if late_final else []) + ['Fresh public speech', 'Fresh opponent reply'])
+                    (['Accepted unfinished public speech'] if commit_required else ['Accepted old public speech'] if late_final else []) + ['Fresh public speech', 'Fresh opponent reply'])
                 self.assertNotIn('PRIVATE_LIMIT', transports[1].roles[0])
                 if late_final:
                     self.assertIn('Accepted old public speech', transports[1].roles[0])
         self.assertTrue(all(p.closed for p in transports))
-        self.assertTrue(all('response.cancel' not in p.sent and 'input_audio_buffer.commit' not in p.sent for p in transports))
+        self.assertTrue(all('response.cancel' not in p.sent for p in transports))
+        self.assertEqual(sum(p.sent.count('input_audio_buffer.commit') for p in transports), int(commit_required))
+
+    def test_stop_commits_identified_speech_and_saves_final_before_close(self):
+        asyncio.run(self.exercise(commit_required=True, stop_only=True))
+
+    def test_resume_commits_identified_speech_before_opening_new_stream(self):
+        asyncio.run(self.exercise(commit_required=True))
+
+    def test_commit_ack_without_identified_final_still_fails(self):
+        asyncio.run(self.exercise(commit_required=True, commit_ack_only=True, stop_only=True))
 
     def test_non_speech_pcm_resumes_only_after_old_stream_closed_and_new_stream_ready(self):
         asyncio.run(self.exercise())
