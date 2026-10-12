@@ -1,5 +1,14 @@
 # Progress
 
+## 2026-10-12: Request native EndASR before draining an identified speech tail
+
+- Physical-phone hangup reproduced the incomplete-tail error on production revision `55e83c3791c6a3974fedf83ef1265e4596000067`: job `0cd473ab-82fa-4828-82c2-0e4799c7bab0`, zero saved segments, microphone released, explicit hangup at 07:31:48 UTC and failed job at 07:31:56 UTC. Host playback was not verified as captured speech. This establishes the phone failure, not its exact provider cause.
+- The common Doubao stop/resume boundary now sends the documented `input_audio_buffer.commit` (EndASR) once when an identified ASR input is already active. It still waits for that input's matching final, the old-session close acknowledgement, valid ownership and lease. No active identity is cleared by a commit acknowledgement; partial hypotheses are not promoted to final transcripts. Raw noise without an identified input does not trigger the new command. Late unfinalized inputs still fail safely.
+- Test-first at the actual realtime-session, receiver and database-release seam: three new tests failed on the previous application (24.740 seconds), then all passed (11.736 seconds). They cover explicit stop, pause/resume and a commit acknowledgement without a final; the last remains a failed job. The resume fixture derives its epoch from the acknowledged state.
+- A bounded real-provider test with the current application and isolated SQLite sent two seconds of fixed synthetic speech. Native ASR started at 0.839 seconds; commit acknowledgement arrived at 2.153 seconds while the input was still active; the matching final arrived at 2.603 seconds and closed it; session.closed arrived at 4.330 seconds. One sales final was saved and tail processing took 2.227 seconds. No production database, private speech or credentials were exported. This is provider protocol evidence, not physical-phone or human acceptance.
+- Evidence: `D:/Vertu/data/excel/26年数据/10月/部门工作画像/督战官文件/Omega_实体手机复测_2026-10-12/尾稿根因修复/`. Full isolated regression, exact-commit CI, independent review, immutable deployment and physical-phone regression remain gates. Model routes and the frozen report candidate are unchanged.
+
+
 ## 2026-10-12: Isolate scheduled database backup from business synchronization
 
 - Production health returned 503 because its newest successful database backup was older than 36 hours. Read-only Docker timestamps show that the daily synchronization job missed runs on both October 11 and October 12 (delays of 5:06:29.660581 and 1:02:41.067690). Its backup ran only after synchronization. The specific cause of the long scheduling delay has not been established.

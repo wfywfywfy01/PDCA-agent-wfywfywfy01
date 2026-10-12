@@ -234,7 +234,7 @@ class VoiceControl:
         try:
             if provider_name() == "doubao":
                 # Recorder pause: keep native VAD draining accepted speech with zero PCM.
-                # Cancel/commit/mute can open an ASR identity that never receives a final.
+                # Do not reset the stream or ASR identities while the recorder is paused.
                 if action == "pause":
                     await self.start_silence(provider)
                 else:
@@ -314,6 +314,10 @@ class DoubaoStream:
 
     async def finish_input(self, control, *, restart=False):
         control.boundary_failed = True
+        if control.active_inputs:
+            # EndASR asks the provider to finalize accepted speech. Its commit ACK
+            # cannot substitute for the matching ASREnded checked below.
+            await self.provider.send(json.dumps({"type": "input_audio_buffer.commit"}))
         await control.wait_asr_tail()
         await control.stop_silence()
         self.boundary, self.rotating = True, restart
