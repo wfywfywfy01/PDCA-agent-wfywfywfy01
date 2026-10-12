@@ -377,3 +377,13 @@ Verification:
 - Playwright desktop and `390x844`: 8 results, 8/8 images loaded, first result `image12.png`, zero console errors, no horizontal overflow.
 
 Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deployment gate; application cutover requires the immutable image, Redis/shared key runtime, and health checks to pass.
+
+
+## 2026-10-12 Omega 挂断错误提示
+
+- 实体手机用户确认“清楚 能打断”；主动挂断后麦克风释放，但服务端仍报语音尾稿未完成。真人语音整体验收尚未通过。
+- 根因已确认的前端缺陷：`voiceClosing` 时忽略服务端 `error`，导致正常关闭对话框后看不到收尾失败。现在保留错误消息，仍等待既有关闭流程收尾。
+- 测试先行：修改隔离移动端浏览器验收，在主动挂断时注入服务端尾稿错误。未修改 UI 时目标断言失败（没有 alert）；修改 UI 后同一完整移动端验收通过，麦克风与音频上下文释放断言保留。
+- 本地前端 26 项测试、类型检查、构建、知识库前端 3 项测试及两份 Compose 校验通过。证据在交付目录“挂断错误提示修复”。完整 CI 仍为合并门禁。
+- 未改实时语音收尾判定、输入归属或评分逻辑。固定合成音频的独立真实豆包测试收尾通过，但没有复现本次实体手机尾稿失败，不能据此宣称尾稿根因修复。
+- 本分支基于已审备份树 `a03eed72e22780daeb153ad2583f48186840d614`；本地基线 `3d69c696` 与已合并 main `6a342b893891fb31e7e97c410ef27e73af92c80f` 同树。

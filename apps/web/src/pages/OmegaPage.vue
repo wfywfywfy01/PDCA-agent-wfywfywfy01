@@ -892,7 +892,11 @@ async function startVoice() {
       if (event.data instanceof ArrayBuffer) { if (voicePhase.value === 'live' && packetEpoch === voiceEpoch.value) playVoiceAudio(event.data); return }
       try {
         const message = JSON.parse(event.data) as { type: string; message?: string; speaker?: string; speaker_id?: string; text?: string; state?: string; audio_epoch?: number; request_key?: string }
-        if (message.type === 'error') { if (!voiceClosing.value) { error.value = message.message || '实时语音连接失败'; voiceInterrupted.value = true; stopVoice() } return }
+        if (message.type === 'error') {
+          error.value = message.message || '实时语音连接失败'
+          if (!voiceClosing.value) { voiceInterrupted.value = true; stopVoice() }
+          return
+        }
         if (message.type === 'closed') {
           if (!voiceClosing.value) voiceInterrupted.value = true
           stopVoice()
