@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 from loguru import logger
 
@@ -159,6 +160,20 @@ def backup_database() -> str | None:
     return str(dest)
 
 
+def database_backup_job() -> None:
+    """独立备份，不等待业务同步完成。"""
+    global _last_backup_error
+    try:
+        path = backup_database()
+    except Exception:
+        _last_backup_error = "备份任务执行异常"
+        logger.exception("数据库备份任务异常")
+        path = None
+    if not path:
+        _last_backup_error = _last_backup_error or "未生成备份文件"
+        notify("数据库备份失败", "请检查 pg_dump 配置与服务日志")
+
+
 def daily_sync_job() -> None:
     """每日 VPS/文件同步任务（06:00）。"""
     date_text = bridge.today_text()
@@ -176,8 +191,6 @@ def daily_sync_job() -> None:
         logger.exception("每日同步失败: {}", exc)
         notify("每日同步失败", str(exc)[:300])
     mark_sync(sync_success)
-    if not backup_database():
-        notify("数据库备份失败", "请检查 pg_dump 配置与服务日志")
 
 
 def logistics_tracking_refresh_job() -> None:
@@ -1020,9 +1033,22 @@ def start_scheduler() -> BackgroundScheduler | None:
         return None
     if _scheduler is not None:
         return _scheduler
-    _scheduler = BackgroundScheduler()
+    _scheduler = BackgroundScheduler(executors={"backup": ThreadPoolExecutor(max_workers=1)})
 
-    # 06:00 — 文件同步 + 备份
+    # 备份使用独立执行器；业务同步延迟或错过执行不会跳过当天备份。
+    _scheduler.add_job(
+        database_backup_job,
+        trigger="cron",
+        hour=2,
+        minute=0,
+        id="database_backup",
+        executor="backup",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=12 * 3600,
+    )
+
+    # 06:00 — 文件同步
     parts = settings.sync_cron.split()
     if len(parts) == 5:
         minute, hour, day, month, dow = parts

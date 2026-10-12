@@ -79,7 +79,7 @@ class MeetingAsyncBoundaryTests(unittest.IsolatedAsyncioTestCase):
 class MeetingSchedulerTests(unittest.TestCase):
     def test_snapshot_sync_is_registered_every_30_minutes_in_work_hours(self):
         class RecordingScheduler:
-            def __init__(self):
+            def __init__(self, **kwargs):
                 self.jobs = []
 
             def add_job(self, func, *args, **kwargs):

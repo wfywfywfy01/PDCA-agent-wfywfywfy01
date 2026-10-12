@@ -286,7 +286,7 @@ class EvidenceRegistrationTests(unittest.TestCase):
         from app.scheduler import jobs as scheduler_jobs
 
         class RecordingScheduler:
-            def __init__(self):
+            def __init__(self, **kwargs):
                 self.jobs = []
 
             def add_job(self, func, *args, **kwargs):
@@ -338,7 +338,7 @@ class EvidenceRegistrationTests(unittest.TestCase):
         from app.scheduler import jobs as scheduler_jobs
 
         class RecordingScheduler:
-            def __init__(self):
+            def __init__(self, **kwargs):
                 self.jobs = []
 
             def add_job(self, func, *args, **kwargs):
