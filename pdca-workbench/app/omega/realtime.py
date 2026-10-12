@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from loguru import logger
-from sqlalchemy import update
+from sqlalchemy import text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import object_session
 from sqlmodel import Session, select
@@ -34,6 +34,8 @@ _model = "qwen-audio-3.1-realtime-plus"
 _doubao_model = "1.2.6.1"  # Seeduplex 3.0 full duplex
 _doubao_url = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
 _lease_seconds = 15
+_auth_interval_seconds = 4
+_max_connection_seconds = 30 * 60
 _tail_error = "语音尾稿未完成，请检查逐字稿后重新演练"
 _multi_voices = ("zh_female_vv_uranus_bigtts", "zh_male_yunzhou_jupiter_bigtts",
                  "zh_male_xiaotian_uranus_bigtts")
@@ -458,12 +460,22 @@ def _session_voice_role(db, game):
 
 
 def _acquire(engine, user: User, session_id: str) -> tuple[str, str, str]:
-    now = utcnow()
     with Session(engine) as db:
+        # Serialize admission across processes, including different rooms/users.
+        if engine.dialect.name == "postgresql":
+            db.execute(text("SELECT pg_advisory_xact_lock(1869440353)"))
+        elif engine.dialect.name == "sqlite":
+            db.execute(text("BEGIN IMMEDIATE"))
+        now = utcnow()
+        actor = db.get(User, user.id)
+        if actor is None:
+            raise HTTPException(403, "账号已失效")
+        user = actor
         game = _locked_session(db, session_id)
         require_case(user, db, db.get(OmegaCase, game.case_id))
         require_session_source(user, db, game)
-        require_writer(user, game.owner_id)
+        if user.id != game.owner_id:
+            raise HTTPException(403, "请创建自己的演练；主管可查看和复盘组内记录")
         if game.mode not in {"rehearsal", "training"} or game.status != "active":
             raise HTTPException(409, "仅进行中的模拟演练支持实时语音")
         pending = db.exec(select(OmegaJob).where(
@@ -484,6 +496,20 @@ def _acquire(engine, user: User, session_id: str) -> tuple[str, str, str]:
             old.lease_token = ""
             old.error = "实时连接已过期"
             db.flush()
+        active = db.exec(select(OmegaJob).join(
+            OmegaSession, OmegaSession.id == OmegaJob.session_id).where(
+            OmegaJob.kind == "realtime", OmegaJob.status == "running",
+            OmegaJob.lease_until > now)).all()
+        if any(db.get(OmegaSession, item.session_id).owner_id == user.id for item in active):
+            raise HTTPException(409, "你的另一场语音仍在进行，请先结束")
+        try:
+            limit = int(os.environ.get("PDCA_OMEGA_REALTIME_MAX_CONNECTIONS", "8"))
+            if not 1 <= limit <= 64:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(503, "语音并发配置无效") from None
+        if len(active) >= limit:
+            raise HTTPException(429, "当前语音席位已满，请稍后重试")
         version = db.get(OmegaCaseVersion, game.case_version_id)
         from app.omega.memory import session_snapshot
         snapshot = session_snapshot(game, version)
@@ -516,6 +542,18 @@ def _renew(engine, session_id: str, job_id: str, token: str) -> None:
         job = _valid_lease(db, game, job_id, token)
         job.lease_until = utcnow() + timedelta(seconds=_lease_seconds)
         db.commit()
+
+
+async def _renew_authorized(ws, engine, session_id, job_id, token, actor_id):
+    # A new identity map is required: the WebSocket dependency lives for the whole call.
+    with Session(engine) as db:
+        actor = await ws_user(ws, db)
+        game = db.get(OmegaSession, session_id)
+        if actor.id != actor_id or game is None or actor.id != game.owner_id:
+            raise HTTPException(403, "语音操作者权限已失效")
+        require_case(actor, db, db.get(OmegaCase, game.case_id))
+        require_session_source(actor, db, game)
+    _renew(engine, session_id, job_id, token)
 
 
 def _append(engine, session_id: str, job_id: str, token: str,
@@ -748,19 +786,32 @@ async def _speak_multi_turn(ws, control, turn_id, revision, epoch, *, generate=N
 async def _send_audio(ws: WebSocket, provider, engine, session_id: str,
                       job_id: str, token: str,
                       browser_gone: asyncio.Event | None = None,
-                      control: VoiceControl | None = None) -> int:
-    last_renewed = asyncio.get_running_loop().time()
+                      control: VoiceControl | None = None,
+                      actor_id: int | None = None) -> int:
+    loop = asyncio.get_running_loop()
+    last_renewed = loop.time()
+    deadline = getattr(control, "deadline", last_renewed + _max_connection_seconds)
     frames = 0
     while True:
+        now = loop.time()
+        if now >= deadline:
+            if control:
+                control.ending = True
+            await ws.send_json({"type": "ending", "message": "本次通话已达时长上限，请结束复盘后重新开练"})
+            return frames
+        if now - last_renewed >= _auth_interval_seconds:
+            if actor_id is not None:
+                await _renew_authorized(ws, engine, session_id, job_id, token, actor_id)
+            else:
+                _renew(engine, session_id, job_id, token)
+            last_renewed = loop.time()
         if control and control.silence_error:
             raise control.silence_error
         if control and control.boundary_failed:
             raise RuntimeError("实时语音流切换失败")
         try:
-            message = await asyncio.wait_for(ws.receive(), 4)
+            message = await asyncio.wait_for(ws.receive(), min(_auth_interval_seconds, deadline - now))
         except TimeoutError:
-            _renew(engine, session_id, job_id, token)
-            last_renewed = asyncio.get_running_loop().time()
             continue
         except WebSocketDisconnect:
             if control:
@@ -791,10 +842,6 @@ async def _send_audio(ws: WebSocket, provider, engine, session_id: str,
             raise ValueError("实时语音只接收 PCM 音频")
         if not 0 < len(chunk) <= 4096 or len(chunk) % 2:
             raise ValueError("PCM 音频帧格式无效")
-        now = asyncio.get_running_loop().time()
-        if now - last_renewed >= 4:
-            _renew(engine, session_id, job_id, token)
-            last_renewed = now
         if control and control.paused:
             continue
         if control:
@@ -802,6 +849,21 @@ async def _send_audio(ws: WebSocket, provider, engine, session_id: str,
         await provider.send(json.dumps({"type": "input_audio_buffer.append",
                                         "audio": base64.b64encode(chunk).decode("ascii")}))
         frames += 1
+
+
+async def _watch_connection(ws, engine, session_id, job_id, token, actor_id, control):
+    """Keep expiry/auth independent of slow provider sends and pause/resume drains."""
+    loop = asyncio.get_running_loop()
+    while True:
+        remaining = control.deadline - loop.time()
+        if remaining <= 0:
+            control.ending = True
+            await asyncio.wait_for(ws.send_json({"type": "ending",
+                "message": "本次通话已达时长上限，请结束复盘后重新开练"}), 1)
+            return
+        await asyncio.sleep(min(_auth_interval_seconds, remaining))
+        if loop.time() < control.deadline:
+            await _renew_authorized(ws, engine, session_id, job_id, token, actor_id)
 
 
 async def _receive_audio(ws: WebSocket, provider, engine, session_id: str,
@@ -1133,9 +1195,11 @@ async def realtime_session(ws: WebSocket, session_id: str,
         if object_session(user) is db:
             db.expunge(user)
         db.rollback()
+        acquired_at = asyncio.get_running_loop().time()
         job_id, token, role = _acquire(engine, user, session_id)
         control = VoiceControl(engine, session_id, job_id, token, confirmed=True)
         control.role = role
+        control.deadline = acquired_at + _max_connection_seconds
     except (HTTPException, ValueError) as exc:
         await ws.accept()
         await ws.send_json({"type": "error", "message": getattr(exc, "detail", str(exc))})
@@ -1165,7 +1229,7 @@ async def realtime_session(ws: WebSocket, session_id: str,
             asr_completed = asyncio.Event()
             commit_ack = asyncio.Event()
             sending = asyncio.create_task(_send_audio(
-                ws, provider, engine, session_id, job_id, token, browser_gone, control))
+                ws, provider, engine, session_id, job_id, token, browser_gone, control, user.id))
             receive = _receive_doubao_audio if name == "doubao" else _receive_audio
             if name == "doubao":
                 receiving = asyncio.create_task(receive(
@@ -1174,28 +1238,44 @@ async def realtime_session(ws: WebSocket, session_id: str,
             else:
                 receiving = asyncio.create_task(receive(
                     ws, provider, engine, session_id, job_id, token, control))
-            done, pending = await asyncio.wait({sending, receiving}, return_when=asyncio.FIRST_COMPLETED)
+            watching = asyncio.create_task(_watch_connection(
+                ws, engine, session_id, job_id, token, user.id, control))
+            done, pending = await asyncio.wait({sending, receiving, watching}, return_when=asyncio.FIRST_COMPLETED)
+            draining = None
             try:
-                if name == "doubao" and sending in done and not sending.cancelled() \
-                        and sending.exception() is None:
-                    if control.multi:
-                        await control.cancel_output()
-                    if sending.result():
-                        await control.start_silence(provider)
-                    await provider.finish_input(control)
-                    try:
-                        await asyncio.wait_for(receiving, 3)
-                    except TimeoutError:
-                        pass
                 for task in done:
                     task.result()
+                expired = watching in done and not watching.cancelled() and watching.exception() is None
+                if expired and not sending.done():
+                    sending.cancel()
+                    await asyncio.gather(sending, return_exceptions=True)
+                normal_stop = sending in done and not sending.cancelled() and sending.exception() is None
+                if name == "doubao" and (normal_stop or expired):
+                    async def drain():
+                        if control.multi:
+                            await control.cancel_output()
+                        if expired or sending.result():
+                            await control.start_silence(provider)
+                        await provider.finish_input(control)
+                        try:
+                            await asyncio.wait_for(receiving, 3)
+                        except TimeoutError:
+                            pass
+                    draining = asyncio.create_task(drain())
+                    await asyncio.wait({draining, watching}, return_when=asyncio.FIRST_COMPLETED)
+                    if watching.done():
+                        watching.result()
+                    await draining
+                if watching.done():
+                    watching.result()
             finally:
                 await asyncio.gather(control.stop_silence(), return_exceptions=True)
                 await control.cancel_output()
-                for task in (sending, receiving):
-                    if not task.done():
+                for task in (sending, receiving, watching, draining):
+                    if task is not None and not task.done():
                         task.cancel()
-                await asyncio.gather(sending, receiving, return_exceptions=True)
+                await asyncio.gather(*(task for task in (sending, receiving, watching, draining)
+                                       if task is not None), return_exceptions=True)
             if control.silence_error:
                 raise control.silence_error
             failed = False

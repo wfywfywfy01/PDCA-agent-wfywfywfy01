@@ -1,5 +1,6 @@
 """Memory stays pending until its owner confirms, with current source permissions."""
 from __future__ import annotations
+from tests.omega_audit_fixture import audit_aware
 
 import json
 import tempfile
@@ -659,7 +660,7 @@ class OmegaMemoryTests(unittest.TestCase):
         job = enqueue_memory_job(self.db, self.user, self.report, "memory-worker-0001")
         job_id = job.id
         self.db.commit()
-        self.assertTrue(run_once(self.engine, generate=lambda *args: "invalid model output"))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *args: "invalid model output")))
         self.db.expire_all()
         self.assertEqual(self.db.get(OmegaJob, job_id).status, "failed")
         self.assertIsNotNone(self.db.get(OmegaReport, self.report.id))
@@ -669,7 +670,7 @@ class OmegaMemoryTests(unittest.TestCase):
         self.db.commit()
         raw = json.dumps({"items": [{"target_kind": "sales", "section": "learning_focus",
                          "value": "下次先确认负责人", "classification": "inference", "quotes": [self.quote]}]})
-        self.assertTrue(run_once(self.engine, generate=lambda *args: raw))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *args: raw)))
         self.db.expire_all()
         self.assertEqual(self.db.get(OmegaJob, retry_id).status, "succeeded")
         self.assertEqual(self.db.exec(select(OmegaMemoryProposal)).one().status, "pending")
@@ -686,7 +687,7 @@ class OmegaMemoryTests(unittest.TestCase):
                 game.mode, game.source_access_keys_json = "real_review", '["revoked"]'
                 db.commit()
             return '{"items": []}'
-        self.assertTrue(run_once(self.engine, generate=revoke))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(revoke)))
         self.db.expire_all()
         self.assertEqual(self.db.get(OmegaJob, job_id).status, "failed")
         self.assertEqual(self.db.exec(select(OmegaMemoryProposal)).all(), [])
@@ -710,7 +711,7 @@ class OmegaMemoryTests(unittest.TestCase):
         report_content = {"outcome": {"status": "unverified", "reason": "无承诺", "quotes": []},
                           "dimensions": [{"key": key, "score": None, "reason": "证据不足", "quotes": []}
                                          for key in WEIGHTS]}
-        self.assertTrue(run_once(self.engine, generate=lambda *args: json.dumps(report_content)))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *args: json.dumps(report_content))))
         self.db.expire_all()
         report_id = self.db.get(OmegaJob, job_id).result_id
         memory_jobs = self.db.exec(select(OmegaJob).where(OmegaJob.kind == "memory")).all()
@@ -718,7 +719,7 @@ class OmegaMemoryTests(unittest.TestCase):
         self.assertEqual(json.loads(memory_jobs[0].payload_json)["report_id"], report_id)
         raw = json.dumps({"items": [{"target_kind": "sales", "section": "learning_focus",
                          "value": "下次先确认负责人", "classification": "inference", "quotes": [self.quote]}]})
-        self.assertTrue(run_once(self.engine, generate=lambda *args: raw))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *args: raw)))
         self.db.expire_all()
         app = FastAPI()
         app.include_router(router)

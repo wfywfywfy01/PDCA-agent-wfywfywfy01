@@ -1,5 +1,6 @@
 """Omega behavior through authenticated HTTP routes and a disposable database."""
 from __future__ import annotations
+from tests.omega_audit_fixture import audit_aware
 
 import tempfile
 import unittest
@@ -115,8 +116,8 @@ class OmegaFlowTests(unittest.TestCase):
             "request_key": "focused-turn", "text": "请说说您的交付顾虑。"}).raise_for_status()
         from app.omega.jobs import run_once
         prompts = []
-        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit:
-                                 prompts.append(messages[0]["content"]) or "交付时间仍不明确。"))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, limit:
+                                 prompts.append(messages[0]["content"]) or "交付时间仍不明确。")))
         self.assertIn("Keep one stated objection active", prompts[0])
         self.assertNotIn("PRIVATE_BOTTOM_LINE", prompts[0])
 
@@ -351,7 +352,7 @@ class OmegaFlowTests(unittest.TestCase):
             assignment.is_active = False
             db.commit()
         called = []
-        self.assertTrue(run_once(self.engine, generate=lambda *args: called.append(True)))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *args: called.append(True))))
         self.assertEqual(called, [])
         self.assertEqual(self.client.get(f"/api/omega/cases/{case_id}").status_code, 403)
         with Session(self.engine) as db:
@@ -386,7 +387,7 @@ class OmegaFlowTests(unittest.TestCase):
                 db.commit()
             return "Please send a written schedule."
 
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         with Session(self.engine) as db:
             self.assertEqual(db.get(OmegaJob, job["id"]).status, "failed")
             replies = db.exec(select(OmegaSegment).where(
@@ -443,7 +444,7 @@ class OmegaFlowTests(unittest.TestCase):
             seen.append((kind, json.dumps(messages)))
             return "Please send me a written schedule."
 
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         self.assertEqual(seen[0][0], "turn")
         self.assertNotIn("PRIVATE_BOTTOM_LINE", seen[0][1])
         self.assertEqual(self.client.get(f"/api/omega/jobs/{queued['id']}").json()["status"], "succeeded")
@@ -459,7 +460,7 @@ class OmegaFlowTests(unittest.TestCase):
         self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
             "request_key": "turn-unique-2001", "text": "Can you pay on Friday?",
         }).raise_for_status()
-        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: "Maybe next week."))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, max_tokens: "Maybe next week.")))
         self.client.post(f"/api/omega/sessions/{game['id']}/finish", json={"request_key": "finish-unique-02"}).raise_for_status()
         report_job = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={"request_key": "report-unique-02"}).json()
         from app.omega.reports import WEIGHTS
@@ -471,9 +472,9 @@ class OmegaFlowTests(unittest.TestCase):
             "quotes": [{"segment_id": "made-up", "speaker": "sales", "start": 0, "end": 10,
                         "text": "I have paid"}],
         })
-        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: json.dumps(fabricated)))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, max_tokens: json.dumps(fabricated))))
         self.assertEqual(self.client.get(f"/api/omega/jobs/{report_job['id']}").json()["status"], "queued")
-        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: json.dumps(fabricated)))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, max_tokens: json.dumps(fabricated))))
         failed = self.client.get(f"/api/omega/jobs/{report_job['id']}").json()
         self.assertEqual(failed["status"], "failed")
         self.assertIn("引文", failed["error"])
@@ -488,7 +489,7 @@ class OmegaFlowTests(unittest.TestCase):
         utterance = "Can you confirm a date?"
         self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
             "request_key": "turn-missing-quote", "text": utterance}).raise_for_status()
-        self.assertTrue(run_once(self.engine, generate=lambda *_: "I need a plan."))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *_: "I need a plan.")))
         self.client.post(f"/api/omega/sessions/{game['id']}/finish", json={"request_key": "finish-missing-quote"}).raise_for_status()
         queued = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={
             "request_key": "report-missing-quote"}).json()
@@ -507,9 +508,9 @@ class OmegaFlowTests(unittest.TestCase):
             return json.dumps({"outcome": {"status": "unverified", "reason": "No commitment", "quotes": []},
                                "dimensions": dimensions})
 
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         self.assertEqual(self.client.get(f"/api/omega/jobs/{queued['id']}").json()["status"], "queued")
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         self.assertEqual(self.client.get(f"/api/omega/jobs/{queued['id']}").json()["status"], "succeeded")
         self.assertEqual(len(calls), 2)
 
@@ -523,7 +524,7 @@ class OmegaFlowTests(unittest.TestCase):
         self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
             "request_key": "turn-scorecard-retry", "text": "Can you confirm a date?",
         }).raise_for_status()
-        self.assertTrue(run_once(self.engine, generate=lambda *_: "I need a plan."))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *_: "I need a plan.")))
         self.client.post(f"/api/omega/sessions/{game['id']}/finish", json={"request_key": "finish-scorecard-retry"}).raise_for_status()
         queued = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={"request_key": "report-scorecard-retry"}).json()
         calls = []
@@ -535,9 +536,9 @@ class OmegaFlowTests(unittest.TestCase):
                                    {"key": name, "score": None, "reason": "No evidence", "quotes": []}
                                    for name in WEIGHTS]})
 
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         self.assertEqual(self.client.get(f"/api/omega/jobs/{queued['id']}").json()["status"], "queued")
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         completed = self.client.get(f"/api/omega/jobs/{queued['id']}").json()
         self.assertEqual(completed["status"], "succeeded", completed)
         self.assertEqual(len(calls), 2)
@@ -555,7 +556,7 @@ class OmegaFlowTests(unittest.TestCase):
         self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
             "request_key": "turn-unique-3001", "text": utterance,
         }).raise_for_status()
-        run_once(self.engine, generate=lambda kind, messages, max_tokens: "I will check.")
+        run_once(self.engine, generate=audit_aware(lambda kind, messages, max_tokens: "I will check."))
         segment = self.client.get(f"/api/omega/sessions/{game['id']}").json()["segments"][0]
         self.client.post(f"/api/omega/sessions/{game['id']}/finish", json={"request_key": "finish-unique-03"}).raise_for_status()
         job = self.client.post(f"/api/omega/sessions/{game['id']}/reports", json={"request_key": "report-unique-03"}).json()
@@ -568,8 +569,8 @@ class OmegaFlowTests(unittest.TestCase):
                 "end": len(utterance), "text": utterance,
             }],
         })
-        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, max_tokens: json.dumps(
-            {"next_practice": "先核对付款审批流程，再确认书面时间表。"} if kind == "practice" else report)))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, max_tokens: json.dumps(
+            {"next_practice": "先核对付款审批流程，再确认书面时间表。"} if kind == "practice" else report))))
         job_state = self.client.get(f"/api/omega/jobs/{job['id']}").json()
         self.assertEqual(job_state["status"], "succeeded", job_state)
         report_id = job_state["result_id"]
@@ -605,8 +606,8 @@ class OmegaFlowTests(unittest.TestCase):
                 "request_key": f"turn-{game_id}", "text": utterance,
             }).raise_for_status()
             seen = []
-            self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit:
-                                     seen.append(json.dumps(messages)) or "Please confirm the schedule."))
+            self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, limit:
+                                     seen.append(json.dumps(messages)) or "Please confirm the schedule.")))
             self.assertIn("Alex", seen[0])
             segment = self.client.get(f"/api/omega/sessions/{game_id}").json()["segments"][0]
             self.client.post(f"/api/omega/sessions/{game_id}/finish",
@@ -619,8 +620,8 @@ class OmegaFlowTests(unittest.TestCase):
             content["dimensions"][1].update(score=score, reason="Asked about delivery",
                 quotes=[{"segment_id": segment["id"], "speaker": "sales", "start": 0,
                          "end": len(utterance), "text": utterance}])
-            self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit: json.dumps(
-                {"next_practice": "先复述交付顾虑，再约定负责人和书面答复时间。"} if kind == "practice" else content)))
+            self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, limit: json.dumps(
+                {"next_practice": "先复述交付顾虑，再约定负责人和书面答复时间。"} if kind == "practice" else content))))
             state = self.client.get(f"/api/omega/jobs/{job['id']}").json()
             self.assertEqual(state["status"], "succeeded", state)
             return state["result_id"]
@@ -699,8 +700,8 @@ class OmegaFlowTests(unittest.TestCase):
         content["dimensions"][4].update(score=4, reason="Asked one question",
             quotes=[{"segment_id": game["segments"][0]["id"], "speaker": "sales",
                      "start": 0, "end": len(phrase), "text": phrase}])
-        self.assertTrue(run_once(self.engine, generate=lambda kind, messages, limit: json.dumps(
-            {"next_practice": "先确认哪项交付风险仍未解决，再约定具体的核对动作。"} if kind == "practice" else content)))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda kind, messages, limit: json.dumps(
+            {"next_practice": "先确认哪项交付风险仍未解决，再约定具体的核对动作。"} if kind == "practice" else content))))
         report_id = self.client.get(f"/api/omega/jobs/{job['id']}").json()["result_id"]
         self.assertTrue(report_id)
         self.current = User(id=2, username="manager-a", role="manager", team_key="team-a")
@@ -726,7 +727,7 @@ class OmegaFlowTests(unittest.TestCase):
             db.commit()
         self.current.sales_name = ""
         model_calls = []
-        self.assertTrue(run_once(self.engine, generate=lambda *args: model_calls.append(True)))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(lambda *args: model_calls.append(True))))
         self.assertEqual(model_calls, [])
         self.assertEqual(self.client.get(f"/api/omega/jobs/{queued.json()['id']}").status_code, 404)
         self.assertEqual(self.client.get(f"/api/omega/assignments/{assigned.json()['id']}").status_code, 404)

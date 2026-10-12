@@ -4,12 +4,14 @@ from __future__ import annotations
 import json
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from datetime import timedelta
 from uuid import uuid4
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlmodel import Session, create_engine, select
@@ -114,6 +116,67 @@ class OmegaPostgresTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "已失效"):
             _append(self.engine, self.game_id, job_id, token, "counterparty", "Late reply")
         _release(self.engine, job_id, token, failed=False)
+
+    def test_twenty_rooms_share_one_account_voice_slot(self):
+        with Session(self.engine) as db:
+            db.get(OmegaJob, self.job_id).status = 'cancelled'
+            original = db.get(OmegaSession, self.game_id)
+            rooms = [OmegaSession(case_id=self.case_id, case_version_id=original.case_version_id,
+                                  team_key='team-a', owner_id=self.user_id) for _ in range(20)]
+            for game in rooms: db.add(game)
+            db.commit()
+            ids = [game.id for game in rooms]
+            actor = db.get(User, self.user_id)
+            db.expunge(actor)
+        barrier = threading.Barrier(20)
+        def acquire(room):
+            barrier.wait(timeout=10)
+            try:
+                return ('accepted', _acquire(self.engine, actor, room))
+            except HTTPException as error:
+                return ('denied', error.status_code)
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            outcomes = list(pool.map(acquire, ids))
+        self.assertEqual(sum(status == 'accepted' for status, _ in outcomes), 1)
+        self.assertEqual([value for status, value in outcomes if status == 'denied'], [409]*19)
+        with Session(self.engine) as db:
+            active = db.exec(select(OmegaJob).where(OmegaJob.kind == 'realtime',
+                                                   OmegaJob.status == 'running')).all()
+            self.assertEqual(len(active), 1)
+
+    def test_twenty_accounts_cannot_overbook_eight_global_slots(self):
+        with Session(self.engine) as db:
+            original = db.get(OmegaSession, self.game_id)
+            version_id = original.case_version_id
+            pairs = []
+            for _ in range(20):
+                user = User(username='omega-'+uuid4().hex, role='sales', team_key='team-a',
+                            hashed_password='test-only')
+                db.add(user)
+                db.flush()
+                game = OmegaSession(case_id=self.case_id, case_version_id=version_id,
+                                    team_key='team-a', owner_id=user.id)
+                db.add(game)
+                db.flush()
+                pairs.append((user.id, game.id))
+            db.commit()
+        barrier = threading.Barrier(20)
+        def acquire(pair):
+            actor_id, room = pair
+            with Session(self.engine) as db:
+                actor = db.get(User, actor_id)
+                db.expunge(actor)
+            barrier.wait(timeout=10)
+            try:
+                _acquire(self.engine, actor, room)
+                return 200
+            except HTTPException as error:
+                return error.status_code
+        with patch.dict(os.environ, {'PDCA_OMEGA_REALTIME_MAX_CONNECTIONS': '8'}), \
+                ThreadPoolExecutor(max_workers=20) as pool:
+            outcomes = list(pool.map(acquire, pairs))
+        self.assertEqual(outcomes.count(200), 8)
+        self.assertEqual(outcomes.count(429), 12)
 
     def _run_blocked(self):
         called = threading.Event()

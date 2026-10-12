@@ -14,7 +14,7 @@ from app.knowledge.client import require_knowledge_access
 
 def require_team_user(user: User) -> str:
     team = (user.team_key or "").strip()
-    if user.role not in {"sales", "manager", "admin"} or not team or user.id is None:
+    if not user.is_active or user.role not in {"sales", "manager", "admin"} or not team or user.id is None:
         raise HTTPException(403, "Omega 需要有效的销售团队身份")
     return team
 

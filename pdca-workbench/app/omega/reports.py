@@ -12,6 +12,13 @@ WEIGHTS = {
 }
 
 
+class ReportEvidenceError(ValueError):
+    def __init__(self, path):
+        super().__init__('销售评价缺少销售原话')
+        self.findings = [{'path': path, 'reason':
+            '本项分数非 null，但引文没有销售原话；须引用本项相关的销售 quote_candidates，无依据则用 null 和空引文。'}]
+
+
 def report_summary(report: dict) -> dict:
     """Pick evidence-backed skills by relative score, using stable rubric order for ties."""
     weights = report.get("score_weights") or WEIGHTS
@@ -63,7 +70,7 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
     report["goal_timing"] = goal_timing
     source = {part["id"]: part for part in segments}
 
-    def check_quotes(quotes, *, sales_required=False):
+    def check_quotes(quotes, *, sales_required=False, path=''):
         if not isinstance(quotes, list):
             raise ValueError("引文列表无效")
         for quote in quotes:
@@ -73,7 +80,7 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
             if speaker_id:
                 quote["speaker_id"] = speaker_id
         if sales_required and not any(q["speaker"] == "sales" for q in quotes):
-            raise ValueError("销售评价缺少销售原话")
+            raise ReportEvidenceError(path)
 
     outcome = report.get("outcome")
     if not isinstance(outcome, dict) or outcome.get("status") not in {
@@ -99,7 +106,8 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
         seen.add(key)
         score = dim.get("score")
         quotes = dim.get("quotes", [])
-        check_quotes(quotes, sales_required=score is not None and (key != "outcome" or goal_timing == "pre"))
+        check_quotes(quotes, sales_required=score is not None and (key != "outcome" or goal_timing == "pre"),
+                     path=f'dimensions.{key}')
         if key == "outcome" and goal_timing != "pre":
             dim.update(score=None, reason="目标未能证明在会前确认", quotes=[])
             continue
