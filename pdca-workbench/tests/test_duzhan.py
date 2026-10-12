@@ -364,6 +364,10 @@ class DuzhanAtReplyTests(unittest.TestCase):
         self.assertEqual(draft_at_reply("2+1=？", "zh"), "3")
         self.assertEqual(draft_at_reply("1+1", "en"), "2")
 
+    def test_division_by_zero_returns_clear_reply(self):
+        self.assertEqual(draft_at_reply("1/0", "zh"), "除数不能为 0。")
+        self.assertEqual(draft_at_reply("1/0", "en"), "Cannot divide by zero.")
+
     def test_empty_at_is_ack(self):
         self.assertEqual(draft_at_reply("", "zh"), "在。")
         self.assertEqual(draft_at_reply("", "en"), "Here.")
@@ -510,6 +514,77 @@ class DuzhanAtReplyTests(unittest.TestCase):
         self.assertEqual(len(push.call_args_list), 1)
         self.assertEqual(push.call_args.kwargs["parent_message_id"], "hit")
         self.assertEqual(push.call_args.args[0], "2")
+
+    def test_failed_reply_stays_before_later_messages_and_retries(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        runtime = root / "runtime"
+        runtime.mkdir()
+        channel = "e435ab5d-d425-4ccd-a247-c7207efbb4f6"
+        cursor = runtime / "duzhan_at_cursor.json"
+        cursor.write_text(json.dumps({"channels": {
+            channel: {"last_created_at": "2026-09-15T07:40:00Z", "answered_ids": []}
+        }}), encoding="utf-8")
+        fake_settings = type("S", (), {"data_dir": root})()
+        messages = [
+            {"id": "q1", "created_at": "2026-09-15T07:50:00Z", "body": "@海外渠道督战官 1+1"},
+            {"id": "noise", "created_at": "2026-09-15T07:55:00Z", "body": "闲聊"},
+        ]
+        attempts = []
+
+        def fake_fetch(channel_id, date_from):
+            return [m for m in messages if m["created_at"] >= date_from] if channel_id == channel else []
+
+        def fake_push(body, channel_id, **kwargs):
+            attempts.append(kwargs["parent_message_id"])
+            return len(attempts) > 1
+
+        with patch("app.duzhan.get_settings", return_value=fake_settings), patch(
+            "app.duzhan._fetch_recent", side_effect=fake_fetch
+        ), patch("app.duzhan.push_duzhan_message", side_effect=fake_push):
+            self.assertEqual(poll_at_mentions()["replied"], [])
+            first = json.loads(cursor.read_text(encoding="utf-8"))["channels"][channel]
+            self.assertEqual(first["last_created_at"], "2026-09-15T07:40:00Z")
+            self.assertEqual(poll_at_mentions()["replied"], ["Lina业绩达标群:q1"])
+        self.assertEqual(attempts, ["q1", "q1"])
+
+    def test_send_exception_does_not_block_another_group(self):
+        from types import SimpleNamespace
+
+        initial = "2026-09-15T07:40:00Z"
+        state = {"channels": {
+            "bad": {"last_created_at": initial, "answered_ids": []},
+            "good": {"last_created_at": initial, "answered_ids": []},
+        }}
+        groups = [
+            SimpleNamespace(name="失败群", channel_id="bad", lang="zh"),
+            SimpleNamespace(name="正常群", channel_id="good", lang="zh"),
+        ]
+
+        def fake_fetch(channel_id, date_from):
+            return [{
+                "id": channel_id, "created_at": "2026-09-15T07:50:00Z",
+                "body": "@海外渠道督战官 1+1",
+            }]
+
+        def fake_push(body, channel_id, **kwargs):
+            if channel_id == "bad":
+                raise RuntimeError("send failed")
+            return True
+
+        with patch("app.duzhan._load_cursor", return_value=state), patch(
+            "app.duzhan._save_cursor"
+        ), patch("app.duzhan.all_groups", return_value=groups), patch(
+            "app.duzhan._fetch_recent", side_effect=fake_fetch
+        ), patch("app.duzhan.push_duzhan_message", side_effect=fake_push):
+            result = poll_at_mentions()
+        self.assertEqual(result["replied"], ["正常群:good"])
+        self.assertEqual(state["channels"]["bad"]["last_created_at"], initial)
 
 
 class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):

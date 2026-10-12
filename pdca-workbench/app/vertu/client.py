@@ -221,12 +221,28 @@ async def vertu_health(force: bool = False) -> dict:
         scopes = payload.get("userScopes")
         authorized = bool(code == 0 and payload.get("login") and isinstance(scopes, list))
         agent_app_id = payload.get("agentAppId")
+        status_payload: dict = {}
+        if not authorized:
+            # scopes 失败时响应没有 agentAppId，不能把已注入 Agent 凭据误报成 session。
+            status_code, status_stdout, _ = await run_vertu(["auth", "status", "--json"], timeout=12.0)
+            if status_code == 0:
+                try:
+                    parsed = json.loads(status_stdout.strip())
+                    if isinstance(parsed, dict):
+                        status_payload = parsed
+                except json.JSONDecodeError:
+                    pass
+        status_mode = status_payload.get("auth_mode")
+        is_agent = bool(agent_app_id or status_mode == "agent")
+        detail = None if authorized else "vps-work 凭据不可用"
+        if status_payload.get("credential_rejected"):
+            detail = "vps-work 凭据被服务端拒绝"
         value = {
             "ok": authorized,
             "installed": True,
-            "auth_mode": "agent" if agent_app_id else "session",
-            "never_expires": bool(agent_app_id),
-            "detail": None if authorized else "vps-work 凭据不可用",
+            "auth_mode": "agent" if is_agent else "session",
+            "never_expires": bool(is_agent or status_payload.get("never_expires")),
+            "detail": detail,
         }
         if code != 0:
             logger.warning("vertu-cli auth scopes 失败: {}", (stderr or "")[:200])

@@ -7,6 +7,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
@@ -157,6 +158,47 @@ class SlotHealthTests(unittest.TestCase):
         report = flow_controller.check_slot_health("Asia/Shanghai", 10, day, alert=False)
         self.assertFalse(report["ok"])
         self.assertFalse(self.notify_mock.called)
+
+
+class DbSlotHealthTests(unittest.TestCase):
+    def test_agent_health_uses_its_own_run_and_snapshot(self):
+        from app.duzhan import _slot_key
+
+        snapshot = {
+            "day": "2026-09-17", "hour": 10,
+            "prepared_at": "2026-09-17T09:45:00+08:00",
+            "messages": {"channel-one": "正文"},
+        }
+        with patch("app.agents.flow_controller.load_prepared", return_value=snapshot) as load, patch(
+            "app.agents.flow_controller._scheduled_run_status", return_value={"found": True, "status": "sent"}
+        ) as status:
+            report = flow_controller.check_slot_health(
+                "Asia/Shanghai", 10, "2026-09-17", agent_id=7, channel_id="channel-one", alert=False
+            )
+        self.assertTrue(report["ok"], report["problems"])
+        load.assert_called_once_with("Asia/Shanghai", 10, "2026-09-17", _slot_key(["channel-one"]))
+        self.assertEqual(
+            [call.args[0] for call in status.call_args_list],
+            ["duzhan_collect:agent:7", "duzhan_push:agent:7"],
+        )
+
+    def test_db_health_checks_each_enabled_agent_slot(self):
+        agents = [
+            (SimpleNamespace(id=7), SimpleNamespace(tz="Asia/Shanghai", channel_id="one")),
+            (SimpleNamespace(id=8), SimpleNamespace(tz="Asia/Shanghai", channel_id="two")),
+        ]
+        now = datetime(2026, 9, 17, 20, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch("app.duzhan_admin.runtime.using_db", return_value=True), patch(
+            "app.duzhan_admin.runtime.duzhan_agents", return_value=agents
+        ), patch("app.duzhan_admin.runtime.slots_of", return_value=[20]), patch(
+            "app.agents.flow_controller.is_duzhan_workday", return_value=True
+        ), patch("app.agents.events.write_event", return_value=True) as event, patch(
+            "app.agents.flow_controller.check_slot_health", side_effect=lambda *a, **k: k["agent_id"]
+        ) as check:
+            self.assertEqual(flow_controller.run_health_checks_for(now), [7, 8])
+            self.assertEqual(flow_controller.all_slot_health_today("2026-09-17"), [7, 8])
+        self.assertEqual(check.call_count, 4)
+        self.assertEqual(len({call.kwargs["event_key"] for call in event.call_args_list}), 2)
 
 
 class HealthCatchUpTests(unittest.TestCase):

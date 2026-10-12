@@ -38,8 +38,8 @@ def using_db() -> bool:
     return config_source() == CONFIG_SOURCE_DB
 
 
-def load_enabled_agents() -> list[DuzhanAgent]:
-    """读启用的子 Agent；库不可用时不抛异常，返回空并告警。"""
+def load_enabled_agents(*, strict: bool = False) -> list[DuzhanAgent]:
+    """读启用的子 Agent；通常失败返回空，刷新调度时严格抛错以保留旧任务。"""
     try:
         from app.database import get_engine
 
@@ -47,6 +47,8 @@ def load_enabled_agents() -> list[DuzhanAgent]:
             statement = select(DuzhanAgent).where(DuzhanAgent.enabled == True).order_by(DuzhanAgent.id)  # noqa: E712
             return list(session.exec(statement).all())
     except Exception as exc:  # noqa: BLE001 — 配置表读不到不该拖垮整个调度
+        if strict:
+            raise
         logger.warning("读取督战官配置失败，本轮按空配置处理: {}", exc)
         return []
 
@@ -95,11 +97,11 @@ def _follow_owners_by_channel() -> dict:
     return {owner.channel_id: owner for owner in FOLLOW_OWNERS}
 
 
-def duzhan_agents() -> list[tuple[DuzhanAgent, DuzhanGroup]]:
+def duzhan_agents(agents: list[DuzhanAgent] | None = None) -> list[tuple[DuzhanAgent, DuzhanGroup]]:
     """启用、合法、且不是跟进群的子 Agent。"""
     follow_channels = set(_follow_owners_by_channel())
     picked: list[tuple[DuzhanAgent, DuzhanGroup]] = []
-    for agent in load_enabled_agents():
+    for agent in agents if agents is not None else load_enabled_agents():
         group = group_of(agent)
         if group is None:
             logger.warning("子 Agent #{} {} 缺少可用的 group 块，跳过注册", agent.id, agent.name)
@@ -126,11 +128,11 @@ def cron_timezones() -> list[str]:
     return seen
 
 
-def follow_agents() -> list[tuple[DuzhanAgent, object]]:
+def follow_agents(agents: list[DuzhanAgent] | None = None) -> list[tuple[DuzhanAgent, object]]:
     """启用且指向跟进群（C转B）的子 Agent，配对现有的跟进群负责人。"""
     by_channel = _follow_owners_by_channel()
     picked: list[tuple[DuzhanAgent, object]] = []
-    for agent in load_enabled_agents():
+    for agent in agents if agents is not None else load_enabled_agents():
         group = group_of(agent)
         if group is None:
             continue
@@ -144,7 +146,7 @@ def follow_agents() -> list[tuple[DuzhanAgent, object]]:
     return picked
 
 
-def register_agent_jobs(scheduler) -> list[dict]:
+def register_agent_jobs(scheduler, agents: list[DuzhanAgent] | None = None) -> list[dict]:
     """db 源：按子 Agent 注册调度，返回注册清单（日志与测试都用它）。
 
     每个子 Agent 一条采集 + 一条推送 + 一条 +30 分钟兜底；台账 job 名与
@@ -159,7 +161,8 @@ def register_agent_jobs(scheduler) -> list[dict]:
     lead = int(getattr(get_settings(), "duzhan_lead_minutes", 15) or 15)
     registered: list[dict] = []
 
-    for agent, group in duzhan_agents():
+    agents = load_enabled_agents() if agents is None else agents
+    for agent, group in duzhan_agents(agents):
         zone = ZoneInfo(group.tz)
         slug = f"agent{agent.id}"
         hours = slots_of(agent)
@@ -177,6 +180,7 @@ def register_agent_jobs(scheduler) -> list[dict]:
                 day_of_week="mon-sun",
                 timezone=zone,
                 id=f"duzhan_collect_{slug}_{hour:02d}",
+                replace_existing=True,
                 max_instances=1,
                 coalesce=True,
                 misfire_grace_time=3600,
@@ -192,6 +196,7 @@ def register_agent_jobs(scheduler) -> list[dict]:
                 day_of_week="mon-sun",
                 timezone=zone,
                 id=f"duzhan_{slug}_{hour:02d}",
+                replace_existing=True,
                 max_instances=1,
                 coalesce=True,
                 misfire_grace_time=3600,
@@ -206,6 +211,7 @@ def register_agent_jobs(scheduler) -> list[dict]:
                 day_of_week="mon-sun",
                 timezone=zone,
                 id=f"duzhan_backup_{slug}_{hour:02d}",
+                replace_existing=True,
                 max_instances=1,
                 coalesce=True,
                 misfire_grace_time=3600,
@@ -221,7 +227,7 @@ def register_agent_jobs(scheduler) -> list[dict]:
             }
         )
 
-    for agent, owner in follow_agents():
+    for agent, owner in follow_agents(agents):
         hours = slots_of(agent)
         kwargs = {"owners": (owner,), "ledger_job": f"ctob:agent:{agent.id}"}
         for hour in hours:
@@ -236,6 +242,7 @@ def register_agent_jobs(scheduler) -> list[dict]:
                 day_of_week="mon-sun",
                 timezone=ZoneInfo(TZ_SHANGHAI),
                 id=f"ctob_agent{agent.id}_{hour:02d}",
+                replace_existing=True,
                 max_instances=1,
                 coalesce=True,
                 misfire_grace_time=3600,
@@ -250,6 +257,7 @@ def register_agent_jobs(scheduler) -> list[dict]:
                 day_of_week="mon-sun",
                 timezone=ZoneInfo(TZ_SHANGHAI),
                 id=f"ctob_agent{agent.id}_backup_{hour:02d}",
+                replace_existing=True,
                 max_instances=1,
                 coalesce=True,
                 misfire_grace_time=3600,
@@ -275,5 +283,27 @@ def register_agent_jobs(scheduler) -> list[dict]:
             "督战官注册【{}】{} → {}（{}，档位 {}）",
             row["kind"], row["name"], row["channel_id"], row["timezone"], row["slots"],
         )
+    return registered
+
+
+def refresh_agent_jobs(scheduler) -> list[dict]:
+    """用当前启用配置替换 Agent 调度，并移除已停用或改档的旧任务。"""
+    prefixes = ("duzhan_collect_agent", "duzhan_agent", "duzhan_backup_agent", "ctob_agent")
+    before = {job.id for job in scheduler.get_jobs() if job.id.startswith(prefixes)}
+    registered = register_agent_jobs(scheduler, load_enabled_agents(strict=True))
+    wanted: set[str] = set()
+    for row in registered:
+        agent_id = row["agent_id"]
+        for hour in row["slots"]:
+            if row["kind"] == "follow":
+                wanted.update((f"ctob_agent{agent_id}_{hour:02d}", f"ctob_agent{agent_id}_backup_{hour:02d}"))
+            else:
+                wanted.update((
+                    f"duzhan_collect_agent{agent_id}_{hour:02d}",
+                    f"duzhan_agent{agent_id}_{hour:02d}",
+                    f"duzhan_backup_agent{agent_id}_{hour:02d}",
+                ))
+    for job_id in before - wanted:
+        scheduler.remove_job(job_id)
     return registered
 
