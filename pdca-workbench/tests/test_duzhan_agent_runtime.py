@@ -32,7 +32,15 @@ class FakeScheduler:
         self.jobs = []
 
     def add_job(self, func, **kwargs):
+        if kwargs.get("replace_existing"):
+            self.jobs = [job for job in self.jobs if job["id"] != kwargs["id"]]
         self.jobs.append({"func": func.__name__, **kwargs})
+
+    def get_jobs(self):
+        return [SimpleNamespace(id=job["id"]) for job in self.jobs]
+
+    def remove_job(self, job_id):
+        self.jobs = [job for job in self.jobs if job["id"] != job_id]
 
     def ids(self):
         return [job["id"] for job in self.jobs]
@@ -106,6 +114,37 @@ class RuntimeTranslationTests(unittest.TestCase):
             self.assertFalse(runtime.using_db())
         with patch("app.config.get_settings", return_value=SimpleNamespace(duzhan_config_source="DB")):
             self.assertTrue(runtime.using_db())
+
+    def test_refresh_replaces_changed_slots_and_removes_disabled_jobs(self):
+        agent = self.add("刷新官", _blocks(slots=["10:00"]))
+        scheduler = FakeScheduler()
+        scheduler.jobs.append({"id": "unrelated", "func": "other"})
+        with patch("app.config.get_settings", return_value=SimpleNamespace(duzhan_lead_minutes=15)):
+            runtime.refresh_agent_jobs(scheduler)
+            self.assertIn(f"duzhan_agent{agent.id}_10", scheduler.ids())
+            with Session(self.engine) as session:
+                row = session.get(DuzhanAgent, agent.id)
+                row.blocks_json = dump_blocks(parse_blocks(_blocks(slots=["20:00"])))
+                session.add(row)
+                session.commit()
+            runtime.refresh_agent_jobs(scheduler)
+            self.assertIn(f"duzhan_agent{agent.id}_20", scheduler.ids())
+            self.assertNotIn(f"duzhan_agent{agent.id}_10", scheduler.ids())
+            with Session(self.engine) as session:
+                row = session.get(DuzhanAgent, agent.id)
+                row.enabled = False
+                session.add(row)
+                session.commit()
+            runtime.refresh_agent_jobs(scheduler)
+        self.assertEqual(scheduler.ids(), ["unrelated"])
+
+    def test_refresh_keeps_old_jobs_when_config_read_fails(self):
+        scheduler = FakeScheduler()
+        scheduler.jobs.append({"id": "duzhan_agent7_20", "func": "duzhan_job"})
+        with patch.object(runtime, "load_enabled_agents", side_effect=RuntimeError("DB unavailable")):
+            with self.assertRaises(RuntimeError):
+                runtime.refresh_agent_jobs(scheduler)
+        self.assertEqual(scheduler.ids(), ["duzhan_agent7_20"])
 
 
 class DbGroupsTests(unittest.TestCase):

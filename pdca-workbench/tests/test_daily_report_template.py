@@ -172,8 +172,8 @@ class PipelineWiringTests(unittest.TestCase):
                 },
                 "body": "何川 已提交 2026-09-30 日报",
             },
-            {"sender_user_id": 14640, "metadata": {}, "body": FULL},
-            {"sender_user_id": 999, "metadata": {}, "body": "别人说的话"},
+            {"sender_user_id": 14640, "created_at": "2026-09-30T20:00:00+08:00", "metadata": {}, "body": FULL},
+            {"sender_user_id": 999, "created_at": "2026-09-30T18:00:00+08:00", "metadata": {}, "body": "别人说的话"},
             {
                 "sender_user_id": 888,
                 "metadata": {"kind": "daily_report_submission", "work_date": "2026-09-29", "fields": []},
@@ -188,6 +188,18 @@ class PipelineWiringTests(unittest.TestCase):
         self.assertIn("明日重点工作", texts["14640"])
         self.assertFalse(looks_like_report(texts["999"]), "群里闲聊不能算日报")
         self.assertFalse(looks_like_report(texts.get("888", "")))
+
+    def test_yesterday_plain_text_is_not_today_report(self):
+        from app.duzhan_ledger import daily_report_texts
+
+        messages = [{
+            "sender_user_id": 14640,
+            "created_at": "2026-09-29T20:00:00+08:00",
+            "metadata": {},
+            "body": FULL,
+        }]
+        texts = daily_report_texts(messages, "2026-09-30")
+        self.assertNotIn("14640", texts)
 
     @contextmanager
     def _compact_off(self):

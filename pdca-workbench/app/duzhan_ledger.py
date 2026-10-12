@@ -1171,7 +1171,7 @@ def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list
     from app.vertu.client import run_vertu_sync_json
 
     if not channel_id:
-        return []
+        raise ValueError("群历史取数失败：未配置 channel_id")
     prev = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
     payload = run_vertu_sync_json(
         [
@@ -1186,9 +1186,14 @@ def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list
         ],
         timeout=40.0,
     )
-    if not isinstance(payload, dict):
-        return []
-    return [item for item in (payload.get("messages") or []) if isinstance(item, dict)]
+    if (
+        not isinstance(payload, dict)
+        or payload.get("ok") is False
+        or bool(payload.get("error"))
+        or not isinstance(payload.get("messages"), list)
+    ):
+        raise RuntimeError(f"群历史取数失败: {channel_id}")
+    return [item for item in payload["messages"] if isinstance(item, dict)]
 
 
 def messages_on_day(messages: list[dict], day: str, tz_name: str) -> list[dict]:
@@ -1259,6 +1264,8 @@ def daily_report_texts(messages: list[dict], day: str) -> dict[str, str]:
             parts.extend(str(item) for item in (meta.get("items") or []))
             parts.extend(f"明日重点：{item}" for item in (meta.get("tomorrow") or []))
         else:
+            if not messages_on_day([msg], day, "Asia/Shanghai"):
+                continue
             uid = str(msg.get("sender_user_id") or "")
             parts.append(str(msg.get("body") or ""))
         if not uid or not any(part.strip() for part in parts):
@@ -2008,9 +2015,7 @@ def collect_ledger(day: str) -> dict:
         8,
         "督战官拉群历史",
     )
-    histories: dict[str, list[dict]] = {
-        cid: (rows or []) for cid, rows in zip(channel_ids, history_list)
-    }
+    histories: dict[str, list[dict] | None] = dict(zip(channel_ids, history_list))
     # 每人三项 MCP 查询并发预取（串行时这是除 OCR 外的第二个大头）。
     subjects = {item.display: _subject(item) for item in OWNERS}
     queried = [item for item in OWNERS if subjects[item.display]]
@@ -2031,15 +2036,21 @@ def collect_ledger(day: str) -> dict:
         if not owner.im_user_id:
             continue
         raw_msgs: list[dict] = []
+        history_ok = True
         for cid in _history_ids(owner):
-            raw_msgs.extend(histories.get(cid) or [])
+            rows = histories.get(cid)
+            if rows is None:
+                history_ok = False
+            else:
+                raw_msgs.extend(rows)
         try:
             day_msgs = messages_on_day(raw_msgs, day, _group_timezone(owner))
         except Exception as exc:  # noqa: BLE001
             logger.warning("督战官当日消息过滤失败 {}: {}", owner.display, exc)
             day_msgs = []
         owner_msgs[owner.display] = day_msgs
-        ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
+        if history_ok:
+            ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
 
     # 三个 OCR 开关都用 getattr 兜底：采集是关键路径，Settings 少一个字段也不能整轮失败。
     ocr_workers = getattr(settings, "mto_ocr_workers", 3)

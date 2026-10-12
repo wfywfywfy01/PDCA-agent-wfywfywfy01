@@ -75,6 +75,28 @@ class DuzhanAgentApiTests(unittest.TestCase):
         listed = self.client.get("/api/duzhan-agents").json()["items"]
         self.assertEqual([item["name"] for item in listed], ["新人组官"])
 
+    def test_mutations_refresh_running_db_schedule(self):
+        with patch("app.scheduler.jobs.refresh_duzhan_agent_jobs") as refresh:
+            created = self.client.post(
+                "/api/duzhan-agents", headers=self.headers,
+                json={"name": "热更新官", "blocks": GOOD_BLOCKS},
+            )
+            self.assertEqual(created.status_code, 200, created.text)
+            agent_id = created.json()["id"]
+            enabled = self.client.post(
+                f"/api/duzhan-agents/{agent_id}/toggle", headers=self.headers,
+                json={"enabled": True},
+            )
+            self.assertEqual(enabled.status_code, 200, enabled.text)
+            updated = self.client.put(
+                f"/api/duzhan-agents/{agent_id}", headers=self.headers,
+                json={"name": "热更新官", "blocks": GOOD_BLOCKS},
+            )
+            self.assertEqual(updated.status_code, 200, updated.text)
+            deleted = self.client.delete(f"/api/duzhan-agents/{agent_id}", headers=self.headers)
+            self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(refresh.call_count, 4)
+
     def test_duplicate_name_is_conflict(self):
         payload = {"name": "重名官", "blocks": GOOD_BLOCKS}
         self.assertEqual(self.client.post("/api/duzhan-agents", headers=self.headers, json=payload).status_code, 200)

@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select
 
@@ -132,6 +133,19 @@ def _name_taken(session: Session, name: str, *, exclude_id: Optional[int] = None
     return session.exec(statement).first() is not None
 
 
+def _refresh_schedule() -> None:
+    from app.scheduler.jobs import refresh_duzhan_agent_jobs
+
+    try:
+        refresh_duzhan_agent_jobs()
+    except Exception as exc:  # noqa: BLE001 — 已提交配置，必须让操作者知道调度未同步
+        logger.exception("督战官配置已保存，但调度刷新失败: {}", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="配置已保存，但调度刷新失败；请检查后台日志后重试",
+        ) from exc
+
+
 @router.get("", summary="子 Agent 列表")
 async def list_agents(
     _user: Annotated[User, Depends(require_admin)] = None,
@@ -193,6 +207,7 @@ async def create_agent(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _refresh_schedule()
     return service.agent_out(row)  # 新建未显式启用时保持停用
 
 
@@ -219,6 +234,7 @@ async def update_agent(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _refresh_schedule()
     return service.agent_out(row)
 
 
@@ -237,6 +253,7 @@ async def toggle_agent(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _refresh_schedule()
     return service.agent_out(row)
 
 
@@ -263,4 +280,5 @@ async def delete_agent(
     row = _get_agent(session, agent_id)
     session.delete(row)
     session.commit()
+    _refresh_schedule()
     return {"deleted": agent_id}

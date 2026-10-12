@@ -1627,7 +1627,10 @@ def draft_at_reply(question: str, lang: str) -> str:
     if math:
         left, op_text, right = math.group(1), math.group(2), math.group(3)
         op = _OPS[op_text]
-        value = op(int(left), int(right))
+        try:
+            value = op(int(left), int(right))
+        except ZeroDivisionError:
+            return "Cannot divide by zero." if lang == "en" else "除数不能为 0。"
         if isinstance(value, float) and value.is_integer():
             value = int(value)
         return str(value)
@@ -1733,28 +1736,36 @@ def poll_at_mentions() -> dict:
         newest = last_seen
         for message in messages:
             created = str(message.get("created_at") or "")
-            if created:
-                newest = max(newest, created)
             message_id = str(message.get("id") or "")
             if not message_id or message_id in answered_set:
+                if created:
+                    newest = max(newest, created)
                 continue
             if created and created < last_seen:
                 continue
             body = message_body(message)
             if is_own_bot_message(message, body) or not is_at_duzhan(body):
+                if created:
+                    newest = max(newest, created)
                 continue
-            reply = draft_at_reply(strip_at(body), group.lang)
-            ok = push_duzhan_message(
-                reply,
-                group.channel_id,
-                parent_message_id=message_id,
-                # 幂等键带原消息 id：回复成功但进程在落游标前崩溃，重启也不会重复回答（2026-09-20 审查）
-                idempotency_key=f"duzhan-at-{message_id}",
-            )
+            try:
+                reply = draft_at_reply(strip_at(body), group.lang)
+                ok = push_duzhan_message(
+                    reply,
+                    group.channel_id,
+                    parent_message_id=message_id,
+                    # 幂等键带原消息 id：回复成功但进程在落游标前崩溃，重启也不会重复回答（2026-09-20 审查）
+                    idempotency_key=f"duzhan-at-{message_id}",
+                )
+            except Exception as exc:  # noqa: BLE001 — 本群停在失败消息，其他群继续轮询
+                logger.warning("督战官 @回复异常 {} {}: {}", group.name, message_id, exc)
+                break
             if ok:
                 replied.append(f"{group.name}:{message_id}")
                 answered_set.add(message_id)
                 answered = _remember_answered(answered, message_id)
+                if created:
+                    newest = max(newest, created)
                 # 立刻落盘：崩溃重启后不会重复回答同一条 @（原来整轮结束才写）。
                 # 注意与读取端同一套 schema，见 _cursor_row。
                 state["channels"][group.channel_id] = _cursor_row(
@@ -1766,6 +1777,7 @@ def poll_at_mentions() -> dict:
                     logger.warning("督战官游标落盘失败: {}", exc)
             else:
                 logger.warning("督战官 @回复失败 {} {}", group.name, message_id)
+                break
         channels[group.channel_id] = _cursor_row(newest, answered)
     _save_cursor(state)
     return {"replied": replied, "initialized": skipped_init}

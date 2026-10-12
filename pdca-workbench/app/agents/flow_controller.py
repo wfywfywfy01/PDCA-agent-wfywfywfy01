@@ -233,6 +233,8 @@ def check_slot_health(
     now: datetime | None = None,
     expect_push: bool = True,
     alert: bool = True,
+    agent_id: int | None = None,
+    channel_id: str = "",
 ) -> dict:
     """P0 档位健康检查：collect run / slot 快照 / push run 三项凭证。
 
@@ -245,12 +247,21 @@ def check_slot_health(
     """
     problems: list[dict] = []
     bucket = f"{tz_name}:{hour:02d}:{day}"
-    slot = load_prepared(tz_name, hour, day)
-    expected_groups = len(groups_for_tz(tz_name))
+    if agent_id is None:
+        slot = load_prepared(tz_name, hour, day)
+        expected_groups = len(groups_for_tz(tz_name))
+        collect_job, push_job = "duzhan_collect", "duzhan"
+    else:
+        from app.duzhan import _slot_key
 
-    collect = _scheduled_run_status("duzhan_collect", bucket)
+        slot = load_prepared(tz_name, hour, day, _slot_key([channel_id]))
+        expected_groups = 1
+        collect_job = f"duzhan_collect:agent:{agent_id}"
+        push_job = f"duzhan_push:agent:{agent_id}"
+
+    collect = _scheduled_run_status(collect_job, bucket)
     if not collect.get("found"):
-        problems.append({"step": "collect_run", "detail": "未找到 duzhan_collect 运行凭证"})
+        problems.append({"step": "collect_run", "detail": f"未找到 {collect_job} 运行凭证"})
     elif collect.get("status") != "sent":
         problems.append({"step": "collect_run", "detail": f"状态 {collect.get('status')} "
                          f"{collect.get('detail') or ''}"[:200]})
@@ -278,9 +289,9 @@ def check_slot_health(
             problems.append({"step": "slot_snapshot", "detail": f"群消息 {groups} != 预期 {expected_groups}"})
 
     if expect_push:
-        push = _scheduled_run_status("duzhan", bucket)
+        push = _scheduled_run_status(push_job, bucket)
         if not push.get("found"):
-            problems.append({"step": "push_run", "detail": "未找到 duzhan 推送凭证"})
+            problems.append({"step": "push_run", "detail": f"未找到 {push_job} 推送凭证"})
         elif push.get("status") != "sent":
             problems.append({"step": "push_run", "detail": f"状态 {push.get('status')} "
                          f"{push.get('detail') or ''}"[:200]})
@@ -289,6 +300,7 @@ def check_slot_health(
         "date": day,
         "timezone": tz_name,
         "hour": f"{hour:02d}:00",
+        "agent_id": agent_id,
         "ok": not problems,
         "problems": problems,
         "suggested_action": "人工核对调度器与机器人配置，必要时手动补跑该档" if problems else "",
@@ -297,11 +309,28 @@ def check_slot_health(
     if problems:
         detail = "; ".join(f"{p['step']}:{p['detail']}" for p in problems)[:280]
         if alert:
-            notify("督战档位健康检查失败", f"{tz_name} {hour:02d}:00 {day} → {detail}")
+            agent_label = f" Agent#{agent_id}" if agent_id is not None else ""
+            notify("督战档位健康检查失败", f"{tz_name} {hour:02d}:00 {day}{agent_label} → {detail}")
         logger.error("slot health FAILED {} {} {}: {}", tz_name, hour, day, detail)
     else:
         logger.info("slot health OK {} {} {}", tz_name, hour, day)
     return report
+
+
+def _health_targets() -> list[tuple[str, int, int | None, str]]:
+    from app.duzhan_admin import runtime
+
+    if runtime.using_db():
+        return [
+            (group.tz, hour, agent.id, group.channel_id)
+            for agent, group in runtime.duzhan_agents()
+            for hour in runtime.slots_of(agent)
+        ]
+    return [
+        (tz_name, hour, None, "")
+        for tz_name in cron_timezones()
+        for hour in parse_hours(get_settings().duzhan_times)
+    ]
 
 
 def run_health_checks_for(now: datetime | None = None) -> list[dict]:
@@ -313,9 +342,8 @@ def run_health_checks_for(now: datetime | None = None) -> list[dict]:
     """
     from app.agents.events import write_event
 
-    settings = get_settings()
     reports: list[dict] = []
-    for tz_name in cron_timezones():
+    for tz_name, hour, agent_id, channel_id in _health_targets():
         try:
             zone = ZoneInfo(tz_name)
         except Exception:  # noqa: BLE001
@@ -324,25 +352,29 @@ def run_health_checks_for(now: datetime | None = None) -> list[dict]:
         if not is_duzhan_workday(tz_name, local):
             continue
         day = local.strftime("%Y-%m-%d")
-        for hour in parse_hours(settings.duzhan_times):
-            if hour > local.hour:
-                continue  # 未到点的档位
-            if hour == local.hour and local.minute < 5:
-                continue  # 整点后 5 分钟内推送可能尚未完成，等下一轮
-            event_key = f"flow_controller:health_checked:{tz_name}:{day}:{hour:02d}"
-            if not write_event("slot.health_checked", producer="flow_controller",
-                               event_key=event_key,
-                               payload={"tz": tz_name, "day": day, "hour": hour}):
-                continue  # 本档今天已检查并告警过
-            reports.append(check_slot_health(tz_name, hour, day, now=local, alert=True))
+        if hour > local.hour:
+            continue  # 未到点的档位
+        if hour == local.hour and local.minute < 5:
+            continue  # 整点后 5 分钟内推送可能尚未完成，等下一轮
+        event_key = f"flow_controller:health_checked:{tz_name}:{day}:{hour:02d}"
+        if agent_id is not None:
+            event_key += f":agent:{agent_id}"
+        if not write_event("slot.health_checked", producer="flow_controller",
+                           event_key=event_key,
+                           payload={"tz": tz_name, "day": day, "hour": hour, "agent_id": agent_id}):
+            continue  # 本档今天已检查并告警过
+        reports.append(check_slot_health(
+            tz_name, hour, day, now=local, alert=True, agent_id=agent_id, channel_id=channel_id
+        ))
     return reports
 
 
 def all_slot_health_today(day: str) -> list[dict]:
     """给定日期全部时区/档位的健康状态（供后台展示，不告警）。"""
-    settings = get_settings()
     reports = []
-    for tz_name in cron_timezones():
-        for hour in parse_hours(settings.duzhan_times):
-            reports.append(check_slot_health(tz_name, hour, day, expect_push=True, alert=False))
+    for tz_name, hour, agent_id, channel_id in _health_targets():
+        reports.append(check_slot_health(
+            tz_name, hour, day, expect_push=True, alert=False,
+            agent_id=agent_id, channel_id=channel_id,
+        ))
     return reports

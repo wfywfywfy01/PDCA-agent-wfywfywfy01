@@ -1646,6 +1646,15 @@ def start_scheduler() -> BackgroundScheduler | None:
     return _scheduler
 
 
+def refresh_duzhan_agent_jobs() -> list[dict]:
+    """配置页提交后，仅在 db 模式且调度器运行时同步子 Agent 任务。"""
+    from app.duzhan_admin import runtime
+
+    if _scheduler is None or not get_settings().duzhan_enabled or not runtime.using_db():
+        return []
+    return runtime.refresh_agent_jobs(_scheduler)
+
+
 def stop_scheduler() -> None:
     """停止调度器。"""
     global _scheduler

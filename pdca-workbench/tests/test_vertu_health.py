@@ -75,6 +75,21 @@ class VertuHealthTests(unittest.TestCase):
         # CLI 已改名（vertu-cli -> vps-work），这里只校验后缀，避免绑死环境里的可执行名
         self.assertIn("凭据不可用", result["detail"])
 
+    def test_rejected_agent_credentials_are_reported_as_agent_mode(self):
+        status = '{"auth_mode":"agent","agent_app_id":"app","credential_rejected":true,"never_expires":true}'
+        with (
+            patch("app.vertu.client.resolve_vertu_command", return_value="/usr/bin/vps-work"),
+            patch("app.vertu.client.Path.is_file", return_value=True),
+            patch("app.vertu.client.run_vertu", new=AsyncMock(side_effect=[
+                (1, "", "Unauthorized"), (0, status, ""),
+            ])),
+        ):
+            result = asyncio.run(client.vertu_health(force=True))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["auth_mode"], "agent")
+        self.assertTrue(result["never_expires"])
+        self.assertIn("拒绝", result["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()
