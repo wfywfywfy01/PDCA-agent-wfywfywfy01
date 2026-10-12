@@ -523,6 +523,30 @@ def _render_person(
     use_diff: bool = False,
     focus_override: str | None = None,
 ) -> str:
+    """单人一条正文 + 本周任务（老板 2026-10-10：按人挂一周任务，命中就每天追）。"""
+    text = _render_person_body(
+        group, hour, day, slot, slogan, person, prev_person, use_diff, focus_override
+    )
+    from app.weekly_focus import block_for
+
+    display = str((person or {}).get("display") or "")
+    block = block_for(day, group.name, display, lang=group.lang)
+    if block:
+        text = text.rstrip() + "\n\n" + block
+    return text
+
+
+def _render_person_body(
+    group: DuzhanGroup,
+    hour: int,
+    day: str,
+    slot: str,
+    slogan: str,
+    person: dict | None,
+    prev_person: dict | None = None,
+    use_diff: bool = False,
+    focus_override: str | None = None,
+) -> str:
     lang = group.lang
     reporter = (person or {}).get("display") or _REPORTER.get(group.name, group.name)
     target = wan_text(person.get("target_wan") if person else None, lang)

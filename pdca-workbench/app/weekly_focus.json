@@ -1,0 +1,32 @@
+{
+  "_readme": "本周任务：老板按周给某些人挂任务，三追每版末尾出一节「本周任务」；过了 end 自动收起。运行时文件 data/runtime/weekly_focus.json 优先，改任务不用发版。fields: start/end(YYYY-MM-DD，闭区间) + items[who/aliases/groups/text/text_en]。",
+  "weeks": [
+    {
+      "start": "2026-10-10",
+      "end": "2026-10-16",
+      "label": "本周任务",
+      "items": [
+        {
+          "who": "尤文静",
+          "aliases": ["Viki"],
+          "groups": ["viki业绩达标群"],
+          "text": "对标“佳佳说”这个视频号，做出同质量的AI视频",
+          "text_en": "Benchmark the “Jiajia Shuo” video account and produce AI videos of the same quality."
+        },
+        {
+          "who": "杨晶晶",
+          "groups": ["杨晶晶业绩达标群"],
+          "text": "对标“佳佳说”这个视频号，做出同质量的AI视频",
+          "text_en": "Benchmark the “Jiajia Shuo” video account and produce AI videos of the same quality."
+        },
+        {
+          "who": "Lina",
+          "aliases": ["DEHDAHOUMAIMA", "丽娜"],
+          "groups": ["Lina业绩达标群"],
+          "text": "对标“佳佳说”这个视频号，做出同质量的AI视频",
+          "text_en": "Benchmark the “Jiajia Shuo” video account and produce AI videos of the same quality."
+        }
+      ]
+    }
+  ]
+}
