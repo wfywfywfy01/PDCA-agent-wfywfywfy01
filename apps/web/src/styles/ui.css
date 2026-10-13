@@ -6,7 +6,7 @@
 .page { max-width: 1240px; margin: 0 auto; padding: 24px 20px 64px; }
 
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
-.page-head h1 { margin: 0 0 6px; font-size: 24px; line-height: 1.25; }
+.page-head h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.25; letter-spacing: -0.02em; }
 .page-head .sub { margin: 0; color: var(--muted); font-size: 13px; }
 .page-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
@@ -197,11 +197,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .shell-link:hover { background: var(--surface-hover); color: var(--text-1); }
 .shell-link.router-link-active { background: var(--surface-active); color: var(--text-1); font-weight: 600; }
 .shell-link.router-link-active::before {
-  content: ''; position: absolute; left: -8px; top: 7px; bottom: 7px; width: 2px; border-radius: 2px; background: var(--info);
+  content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px; border-radius: 2px; background: var(--info);
 }
 .shell-link .ico { width: 16px; text-align: center; flex: 0 0 auto; opacity: 0.9; font-size: 14px; }
 .shell-link .label { overflow: hidden; text-overflow: ellipsis; }
 .shell-foot { flex: 0 0 auto; padding: 10px; border-top: 1px solid var(--line); }
+.shell-foot button.shell-link { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 
 .shell-topbar {
   position: fixed; top: 0; right: 0; left: var(--sidebar-w); z-index: 25;
@@ -353,8 +354,13 @@ tr:hover .row-actions, tr:focus-within .row-actions { opacity: 1; }
 
 @media (max-width: 900px) {
   :root { --sidebar-w: 0px; }
-  .shell-sidebar { transform: translateX(-100%); width: 232px; }
+  .shell-scrim { position: fixed; inset: 0; z-index: 29; padding: 0; border: 0; background: rgba(0, 0, 0, 0.6); cursor: pointer; }
+  .shell-sidebar, .shell-collapsed .shell-sidebar { transform: translateX(-100%); width: 232px; }
   .shell-sidebar.open { transform: none; }
+  .shell-collapsed .shell-brand .label, .shell-collapsed .shell-link .label { display: inline; }
+  .shell-collapsed .shell-group-label { display: block; }
+  .shell-collapsed .shell-link { justify-content: flex-start; padding: 0 10px; }
+  .shell-foot { display: none; }
   .shell-topbar { left: 0; }
   body.shell-ready main.page { margin-left: 0; padding: calc(var(--topbar-h) + 16px) 14px 40px; }
   body.shell-ready.shell-collapsed main.page { margin-left: 0; }

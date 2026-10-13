@@ -190,7 +190,8 @@ async function logout() {
 }
 </script>
 <template>
-  <aside class="shell-sidebar" :class="{ open: mobileOpen }" aria-label="主导航">
+  <button v-if="mobileOpen" class="shell-scrim" type="button" aria-label="关闭导航" @click="mobileOpen = false" />
+  <aside id="pdca-navigation" class="shell-sidebar" :class="{ open: mobileOpen }" aria-label="主导航">
     <div class="shell-brand">
       <span class="mark" aria-hidden="true">V</span>
       <span class="label">PDCA 工作台</span>
@@ -219,7 +220,7 @@ async function logout() {
   </aside>
 
   <header class="shell-topbar">
-    <button class="icon-btn menu-btn" type="button" aria-label="打开导航" @click="mobileOpen = !mobileOpen">
+    <button class="icon-btn menu-btn" type="button" :aria-label="mobileOpen ? '关闭导航' : '打开导航'" :aria-expanded="mobileOpen" aria-controls="pdca-navigation" @click="mobileOpen = !mobileOpen">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
         <path d="M4 7h16M4 12h16M4 17h16" />
       </svg>
