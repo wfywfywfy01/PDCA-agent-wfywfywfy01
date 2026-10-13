@@ -117,6 +117,48 @@ class SlotHealthTests(unittest.TestCase):
         self.assertTrue(report["ok"], report["problems"])
         load.assert_called_once_with("Asia/Shanghai", 10, day, channel_id[:8])
 
+    def test_db_mode_accepts_prior_code_slot_after_cutover(self):
+        from app.duzhan import GROUPS
+
+        day = "2026-09-17"
+        bucket = f"Asia/Shanghai:10:{day}"
+        _insert_run(self.engine, "duzhan_collect", bucket, "sent")
+        _insert_run(self.engine, "duzhan", bucket, "sent")
+        legacy_count = sum(group.tz == "Asia/Shanghai" for group in GROUPS)
+        slot = {
+            "day": day, "hour": 10,
+            "prepared_at": datetime(2026, 9, 17, 9, 45, tzinfo=ZoneInfo("Asia/Shanghai")).isoformat(),
+            "messages": {str(i): "m" for i in range(legacy_count)},
+        }
+        group = SimpleNamespace(channel_id="11111111-1111-4111-8111-111111111111", tz="Asia/Shanghai")
+        with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
+             patch("app.duzhan_admin.runtime.duzhan_agents", return_value=[(object(), group)]), \
+             patch("app.duzhan_admin.runtime.slots_of", return_value=[10]), \
+             patch("app.agents.flow_controller.load_prepared", side_effect=lambda *_args: slot if len(_args) == 3 else None) as load:
+            report = flow_controller.check_slot_health("Asia/Shanghai", 10, day, alert=False)
+        self.assertTrue(report["ok"], report["problems"])
+        load.assert_any_call("Asia/Shanghai", 10, day)
+
+    def test_db_failure_is_not_hidden_by_prior_code_run(self):
+        day = "2026-09-17"
+        bucket = f"Asia/Shanghai:10:{day}"
+        _insert_run(self.engine, "duzhan_collect:db:Asia/Shanghai", bucket, "failed")
+        _insert_run(self.engine, "duzhan_collect", bucket, "sent")
+        _insert_run(self.engine, "duzhan", bucket, "sent")
+        group = SimpleNamespace(channel_id="11111111-1111-4111-8111-111111111111", tz="Asia/Shanghai")
+        slot = {
+            "day": day, "hour": 10,
+            "prepared_at": datetime(2026, 9, 17, 9, 45, tzinfo=ZoneInfo("Asia/Shanghai")).isoformat(),
+            "messages": {group.channel_id: "m"},
+        }
+        with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
+             patch("app.duzhan_admin.runtime.duzhan_agents", return_value=[(object(), group)]), \
+             patch("app.duzhan_admin.runtime.slots_of", return_value=[10]), \
+             patch("app.agents.flow_controller.load_prepared", return_value=slot):
+            report = flow_controller.check_slot_health("Asia/Shanghai", 10, day, alert=False)
+        self.assertFalse(report["ok"])
+        self.assertEqual([item["step"] for item in report["problems"]], ["collect_run"])
+
     def test_paris_slot_all_green(self):
         day = "2026-09-17"
         self._write_slot(

@@ -248,7 +248,8 @@ def check_slot_health(
     from app.duzhan_admin import runtime
 
     bucket = f"{tz_name}:{hour:02d}:{day}"
-    if runtime.using_db():
+    db_source = runtime.using_db()
+    if db_source:
         channels = [group.channel_id for agent, group in runtime.duzhan_agents()
                     if group.tz == tz_name and hour in runtime.slots_of(agent)]
         slot = load_prepared(tz_name, hour, day, _slot_key(channels))
@@ -260,6 +261,14 @@ def check_slot_health(
         collect_job, push_job = "duzhan_collect", "duzhan"
 
     collect = _scheduled_run_status(collect_job, bucket)
+    if db_source and not collect.get("found"):
+        legacy_collect = _scheduled_run_status("duzhan_collect", bucket)
+        if legacy_collect.get("found"):
+            from app.duzhan import GROUPS
+
+            collect = legacy_collect
+            slot = load_prepared(tz_name, hour, day)
+            expected_groups = sum(group.tz == tz_name for group in GROUPS)
     if not collect.get("found"):
         problems.append({"step": "collect_run", "detail": "未找到 duzhan_collect 运行凭证"})
     elif collect.get("status") != "sent":
@@ -290,6 +299,10 @@ def check_slot_health(
 
     if expect_push:
         push = _scheduled_run_status(push_job, bucket)
+        if db_source and not push.get("found"):
+            legacy_push = _scheduled_run_status("duzhan", bucket)
+            if legacy_push.get("found"):
+                push = legacy_push
         if not push.get("found"):
             problems.append({"step": "push_run", "detail": "未找到 duzhan 推送凭证"})
         elif push.get("status") != "sent":
