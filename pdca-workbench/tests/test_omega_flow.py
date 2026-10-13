@@ -244,6 +244,23 @@ class OmegaFlowTests(unittest.TestCase):
         self.current = User(id=3, username="seller-c", role="sales", team_key="team-b")
         self.assertEqual(self.client.get(f"/api/omega/sessions/{first.json()['id']}").status_code, 404)
 
+    def test_vps_auth_failure_only_disables_real_meeting_import(self):
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        with (
+            patch("app.meeting.vemory.meeting_detail", new=AsyncMock(return_value=(None, "会议详情获取失败"))),
+            patch("app.vertu.client.vertu_health", new=AsyncMock(return_value={"ok": False})),
+        ):
+            preview = self.client.get("/api/meeting-center/vemory/detail?meeting_id=missing")
+            imported = self.client.post("/api/omega/real-imports", json={
+                "case_id": case["id"], "meeting_id": "missing",
+                "speaker_map": {"Alice": "sales", "Buyer": "counterparty"},
+            })
+            self.assertEqual(self.client.get("/api/omega/cases").status_code, 200)
+        for response in (preview, imported):
+            self.assertEqual(response.status_code, 503, response.text)
+            self.assertIn("VPS", response.json()["detail"])
+
     def test_same_meeting_and_goal_in_another_case_stays_in_that_case(self):
         meeting = {"id": "meeting-shared", "owner_name": "Alice",
                    "start_time": "2026-09-22T10:00:00+08:00",
