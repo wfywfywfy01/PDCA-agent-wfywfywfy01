@@ -4,11 +4,10 @@ import AppNav from '@/components/AppNav.vue'
 import { HttpError } from '@/api/client'
 import { fetchBotChannels, type BotChannel } from '@/api/agentAdmin'
 import BlockCard from '@/components/BlockCard.vue'
-import BlockPalette from '@/components/BlockPalette.vue'
 import {
   addBlock as appendBlock, agentPayload, aiStatus as fetchAiStatus, blockSchema, configChanged,
-  createAgent, defaultBlock, deleteAgent,
-  fromJson, listAgents, moveBlock, previewAgent, removeBlock, runtimeStatus as fetchRuntimeStatus,
+  createAgent, defaultBlock, deleteAgent, blockPositions, starterBlocks,
+  fromJson, listAgents, moveBlock, nameForSelectedGroup, previewAgent, removeBlock, runtimeStatus as fetchRuntimeStatus,
   seedFromCode, toJson, toggleAgent,
   updateAgent, updateBlockField,
   type Block,
@@ -51,6 +50,7 @@ const runtime = ref<DuzhanRuntimeStatus | null>(null)
 const channels = ref<BotChannel[]>([])
 const channelsError = ref('')
 const pendingTarget = ref<number | 'new' | null>(null)
+const search = ref('')
 
 const current = computed(() => agents.value.find((item) => item.id === selectedId.value) || null)
 const savedErrors = computed(() => current.value?.errors || [])
@@ -72,6 +72,16 @@ const groupOptions = computed(() => {
     .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
 })
 const liveConfig = computed(() => runtime.value?.enabled && runtime.value.source === 'db')
+const filteredAgents = computed(() => agents.value.filter((item) =>
+  (groupLabel(item) + ' ' + item.name).toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()),
+))
+const groupIndices = computed(() => blockPositions(blocks.value, 'group'))
+const timeIndices = computed(() => blockPositions(blocks.value, 'times'))
+const conditionIndices = computed(() => blockPositions(blocks.value, 'condition'))
+const ruleIndices = computed(() => blockPositions(blocks.value, 'rule'))
+const extraIndices = computed(() => blocks.value.flatMap((block, index) =>
+  ['group', 'times', 'condition', 'rule'].includes(block.type) ? [] : [index],
+))
 const previewSlots = computed(() => {
   const times = blocks.value.find((block) => block.type === 'times')
   return Array.isArray(times?.slots)
@@ -121,7 +131,7 @@ function startDraft() {
   timezone.value = 'Asia/Shanghai'
   note.value = ''
   enabled.value = false
-  blocks.value = []
+  blocks.value = starterBlocks(specs.value)
   jsonText.value = toJson(blocks.value)
   preview.value = null
   rendered.value = null
@@ -337,11 +347,27 @@ function onAddBlock(spec: BlockTypeSpec) {
 }
 
 function onFieldChange(index: number, key: string, value: unknown) {
+  const previousLabel = String(blocks.value[index]?.label || '')
   blocks.value = updateBlockField(blocks.value, index, key, value)
+  if (selectedId.value === null && blocks.value[index]?.type === 'group' && key === 'label') {
+    name.value = nameForSelectedGroup(name.value, previousLabel, String(value || ''))
+  }
 }
 
 function onMove(index: number, offset: number) {
-  blocks.value = moveBlock(blocks.value, index, index + offset)
+  const positions = blockPositions(blocks.value, blocks.value[index].type)
+  const target = positions[positions.indexOf(index) + offset]
+  if (target !== undefined) blocks.value = moveBlock(blocks.value, index, target)
+}
+
+function canMove(index: number, offset: number): boolean {
+  const positions = blockPositions(blocks.value, blocks.value[index].type)
+  return positions[positions.indexOf(index) + offset] !== undefined
+}
+
+function addType(type: string) {
+  const spec = specs.value.find((item) => item.type === type)
+  if (spec) onAddBlock(spec)
 }
 
 function onRemove(index: number) {
@@ -366,9 +392,9 @@ onMounted(load)
   <main class="page">
     <header class="page-head">
       <div>
-        <p class="eyebrow">督战官 / 配置中心</p>
+        <p class="eyebrow">督战官 · 管理后台</p>
         <h1>群聊与规则</h1>
-        <p class="sub">选群、插入规则卡、试跑内容，再保存启用。</p>
+        <p class="sub">每个群一张卡片。按顺序设置目标群、时间、发送条件和文案。</p>
       </div>
       <div class="actions">
         <button class="btn" type="button" :disabled="busy || unsaved" @click="load">刷新</button>
@@ -382,7 +408,7 @@ onMounted(load)
         <strong>{{ liveConfig ? '页面配置已接管督战调度' : '当前为预备配置' }}</strong>
         <p v-if="!runtime.enabled">督战官总开关未开启。卡片可保存和试跑，暂不发送。</p>
         <p v-else-if="runtime.source === 'code'">线上仍按代码中的群清单发送。卡片可保存和试跑；切换配置来源并重启服务后才接管。</p>
-        <p v-else>文案和条件在下一档读取；群、时段与启停变更需重启服务更新调度。</p>
+        <p v-else>文案和条件在下一档生效；改群、时间或启停后，需重启服务更新定时任务。</p>
       </div>
     </section>
     <p v-if="message" class="toast" role="status">{{ message }}</p>
@@ -398,12 +424,14 @@ onMounted(load)
     <div class="layout">
       <aside class="panel list">
         <div class="panel-head">
-          <h2>群聊卡片</h2>
-          <span>{{ agents.length }}</span>
+          <h2>督战群</h2>
+          <span>{{ filteredAgents.length }} / {{ agents.length }}</span>
         </div>
+        <label class="search-label" for="group-search">查找群聊</label>
+        <input id="group-search" v-model="search" class="search-input" type="search" placeholder="输入群名" />
         <p v-if="busy && !agents.length" class="hint">正在加载群聊配置…</p>
         <button
-          v-for="item in agents"
+          v-for="item in filteredAgents"
           :key="item.id"
           class="group-row"
           type="button"
@@ -417,67 +445,98 @@ onMounted(load)
             <em :class="item.enabled ? 'on' : 'off'">{{ item.enabled ? '启用' : '停用' }}</em>
           </span>
           <span class="group-detail">{{ slotsLabel(item) }}</span>
-          <span class="group-foot">{{ ruleCount(item) }} 条动作规则 <span v-if="item.errors.length" class="bad">{{ item.errors.length }} 处待修正</span></span>
+          <span class="group-foot">{{ ruleCount(item) }} 条文案规则 <span v-if="item.errors.length" class="bad">{{ item.errors.length }} 处待修正</span></span>
         </button>
+        <p v-if="search && !filteredAgents.length" class="hint">没有找到匹配的群。</p>
         <div v-if="!busy && !agents.length" class="empty">
           <strong>还没有群聊卡片</strong>
           <p>可新建，或把现有督战群导入为停用草稿。</p>
         </div>
-        <button class="import-btn" type="button" :disabled="busy" @click="importFromCode">导入现有督战群</button>
+        <details class="import-options"><summary>导入旧配置</summary><p class="hint">仅新增未导入的群，默认停用。</p><button class="btn btn-sm" type="button" :disabled="busy" @click="importFromCode">导入现有督战群</button></details>
       </aside>
 
       <section class="editor" aria-labelledby="editor-title">
         <div class="editor-head">
           <div>
-            <p class="eyebrow">{{ isDraft ? '新卡片' : '正在编辑' }}</p>
-            <h2 id="editor-title">{{ isDraft ? '设置一张群聊卡片' : groupLabel(current!) }}</h2>
+            <p class="eyebrow">{{ isDraft ? '新建群配置' : enabled ? '已启用的群配置' : '已停用的群配置' }}</p>
+            <h2 id="editor-title">{{ isDraft ? '新建一个督战群' : groupLabel(current!) }}</h2>
           </div>
           <span v-if="unsaved" class="draft-tag">未保存</span>
         </div>
-        <div class="meta">
-          <label class="field">
-            <span>配置名称</span>
-            <input v-model="name" type="text" maxlength="128" placeholder="例如：海外一组督战" />
-          </label>
-          <label class="field">
-            <span>时区</span>
-            <input v-model="timezone" type="text" placeholder="Asia/Shanghai" />
-          </label>
-          <label class="field">
-            <span>备注</span>
-            <input v-model="note" type="text" maxlength="256" placeholder="可选" />
-          </label>
-        </div>
-
-        <BlockPalette :specs="specs" :blocks="blocks" :disabled="busy" @add="onAddBlock" />
-
-        <div class="blocks" aria-label="当前群聊的积木卡片">
+        <section class="step" aria-labelledby="group-step">
+          <div class="step-head"><span class="step-number">1</span><div><h3 id="group-step">发到哪个群</h3><p>从督战官已加入的群里选择。新建时会自动填写配置名称。</p></div></div>
           <BlockCard
-            v-for="(block, index) in blocks"
-            :key="index + '-' + block.type"
-            :block="block"
-            :spec="specs.find((item) => item.type === block.type) || { type: block.type, label: block.type, fields: [] }"
+            v-for="index in groupIndices" :key="'group-' + index"
+            :block="blocks[index]" :spec="specs.find((item) => item.type === 'group') || { type: 'group', label: '目标群', fields: [] }"
+            :index="index" :total="blocks.length" :group-options="groupOptions" :disabled="busy" locked plain
+            @change="(key, value) => onFieldChange(index, key, value)"
+          />
+          <button v-if="!groupIndices.length" class="btn" type="button" :disabled="busy" @click="addType('group')">＋ 选择目标群</button>
+          <p v-if="channelsError" class="hint">群聊列表暂不可用：{{ channelsError }}。可在目标群卡片中手动填写群 ID。</p>
+        </section>
+
+        <section class="step" aria-labelledby="time-step">
+          <div class="step-head"><span class="step-number">2</span><div><h3 id="time-step">什么时间发</h3><p>可选多个档位。仅支持 10:00、15:00、20:00，按上方时区执行。</p></div></div>
+          <BlockCard
+            v-for="index in timeIndices" :key="'times-' + index"
+            :block="blocks[index]" :spec="specs.find((item) => item.type === 'times') || { type: 'times', label: '推送档位', fields: [] }"
+            :index="index" :total="blocks.length" :disabled="busy" locked plain
+            @change="(key, value) => onFieldChange(index, key, value)"
+          />
+          <button v-if="!timeIndices.length" class="btn" type="button" :disabled="busy" @click="addType('times')">＋ 选择发送时间</button>
+        </section>
+
+        <section class="step" aria-labelledby="condition-step">
+          <div class="step-head"><span class="step-number">3</span><div><h3 id="condition-step">满足什么条件才发</h3><p>可选。不加条件时，按原有群督战逻辑发送；多条条件需同时满足。</p></div></div>
+          <p v-if="!conditionIndices.length" class="empty-inline">当前没有附加条件</p>
+          <BlockCard
+            v-for="index in conditionIndices" :key="'condition-' + index"
+            :block="blocks[index]" :spec="specs.find((item) => item.type === 'condition') || { type: 'condition', label: '发送条件', fields: [] }"
+            :index="index" :total="blocks.length" :disabled="busy"
+            :can-move-up="canMove(index, -1)" :can-move-down="canMove(index, 1)"
+            @change="(key, value) => onFieldChange(index, key, value)"
+            @move="(offset) => onMove(index, offset)" @remove="() => onRemove(index)"
+          />
+          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('condition')">＋ 添加发送条件</button>
+        </section>
+
+        <section class="step" aria-labelledby="rule-step">
+          <div class="step-head"><span class="step-number">4</span><div><h3 id="rule-step">发送什么文案</h3><p>可用固定文案或 AI。多条规则从上到下匹配，首条命中生效；未命中则用原有档位文案。</p></div></div>
+          <p v-if="!ruleIndices.length" class="empty-inline">当前使用原有档位文案</p>
+          <BlockCard
+            v-for="index in ruleIndices" :key="'rule-' + index"
+            :block="blocks[index]" :spec="specs.find((item) => item.type === 'rule') || { type: 'rule', label: '文案规则', fields: [] }"
+            :index="index" :total="blocks.length" :disabled="busy"
+            :can-move-up="canMove(index, -1)" :can-move-down="canMove(index, 1)"
+            @change="(key, value) => onFieldChange(index, key, value)"
+            @move="(offset) => onMove(index, offset)" @remove="() => onRemove(index)"
+          />
+          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('rule')">＋ 添加文案规则</button>
+        </section>
+
+        <details class="panel advanced-settings">
+          <summary>高级设置与旧版积木</summary>
+          <div class="meta">
+            <label class="field"><span>配置名称</span><input v-model="name" type="text" maxlength="128" placeholder="例如：海外一组督战" /></label>
+            <label class="field"><span>时区</span><input v-model="timezone" type="text" placeholder="Asia/Shanghai" /></label>
+            <label class="field"><span>备注</span><input v-model="note" type="text" maxlength="256" placeholder="可选" /></label>
+          </div>
+          <p v-if="extraIndices.length" class="hint">以下旧版积木已保留，部分字段只用于结构预览，不控制实际发送。</p>
+          <BlockCard
+            v-for="index in extraIndices" :key="'extra-' + index"
+            :block="blocks[index]"
+            :spec="specs.find((item) => item.type === blocks[index].type) || { type: blocks[index].type, label: blocks[index].type, fields: [] }"
             :index="index"
             :total="blocks.length"
             :group-options="groupOptions"
-            :disabled="busy"
+            :disabled="busy" locked
             @change="(key, value) => onFieldChange(index, key, value)"
-            @move="(offset) => onMove(index, offset)"
-            @remove="() => onRemove(index)"
           />
-          <div v-if="!blocks.length" class="blocks-empty">
-            <strong>先插入“目标群”和“推送档位”</strong>
-            <p>再按需要添加发送条件和动作规则。卡片顺序决定规则优先级。</p>
-          </div>
-        </div>
-        <p v-if="channelsError" class="hint">群聊列表暂不可用，仍可在目标群卡片手动填写 UUID。</p>
-        <p v-if="blocks.some((block) => !['group', 'times', 'condition', 'rule'].includes(block.type))" class="hint">
-          导入的扩展积木会保留；其中部分字段只用于结构预览，暂不控制发送。
-        </p>
+        </details>
 
         <div class="save-row">
           <button class="btn btn-primary" type="button" :disabled="busy" @click="save">
-            {{ isDraft ? '创建群卡片' : '保存配置' }}
+            {{ isDraft ? '保存为停用卡片' : '保存改动' }}
           </button>
           <button
             v-if="!isDraft"
@@ -488,6 +547,7 @@ onMounted(load)
           >
             {{ enabled ? '停用' : '启用' }}
           </button>
+          <span class="save-hint">保存不会自动启用；启停和定时变更需重启服务。</span>
           <button v-if="!isDraft" class="btn btn-danger" type="button" :disabled="busy || unsaved" @click="removeCurrent">
             {{ pendingDelete ? '再点一次确认删除' : '删除' }}
           </button>
@@ -551,7 +611,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page { max-width: none; padding: 28px 28px 64px; }
+.page { max-width: 1360px; padding: 28px 24px 80px; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
 .page-head h1 { margin: 2px 0 5px; font-size: 25px; }
 .eyebrow { margin: 0; color: var(--blue); font-size: 11px; font-weight: 700; letter-spacing: .07em; }
@@ -565,13 +625,15 @@ onMounted(load)
 .live .mode-dot { background: var(--green); }
 .switch-warning { justify-content: space-between; align-items: center; color: var(--amber); font-size: 13px; }
 .btn-danger { color: var(--red); }
-.layout { display: grid; grid-template-columns: minmax(210px, 260px) minmax(420px, 1fr) minmax(260px, 330px); gap: 16px; align-items: start; }
+.layout { display: grid; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); gap: 18px; align-items: start; }
 .panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 16px; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .panel-head h2 { margin: 0; font-size: 15px; }
 .panel-head > span { color: var(--muted); font-size: 12px; }
-.list { display: grid; gap: 8px; }
-.group-row { display: grid; gap: 7px; width: 100%; padding: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text); text-align: left; cursor: pointer; }
+.list { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
+.search-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.search-input { width: 100%; margin-bottom: 12px; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
+.group-row { display: grid; gap: 5px; width: 100%; margin-bottom: 6px; padding: 10px 11px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text); text-align: left; cursor: pointer; }
 .group-row:hover, .group-row.active { border-color: var(--blue); }
 .group-row.active { background: var(--blue-soft); }
 .group-top { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
@@ -582,23 +644,34 @@ onMounted(load)
 .group-detail, .group-foot { color: var(--muted); font-size: 11px; line-height: 1.4; }
 .group-foot { display: flex; justify-content: space-between; gap: 6px; }
 .bad { color: var(--red); }
-.empty, .blocks-empty { padding: 20px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); text-align: center; }
-.empty strong, .blocks-empty strong { font-size: 13px; }
-.empty p, .blocks-empty p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.import-btn { margin-top: 3px; padding: 7px; border: 0; background: none; color: var(--blue); text-align: left; font-size: 12px; cursor: pointer; }
-.import-btn:disabled { opacity: .5; }
+.empty { padding: 20px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); text-align: center; }
+.empty strong { font-size: 13px; }
+.empty p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.import-options { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 12px; }
+.import-options summary { color: var(--muted); cursor: pointer; font-size: 12px; }
+.import-options .btn { margin-top: 8px; }
 .editor, .side { display: grid; gap: 14px; }
+.side { grid-column: 2; }
 .editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .editor-head h2 { margin: 3px 0 0; font-size: 18px; }
 .draft-tag { padding: 4px 8px; border-radius: 5px; color: var(--amber); background: rgba(245, 158, 11, .12); font-size: 11px; }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.step { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.step-head { display: flex; align-items: flex-start; gap: 11px; }
+.step-number { display: grid; flex: none; place-items: center; width: 27px; height: 27px; border-radius: 8px; background: var(--blue-soft); color: var(--blue); font-weight: 700; font-size: 13px; }
+.step-head h3 { margin: 1px 0 3px; font-size: 15px; }
+.step-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.empty-inline { margin: 0; padding: 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); color: var(--muted); font-size: 12px; }
+.btn-add { justify-self: start; }
+.advanced-settings summary { cursor: pointer; font-size: 13px; }
+.advanced-settings .hint { margin: 14px 0 8px; }
+.advanced-settings :deep(.block-card) { margin-top: 10px; }
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; padding-top: 14px; }
 .field, .preview-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
 .field input, .preview-fields input, .preview-fields select, .advanced textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
-.blocks { display: grid; gap: 10px; }
-.save-row { position: sticky; bottom: 0; z-index: 2; padding: 12px 0; background: var(--bg); }
+.save-row { position: sticky; bottom: 0; z-index: 2; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
+.save-hint { color: var(--muted); font-size: 11px; }
 .errors { margin: 0; padding: 12px 12px 12px 32px; border: 1px solid rgba(244, 63, 94, .28); border-radius: var(--radius-md); background: rgba(244, 63, 94, .08); color: var(--red); font-size: 12px; line-height: 1.7; }
-.preview-fields { display: grid; gap: 10px; margin: 14px 0; }
-.side .panel > .btn { width: 100%; }
+.preview-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
 .summary { padding-left: 20px; color: var(--text); font-size: 12px; line-height: 1.7; }
 .meta-line { margin: 12px 0 6px; color: var(--muted); font-size: 11px; }
 .preview-allowed, .preview-blocked { margin: 10px 0 0; font-size: 12px; line-height: 1.5; }
@@ -608,6 +681,6 @@ onMounted(load)
 .advanced summary { cursor: pointer; font-size: 13px; }
 .advanced textarea { margin: 14px 0 8px; font-family: ui-monospace, Consolas, monospace; }
 .alert-sticky { position: sticky; top: 8px; z-index: 5; }
-@media (max-width: 1180px) { .layout { grid-template-columns: minmax(210px, 260px) minmax(420px, 1fr); } .side { grid-column: 2; } }
-@media (max-width: 760px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: 1fr; } .side { grid-column: auto; } .list { max-height: 330px; overflow: auto; } }
+@media (max-width: 840px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: 1fr; } .side { grid-column: auto; } .list { position: static; max-height: 310px; } }
+@media (max-width: 560px) { .preview-fields { grid-template-columns: 1fr; } .step { padding: 14px; } }
 </style>

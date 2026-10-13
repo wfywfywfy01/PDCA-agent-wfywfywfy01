@@ -10,6 +10,10 @@ const props = defineProps<{
   total: number
   groupOptions?: GroupOption[]
   disabled?: boolean
+  locked?: boolean
+  plain?: boolean
+  canMoveUp?: boolean
+  canMoveDown?: boolean
 }>()
 const emit = defineEmits<{
   (event: 'change', key: string, value: unknown): void
@@ -18,11 +22,19 @@ const emit = defineEmits<{
 }>()
 
 const summary = computed(() => blockSummary(props.block))
-const fields = computed(() => props.spec.fields.filter((field) => fieldVisible(field, props.block)))
+const fields = computed(() => props.spec.fields.filter((field) =>
+  fieldVisible(field, props.block) && !(props.block.type === 'group' && field.key === 'label'),
+))
 const options = computed(() => props.groupOptions || [])
 
 function controlId(field: BlockFieldSpec): string {
   return 'block-' + props.index + '-' + field.key
+}
+
+function displayLabel(field: BlockFieldSpec): string {
+  if (props.block.type === 'group' && field.key === 'channel_id') return '目标群'
+  if (props.block.type === 'condition' && field.key === 'value') return '发送时机'
+  return field.label
 }
 
 function rawText(field: BlockFieldSpec): string {
@@ -76,27 +88,27 @@ function optionLabel(field: BlockFieldSpec, option: string): string {
 </script>
 
 <template>
-  <article class="block-card">
-    <header class="card-head">
+  <article class="block-card" :class="{ plain }">
+    <header v-if="!plain" class="card-head">
       <span class="order" aria-hidden="true">{{ index + 1 }}</span>
       <div class="titles">
         <h3>{{ spec.label }}</h3>
         <p>{{ summary }}</p>
       </div>
-      <div class="ops">
-        <button class="icon-btn" type="button" :disabled="disabled || index === 0" :aria-label="'上移' + spec.label" @click="emit('move', -1)">↑</button>
-        <button class="icon-btn" type="button" :disabled="disabled || index >= total - 1" :aria-label="'下移' + spec.label" @click="emit('move', 1)">↓</button>
+      <div v-if="!locked" class="ops">
+        <button class="icon-btn" type="button" :disabled="disabled || !canMoveUp" :aria-label="'上移' + spec.label" @click="emit('move', -1)">↑</button>
+        <button class="icon-btn" type="button" :disabled="disabled || !canMoveDown" :aria-label="'下移' + spec.label" @click="emit('move', 1)">↓</button>
         <button class="icon-btn remove" type="button" :disabled="disabled" :aria-label="'删除' + spec.label" @click="emit('remove')">×</button>
       </div>
     </header>
-    <p v-if="spec.hint" class="card-hint">{{ spec.hint }}</p>
+    <p v-if="spec.hint && !plain" class="card-hint">{{ spec.hint }}</p>
     <div class="fields">
       <div v-for="field in fields" :key="field.key" class="field">
         <span v-if="field.kind === 'slots'" class="field-label">
-          {{ field.label }}<em v-if="field.required">必填</em>
+          {{ displayLabel(field) }}<em v-if="field.required">必填</em>
         </span>
         <label v-else :for="controlId(field)" class="field-label">
-          {{ field.label }}<em v-if="field.required">必填</em>
+          {{ displayLabel(field) }}<em v-if="field.required">必填</em>
         </label>
 
         <template v-if="block.type === 'group' && field.key === 'channel_id' && options.length">
@@ -105,11 +117,17 @@ function optionLabel(field: BlockFieldSpec, option: string): string {
             <option v-for="option in options" :key="option.id" :value="option.id">{{ option.label }}</option>
             <option v-if="rawText(field) && !options.some((option) => option.id === rawText(field))" :value="rawText(field)">当前群（未在列表中）</option>
           </select>
-          <input type="text" :value="rawText(field)" :disabled="disabled" aria-label="手动输入群 UUID" placeholder="或粘贴群 UUID" @input="onText(field, $event)" />
+          <details class="manual-id"><summary>手动填写群 ID</summary>
+            <input type="text" :value="rawText(field)" :disabled="disabled" aria-label="手动输入群 ID" placeholder="粘贴群 ID" @input="onText(field, $event)" />
+          </details>
         </template>
 
         <select v-else-if="field.kind === 'select'" :id="controlId(field)" :value="rawText(field)" :disabled="disabled" @change="onSelect(field, $event)">
           <option v-for="option in field.options || []" :key="option" :value="option">{{ optionLabel(field, option) }}</option>
+        </select>
+
+        <select v-else-if="block.type === 'condition' && field.key === 'value'" :id="controlId(field)" :value="String(block.value !== false)" :disabled="disabled" @change="emit('change', field.key, ($event.target as HTMLSelectElement).value === 'true')">
+          <option value="true">满足条件时发送</option><option value="false" :disabled="block.key === 'has_data'">不满足条件时发送</option>
         </select>
 
         <label v-else-if="field.kind === 'bool'" class="check">
@@ -133,6 +151,8 @@ function optionLabel(field: BlockFieldSpec, option: string): string {
 
 <style scoped>
 .block-card { border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--card); overflow: hidden; }
+.block-card.plain { border: 0; border-radius: 0; background: transparent; }
+.plain .fields { padding: 0; }
 .card-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .order { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 700; }
 .titles { flex: 1; min-width: 0; }
@@ -154,4 +174,7 @@ function optionLabel(field: BlockFieldSpec, option: string): string {
 .slots { flex-wrap: wrap; margin: 0; padding: 0; border: 0; }
 .check, .slots label { color: var(--text); cursor: pointer; }
 .slots label { padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; }
+.manual-id { margin-top: 8px; color: var(--muted); font-size: 11px; }
+.manual-id summary { cursor: pointer; }
+.manual-id input { margin-top: 8px; }
 </style>

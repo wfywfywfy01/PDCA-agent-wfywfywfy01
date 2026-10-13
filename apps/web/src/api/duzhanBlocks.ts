@@ -42,6 +42,22 @@ export function addBlock(blocks: Block[], block: Block): Block[] {
   return [...blocks, block]
 }
 
+export function starterBlocks(specs: BlockTypeSpec[]): Block[] {
+  return ['group', 'times'].map((type) => {
+    const spec = specs.find((item) => item.type === type)
+    return spec ? defaultBlock(spec) : { type }
+  })
+}
+
+export function blockPositions(blocks: Block[], type: string): number[] {
+  return blocks.flatMap((block, index) => block.type === type ? [index] : [])
+}
+
+export function nameForSelectedGroup(currentName: string, previousLabel: string, nextLabel: string): string {
+  if (currentName && currentName !== (previousLabel ? previousLabel + '督战官' : '')) return currentName
+  return nextLabel ? nextLabel + '督战官' : ''
+}
+
 /** 上下移动；越界原样返回。 */
 export function moveBlock(blocks: Block[], from: number, to: number): Block[] {
   if (from === to || from < 0 || to < 0 || from >= blocks.length || to >= blocks.length) return [...blocks]
