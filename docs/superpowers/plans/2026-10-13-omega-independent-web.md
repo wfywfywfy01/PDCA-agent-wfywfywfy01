@@ -14,6 +14,7 @@
 
 - `pdca-workbench/app/main.py`：关闭调度的独立进程不执行生产启动备份。
 - `pdca-workbench/tests/test_omega_standalone.py`：VPS 故障隔离和健康状态回归。
+- `pdca-workbench/app/auth/{deps,router}.py`、`app/config.py`：保留 hybrid 登录与 SSO，关闭独立进程的本机 VPS 身份兜底。
 - `pdca-workbench/scripts/deploy_omega_web.py`：从已运行的 PDCA 容器复制必要环境、共享账号数据，安全启动和回滚独立进程。
 - `pdca-workbench/tests/test_deploy_omega_web.py`：部署参数、密钥不落日志、版本和挂载校验。
 - `pdca-workbench/deploy/omega-caddy.caddy`：同站路由片段，供服务器配置和审查。
@@ -30,6 +31,7 @@
 - [x] 测试独立容器必须使用与 PDCA 一致的镜像 revision、PostgreSQL、签名密钥、账号环境和 `/app/data`；必须设置 `PDCA_REQUIRE_VERTU=0`、`PDCA_SCHEDULER_ENABLED=0`、`PDCA_OMEGA_ENABLED=1`，且不能使用明文 Docker TCP。
 - [x] 运行 `python -m unittest tests.test_deploy_omega_web -v` 确认失败。
 - [x] 实现 Docker over SSH 启动、健康等待、失败回滚；临时环境文件在 `finally` 删除；不输出环境变量值。重跑测试。
+- [x] 复核主站 hybrid 登录，先添加失败回归，再让独立容器保留本地及 VPS/Odoo 登录入口；关闭服务器本机身份兜底。专项 8 项通过。
 
 ### 任务 3：同站路由和线上演练
 

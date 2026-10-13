@@ -22,7 +22,8 @@ class DeployOmegaWebTests(unittest.TestCase):
                     "PDCA_SUPERVISOR_PROVIDER=https://api.deepseek.com",
                     "PDCA_SUPERVISOR_MODEL=deepseek-flash",
                     "PDCA_SUPERVISOR_API_KEY=text-test-only",
-                    "PDCA_AUTH_MODE=hybrid", "VERTU_APP_KEY=expired-test-only",
+                    "PDCA_AUTH_MODE=hybrid", "PDCA_VPS_LOGIN_URL=https://vps.example/login",
+                    "VERTU_APP_KEY=expired-test-only",
                     "PDCA_AISALES_MCP_TOKEN=must-not-copy",
                 ],
             },
@@ -40,7 +41,9 @@ class DeployOmegaWebTests(unittest.TestCase):
         self.assertEqual(env["PDCA_REQUIRE_VERTU"], "0")
         self.assertEqual(env["PDCA_SCHEDULER_ENABLED"], "0")
         self.assertEqual(env["PDCA_OMEGA_ENABLED"], "1")
-        self.assertEqual(env["PDCA_AUTH_MODE"], "local")
+        self.assertEqual(env["PDCA_AUTH_MODE"], "hybrid")
+        self.assertEqual(env["PDCA_AUTH_HOST_FALLBACK"], "0")
+        self.assertEqual(env["PDCA_VPS_LOGIN_URL"], "https://vps.example/login")
         self.assertEqual(env["PDCA_HOME_REDIRECT"], "/app/omega")
         self.assertEqual(env["PDCA_KNOWLEDGE_HUB_ENABLED"], "0")
         self.assertNotIn("PDCA_AISALES_MCP_TOKEN", env)

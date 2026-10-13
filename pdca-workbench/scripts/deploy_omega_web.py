@@ -20,7 +20,7 @@ ENV_NAMES = {
     "PDCA_TOKEN_EXPIRE_MINUTES", "PDCA_LOG_LEVEL", "PDCA_ASR_ENABLED", "PDCA_ASR_PROVIDER",
     "PDCA_DOUBAO_REALTIME_API_KEY", "PDCA_SUPERVISOR_PROVIDER", "PDCA_SUPERVISOR_MODEL",
     "PDCA_SUPERVISOR_API_KEY", "PDCA_SUPERVISOR_TIMEOUT_SECONDS",
-    "PDCA_KNOWLEDGE_HUB_TEAM_MAP", "VERTU_COMMAND", "VERTU_APP_ID", "VERTU_APP_KEY",
+    "PDCA_KNOWLEDGE_HUB_TEAM_MAP", "PDCA_VPS_LOGIN_URL", "VERTU_COMMAND", "VERTU_APP_ID", "VERTU_APP_KEY",
     "VERTU_USER_LOGIN", "VERTU_VPS_SERVICE_URL",
 }
 
@@ -63,7 +63,8 @@ def copy_environment(source: dict) -> dict[str, str]:
         "PDCA_ENV": "production",
         "PDCA_HOST": "0.0.0.0",
         "PDCA_WORKBENCH_PORT": "8767",
-        "PDCA_AUTH_MODE": "local",
+        "PDCA_AUTH_MODE": "hybrid",
+        "PDCA_AUTH_HOST_FALLBACK": "0",
         "PDCA_TRUST_PROXY_HEADERS": "0",
         "PDCA_SECURE_COOKIES": "1",
         "PDCA_REQUIRE_VERTU": "0",
@@ -175,7 +176,7 @@ base = 'http://127.0.0.1:8767'
 with urllib.request.urlopen(base + '/app/omega', timeout=8) as response:
     assert response.status == 200 and b'/app/assets/' in response.read()
 with urllib.request.urlopen(base + '/api/auth/config', timeout=8) as response:
-    assert json.load(response)['auth_mode'] == 'local'
+    assert json.load(response)['auth_mode'] == 'hybrid'
 for path in ('/api/auth/me', '/api/omega/status'):
     try:
         urllib.request.urlopen(base + path, timeout=8)

@@ -2,7 +2,7 @@
 
 `pdca-workbench-teams.vertu.cn` 保留原账号和 `/app/omega` 地址。Caddy 将 `/app`、`/app/*`、`/api/auth/*`、`/api/omega/*`、`/api/knowledge/scope` 和单场 Vemory 预览转发到宿主机 `127.0.0.1:8771` 的 `pdca-omega-web`。其它 PDCA API 仍由 8768 的主进程处理；旧 `/omega/*` 演示页仍在 8770。
 
-独立进程与主进程共用 PostgreSQL、`PDCA_SECRET_KEY` 和用户表。它使用 `PDCA_AUTH_MODE=local`、`PDCA_REQUIRE_VERTU=0`、`PDCA_SCHEDULER_ENABLED=0`，并只接收陪练、语音、文本模型及真实会议导入所需的配置。`pdca-omega-worker` 继续独立消费文本和报告任务。VPS Key 故障只影响真实 Vemory 会议预览/导入；该进程的 `/health` 不探测 VPS。
+独立进程与主进程共用 PostgreSQL、`PDCA_SECRET_KEY` 和用户表。它使用 `PDCA_AUTH_MODE=hybrid`、`PDCA_AUTH_HOST_FALLBACK=0`、`PDCA_REQUIRE_VERTU=0`、`PDCA_SCHEDULER_ENABLED=0`：保留本地账号、原 VPS/Odoo 登录入口及其签发的 Cookie，同时禁止把服务器本机的 VPS 身份当成网页访客。进程只接收陪练、语音、文本模型及真实会议导入所需的配置。`pdca-omega-worker` 继续独立消费文本和报告任务。VPS Key 故障只影响真实 Vemory 会议预览/导入；该进程的 `/health` 不探测 VPS。
 
 ## 部署
 
@@ -19,7 +19,7 @@
 ## 验收
 
 - `/omega-health`：200，`vertu_cli.not_required=true`，`backup.not_required=true`；`/health` 仍显示主 PDCA 的真实 VPS 状态。
-- 未登录 `/api/auth/me` 和 `/api/omega/status`：401。销售账号登录后能看到原场景、会话和组内授权数据；同一 Cookie 能访问主 PDCA 的有权 API。
+- 未登录 `/api/auth/me` 和 `/api/omega/status`：401。登录页保留本地账号与 VPS/Odoo 入口；销售账号登录后能看到原场景、会话和组内授权数据；同一 Cookie 能访问主 PDCA 的有权 API。
 - 新建演练后，公网 WebSocket 返回 `ready`，能主动 `stop` 并结束会话。文字回合由 worker 完成，结束后报告任务成功，九维结果可读取。单轮 QA 的总分允许因证据不足为 `null`，不能据此宣称评分质量通过。
 - 在不改公网服务的隔离探针内放入无效 `VERTU_APP_KEY`：VPS 检查失败，但 Omega `/health` 仍为 200；真实会议获取在新版路由返回 503 和明确提示。
 - Caddy 路由和容器在服务重启后保持；容器升级遇到活动语音时拒绝中断通话。
