@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from scripts.deploy_omega_web import build_run_args, copy_environment, require_revision, run_docker, same_environment
+from scripts.deploy_omega_web import build_run_args, copy_environment, deploy, require_revision, run_docker, same_environment
 
 
 class DeployOmegaWebTests(unittest.TestCase):
@@ -72,6 +72,37 @@ class DeployOmegaWebTests(unittest.TestCase):
         self.assertFalse(same_environment(current, image, desired))
         current["Config"]["Env"].pop()
         self.assertTrue(same_environment(current, image, desired))
+
+    def test_failed_rename_restarts_existing_web(self):
+        old = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1"}},
+               "State": {"Health": {"Status": "unhealthy"}, "Running": True}}
+        image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": "abcdef0"}, "Env": []}}
+        commands = []
+
+        def fake_inspect(_host, name):
+            if name == "pdca-workbench":
+                return self.source
+            if name == self.source["Config"]["Image"]:
+                return image
+            return old if name == "pdca-omega-web" else None
+
+        def fake_docker(_host, *args):
+            commands.append(args[0])
+            if args[0] == "stop":
+                old["State"]["Running"] = False
+            if args[0] == "rename":
+                raise RuntimeError("test rename failure")
+            if args[0] == "start":
+                old["State"]["Running"] = True
+            return ""
+
+        with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
+              patch("scripts.deploy_omega_web._active_calls", return_value=0),
+              patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker)):
+            with self.assertRaisesRegex(RuntimeError, "rename failure"):
+                deploy("ssh://test")
+        self.assertEqual(commands, ["stop", "rename", "start"])
+        self.assertTrue(old["State"]["Running"])
 
 
 if __name__ == "__main__":

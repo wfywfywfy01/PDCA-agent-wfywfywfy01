@@ -396,3 +396,11 @@ Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deplo
 - 本地前端 26 项测试、类型检查、构建、知识库前端 3 项测试及两份 Compose 校验通过。证据在交付目录“挂断错误提示修复”。完整 CI 仍为合并门禁。
 - 未改实时语音收尾判定、输入归属或评分逻辑。固定合成音频的独立真实豆包测试收尾通过，但没有复现本次实体手机尾稿失败，不能据此宣称尾稿根因修复。
 - 本分支基于已审备份树 `a03eed72e22780daeb153ad2583f48186840d614`；本地基线 `3d69c696` 与已合并 main `6a342b893891fb31e7e97c410ef27e73af92c80f` 同树。
+
+## 2026-10-13 Omega 与 VPS Key 解耦
+
+- 正式网站 `/app/omega` 已由 Caddy 转发到新 `pdca-omega-web` 容器 127.0.0.1:8771。它与主 PDCA 共享 PostgreSQL、用户和 Cookie 签名，采用本地账号模式，关闭 VPS 启动检查与重复调度；`/omega-health` 与主 `/health` 分开。旧 `/omega/*` 演示页保留原路由，但不是正式陪练。
+- 已运行的独立容器仍使用已发布生产镜像 `17c79bc703f57d1d9152c07473ee4baee4e55106`。Caddy 候选配置通过 `caddy validate`，原配置备份在服务器 `/etc/caddy/Caddyfile.before-omega-independent-20261013`；切流后公开 `/omega-health` 返回 200、VPS 与备份检查均标为不适用，主 `/health` 继续返回自身状态。
+- 生产账号 `test` 经公网登录后，能读取原 24 个场景、21 次会话；同一 Cookie 能访问主 PDCA 有权 API。未登录的账号与 Omega API 均返回 401。公网新建会话的语音 WebSocket 收到 `ready`，发送 `stop` 后关闭并能结束；另一次文字回合生成对手回复，报告任务成功且返回九维结果。单轮 QA 的总分为 `null`，不能当作评分质量签收。
+- 隔离容器放入无效 VPS Key 且不挂载原认证文件时，`vertu_health(force=True)` 为 false，独立 Omega `/health` 仍为 200。真实会议故障返回 503 的代码已通过红绿回归，但在新镜像发布前，线上旧镜像仍可能给出旧的 404 文案。
+- 干净分支本地全量后端 **1,158 项通过，11 项跳过**；前端 **26 项通过**，类型检查和生产构建成功；Compose `omega` profile 和差异检查通过。首次全量后端在前端产物尚未生成时有 1 项失败；完成构建后该项及全量重跑通过。公司级公开验收仍受评分语义 P1、真人场景和实体手机签收门槛限制。

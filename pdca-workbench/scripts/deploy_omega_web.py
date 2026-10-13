@@ -212,9 +212,15 @@ def deploy(host: str) -> str:
     try:
         args = build_run_args(source, env_path)
         if current:
-            run_docker(host, "stop", "--time", "30", NAME)
-            run_docker(host, "rename", NAME, old_name)
-            renamed = True
+            try:
+                run_docker(host, "stop", "--time", "30", NAME)
+                run_docker(host, "rename", NAME, old_name)
+                renamed = True
+            except BaseException:
+                old = inspect(host, NAME)
+                if old and not old["State"]["Running"]:
+                    run_docker(host, "start", NAME)
+                raise
         try:
             run_docker(host, *args)
             _wait_healthy(host, NAME)
@@ -228,7 +234,10 @@ def deploy(host: str) -> str:
                 _wait_healthy(host, NAME)
             raise
         if renamed:
-            run_docker(host, "rm", "-v", old_name)
+            try:
+                run_docker(host, "rm", "-v", old_name)
+            except RuntimeError:
+                print("Omega web healthy; old rollback container needs manual cleanup")
         return revision
     finally:
         Path(env_path).unlink(missing_ok=True)

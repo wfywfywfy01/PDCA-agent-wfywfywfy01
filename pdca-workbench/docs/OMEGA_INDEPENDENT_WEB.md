@@ -28,4 +28,4 @@
 
 如果公网 Omega 路由出错，恢复上述 Caddy 备份，验证并 reload；`/app/omega` 将回到主 PDCA 8768。若仅独立容器升级失败，部署脚本会恢复上一容器。不要用旧 `/omega/*` 演示页代替正式陪练。
 
-公开给公司销售和主管使用仍需按 [`omega-company-release-readiness.md`](omega-company-release-readiness.md) 完成评分语义门槛、真人场景和实体手机签收；健康、连通与自动报告成功不等于内容质量验收。
+公开给公司销售和主管使用仍需按 [`omega-building-blocks-acceptance.md`](omega-building-blocks-acceptance.md) 的未验收项完成评分语义门槛、真人场景和实体手机签收；健康、连通与自动报告成功不等于内容质量验收。

@@ -21,22 +21,23 @@
 
 ### 任务 1：关闭重复备份
 
-- [ ] 测试 `PDCA_SCHEDULER_ENABLED=0`、`PDCA_REQUIRE_VERTU=0` 时启动不调用 `backup_database` 或 `vertu_health`，`/health` 在 DB 可用时仍为 200。
-- [ ] 运行 `python -m unittest tests.test_omega_standalone -v` 确认旧代码失败。
-- [ ] 让生产启动备份只在 `settings.scheduler_enabled` 时执行，重跑测试。
+- [x] 测试 `PDCA_SCHEDULER_ENABLED=0`、`PDCA_REQUIRE_VERTU=0` 时启动不调用 `backup_database` 或 `vertu_health`，`/health` 在 DB 可用时仍为 200。
+- [x] 运行 `python -m unittest tests.test_omega_standalone -v` 确认旧代码失败。
+- [x] 让生产启动备份只在 `settings.scheduler_enabled` 时执行，重跑测试。
 
 ### 任务 2：独立容器部署
 
-- [ ] 测试独立容器必须使用与 PDCA 一致的镜像 revision、PostgreSQL、签名密钥、账号环境和 `/app/data`；必须设置 `PDCA_REQUIRE_VERTU=0`、`PDCA_SCHEDULER_ENABLED=0`、`PDCA_OMEGA_ENABLED=1`，且不能使用明文 Docker TCP。
-- [ ] 运行 `python -m unittest tests.test_deploy_omega_web -v` 确认失败。
-- [ ] 实现 Docker over SSH 启动、健康等待、失败回滚；临时环境文件在 `finally` 删除；不输出环境变量值。重跑测试。
+- [x] 测试独立容器必须使用与 PDCA 一致的镜像 revision、PostgreSQL、签名密钥、账号环境和 `/app/data`；必须设置 `PDCA_REQUIRE_VERTU=0`、`PDCA_SCHEDULER_ENABLED=0`、`PDCA_OMEGA_ENABLED=1`，且不能使用明文 Docker TCP。
+- [x] 运行 `python -m unittest tests.test_deploy_omega_web -v` 确认失败。
+- [x] 实现 Docker over SSH 启动、健康等待、失败回滚；临时环境文件在 `finally` 删除；不输出环境变量值。重跑测试。
 
 ### 任务 3：同站路由和线上演练
 
-- [ ] 核对 `OmegaPage.vue` 请求路径，将 `/app`、`/app/*`、`/api/auth/*`、`/api/omega/*`、`/api/knowledge/scope`、`/api/meeting-center/vemory/detail` 路由至 8771；单列 `/omega-health`。
-- [ ] 使用 `caddy adapt` 验证配置；保留旧 Caddyfile 备份，再 reload。
-- [ ] 从同站网址验证登录、场景卡、创建会话、文字回合、报告和语音 WebSocket 握手；模拟无效 VPS Key，核对 Omega 200、PDCA 故障可监测、Vemory 导入明确失败。
-- [ ] 运行后端 Omega/认证回归、前端 typecheck/build、部署脚本测试，记录证据和未通过的生产门槛。
+- [x] 核对 `OmegaPage.vue` 请求路径，将 `/app`、`/app/*`、`/api/auth/*`、`/api/omega/*`、`/api/knowledge/scope`、`/api/meeting-center/vemory/detail` 路由至 8771；单列 `/omega-health`。
+- [x] 使用 `caddy validate` 验证配置；保留旧 Caddyfile 备份，再 reload。
+- [x] 从同站网址验证登录、场景卡、创建会话、文字回合、报告和语音 WebSocket 握手；隔离探针模拟无效 VPS Key，核对 Omega 200 和 VPS 检查失败。
+- [ ] 将真实会议服务故障的 503 提示部署并通过公网验证。
+- [x] 运行后端 Omega/认证回归、前端 typecheck/build、部署脚本测试，记录证据和未通过的生产门槛。
 
 ## 验收
 
