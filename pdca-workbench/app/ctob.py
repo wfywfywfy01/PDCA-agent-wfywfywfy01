@@ -608,7 +608,7 @@ def run_ctob(
 ) -> dict:
     """工作日按档向已配置的 C转B 群各推一条（10:00 / 15:00 / 20:00）。
 
-    `owners` 有值时只处理这些群（db 源下一个子 Agent 一次）；默认全部。
+    `owners` 有值时只处理这些群（db 源下同档群合并执行）；默认全部。
     """
     clock = now or datetime.now(ZoneInfo(TZ_SHANGHAI))
     if not is_duzhan_workday(TZ_SHANGHAI, clock):

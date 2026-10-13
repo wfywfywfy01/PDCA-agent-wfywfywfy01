@@ -7,6 +7,7 @@ from unittest.mock import patch
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
+from app.ctob import OWNERS
 from app.duzhan import GROUPS, DuzhanGroup, groups_for_tz
 from app.duzhan_admin import runtime
 from app.duzhan_admin.service import dump_blocks, parse_blocks
@@ -92,14 +93,6 @@ class RuntimeTranslationTests(unittest.TestCase):
         agent = self.add("无群官", {"blocks": [{"type": "times", "slots": ["10:00"]}]})
         self.assertIsNone(runtime.group_of(agent))
 
-    def test_ledger_job_name_is_per_agent(self):
-        first = self.add("甲官", _blocks())
-        second = self.add("乙官", _blocks())
-        self.assertNotEqual(runtime.ledger_job_name(first, collect=True),
-                            runtime.ledger_job_name(second, collect=True))
-        self.assertNotEqual(runtime.ledger_job_name(first, collect=True),
-                            runtime.ledger_job_name(first, collect=False))
-
     def test_config_source_falls_back_to_code(self):
         with patch("app.config.get_settings", return_value=SimpleNamespace(duzhan_config_source="weird")):
             self.assertEqual(runtime.config_source(), "code")
@@ -179,12 +172,37 @@ class DbGroupsTests(unittest.TestCase):
         registered = runtime.register_agent_jobs(scheduler)
         self.assertEqual(len(registered), 2)
         ids = scheduler.ids()
-        self.assertIn("duzhan_agent1_10", ids)
-        self.assertIn("duzhan_collect_agent1_20", ids)
-        self.assertIn("duzhan_backup_agent1_15", ids)
-        push = next(job for job in scheduler.jobs if job["id"] == "duzhan_agent1_10")
+        self.assertIn("duzhan_europe_paris_10", ids)
+        self.assertIn("duzhan_collect_europe_paris_20", ids)
+        self.assertIn("duzhan_backup_europe_paris_15", ids)
+        push = next(job for job in scheduler.jobs if job["id"] == "duzhan_europe_paris_10")
         self.assertEqual(push["kwargs"]["channel_ids"], [NEW_GROUP.channel_id])
-        self.assertTrue(push["kwargs"]["ledger_job"].startswith("duzhan_push:agent:"))
+        self.assertEqual(push["kwargs"]["ledger_job"], "duzhan_push:db:Europe/Paris")
+
+    def test_same_slot_batches_groups_and_follow_owners(self):
+        other_channel = "11111111-1111-4111-8111-111111111111"
+        with Session(self.engine) as session:
+            for name, channel in (("上海二官", other_channel),
+                                  ("跟进一官", OWNERS[0].channel_id),
+                                  ("跟进二官", OWNERS[1].channel_id)):
+                session.add(DuzhanAgent(name=name, enabled=True, timezone="Asia/Shanghai",
+                                        blocks_json=dump_blocks(parse_blocks(
+                                            _blocks(channel_id=channel, label=name)))))
+            session.commit()
+        scheduler = FakeScheduler()
+        self.assertEqual(len(runtime.register_agent_jobs(scheduler)), 5)
+        self.assertEqual(len(scheduler.ids()), len(set(scheduler.ids())))
+        collect = next(job for job in scheduler.jobs if job["id"] == "duzhan_collect_asia_shanghai_15")
+        self.assertCountEqual(collect["kwargs"]["channel_ids"], [NEW_GROUP.channel_id, other_channel])
+        self.assertEqual(sum(job["id"].startswith("duzhan_collect_asia_shanghai_15") for job in scheduler.jobs), 1)
+        duzhan_backup = next(job for job in scheduler.jobs if job["id"] == "duzhan_backup_asia_shanghai_15")
+        self.assertEqual((duzhan_backup["hour"], duzhan_backup["minute"]), (15, 30))
+        follow = next(job for job in scheduler.jobs if job["id"] == "ctob_db_15")
+        self.assertEqual({owner.channel_id for owner in follow["kwargs"]["owners"]},
+                         {OWNERS[0].channel_id, OWNERS[1].channel_id})
+        self.assertEqual(follow["kwargs"]["ledger_job"], "ctob:db")
+        backup = next(job for job in scheduler.jobs if job["id"] == "ctob_db_backup_15")
+        self.assertEqual((backup["hour"], backup["minute"]), (15, 30))
 
     def test_register_agent_jobs_warns_when_nothing_enabled(self):
         with Session(self.engine) as session:

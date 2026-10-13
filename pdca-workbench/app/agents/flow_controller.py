@@ -22,6 +22,7 @@ from loguru import logger
 from app.alerting import notify
 from app.config import get_settings
 from app.duzhan import (
+    _slot_key,
     cron_timezones,
     groups_for_tz,
     is_duzhan_workday,
@@ -47,7 +48,7 @@ def prepare_performance_slot(
 ) -> dict:
     """提前采集档位快照（P2 封装）：claim -> prepare_duzhan -> 事件 -> finish。
 
-    `ledger_job` 按子 Agent 分档（db 源下同群同时刻互不抢 claim）；
+    `ledger_job` 按时区分档（db 源下同一时区、档位共用一次采集）；
     `channel_ids` 只组这些群的表。
     """
     from app.agents.events import write_event
@@ -148,7 +149,7 @@ def run_ctob_slot(
 ) -> dict:
     """C转B 按档推送（P2 封装）：工作日北京 10:00 / 15:00 / 20:00，每档独立台账。
 
-    `owners` 有值时只处理这些群（db 源下一个子 Agent 一次）；`ledger_job` 按子 Agent 分档。
+    `owners` 有值时只处理这些群；db 源下同一档位合并执行。
     """
     from app.ctob import TZ_SHANGHAI as _SH, run_ctob, slot_title
 
@@ -244,11 +245,21 @@ def check_slot_health(
     只读检查，绝不补发、不推真实群、不修改三追文案。
     """
     problems: list[dict] = []
-    bucket = f"{tz_name}:{hour:02d}:{day}"
-    slot = load_prepared(tz_name, hour, day)
-    expected_groups = len(groups_for_tz(tz_name))
+    from app.duzhan_admin import runtime
 
-    collect = _scheduled_run_status("duzhan_collect", bucket)
+    bucket = f"{tz_name}:{hour:02d}:{day}"
+    if runtime.using_db():
+        channels = [group.channel_id for agent, group in runtime.duzhan_agents()
+                    if group.tz == tz_name and hour in runtime.slots_of(agent)]
+        slot = load_prepared(tz_name, hour, day, _slot_key(channels))
+        expected_groups = len(channels)
+        collect_job, push_job = f"duzhan_collect:db:{tz_name}", f"duzhan_push:db:{tz_name}"
+    else:
+        slot = load_prepared(tz_name, hour, day)
+        expected_groups = len(groups_for_tz(tz_name))
+        collect_job, push_job = "duzhan_collect", "duzhan"
+
+    collect = _scheduled_run_status(collect_job, bucket)
     if not collect.get("found"):
         problems.append({"step": "collect_run", "detail": "未找到 duzhan_collect 运行凭证"})
     elif collect.get("status") != "sent":
@@ -278,7 +289,7 @@ def check_slot_health(
             problems.append({"step": "slot_snapshot", "detail": f"群消息 {groups} != 预期 {expected_groups}"})
 
     if expect_push:
-        push = _scheduled_run_status("duzhan", bucket)
+        push = _scheduled_run_status(push_job, bucket)
         if not push.get("found"):
             problems.append({"step": "push_run", "detail": "未找到 duzhan 推送凭证"})
         elif push.get("status") != "sent":
@@ -304,6 +315,15 @@ def check_slot_health(
     return report
 
 
+def _health_hours(tz_name: str, default_slots: list[str]) -> list[int]:
+    from app.duzhan_admin import runtime
+
+    if runtime.using_db():
+        return sorted({hour for agent, group in runtime.duzhan_agents()
+                       if group.tz == tz_name for hour in runtime.slots_of(agent)})
+    return parse_hours(default_slots)
+
+
 def run_health_checks_for(now: datetime | None = None) -> list[dict]:
     """每 5 分钟扫描：补扫当天已过档位 + 当前档（整点后 5 分钟起）。
 
@@ -324,7 +344,7 @@ def run_health_checks_for(now: datetime | None = None) -> list[dict]:
         if not is_duzhan_workday(tz_name, local):
             continue
         day = local.strftime("%Y-%m-%d")
-        for hour in parse_hours(settings.duzhan_times):
+        for hour in _health_hours(tz_name, settings.duzhan_times):
             if hour > local.hour:
                 continue  # 未到点的档位
             if hour == local.hour and local.minute < 5:
@@ -343,6 +363,6 @@ def all_slot_health_today(day: str) -> list[dict]:
     settings = get_settings()
     reports = []
     for tz_name in cron_timezones():
-        for hour in parse_hours(settings.duzhan_times):
+        for hour in _health_hours(tz_name, settings.duzhan_times):
             reports.append(check_slot_health(tz_name, hour, day, expect_push=True, alert=False))
     return reports

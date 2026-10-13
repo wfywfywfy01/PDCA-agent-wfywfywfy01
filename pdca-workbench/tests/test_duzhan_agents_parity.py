@@ -19,7 +19,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app import duzhan
 from app.duzhan import GROUPS, render_brief
 from app.duzhan_admin import runtime
-from app.duzhan_admin.service import seed_from_code
+from app.duzhan_admin.service import render_preview, seed_from_code
 from app.duzhan_ledger import empty_ledger
 from app.models.duzhan_agent import DuzhanAgent
 
@@ -87,6 +87,23 @@ class ParityTests(unittest.TestCase):
         for group in GROUPS:
             self.assertIn(group, duzhan.groups_for_tz(group.tz), group.name)
         self.assertEqual(sorted(duzhan.cron_timezones()), sorted(set(group.tz for group in GROUPS)))
+
+    def test_preparation_reads_previous_group_snapshot(self):
+        group = next(group for group in GROUPS if group.tz == "Asia/Shanghai")
+        now = datetime(2026, 9, 29, 15, 0, tzinfo=ZoneInfo(group.tz))
+        with patch.object(duzhan, "collect_ledger", return_value=empty_ledger(DAY)), \
+             patch.object(duzhan, "load_prepared", return_value={"ledger": empty_ledger(DAY)}) as load:
+            duzhan.prepare_duzhan(group.tz, 15, now=now, channel_ids=[group.channel_id])
+        self.assertEqual(load.call_args_list[0].args,
+                         (group.tz, 10, DAY, group.channel_id[:8]))
+
+    def test_preview_reads_shared_slot_snapshot(self):
+        groups = [group for group in GROUPS if group.tz == "Asia/Shanghai"]
+        group = max(groups, key=lambda item: item.channel_id)
+        batch_key = min(item.channel_id for item in groups)[:8]
+        with patch.object(duzhan, "load_prepared", return_value=None) as load:
+            render_preview(self._agent_for(group), day=DAY, hour=15)
+        self.assertEqual(load.call_args_list[0].args, (group.tz, 15, DAY, batch_key))
 
 
 class ChannelFilterTests(unittest.TestCase):
