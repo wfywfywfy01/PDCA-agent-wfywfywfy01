@@ -5,7 +5,7 @@
 - Production revision `39d28cb8cd572a50c62b406859dc518d59eae651` is healthy with `PDCA_DUZHAN_CONFIG_SOURCE=db`; 19 enabled cards register 24 grouped jobs. The public admin page returns HTTP 200 and the protected runtime API returns HTTP 401 without a session. This deployment followed passing PR and main CI, including container/PostgreSQL smoke tests.
 - A read-only production check found that today's 10:00 Shanghai slot has successful code-mode collect and push runs plus a snapshot, while the database-mode health view reports all three missing. The 15:00 slot has a successful code-mode push but a genuinely missing advance collection and snapshot. No production message was sent by this check.
 - Test-first: two new tests failed against the deployed implementation, then `python -m unittest tests.test_agent_health -q` passed 14 tests. Health checks now use same-day code-mode evidence only when the corresponding database-mode run is absent; a database-mode failure is never hidden by an older code-mode success. Legacy snapshot group counts use the code roster.
-- Production rollout of this health-display correction remains pending exact-commit CI and deployment. The first live database-mode send is scheduled for the 20:00 Shanghai slot and has not yet been observed.
+- Production rollout of this health-display correction remains pending exact-commit CI and deployment. The first post-cutover database-mode slot is Paris 10:00 (16:00 Beijing); its 09:45 collection started and the send result has not yet been observed.
 
 ## 2026-10-12: Request native EndASR before draining an identified speech tail
 
