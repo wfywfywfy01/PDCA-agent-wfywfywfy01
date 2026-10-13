@@ -93,7 +93,31 @@ class FocusForTests(unittest.TestCase):
         second = ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY))
         self.assertEqual(second, AI_TEXT)
         self.assertEqual(len(self.calls), 1, "同一天同一档不该重复调模型")
-        self.assertTrue(ai_rules._cache_path(agent.id, DAY, 10).is_file())
+        self.assertTrue(ai_rules._cache_path(agent.id, DAY, 10, ai_rules.ai_rule_of(agent)).is_file())
+
+    def test_changed_prompt_does_not_reuse_old_cache(self):
+        agent = self.add_agent()
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), AI_TEXT)
+        updated = blocks_with(prompt="改为核对新报价")
+        with Session(self.engine) as session:
+            row = session.get(DuzhanAgent, agent.id)
+            row.blocks_json = dump_blocks(parse_blocks(updated))
+            session.add(row)
+            session.commit()
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), AI_TEXT)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_preview_does_not_poison_live_cache(self):
+        agent = self.add_agent()
+        rule = ai_rules.ai_rule_of(agent)
+        with patch.object(ai_rules, "today_in_shanghai", return_value="2026-10-13"):
+            preview = ai_rules.focus_for_agent(agent, GROUP, 10, DAY, empty_ledger(DAY), preview=True)
+        self.assertEqual(preview, AI_TEXT)
+        self.assertFalse(ai_rules._cache_path(agent.id, DAY, 10, rule).exists())
+        self.assertEqual(ai_rules._daily_calls("2026-10-13"), 1)
+        self.assertEqual(ai_rules._daily_calls(DAY), 0)
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), AI_TEXT)
+        self.assertEqual(len(self.calls), 2)
 
     def test_code_source_never_calls_model(self):
         self.add_agent()
@@ -101,10 +125,35 @@ class FocusForTests(unittest.TestCase):
             self.assertIsNone(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)))
         self.assertEqual(self.calls, [])
 
-    def test_no_ai_rule_returns_none(self):
+    def test_fixed_rule_replaces_action_without_model(self):
         self.add_agent(blocks=blocks_with(mode="text"))
-        self.assertIsNone(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)))
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), "固定文案：核验交付物")
         self.assertEqual(self.calls, [])
+
+    def test_fixed_rule_keeps_entered_punctuation(self):
+        blocks = blocks_with(mode="text")
+        blocks["blocks"][2]["text"] = "本档动作：先核验三件事；晚档再反馈。"
+        self.add_agent(blocks=blocks)
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), "先核验三件事；晚档再反馈。")
+
+    def test_rule_order_and_missing_report_gate(self):
+        blocks = blocks_with(mode="text")
+        blocks["blocks"][2]["when"] = "missing_report"
+        blocks["blocks"].append({"type": "rule", "mode": "text", "text": "兜底动作", "when": "always"})
+        self.add_agent(blocks=blocks)
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), "兜底动作")
+        ledger = empty_ledger(DAY)
+        ledger["people"] = [{"group": GROUP.name, "daily_report": {}, "daily_report_ok": True}]
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, ledger), "固定文案：核验交付物")
+        ledger["people"][0]["daily_report_ok"] = False
+        self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, ledger), "兜底动作")
+
+    def test_ai_failure_uses_next_matching_fixed_rule(self):
+        blocks = blocks_with()
+        blocks["blocks"].append({"type": "rule", "mode": "text", "text": "失败兜底"})
+        self.add_agent(blocks=blocks)
+        with patch.object(ai_rules, "_generate", side_effect=RuntimeError("model down")):
+            self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), "失败兜底")
 
     def test_model_failure_falls_back(self):
         self.add_agent()
@@ -124,6 +173,20 @@ class FocusForTests(unittest.TestCase):
         text = self.calls[0][-1]["content"]
         self.assertIn("盯住未闭环和今日交付物", text)
         self.assertIn(DAY, text)
+
+    def test_ctob_prompt_uses_followup_facts(self):
+        from app.ctob import OWNERS
+
+        owner = OWNERS[0]
+        blocks = blocks_with()
+        blocks["blocks"][0] = {"type": "group", "channel_id": owner.channel_id, "label": "C转B跟进群"}
+        agent = self.add_agent(blocks=blocks)
+        group = runtime.group_of(agent)
+        data = {"summary": {"reached": 0, "replied": None}, "chats": [], "cohort": {"new": 2}}
+        self.assertEqual(ai_rules.focus_for_agent(agent, group, 10, DAY, data), AI_TEXT)
+        prompt = self.calls[-1][-1]["content"]
+        self.assertIn("WhatsApp 触达：0，回复：待确认", prompt)
+        self.assertIn("新客：2", prompt)
 
 
 class GenerateRetryTests(unittest.TestCase):

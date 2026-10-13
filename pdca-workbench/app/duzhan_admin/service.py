@@ -90,11 +90,18 @@ def validate_agent(
 ) -> list[str]:
     """校验一个子 Agent 的配置，返回错误列表（不抛异常）。"""
     blocks = blocks_of(agent)
-    return validate_blocks(
+    errors = validate_blocks(
         blocks,
         owners=owners_for(blocks) if owners is None else owners,
         strategies=strategy_ids() if strategies is None else strategies,
     )
+    from app.ctob import OWNERS as CTOB_OWNERS
+
+    ctob_channels = {owner.channel_id for owner in CTOB_OWNERS}
+    if any(block.type == "group" and block.get("channel_id") in ctob_channels for block in blocks):
+        if any(block.type == "rule" and block.get("when") == "missing_report" for block in blocks):
+            errors.append("C转B 跟进群没有日报字段，不能使用「未交日报」动作条件")
+    return errors
 
 
 def _slots_of(blocks: list[Block]) -> list[str]:
@@ -240,24 +247,21 @@ def _pick_hour(agent: DuzhanAgent, hour: Optional[int], now) -> int:
 
 
 def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optional[int] = None) -> dict:
-    """真实内容试跑：渲染这条配置到点**实际会发出去的那条正文**。
-
-    数据来源是最近一次组表快照（调度在整点前 15 分钟已经采过），**不重新取数、不发消息**：
-    快照里有这条群的消息体就直接用（最忠实），没有就用快照里的台账重渲染，
-    连台账都没有（今天还没跑过组表）就按空表渲染并明确标注。
-    """
+    """用已保存卡片和已有快照台账试跑；不取数、不发送。"""
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     from app import ctob as ctob_module
     from app import duzhan as duzhan_module
-    from app.duzhan_admin import runtime
+    from app.duzhan_admin import ai_rules, runtime
     from app.duzhan_ledger import empty_ledger
+    from app.workday_calendar import is_workday
 
     tz_name = (agent.timezone or "Asia/Shanghai").strip() or "Asia/Shanghai"
     now = datetime.now(ZoneInfo(tz_name))
     day = day or now.strftime("%Y-%m-%d")
     hour = _pick_hour(agent, hour, now)
+    render_time = datetime.strptime(day, "%Y-%m-%d").replace(hour=hour, tzinfo=ZoneInfo(tz_name))
 
     group = runtime.group_of(agent)
     if group is None:
@@ -273,45 +277,42 @@ def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optio
         prev_data = None
         if prev_slot:
             prev_data = (ctob_module.load_snapshot(prev_slot[0], prev_slot[1]) or {}).get(group.channel_id)
+        override = ai_rules.focus_for_agent(agent, group, hour, day, data, preview=True)
         body = ctob_module.render_brief(
-            owner, day, data["summary"], data["chats"], data["cohort"], hour=hour, prev=prev_data
+            owner, day, data["summary"], data["chats"], data["cohort"],
+            hour=hour, prev=prev_data, focus_override=override,
         )
         source = "snapshot" if group.channel_id in collected else "empty_ledger"
         renderer = "ctob.render_brief"
+        message_count = 1
+        condition_data = data
     else:
-        # 达标群：快照按（时区, 日期, 档位）存；db 源下还有按群分的快照
+        # 达标群：只复用台账，始终用当前卡片重渲染，避免展示旧快照里的旧规则。
         slot_key = group.channel_id[:8]
         snapshot = duzhan_module.load_prepared(tz_name, hour, day, slot_key) or duzhan_module.load_prepared(
             tz_name, hour, day
         )
         ledger = snapshot.get("ledger") if isinstance(snapshot, dict) else None
         prev_hour = duzhan_module.prev_slot_hour(hour)
-        prev = duzhan_module.load_prepared(tz_name, prev_hour, day) if prev_hour else None
+        prev = duzhan_module.load_prepared(tz_name, prev_hour, day, slot_key) if prev_hour else None
+        if prev is None and prev_hour:
+            prev = duzhan_module.load_prepared(tz_name, prev_hour, day)
         prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
-        body = ""
-        if isinstance(snapshot, dict):
-            body = str((snapshot.get("messages") or {}).get(group.channel_id) or "")
-        if body:
-            source = "snapshot"
-        else:
-            from app.duzhan_admin import ai_rules
-
-            if ledger is not None:
-                use_ledger, source = ledger, "snapshot_ledger"
-            else:
-                use_ledger, source = empty_ledger(day), "empty_ledger"
-            # 和到点发送走同一条渲染路径：配了 AI 规则块时，这里出来的就是模型那句
-            override = ai_rules.focus_for(group, hour, day, use_ledger)
-            body = duzhan_module.render_brief(
-                group, hour, now.astimezone(ZoneInfo(group.tz)), use_ledger, prev_ledger,
-                focus_override=override,
-            )
+        use_ledger, source = (ledger, "snapshot_ledger") if isinstance(ledger, dict) else (empty_ledger(day), "empty_ledger")
+        override = ai_rules.focus_for_agent(agent, group, hour, day, use_ledger, preview=True)
+        parts = duzhan_module.render_person_briefs(
+            group, hour, render_time, use_ledger, prev_ledger, focus_override=override,
+        )
+        body = "\n\n────────\n\n".join(str(part.get("text") or "") for part in parts)
+        message_count = len(parts)
+        condition_data = use_ledger if isinstance(ledger, dict) else None
         renderer = "duzhan.render_brief"
 
+    send_allowed = is_workday(day) and runtime.conditions_allow(agent, day, condition_data)
     notes = {
-        "snapshot": "快照原文：这就是本档到点会发出去的那条（正文一字未改）。",
-        "snapshot_ledger": "按本档快照里的台账重新渲染（快照里没有这条群的消息体）。",
-        "empty_ledger": "今天还没有这个档位的组表快照，按空台账渲染：正文结构真实、数字会显示待确认。",
+        "snapshot": "按本档跟进快照和当前卡片渲染。",
+        "snapshot_ledger": "按本档快照台账和当前卡片重新渲染；每条以横线分隔。",
+        "empty_ledger": "本档尚无快照；按空台账和当前卡片渲染，数字显示待确认。",
     }
     return {
         "mode": "render",
@@ -324,6 +325,9 @@ def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optio
         "group": group.name,
         "renderer": renderer,
         "source": source,
+        "send_allowed": send_allowed,
+        "send_reason": "非督战推送日" if not is_workday(day) else ("发送条件未满足" if not send_allowed else "卡片条件满足"),
+        "message_count": message_count,
         "chars": len(body),
         "body": body,
         "note": notes.get(source, ""),

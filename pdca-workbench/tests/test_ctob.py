@@ -485,5 +485,26 @@ class CtobRegistrationTests(unittest.TestCase):
         self.assertEqual(slots["ctob_backup_2030"], (20, 30))
 
 
+class ConfiguredRuleTests(unittest.TestCase):
+    def test_fixed_action_replaces_only_action_line(self):
+        data = {"reached": 1, "replied": 0}
+        old = render_brief(OWNER, "2026-10-13", data, [], {}, hour=10)
+        new = render_brief(OWNER, "2026-10-13", data, [], {}, hour=10, focus_override="先跟进转B线索")
+        self.assertIn("本档动作：先跟进转B线索", new)
+        self.assertNotIn("本档动作：先跟进转B线索", old)
+
+    def test_db_condition_blocks_ctob_push(self):
+        with patch("app.ctob.is_duzhan_workday", return_value=True), patch(
+            "app.ctob.collect_owner", return_value={"summary": {}, "chats": [], "cohort": {}}
+        ), patch("app.ctob.save_snapshot"), patch(
+            "app.ctob.load_snapshot", return_value={}
+        ), patch("app.duzhan_admin.runtime.using_db", return_value=True), patch(
+            "app.duzhan_admin.runtime.conditions_allow_channel", return_value=False
+        ), patch("app.ctob.push_duzhan_message") as push:
+            result = run_ctob("2026-10-13", hour=10, owners=(OWNER,))
+        self.assertEqual(result["sent"], [])
+        push.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

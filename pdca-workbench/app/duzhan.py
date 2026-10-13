@@ -1512,7 +1512,12 @@ def run_duzhan(
     sent: list[str] = []
     failed: list[str] = []
     pushed = 0
+    from app.duzhan_admin import runtime
+
     for group in groups_for_tz(tz_name, channel_ids):
+        if runtime.using_db() and not runtime.conditions_allow_channel(group.channel_id, day, ledger):
+            logger.info("督战官发送条件未满足，跳过 {} {} {}", group.name, day, hour)
+            continue
         parts: list[tuple[str, str]] = []
         if isinstance(person_bodies, dict):
             rows = person_bodies.get(group.channel_id) or []

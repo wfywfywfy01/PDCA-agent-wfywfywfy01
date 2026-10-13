@@ -161,6 +161,12 @@ class DuzhanAgentApiTests(unittest.TestCase):
         self.assertIn("limit", body)
         self.assertIn("cached", body)
 
+    def test_runtime_status_explains_when_cards_are_live(self):
+        body = self.client.get("/api/duzhan-agents/runtime-status").json()
+        self.assertIn(body["source"], ("code", "db"))
+        self.assertIsInstance(body["enabled"], bool)
+        self.assertTrue(body["schedule_updates_require_restart"])
+
     def test_render_preview_rejects_unknown_mode(self):
         agent_id = self.client.post(
             "/api/duzhan-agents", headers=self.headers, json={"name": "坏模式官", "blocks": GOOD_BLOCKS}
@@ -213,6 +219,23 @@ class DuzhanAgentApiTests(unittest.TestCase):
         ).json()
         self.assertTrue(body["enabled"], "PUT 不带 enabled 时不该把在跑的配置停掉")
 
+    def test_same_group_cannot_have_two_enabled_cards(self):
+        first = self.client.post(
+            "/api/duzhan-agents", headers=self.headers,
+            json={"name": "同群一号", "enabled": True, "blocks": GOOD_BLOCKS},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        second = self.client.post(
+            "/api/duzhan-agents", headers=self.headers,
+            json={"name": "同群二号", "blocks": GOOD_BLOCKS},
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        enabled = self.client.post(
+            f"/api/duzhan-agents/{second.json()['id']}/toggle",
+            headers=self.headers, json={"enabled": True},
+        )
+        self.assertEqual(enabled.status_code, 409)
+
     # --- 结构试跑 ---
 
     def test_preview_returns_structure_without_sending(self):
@@ -256,6 +279,82 @@ class DuzhanAgentApiTests(unittest.TestCase):
         ).json()
         self.assertEqual(body["spec"]["renderer"], "ctob.render_brief")
         self.assertIn("档位：20:00", "\n".join(body["summary"]))
+
+    def test_render_preview_uses_saved_rule_and_condition_without_sending(self):
+        blocks = {"blocks": [
+            {"type": "group", "channel_id": GROUPS[0].channel_id, "label": GROUPS[0].name},
+            {"type": "times", "slots": ["10:00"]},
+            {"type": "condition", "key": "has_data", "value": True},
+            {"type": "rule", "mode": "text", "text": "先核验本档交付物"},
+        ]}
+        agent_id = self.client.post(
+            "/api/duzhan-agents", headers=self.headers, json={"name": "预览规则", "blocks": blocks}
+        ).json()["id"]
+        with patch("app.duzhan.load_prepared", return_value=None), patch(
+            "app.vps_im_push.push_duzhan_message", side_effect=AssertionError(NO_SEND)
+        ):
+            response = self.client.post(
+                f"/api/duzhan-agents/{agent_id}/preview", headers=self.headers,
+                json={"day": "2026-10-13", "hour": 10, "mode": "render"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertFalse(body["send_allowed"])
+        self.assertIn("先核验本档交付物", body["body"])
+        self.assertIn("2026-10-13", body["body"])
+
+    def test_render_preview_does_not_reuse_old_snapshot_text(self):
+        blocks = {"blocks": [
+            {"type": "group", "channel_id": GROUPS[0].channel_id, "label": GROUPS[0].name},
+            {"type": "times", "slots": ["10:00"]},
+            {"type": "rule", "mode": "text", "text": "新动作文案。"},
+        ]}
+        agent_id = self.client.post(
+            "/api/duzhan-agents", headers=self.headers, json={"name": "旧快照预览", "blocks": blocks}
+        ).json()["id"]
+        snapshot = {"messages": {GROUPS[0].channel_id: "旧正文"}, "ledger": {"people": []}}
+        with patch("app.duzhan.load_prepared", return_value=snapshot):
+            response = self.client.post(
+                f"/api/duzhan-agents/{agent_id}/preview", headers=self.headers,
+                json={"day": "2026-10-13", "hour": 10, "mode": "render"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("新动作文案。", response.json()["body"])
+        self.assertNotIn("旧正文", response.json()["body"])
+
+    def test_ctob_render_preview_uses_saved_rule(self):
+        owner = CTOB_OWNERS[0]
+        blocks = {"blocks": [
+            {"type": "group", "channel_id": owner.channel_id, "label": f"{owner.display}C转B跟进群"},
+            {"type": "times", "slots": ["10:00"]},
+            {"type": "rule", "mode": "text", "text": "先跟进转B线索"},
+        ]}
+        agent_id = self.client.post(
+            "/api/duzhan-agents", headers=self.headers, json={"name": "跟进预览", "blocks": blocks}
+        ).json()["id"]
+        with patch("app.ctob.load_snapshot", return_value={}), patch(
+            "app.vps_im_push.push_duzhan_message", side_effect=AssertionError(NO_SEND)
+        ):
+            response = self.client.post(
+                f"/api/duzhan-agents/{agent_id}/preview", headers=self.headers,
+                json={"day": "2026-10-13", "hour": 10, "mode": "render"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("先跟进转B线索", response.json()["body"])
+
+    def test_ctob_missing_report_rule_cannot_enable(self):
+        owner = CTOB_OWNERS[0]
+        blocks = {"blocks": [
+            {"type": "group", "channel_id": owner.channel_id, "label": "C转B跟进群"},
+            {"type": "times", "slots": ["10:00"]},
+            {"type": "rule", "mode": "text", "when": "missing_report", "text": "催交日报"},
+        ]}
+        response = self.client.post(
+            "/api/duzhan-agents", headers=self.headers,
+            json={"name": "无日报字段", "enabled": True, "blocks": blocks},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("没有日报字段", str(response.json()["detail"]))
 
     # --- 从代码导入 ---
 

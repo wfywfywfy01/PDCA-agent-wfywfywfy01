@@ -116,6 +116,17 @@ class ChannelFilterTests(unittest.TestCase):
         self.assertEqual(duzhan._slot_key(None), "")
         self.assertEqual(duzhan._slot_key([GROUPS[0].channel_id]), GROUPS[0].channel_id[:8])
 
+    def test_db_condition_blocks_push(self):
+        target = GROUPS[0]
+        snapshot = {"messages": {target.channel_id: "test"}, "ledger": {"people": []}}
+        with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
+             patch.object(duzhan, "groups_for_tz", return_value=[target]), \
+             patch.object(duzhan, "load_prepared", return_value=snapshot), \
+             patch("app.duzhan_admin.runtime.conditions_allow_channel", return_value=False):
+            result = duzhan.run_duzhan(target.tz, 10, now=NOW, channel_ids=[target.channel_id])
+        self.assertEqual(self.pushes, [])
+        self.assertEqual(result["sent"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

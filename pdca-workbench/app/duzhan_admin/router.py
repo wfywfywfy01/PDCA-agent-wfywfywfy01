@@ -2,7 +2,7 @@
 """督战官子 Agent 配置 API：积木 CRUD、结构试跑、从代码导入。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import lru_cache
 from typing import Annotated, Any, Optional
 
@@ -96,6 +96,10 @@ class PreviewIn(BaseModel):
         text = value.strip()
         if not is_valid_day(text):
             raise ValueError("试跑日期格式应为 YYYY-MM-DD")
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            raise ValueError("试跑日期不存在") from None
         return text
 
 
@@ -108,6 +112,22 @@ async def ai_status(
     return ai_rules.status()
 
 
+@router.get("/runtime-status", summary="群聊积木当前是否接管督战调度")
+async def runtime_status(
+    _user: Annotated[User, Depends(require_admin)] = None,
+) -> dict:
+    from app.config import get_settings
+    from app.duzhan_admin.runtime import config_source
+
+    settings = get_settings()
+    return {
+        "source": config_source(),
+        "enabled": bool(settings.duzhan_enabled),
+        "bot_app_id": settings.duzhan_bot_app_id,
+        "schedule_updates_require_restart": True,
+    }
+
+
 def _get_agent(session: Session, agent_id: int) -> DuzhanAgent:
     row = session.get(DuzhanAgent, agent_id)
     if row is None:
@@ -115,7 +135,7 @@ def _get_agent(session: Session, agent_id: int) -> DuzhanAgent:
     return row
 
 
-def _guard_enable(agent: DuzhanAgent) -> None:
+def _guard_enable(agent: DuzhanAgent, session: Session) -> None:
     """坏配置可以存草稿，但不允许启用：到点推不出去比不推更糟。"""
     errors = service.validate_agent(agent)
     if errors:
@@ -123,6 +143,14 @@ def _guard_enable(agent: DuzhanAgent) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"message": "配置有误，不能启用", "errors": errors},
         )
+    from app.duzhan_admin.runtime import group_of
+
+    group = group_of(agent)
+    if group is None:
+        return
+    enabled = session.exec(select(DuzhanAgent).where(DuzhanAgent.enabled == True)).all()  # noqa: E712
+    if any(row.id != agent.id and (other := group_of(row)) and other.channel_id == group.channel_id for row in enabled):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该群已有启用的卡片，请先停用旧卡片")
 
 
 def _name_taken(session: Session, name: str, *, exclude_id: Optional[int] = None) -> bool:
@@ -188,7 +216,7 @@ async def create_agent(
         note=payload.note,
     )
     if payload.enabled:
-        _guard_enable(row)
+        _guard_enable(row, session)
         row.enabled = True
     session.add(row)
     session.commit()
@@ -213,7 +241,7 @@ async def update_agent(
     # 不传 enabled 时保持原状态，避免前端漏字段把在跑的配置悄悄停掉
     enable = row.enabled if payload.enabled is None else payload.enabled
     if enable:
-        _guard_enable(row)
+        _guard_enable(row, session)
     row.enabled = enable
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
@@ -231,7 +259,7 @@ async def toggle_agent(
 ) -> dict:
     row = _get_agent(session, agent_id)
     if payload.enabled:
-        _guard_enable(row)
+        _guard_enable(row, session)
     row.enabled = payload.enabled
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
