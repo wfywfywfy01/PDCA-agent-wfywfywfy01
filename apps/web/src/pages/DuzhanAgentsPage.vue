@@ -476,7 +476,7 @@ onMounted(load)
         </section>
 
         <section class="step" aria-labelledby="time-step">
-          <div class="step-head"><span class="step-number">2</span><div><h3 id="time-step">什么时间发</h3><p>可选多个档位。仅支持 10:00、15:00、20:00，按上方时区执行。</p></div></div>
+          <div class="step-head"><span class="step-number">2</span><div><h3 id="time-step">什么时间发</h3><p>可选多个档位。仅支持 10:00、15:00、20:00。当前时区：{{ timezone }}（可在高级设置修改）。</p></div></div>
           <BlockCard
             v-for="index in timeIndices" :key="'times-' + index"
             :block="blocks[index]" :spec="specs.find((item) => item.type === 'times') || { type: 'times', label: '推送档位', fields: [] }"
