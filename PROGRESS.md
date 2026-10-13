@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-10-13: Polish the public 督战官 editor after live asset verification
+
+- The first release, commit `2404704696fc66d279bdb79d017006fcec83b389`, is healthy in both `pdca-workbench` and `pdca-omega-web`. Public `/app/admin/duzhan-agents` serves the new JS/CSS assets and the protected admin API returns HTTP 401 without a session. An isolated Chromium render of those public assets found a raw `has_data = 是` card subtitle and an oversized preview gap on tall viewports.
+- Condition cards now use the server schema's Chinese option label and clear send timing. The editor and preview share one right-hand column so the preview follows the save controls regardless of sidebar height; unavailable reorder arrows are hidden.
+- Test-first: the new condition-summary assertion failed on the raw key before implementation. Frontend tests passed 28/28, typecheck and production build passed. A headless Chromium render with 21 isolated mock groups showed the Chinese subtitle, a 14 px save-to-preview gap, and zero page errors; a 390 px mobile viewport had no horizontal overflow and displayed all four steps. No production configuration or group message was changed by these browser checks. Both Compose configurations passed `config --quiet`.
+- Full backend discovery passed 1,182 tests in 337.906 seconds (11 skipped). Exact-commit CI, merge, dual-container deployment, and public asset verification remain release gates for this follow-up.
+
 ## 2026-10-13: Make the public 督战官 group editor understandable
 
 - The user screenshot was the old three-column editor. Read-only production tracing found that Caddy routes `/app/*` to the independent `pdca-omega-web` container, still on the older image, while the main `pdca-workbench` container had the newer backend and SPA. A public HTTP 200 was therefore insufficient evidence that the new editor was visible.

@@ -141,7 +141,7 @@ export function configChanged(
 }
 
 /** 卡片标题上的一行摘要。 */
-export function blockSummary(block: Block): string {
+export function blockSummary(block: Block, spec?: BlockTypeSpec): string {
   switch (block.type) {
     case 'group':
       return String(block.label || block.channel_id || '未填群')
@@ -158,7 +158,9 @@ export function blockSummary(block: Block): string {
     case 'recipient':
       return String(block.kind || '') + ' ' + String(block.id || '')
     case 'condition':
-      return String(block.key || '') + ' = ' + (block.value ? '是' : '否')
+      return (spec?.fields.find((field) => field.key === 'key')?.option_labels?.[String(block.key || '')]
+        || (block.key ? '未知发送条件' : '未选择发送条件')) + ' · '
+        + (block.value === true ? '满足时发送' : block.value === false ? '不满足时发送' : '发送时机未设置')
     case 'style':
       return String(block.lang || 'zh') + (block.title ? ' · ' + String(block.title) : '')
     default:
