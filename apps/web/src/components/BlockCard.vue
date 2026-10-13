@@ -21,7 +21,7 @@ const emit = defineEmits<{
   (event: 'remove'): void
 }>()
 
-const summary = computed(() => blockSummary(props.block))
+const summary = computed(() => blockSummary(props.block, props.spec))
 const fields = computed(() => props.spec.fields.filter((field) =>
   fieldVisible(field, props.block) && !(props.block.type === 'group' && field.key === 'label'),
 ))
@@ -96,8 +96,8 @@ function optionLabel(field: BlockFieldSpec, option: string): string {
         <p>{{ summary }}</p>
       </div>
       <div v-if="!locked" class="ops">
-        <button class="icon-btn" type="button" :disabled="disabled || !canMoveUp" :aria-label="'上移' + spec.label" @click="emit('move', -1)">↑</button>
-        <button class="icon-btn" type="button" :disabled="disabled || !canMoveDown" :aria-label="'下移' + spec.label" @click="emit('move', 1)">↓</button>
+        <button v-if="canMoveUp" class="icon-btn" type="button" :disabled="disabled" :aria-label="'上移' + spec.label" @click="emit('move', -1)">↑</button>
+        <button v-if="canMoveDown" class="icon-btn" type="button" :disabled="disabled" :aria-label="'下移' + spec.label" @click="emit('move', 1)">↓</button>
         <button class="icon-btn remove" type="button" :disabled="disabled" :aria-label="'删除' + spec.label" @click="emit('remove')">×</button>
       </div>
     </header>

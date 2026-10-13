@@ -82,6 +82,9 @@ test('卡片摘要读取关键字段', () => {
   assert.equal(blockSummary({ type: 'times', slots: ['10:00', '20:00'] }), '10:00 / 20:00')
   assert.equal(blockSummary({ type: 'people', names: [] }), '该群全员')
   assert.equal(blockSummary({ type: 'rule', mode: 'ai', prompt: 'x' }), 'AI 生成')
+  assert.equal(blockSummary({ type: 'condition', key: 'has_data', value: true }, {
+    type: 'condition', fields: [{ key: 'key', label: '条件', kind: 'select', option_labels: { has_data: '群内有可确认数据' } }],
+  }), '群内有可确认数据 · 满足时发送')
 })
 
 test('新群卡片先给出必填的选群和时段，规则按原顺序定位', () => {

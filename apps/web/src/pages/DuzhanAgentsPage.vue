@@ -455,6 +455,7 @@ onMounted(load)
         <details class="import-options"><summary>导入旧配置</summary><p class="hint">仅新增未导入的群，默认停用。</p><button class="btn btn-sm" type="button" :disabled="busy" @click="importFromCode">导入现有督战群</button></details>
       </aside>
 
+      <div class="workspace-main">
       <section class="editor" aria-labelledby="editor-title">
         <div class="editor-head">
           <div>
@@ -606,6 +607,7 @@ onMounted(load)
           <button class="btn" type="button" :disabled="busy" @click="applyJson">按 JSON 覆盖卡片</button>
         </details>
       </aside>
+      </div>
     </div>
   </main>
 </template>
@@ -626,6 +628,7 @@ onMounted(load)
 .switch-warning { justify-content: space-between; align-items: center; color: var(--amber); font-size: 13px; }
 .btn-danger { color: var(--red); }
 .layout { display: grid; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.workspace-main { display: grid; align-content: start; gap: 14px; min-width: 0; }
 .panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 16px; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .panel-head h2 { margin: 0; font-size: 15px; }
@@ -651,7 +654,6 @@ onMounted(load)
 .import-options summary { color: var(--muted); cursor: pointer; font-size: 12px; }
 .import-options .btn { margin-top: 8px; }
 .editor, .side { display: grid; gap: 14px; }
-.side { grid-column: 2; }
 .editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .editor-head h2 { margin: 3px 0 0; font-size: 18px; }
 .draft-tag { padding: 4px 8px; border-radius: 5px; color: var(--amber); background: rgba(245, 158, 11, .12); font-size: 11px; }
@@ -681,6 +683,6 @@ onMounted(load)
 .advanced summary { cursor: pointer; font-size: 13px; }
 .advanced textarea { margin: 14px 0 8px; font-family: ui-monospace, Consolas, monospace; }
 .alert-sticky { position: sticky; top: 8px; z-index: 5; }
-@media (max-width: 840px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: 1fr; } .side { grid-column: auto; } .list { position: static; max-height: 310px; } }
+@media (max-width: 840px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: 1fr; } .list { position: static; max-height: 310px; } }
 @media (max-width: 560px) { .preview-fields { grid-template-columns: 1fr; } .step { padding: 14px; } }
 </style>
