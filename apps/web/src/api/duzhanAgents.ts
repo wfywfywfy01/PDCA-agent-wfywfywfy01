@@ -7,8 +7,9 @@ import type { Block, BlockTypeSpec, BlocksPayload } from '@/api/duzhanBlocks'
 
 export type { Block, BlockTypeSpec, BlockFieldSpec, BlocksPayload } from '@/api/duzhanBlocks'
 export {
-  addBlock, agentPayload, blockSummary, configChanged, defaultBlock, fieldVisible,
-  fromJson, moveBlock, removeBlock, toJson, updateBlockField,
+  addBlock, agentPayload, blockPositions, blockSummary, configChanged, defaultBlock, fieldVisible,
+  fromJson, moveBlock, nameForSelectedGroup, removeBlock, toJson, updateBlockField,
+  starterBlocks,
 } from '@/api/duzhanBlocks'
 
 export interface DuzhanAgentItem {

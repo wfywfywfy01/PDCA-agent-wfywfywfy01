@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-10-13: Make the public 督战官 group editor understandable
+
+- The user screenshot was the old three-column editor. Read-only production tracing found that Caddy routes `/app/*` to the independent `pdca-omega-web` container, still on the older image, while the main `pdca-workbench` container had the newer backend and SPA. A public HTTP 200 was therefore insufficient evidence that the new editor was visible.
+- The editor now presents four ordered steps: target group, sending slots, optional conditions, and fixed/AI copy. Group search and status stay in one compact sidebar; JSON and imported legacy blocks remain available under advanced settings. Group UUID entry is behind a disclosure. New drafts contain the required group and time blocks. Saving, enabling, previewing and the scheduler restart requirement are stated at the point of use.
+- Test-first: the new draft/position and group-renaming tests failed on missing exports before implementation. Frontend tests then passed 28/28, typecheck and production build passed. A headless Chromium check with isolated mock APIs rendered all four steps and saved a newly selected group and slot through the real Vue form. No live group message or production database write was made by that browser check.
+- Full backend discovery passed 1,182 tests in 268.717 seconds (11 skipped). Both Compose configurations passed `config --quiet` with their existing untracked environment files. Exact-commit PR review, production image deployment, independent Omega web sync, and public asset verification remain release gates.
+
 ## 2026-10-13: Correct slot health across the code-to-database cutover
 
 - Production revision `39d28cb8cd572a50c62b406859dc518d59eae651` is healthy with `PDCA_DUZHAN_CONFIG_SOURCE=db`; 19 enabled cards register 24 grouped jobs. The public admin page returns HTTP 200 and the protected runtime API returns HTTP 401 without a session. This deployment followed passing PR and main CI, including container/PostgreSQL smoke tests.

@@ -3,6 +3,8 @@ import test from 'node:test'
 import {
   addBlock, agentPayload, blockSummary, configChanged, defaultBlock, fieldVisible,
   fromJson, moveBlock, removeBlock, toJson, updateBlockField,
+  starterBlocks, blockPositions,
+  nameForSelectedGroup,
 } from '../src/api/duzhanBlocks.ts'
 
 const SPECS = [
@@ -80,4 +82,24 @@ test('卡片摘要读取关键字段', () => {
   assert.equal(blockSummary({ type: 'times', slots: ['10:00', '20:00'] }), '10:00 / 20:00')
   assert.equal(blockSummary({ type: 'people', names: [] }), '该群全员')
   assert.equal(blockSummary({ type: 'rule', mode: 'ai', prompt: 'x' }), 'AI 生成')
+})
+
+test('新群卡片先给出必填的选群和时段，规则按原顺序定位', () => {
+  assert.deepEqual(starterBlocks(SPECS), [
+    { type: 'group', channel_id: '' },
+    { type: 'times', slots: [] },
+  ])
+  const blocks = [
+    { type: 'group' }, { type: 'rule', text: '第一条' },
+    { type: 'source' }, { type: 'rule', text: '第二条' },
+  ]
+  assert.deepEqual(blockPositions(blocks, 'rule'), [1, 3])
+  assert.deepEqual(blockPositions(blocks, 'condition'), [])
+})
+
+test('换群时只更新自动生成的配置名，保留手改名称', () => {
+  assert.equal(nameForSelectedGroup('', '', '甲群'), '甲群督战官')
+  assert.equal(nameForSelectedGroup('甲群督战官', '甲群', '乙群'), '乙群督战官')
+  assert.equal(nameForSelectedGroup('甲群督战官', '甲群', ''), '')
+  assert.equal(nameForSelectedGroup('专用名称', '甲群', '乙群'), '专用名称')
 })
