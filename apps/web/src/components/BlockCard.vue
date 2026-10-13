@@ -123,6 +123,7 @@ function optionLabel(field: BlockFieldSpec, option: string): string {
         </template>
 
         <select v-else-if="field.kind === 'select'" :id="controlId(field)" :value="rawText(field)" :disabled="disabled" @change="onSelect(field, $event)">
+          <option v-if="field.required" value="" disabled>请选择{{ displayLabel(field) }}</option>
           <option v-for="option in field.options || []" :key="option" :value="option">{{ optionLabel(field, option) }}</option>
         </select>
 
