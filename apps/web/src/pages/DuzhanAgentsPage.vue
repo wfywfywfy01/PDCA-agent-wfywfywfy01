@@ -2,12 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import AppNav from '@/components/AppNav.vue'
 import { HttpError } from '@/api/client'
+import { fetchBotChannels, type BotChannel } from '@/api/agentAdmin'
 import BlockCard from '@/components/BlockCard.vue'
 import BlockPalette from '@/components/BlockPalette.vue'
 import {
   addBlock as appendBlock, agentPayload, aiStatus as fetchAiStatus, blockSchema, configChanged,
   createAgent, defaultBlock, deleteAgent,
-  fromJson, listAgents, moveBlock, previewAgent, removeBlock, seedFromCode, toJson, toggleAgent,
+  fromJson, listAgents, moveBlock, previewAgent, removeBlock, runtimeStatus as fetchRuntimeStatus,
+  seedFromCode, toJson, toggleAgent,
   updateAgent, updateBlockField,
   type Block,
   type BlockTypeSpec,
@@ -16,7 +18,14 @@ import {
   type PreviewMode,
   type PreviewResult,
   type RenderPreviewResult,
+  type DuzhanRuntimeStatus,
 } from '@/api/duzhanAgents'
+
+function todayInZone(zone: string): string {
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date())
+}
 
 const specs = ref<BlockTypeSpec[]>([])
 const agents = ref<DuzhanAgentItem[]>([])
@@ -26,23 +35,51 @@ const name = ref('')
 const timezone = ref('Asia/Shanghai')
 const note = ref('')
 const enabled = ref(false)
-const jsonText = ref('{"blocks": []}')
+const jsonText = ref(toJson(blocks.value))
 const jsonError = ref('')
 const preview = ref<PreviewResult | null>(null)
 const rendered = ref<RenderPreviewResult | null>(null)
-const previewMode = ref<PreviewMode>('structure')
-const day = ref(new Date().toISOString().slice(0, 10))
+const previewMode = ref<PreviewMode>('render')
+const day = ref(todayInZone('Asia/Shanghai'))
 const hour = ref('')
 const busy = ref(false)
 const message = ref('')
 const error = ref('')
 const pendingDelete = ref(false)
 const ai = ref<AiStatus | null>(null)
+const runtime = ref<DuzhanRuntimeStatus | null>(null)
+const channels = ref<BotChannel[]>([])
+const channelsError = ref('')
+const pendingTarget = ref<number | 'new' | null>(null)
 
 const current = computed(() => agents.value.find((item) => item.id === selectedId.value) || null)
 const savedErrors = computed(() => current.value?.errors || [])
 const isDraft = computed(() => selectedId.value === null)
-const unsaved = computed(() => configChanged(
+const groupOptions = computed(() => {
+  const botId = runtime.value?.bot_app_id
+  if (!botId) return []
+  const seen = new Set<string>()
+  return channels.value
+    .filter((channel) => channel.channel_type === 'group'
+      && (channel.app_id || channel.bot_app_id) === botId
+      && channel.channel_id)
+    .filter((channel) => {
+      if (seen.has(channel.channel_id)) return false
+      seen.add(channel.channel_id)
+      return true
+    })
+    .map((channel) => ({ id: channel.channel_id, label: channel.channel_name || channel.channel_id }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+})
+const liveConfig = computed(() => runtime.value?.enabled && runtime.value.source === 'db')
+const previewSlots = computed(() => {
+  const times = blocks.value.find((block) => block.type === 'times')
+  return Array.isArray(times?.slots)
+    ? times.slots.filter((slot): slot is string => typeof slot === 'string' && /^\d{2}:00$/.test(slot))
+    : []
+})
+const jsonPending = computed(() => jsonText.value !== toJson(blocks.value))
+const unsaved = computed(() => jsonPending.value || configChanged(
   current.value
     ? { name: current.value.name, timezone: current.value.timezone, note: current.value.note, blocks: current.value.blocks.blocks }
     : null,
@@ -66,24 +103,79 @@ function fill(item: DuzhanAgentItem) {
   note.value = item.note
   enabled.value = item.enabled
   blocks.value = item.blocks.blocks.map((block) => ({ ...block }))
+  jsonText.value = toJson(blocks.value)
   preview.value = null
   rendered.value = null
   pendingDelete.value = false
   jsonError.value = ''
+  pendingTarget.value = null
+  hour.value = ''
+  day.value = todayInZone(item.timezone)
+  message.value = ''
+  error.value = ''
 }
 
 function startDraft() {
   selectedId.value = null
-  name.value = '新子 Agent'
+  name.value = ''
   timezone.value = 'Asia/Shanghai'
   note.value = ''
   enabled.value = false
   blocks.value = []
+  jsonText.value = toJson(blocks.value)
   preview.value = null
   rendered.value = null
   message.value = ''
   error.value = ''
   pendingDelete.value = false
+  pendingTarget.value = null
+  hour.value = ''
+  day.value = todayInZone('Asia/Shanghai')
+}
+
+function selectAgent(item: DuzhanAgentItem) {
+  if (item.id === selectedId.value) return
+  if (unsaved.value) {
+    pendingTarget.value = item.id
+    return
+  }
+  fill(item)
+}
+
+function requestDraft() {
+  if (unsaved.value) {
+    pendingTarget.value = 'new'
+    return
+  }
+  startDraft()
+}
+
+function discardAndSwitch() {
+  const target = pendingTarget.value
+  pendingTarget.value = null
+  if (target === 'new') startDraft()
+  else if (target !== null) {
+    const item = agents.value.find((row) => row.id === target)
+    if (item) fill(item)
+  }
+}
+
+function groupBlock(item: DuzhanAgentItem): Block | undefined {
+  return item.blocks.blocks.find((block) => block.type === 'group')
+}
+
+function groupLabel(item: DuzhanAgentItem): string {
+  const group = groupBlock(item)
+  return String(group?.label || groupOptions.value.find((option) => option.id === group?.channel_id)?.label || item.name)
+}
+
+function slotsLabel(item: DuzhanAgentItem): string {
+  const times = item.blocks.blocks.find((block) => block.type === 'times')
+  return Array.isArray(times?.slots) && times.slots.length ? times.slots.join(' · ') : '未设定时段'
+}
+
+function ruleCount(item: DuzhanAgentItem): number {
+  return item.blocks.blocks.filter((block) => block.type === 'rule').length
 }
 
 async function reload(keepId: number | null) {
@@ -103,11 +195,21 @@ async function loadAiStatus() {
 async function load() {
   busy.value = true
   error.value = ''
+  channelsError.value = ''
   try {
-    specs.value = (await blockSchema()).blocks
-    agents.value = (await listAgents()).items
-    if (agents.value.length && selectedId.value === null) fill(agents.value[0])
-    await loadAiStatus()
+    const [schema, rows, status] = await Promise.all([blockSchema(), listAgents(), fetchRuntimeStatus()])
+    specs.value = schema.blocks
+    agents.value = rows.items
+    runtime.value = status
+    const selected = agents.value.find((item) => item.id === selectedId.value) || agents.value[0]
+    if (selected) fill(selected)
+    else startDraft()
+    void loadAiStatus()
+    try {
+      channels.value = (await fetchBotChannels()).items
+    } catch (err) {
+      channelsError.value = describe(err)
+    }
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -116,6 +218,10 @@ async function load() {
 }
 
 async function save() {
+  if (jsonPending.value) {
+    error.value = '先按 JSON 覆盖卡片，再保存。'
+    return
+  }
   busy.value = true
   error.value = ''
   message.value = ''
@@ -127,7 +233,7 @@ async function save() {
     await reload(saved.id)
     message.value = saved.errors.length
       ? '已存草稿，但配置还有 ' + saved.errors.length + ' 处问题，暂时不能启用。'
-      : '已保存。'
+      : (liveConfig.value ? '已保存。文案和条件在下一档生效；群和时段变更需重启服务。' : '已保存。当前生产仍使用代码配置。')
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -137,13 +243,19 @@ async function save() {
 
 async function setEnabled(next: boolean) {
   if (selectedId.value === null) return
+  if (unsaved.value) {
+    error.value = '先保存当前改动，再启用或停用。'
+    return
+  }
   busy.value = true
   error.value = ''
   message.value = ''
   try {
     const saved = await toggleAgent(selectedId.value, next)
     await reload(saved.id)
-    message.value = next ? '已启用，调度会按这份配置注册。' : '已停用。'
+    message.value = liveConfig.value
+      ? '已更新启停状态；调度变更需要重启服务才生效。'
+      : '已更新启停状态；当前生产仍使用代码配置。'
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -183,18 +295,19 @@ async function runPreview() {
   error.value = ''
   try {
     const result = await previewAgent(
-    selectedId.value,
-    day.value,
-    hour.value === '' ? undefined : Number(hour.value),
-    previewMode.value,
-  )
-  if (previewMode.value === 'render') {
-    rendered.value = result as RenderPreviewResult
-    preview.value = null
-  } else {
-    preview.value = result as PreviewResult
-    rendered.value = null
-  }
+      selectedId.value,
+      day.value,
+      hour.value === '' ? undefined : Number(hour.value),
+      previewMode.value,
+    )
+    if (previewMode.value === 'render') {
+      rendered.value = result as RenderPreviewResult
+      preview.value = null
+      if (blocks.value.some((block) => block.type === 'rule' && block.mode === 'ai')) await loadAiStatus()
+    } else {
+      preview.value = result as PreviewResult
+      rendered.value = null
+    }
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -209,6 +322,7 @@ async function importFromCode() {
   try {
     const result = await seedFromCode()
     agents.value = (await listAgents()).items
+    if (selectedId.value === null && !unsaved.value && agents.value.length) fill(agents.value[0])
     message.value = '导入完成：新增 ' + result.created.length + ' 条（默认停用），跳过 ' + result.skipped.length + ' 条同名。'
   } catch (err) {
     error.value = describe(err)
@@ -218,6 +332,7 @@ async function importFromCode() {
 }
 
 function onAddBlock(spec: BlockTypeSpec) {
+  if (spec.multiple === false && blocks.value.some((block) => block.type === spec.type)) return
   blocks.value = appendBlock(blocks.value, defaultBlock(spec))
 }
 
@@ -249,66 +364,94 @@ onMounted(load)
 <template>
   <AppNav />
   <main class="page">
-    <header class="head">
+    <header class="page-head">
       <div>
-        <h1>督战官配置</h1>
-        <p class="sub">一个子 Agent = 追一个群 + 一组规则。用积木拼，保存后启用才生效。</p>
-        <p v-if="ai" class="sub ai-line">
-          AI 规则今日用量：{{ ai.calls }} / {{ ai.limit }} 次（已缓存 {{ ai.cached }} 条）
-        </p>
+        <p class="eyebrow">督战官 / 配置中心</p>
+        <h1>群聊与规则</h1>
+        <p class="sub">选群、插入规则卡、试跑内容，再保存启用。</p>
       </div>
       <div class="actions">
-        <button class="btn" type="button" :disabled="busy" @click="load">刷新</button>
-        <button class="btn" type="button" :disabled="busy" @click="importFromCode">从代码导入</button>
-        <button class="btn btn-primary" type="button" :disabled="busy" @click="startDraft">新建子 Agent</button>
+        <button class="btn" type="button" :disabled="busy || unsaved" @click="load">刷新</button>
+        <button class="btn btn-primary" type="button" :disabled="busy" @click="requestDraft">＋ 新建群卡片</button>
       </div>
     </header>
 
+    <section v-if="runtime" class="mode-banner" :class="{ live: liveConfig }" role="status">
+      <span class="mode-dot" aria-hidden="true"></span>
+      <div>
+        <strong>{{ liveConfig ? '页面配置已接管督战调度' : '当前为预备配置' }}</strong>
+        <p v-if="!runtime.enabled">督战官总开关未开启。卡片可保存和试跑，暂不发送。</p>
+        <p v-else-if="runtime.source === 'code'">线上仍按代码中的群清单发送。卡片可保存和试跑；切换配置来源并重启服务后才接管。</p>
+        <p v-else>文案和条件在下一档读取；群、时段与启停变更需重启服务更新调度。</p>
+      </div>
+    </section>
     <p v-if="message" class="toast" role="status">{{ message }}</p>
     <p v-if="error" class="alert alert-sticky" role="alert">{{ error }}</p>
+    <div v-if="pendingTarget !== null" class="switch-warning" role="alert">
+      <span>当前卡片有未保存的改动。切换后会丢失这些改动。</span>
+      <div>
+        <button class="btn" type="button" @click="pendingTarget = null">继续编辑</button>
+        <button class="btn btn-danger" type="button" @click="discardAndSwitch">放弃改动并切换</button>
+      </div>
+    </div>
 
     <div class="layout">
-      <aside class="col list">
-        <h3>子 Agent（{{ agents.length }}）</h3>
+      <aside class="panel list">
+        <div class="panel-head">
+          <h2>群聊卡片</h2>
+          <span>{{ agents.length }}</span>
+        </div>
+        <p v-if="busy && !agents.length" class="hint">正在加载群聊配置…</p>
         <button
           v-for="item in agents"
           :key="item.id"
-          class="row"
+          class="group-row"
           type="button"
           :class="{ active: item.id === selectedId }"
           :aria-current="item.id === selectedId ? 'true' : undefined"
-          :aria-label="item.name + '｜' + (item.enabled ? '已启用' : '已停用') + (item.errors.length ? '｜' + item.errors.length + ' 处问题' : '')"
-          @click="fill(item)"
+          :aria-label="groupLabel(item) + '｜' + (item.enabled ? '已启用' : '已停用') + (item.errors.length ? '｜' + item.errors.length + ' 处问题' : '')"
+          @click="selectAgent(item)"
         >
-          <span class="row-name">{{ item.name }}</span>
-          <span class="tags">
-            <em v-if="item.enabled" class="on">启用</em>
-            <em v-else class="off">停用</em>
-            <em v-if="item.errors.length" class="bad">{{ item.errors.length }} 处问题</em>
+          <span class="group-top">
+            <strong>{{ groupLabel(item) }}</strong>
+            <em :class="item.enabled ? 'on' : 'off'">{{ item.enabled ? '启用' : '停用' }}</em>
           </span>
+          <span class="group-detail">{{ slotsLabel(item) }}</span>
+          <span class="group-foot">{{ ruleCount(item) }} 条动作规则 <span v-if="item.errors.length" class="bad">{{ item.errors.length }} 处待修正</span></span>
         </button>
-        <p v-if="!agents.length" class="hint">还没有配置。点「从代码导入」把现有群导进来看看。</p>
+        <div v-if="!busy && !agents.length" class="empty">
+          <strong>还没有群聊卡片</strong>
+          <p>可新建，或把现有督战群导入为停用草稿。</p>
+        </div>
+        <button class="import-btn" type="button" :disabled="busy" @click="importFromCode">导入现有督战群</button>
       </aside>
 
-      <section class="col editor">
+      <section class="editor" aria-labelledby="editor-title">
+        <div class="editor-head">
+          <div>
+            <p class="eyebrow">{{ isDraft ? '新卡片' : '正在编辑' }}</p>
+            <h2 id="editor-title">{{ isDraft ? '设置一张群聊卡片' : groupLabel(current!) }}</h2>
+          </div>
+          <span v-if="unsaved" class="draft-tag">未保存</span>
+        </div>
         <div class="meta">
           <label class="field">
-            <span>名称<em v-if="unsaved" class="unsaved">未保存</em></span>
-            <input v-model="name" type="text" />
+            <span>配置名称</span>
+            <input v-model="name" type="text" maxlength="128" placeholder="例如：海外一组督战" />
           </label>
           <label class="field">
             <span>时区</span>
-            <input v-model="timezone" type="text" />
+            <input v-model="timezone" type="text" placeholder="Asia/Shanghai" />
           </label>
           <label class="field">
             <span>备注</span>
-            <input v-model="note" type="text" />
+            <input v-model="note" type="text" maxlength="256" placeholder="可选" />
           </label>
         </div>
 
-        <BlockPalette :specs="specs" :disabled="busy" @add="onAddBlock" />
+        <BlockPalette :specs="specs" :blocks="blocks" :disabled="busy" @add="onAddBlock" />
 
-        <div class="blocks">
+        <div class="blocks" aria-label="当前群聊的积木卡片">
           <BlockCard
             v-for="(block, index) in blocks"
             :key="index + '-' + block.type"
@@ -316,30 +459,38 @@ onMounted(load)
             :spec="specs.find((item) => item.type === block.type) || { type: block.type, label: block.type, fields: [] }"
             :index="index"
             :total="blocks.length"
+            :group-options="groupOptions"
+            :disabled="busy"
             @change="(key, value) => onFieldChange(index, key, value)"
             @move="(offset) => onMove(index, offset)"
             @remove="() => onRemove(index)"
           />
-          <p v-if="!blocks.length" class="hint">左边点一块加进来。</p>
+          <div v-if="!blocks.length" class="blocks-empty">
+            <strong>先插入“目标群”和“推送档位”</strong>
+            <p>再按需要添加发送条件和动作规则。卡片顺序决定规则优先级。</p>
+          </div>
         </div>
+        <p v-if="channelsError" class="hint">群聊列表暂不可用，仍可在目标群卡片手动填写 UUID。</p>
+        <p v-if="blocks.some((block) => !['group', 'times', 'condition', 'rule'].includes(block.type))" class="hint">
+          导入的扩展积木会保留；其中部分字段只用于结构预览，暂不控制发送。
+        </p>
 
         <div class="save-row">
           <button class="btn btn-primary" type="button" :disabled="busy" @click="save">
-            {{ isDraft ? '创建' : '保存' }}
+            {{ isDraft ? '创建群卡片' : '保存配置' }}
           </button>
           <button
             v-if="!isDraft"
             class="btn"
             type="button"
-            :disabled="busy || (!enabled && savedErrors.length > 0)"
+            :disabled="busy || unsaved || (!enabled && savedErrors.length > 0)"
             @click="setEnabled(!enabled)"
           >
             {{ enabled ? '停用' : '启用' }}
           </button>
-          <button v-if="!isDraft" class="btn" type="button" :disabled="busy" @click="removeCurrent">
+          <button v-if="!isDraft" class="btn btn-danger" type="button" :disabled="busy || unsaved" @click="removeCurrent">
             {{ pendingDelete ? '再点一次确认删除' : '删除' }}
           </button>
-          <span v-if="!isDraft" class="renderer">渲染器：{{ current?.renderer }}</span>
         </div>
 
         <ul v-if="savedErrors.length" class="errors">
@@ -347,90 +498,116 @@ onMounted(load)
         </ul>
       </section>
 
-      <aside class="col side">
-        <h3>JSON</h3>
-        <textarea v-model="jsonText" rows="10" spellcheck="false"></textarea>
-        <p v-if="jsonError" class="alert">{{ jsonError }}</p>
-        <button class="btn btn-sm" type="button" @click="applyJson">按 JSON 覆盖</button>
-
-        <h3>试跑</h3>
-        <div class="preview-row">
-          <select v-model="previewMode">
-            <option value="structure">结构</option>
-            <option value="render">真实内容</option>
-          </select>
-          <input v-model="day" type="date" />
-          <select v-model="hour">
-            <option value="">全部档位</option>
-            <option value="10">10:00</option>
-            <option value="15">15:00</option>
-            <option value="20">20:00</option>
-          </select>
-          <button class="btn btn-sm" type="button" :disabled="busy || isDraft" @click="runPreview">试跑</button>
-        </div>
-        <template v-if="preview">
-          <p class="hint">{{ preview.note }}</p>
-          <ul class="summary">
-            <li v-for="(line, index) in preview.summary" :key="index">{{ line }}</li>
-          </ul>
-          <ul v-if="preview.errors.length" class="errors">
-            <li v-for="(item, index) in preview.errors" :key="index">{{ item }}</li>
-          </ul>
-        </template>
-
-        <template v-if="rendered">
-          <p v-if="!rendered.ok" class="alert">{{ rendered.error }}</p>
-          <template v-else>
-            <p class="hint">{{ rendered.note }}</p>
-            <p class="meta-line">
-              {{ rendered.day }} {{ String(rendered.hour).padStart(2, '0') }}:00 ·
-              {{ rendered.group }} · {{ rendered.renderer }} · {{ rendered.chars }} 字
-            </p>
-            <pre class="body">{{ rendered.body }}</pre>
+      <aside class="side">
+        <div class="panel">
+          <div class="panel-head"><h2>发送预览</h2></div>
+          <p class="hint">只渲染，不向群里发消息。先保存当前卡片。</p>
+          <div class="preview-fields">
+            <label>预览方式
+              <select v-model="previewMode">
+                <option value="render">实际文案</option>
+                <option value="structure">配置结构</option>
+              </select>
+            </label>
+            <label>日期<input v-model="day" type="date" /></label>
+            <label>档位
+              <select v-model="hour">
+                <option value="">最近档位</option>
+                <option v-for="slot in previewSlots" :key="slot" :value="slot.slice(0, 2)">{{ slot }}</option>
+              </select>
+            </label>
+          </div>
+          <button class="btn" type="button" :disabled="busy || isDraft || unsaved" @click="runPreview">试跑这张卡片</button>
+          <p v-if="blocks.some((block) => block.type === 'rule' && block.mode === 'ai')" class="hint">AI 试跑会调用模型并计入今日额度，不写入正式发送缓存。</p>
+          <p v-if="ai" class="hint">AI 今日 {{ ai.calls }} / {{ ai.limit }} 次，缓存 {{ ai.cached }} 条</p>
+          <template v-if="preview">
+            <p class="hint">{{ preview.note }}</p>
+            <ul class="summary"><li v-for="(line, index) in preview.summary" :key="index">{{ line }}</li></ul>
+            <ul v-if="preview.errors.length" class="errors"><li v-for="(item, index) in preview.errors" :key="index">{{ item }}</li></ul>
           </template>
-        </template>
+          <template v-if="rendered">
+            <p v-if="!rendered.ok" class="alert">{{ rendered.error }}</p>
+            <template v-else>
+              <p class="hint">{{ rendered.note }}</p>
+              <p :class="rendered.send_allowed ? 'preview-allowed' : 'preview-blocked'">
+                {{ rendered.send_reason }}{{ rendered.send_allowed ? '；还需核对启用与调度状态' : '，本档不发送' }}
+              </p>
+              <p class="meta-line">{{ rendered.day }} {{ String(rendered.hour).padStart(2, '0') }}:00 · {{ rendered.group }}</p>
+              <p v-if="(rendered.message_count || 0) > 1" class="hint">本档共 {{ rendered.message_count }} 条，按人分开发送。</p>
+              <pre class="body">{{ rendered.body }}</pre>
+            </template>
+          </template>
+        </div>
+        <details class="panel advanced">
+          <summary>高级：查看或粘贴 JSON</summary>
+          <textarea v-model="jsonText" rows="10" spellcheck="false" aria-label="积木 JSON"></textarea>
+          <p v-if="jsonPending" class="hint">JSON 修改尚未应用到卡片。</p>
+          <p v-if="jsonError" class="alert">{{ jsonError }}</p>
+          <button class="btn" type="button" :disabled="busy" @click="applyJson">按 JSON 覆盖卡片</button>
+        </details>
       </aside>
     </div>
   </main>
 </template>
 
 <style scoped>
-.page { padding: 16px 20px 40px; }
-.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.head h1 { margin: 0 0 4px; font-size: 20px; }
-.sub { margin: 0; color: var(--text-muted, #667085); font-size: 13px; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.layout { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(320px, 2fr) minmax(240px, 1.2fr); gap: 16px; margin-top: 16px; align-items: start; }
-.col { display: flex; flex-direction: column; gap: 8px; }
-.col h3 { margin: 0; font-size: 14px; }
-.list .row { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border, #e4e7ec); border-radius: 8px; background: #fff; cursor: pointer; text-align: left; }
-.list .row.active { border-color: var(--brand, #2563eb); box-shadow: 0 0 0 1px var(--brand, #2563eb) inset; }
-.row-name { font-size: 13px; }
-.tags { display: flex; gap: 6px; font-size: 11px; font-style: normal; }
-.tags em { font-style: normal; padding: 1px 6px; border-radius: 999px; }
-.tags .on { background: #ecfdf3; color: #027a48; }
-.tags .off { background: #f2f4f7; color: #475467; }
-.tags .bad { background: #fef3f2; color: #b42318; }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
-.field { display: grid; gap: 4px; font-size: 12px; color: var(--text-muted, #475467); }
-.field input { padding: 6px 8px; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; font-size: 13px; }
-.blocks { display: flex; flex-direction: column; gap: 8px; }
-.save-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.renderer { color: var(--text-muted, #667085); font-size: 12px; }
-.errors { margin: 0; padding-left: 18px; color: #b42318; font-size: 12px; line-height: 1.6; }
-.side textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; padding: 8px; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; }
-.preview-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.preview-row input, .preview-row select { padding: 5px 6px; border: 1px solid var(--border, #d0d5dd); border-radius: 6px; font-size: 12px; }
-.summary { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
+.page { max-width: none; padding: 28px 28px 64px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.page-head h1 { margin: 2px 0 5px; font-size: 25px; }
+.eyebrow { margin: 0; color: var(--blue); font-size: 11px; font-weight: 700; letter-spacing: .07em; }
+.sub, .hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.actions, .save-row, .switch-warning > div { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.mode-banner, .switch-warning { display: flex; align-items: flex-start; gap: 12px; padding: 13px 16px; margin-bottom: 16px; border: 1px solid rgba(245, 158, 11, .3); border-radius: var(--radius-md); background: rgba(245, 158, 11, .07); }
+.mode-banner.live { border-color: rgba(16, 185, 129, .3); background: rgba(16, 185, 129, .07); }
+.mode-banner strong { font-size: 13px; }
+.mode-banner p { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.mode-dot { width: 8px; height: 8px; flex: none; margin-top: 5px; border-radius: 50%; background: var(--amber); }
+.live .mode-dot { background: var(--green); }
+.switch-warning { justify-content: space-between; align-items: center; color: var(--amber); font-size: 13px; }
+.btn-danger { color: var(--red); }
+.layout { display: grid; grid-template-columns: minmax(210px, 260px) minmax(420px, 1fr) minmax(260px, 330px); gap: 16px; align-items: start; }
+.panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 16px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.panel-head > span { color: var(--muted); font-size: 12px; }
+.list { display: grid; gap: 8px; }
+.group-row { display: grid; gap: 7px; width: 100%; padding: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text); text-align: left; cursor: pointer; }
+.group-row:hover, .group-row.active { border-color: var(--blue); }
+.group-row.active { background: var(--blue-soft); }
+.group-top { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+.group-top strong { min-width: 0; font-size: 13px; line-height: 1.4; }
+.group-top em { flex: none; font-size: 10px; font-style: normal; padding: 2px 6px; border-radius: 5px; }
+.group-top .on { color: var(--green); background: rgba(16, 185, 129, .12); }
+.group-top .off { color: var(--muted); background: rgba(255, 255, 255, .06); }
+.group-detail, .group-foot { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.group-foot { display: flex; justify-content: space-between; gap: 6px; }
+.bad { color: var(--red); }
+.empty, .blocks-empty { padding: 20px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); text-align: center; }
+.empty strong, .blocks-empty strong { font-size: 13px; }
+.empty p, .blocks-empty p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.import-btn { margin-top: 3px; padding: 7px; border: 0; background: none; color: var(--blue); text-align: left; font-size: 12px; cursor: pointer; }
+.import-btn:disabled { opacity: .5; }
+.editor, .side { display: grid; gap: 14px; }
+.editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.editor-head h2 { margin: 3px 0 0; font-size: 18px; }
+.draft-tag { padding: 4px 8px; border-radius: 5px; color: var(--amber); background: rgba(245, 158, 11, .12); font-size: 11px; }
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.field, .preview-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.field input, .preview-fields input, .preview-fields select, .advanced textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
+.blocks { display: grid; gap: 10px; }
+.save-row { position: sticky; bottom: 0; z-index: 2; padding: 12px 0; background: var(--bg); }
+.errors { margin: 0; padding: 12px 12px 12px 32px; border: 1px solid rgba(244, 63, 94, .28); border-radius: var(--radius-md); background: rgba(244, 63, 94, .08); color: var(--red); font-size: 12px; line-height: 1.7; }
+.preview-fields { display: grid; gap: 10px; margin: 14px 0; }
+.side .panel > .btn { width: 100%; }
+.summary { padding-left: 20px; color: var(--text); font-size: 12px; line-height: 1.7; }
+.meta-line { margin: 12px 0 6px; color: var(--muted); font-size: 11px; }
+.preview-allowed, .preview-blocked { margin: 10px 0 0; font-size: 12px; line-height: 1.5; }
+.preview-allowed { color: var(--green); }
+.preview-blocked { color: var(--amber); }
+.body { max-height: 430px; overflow: auto; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 12px; line-height: 1.7; }
+.advanced summary { cursor: pointer; font-size: 13px; }
+.advanced textarea { margin: 14px 0 8px; font-family: ui-monospace, Consolas, monospace; }
 .alert-sticky { position: sticky; top: 8px; z-index: 5; }
-.ai-line { margin-top: 2px; }
-.unsaved { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #fffaeb; color: #b54708; font-style: normal; font-size: 10px; }
-.meta-line { margin: 0; color: var(--text-muted, #667085); font-size: 11px; }
-.body {
-  margin: 0; padding: 10px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
-  background: #0f172a0d; border: 1px solid var(--border, #e4e7ec); border-radius: 8px;
-  font-family: inherit; font-size: 12px; line-height: 1.7;
-}
-.hint { color: var(--text-muted, #667085); font-size: 12px; line-height: 1.6; margin: 0; }
-@media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+@media (max-width: 1180px) { .layout { grid-template-columns: minmax(210px, 260px) minmax(420px, 1fr); } .side { grid-column: 2; } }
+@media (max-width: 760px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: 1fr; } .side { grid-column: auto; } .list { max-height: 330px; overflow: auto; } }
 </style>

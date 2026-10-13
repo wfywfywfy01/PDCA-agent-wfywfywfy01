@@ -183,6 +183,8 @@ class ValidateTests(unittest.TestCase):
     def test_condition_value_must_be_bool(self):
         errors = validate_blocks(_with(condition={"value": "yes"}))
         self.assertTrue(any("true/false" in item for item in errors))
+        errors = validate_blocks(_with(condition={"key": "has_data", "value": False}))
+        self.assertTrue(any("取数失败" in item for item in errors))
 
     def test_recipient_needs_uuid(self):
         blocks = parse_blocks({"blocks": [

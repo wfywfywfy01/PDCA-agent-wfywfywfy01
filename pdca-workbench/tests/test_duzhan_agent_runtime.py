@@ -107,6 +107,35 @@ class RuntimeTranslationTests(unittest.TestCase):
         with patch("app.config.get_settings", return_value=SimpleNamespace(duzhan_config_source="DB")):
             self.assertTrue(runtime.using_db())
 
+    def test_send_conditions_use_calendar_and_observed_data(self):
+        agent = self.add("条件官", {
+            "blocks": [
+                *_blocks()["blocks"],
+                {"type": "condition", "key": "holiday", "value": False},
+                {"type": "condition", "key": "has_data", "value": True},
+            ]
+        })
+        self.assertFalse(runtime.conditions_allow(agent, "2026-10-01", {"people": []}))
+        self.assertFalse(runtime.conditions_allow(agent, "2026-10-13", {"people": []}))
+        ledger = {"people": [{"group": NEW_GROUP.name, "mtd_wan": 0}]}
+        self.assertTrue(runtime.conditions_allow(agent, "2026-10-13", ledger))
+        self.assertFalse(runtime.conditions_allow(agent, "2026-10-01", ledger))
+
+    def test_ctob_has_data_requires_observed_value(self):
+        agent = self.add("跟进数据条件", {"blocks": [
+            *_blocks(channel_id=FOLLOW_GROUP, label="跟进群")["blocks"],
+            {"type": "condition", "key": "has_data", "value": True},
+        ]})
+        self.assertFalse(runtime.conditions_allow(agent, "2026-10-13", {
+            "summary": {"reached": None, "car": 0}, "chats": [], "cohort": {"focus_new": 0},
+        }))
+        self.assertTrue(runtime.conditions_allow(agent, "2026-10-13", {
+            "summary": {"reached": 0}, "chats": [], "cohort": {},
+        }))
+        self.assertTrue(runtime.conditions_allow(agent, "2026-10-13", {
+            "summary": {}, "chats": [], "cohort": {"rows": [{"name": "某客户"}]},
+        }))
+
 
 class DbGroupsTests(unittest.TestCase):
     def setUp(self):

@@ -64,6 +64,7 @@ python run.py
 | `/app/` | **Vue3 SPA 工作台**（P1+）：登录、驾驶舱、数据看板、物流中心、会议中心、获客指挥、客流五件套、任务中心、新人培训、数据同步 |
 | `/app/dashboard` | 数据看板：Sell-in 排行 + 近 6 月趋势（ECharts） |
 | `/app/knowledge` | 经销商资料库：权限范围内的 AI 检索、引用与脱敏预览 |
+| `/app/admin/duzhan-agents` | 督战官群聊与规则卡片（管理员） |
 | `/logistics-center/` → `/app/logistics` | 物流进展（已迁 SPA） |
 | `/signalseller-center/` → `/app/signalseller` | 获客指挥（已迁 SPA） |
 | `/meeting-center/` → `/app/meetings` | 会议中心（已迁 SPA） |
@@ -109,6 +110,7 @@ SPA 产物。旧源码目录先清理，避免已删除文件残留；不修改 
 | `pdca-workbench/docs/部署手册.md` | 对外经销商五件套部署 |
 | `docs/CUSTOMER_MGMT_CODEX_HANDOFF.md` | 客户管理（8787）交接 |
 | `docs/SIGNALSELLER_PDCA_INTEGRATION.md` | 获客指挥集成说明 |
+| `docs/DUZHAN_GROUP_RULES.md` | 督战官群聊规则卡片使用与接管步骤 |
 | `AGENTS.md` | PDCA Agent 规则与小组目录约定 |
 
 ---

@@ -338,10 +338,12 @@ def render_brief(
     cohort: dict,
     hour: int = 20,
     prev: dict | None = None,
+    *,
+    focus_override: str | None = None,
 ) -> str:
     """一群一条；10:00 定任务 / 15:00 追变化 / 20:00 验兑现（老文案不变）。"""
     head = _slot_head(day, hour)
-    focus = _CTOB_SLOT_FOCUS.get(hour, _CTOB_SLOT_FOCUS[20])
+    focus = focus_override or _CTOB_SLOT_FOCUS.get(hour, _CTOB_SLOT_FOCUS[20])
     if getattr(get_settings(), "ctob_compact", True):
         # 老板 2026-09-19：C转B 三档同样只出总结性内容（明细走 08:00 证据 HTML）。
         return head + "\n" + _compact_body(hour, focus, summary, chats, cohort, prev)
@@ -632,8 +634,14 @@ def run_ctob(
         prev_owner = load_snapshot(prev_slot[0], prev_slot[1])
     sent: list[str] = []
     failed: list[str] = []
+    from app.duzhan_admin import ai_rules, runtime
+
     for owner in targets:
         data = collected.get(owner.channel_id) or {"summary": {}, "chats": [], "cohort": {}}
+        if runtime.using_db() and not runtime.conditions_allow_channel(owner.channel_id, day, data):
+            logger.info("C转B 发送条件未满足，跳过 {} {} {}", owner.display, day, hour)
+            continue
+        override = ai_rules.focus_for_channel(owner.channel_id, hour, day, data)
         body = render_brief(
             owner,
             day,
@@ -642,6 +650,7 @@ def run_ctob(
             data["cohort"],
             hour=hour,
             prev=prev_owner.get(owner.channel_id),
+            focus_override=override,
         )
         ok = push_duzhan_message(
             body,

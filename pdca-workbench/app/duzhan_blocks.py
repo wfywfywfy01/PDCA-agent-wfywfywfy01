@@ -43,9 +43,9 @@ REPEATABLE_BLOCKS: tuple[str, ...] = ("source", "rule", "strategy", "recipient",
 
 #: 发送前置条件
 CONDITION_KEYS: dict[str, str] = {
-    "workday": "仅工作日",
-    "holiday": "仅节假日",
-    "has_data": "仅当日有数据",
+    "workday": "普通工作日（含调休）",
+    "holiday": "长假照常推送日",
+    "has_data": "群内有可确认数据",
 }
 
 #: 规则块生效范围
@@ -227,6 +227,8 @@ def _check_one(
             errors.append(f"{where}：未知条件 {key or '(空)'}")
         if not isinstance(block.get("value"), bool):
             errors.append(f"{where}：value 必须是 true/false")
+        elif key == "has_data" and block.get("value") is False:
+            errors.append(f"{where}：目前只支持「有数据才发送」，不能把取数失败当作无数据")
 
     elif block.type == "style":
         lang = _text(block.get("lang")) or "zh"
@@ -351,6 +353,12 @@ def block_schema() -> list[dict]:
                     "label": "生效范围",
                     "kind": "select",
                     "options": list(RULE_WHEN),
+                    "option_labels": {
+                        "always": "每档都用",
+                        "workday": "普通工作日",
+                        "holiday": "长假照常推送日",
+                        "missing_report": "有人未交日报",
+                    },
                     "default": "always",
                 },
             ],

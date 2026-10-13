@@ -83,6 +83,66 @@ def slots_of(agent: DuzhanAgent) -> list[int]:
     return parse_hours(as_str_list(times.get("slots")))
 
 
+def conditions_allow(agent: DuzhanAgent, day: str, ledger: dict | None) -> bool:
+    """发送前检查条件块；数据不可用时不把它当成「没有数据」。"""
+    from app.ctob import OWNERS as CTOB_OWNERS
+    from app.duzhan_ledger import people_for
+    from app.workday_calendar import day_kind
+
+    group = group_of(agent)
+    if group is None:
+        return False
+    is_ctob = any(owner.channel_id == group.channel_id for owner in CTOB_OWNERS)
+    kind = day_kind(day)
+    observed_keys = (
+        "mtd_wan", "wa_reached", "intent_count", "mto_count", "vps_im_sent",
+        "daily_report", "vemory", "collections", "evidence", "perf_slip", "perf_intent",
+    )
+
+    def observed(row: dict) -> bool:
+        return any(
+            value is not None and (bool(value) if isinstance(value, (str, list, dict)) else True)
+            for value in (row.get(field) for field in observed_keys)
+        )
+
+    for block in _blocks(agent):
+        if block.type != "condition":
+            continue
+        key = str(block.get("key") or "")
+        expected = block.get("value") is True
+        if key == "workday":
+            actual = kind in {"workday", "makeup"}
+        elif key == "holiday":
+            actual = kind == "long_holiday"
+        elif key == "has_data":
+            if not expected or not isinstance(ledger, dict) or ledger.get("_collection_failed"):
+                return False
+            if is_ctob:
+                actual = bool(ledger.get("chats")) or bool((ledger.get("cohort") or {}).get("rows")) or any(
+                    (ledger.get("summary") or {}).get(key) is not None
+                    for key in ("reached", "replied", "outbound", "inbound", "new", "complete")
+                ) or any(
+                    (ledger.get("cohort") or {}).get(key) is not None
+                    for key in ("new", "chatted", "replied", "intent")
+                )
+            else:
+                actual = any(observed(row) for row in people_for(group.name, ledger))
+        else:
+            return False
+        if actual != expected:
+            return False
+    return True
+
+
+def conditions_allow_channel(channel_id: str, day: str, ledger: dict | None) -> bool:
+    """按启用的群配置检查发送条件。找不到配置时不发送。"""
+    for agent in load_enabled_agents():
+        group = group_of(agent)
+        if group and group.channel_id == channel_id:
+            return conditions_allow(agent, day, ledger)
+    return False
+
+
 def ledger_job_name(agent: DuzhanAgent, *, collect: bool) -> str:
     """台账 job 名：按子 Agent 分档，同群同时刻互不抢 claim。"""
     suffix = "collect" if collect else "push"

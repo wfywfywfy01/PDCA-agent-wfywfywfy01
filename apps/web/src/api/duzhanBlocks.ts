@@ -28,6 +28,7 @@ export interface BlockTypeSpec {
   type: string
   label: string
   hint?: string
+  multiple?: boolean
   fields: BlockFieldSpec[]
 }
 

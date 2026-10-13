@@ -23,6 +23,13 @@ export interface DuzhanAgentItem {
   updated_at: string
 }
 
+export interface DuzhanRuntimeStatus {
+  source: 'code' | 'db'
+  enabled: boolean
+  bot_app_id: string
+  schedule_updates_require_restart: boolean
+}
+
 export interface PreviewResult {
   agent: { id: number | null; name: string; enabled: boolean }
   day: string | null
@@ -49,6 +56,10 @@ export function blockSchema(): Promise<{ blocks: BlockTypeSpec[] }> {
   return apiGet('/api/duzhan-agents/block-schema')
 }
 
+export function runtimeStatus(): Promise<DuzhanRuntimeStatus> {
+  return apiGet('/api/duzhan-agents/runtime-status')
+}
+
 export function createAgent(input: AgentInput): Promise<DuzhanAgentItem> {
   return apiPost('/api/duzhan-agents', input)
 }
@@ -61,7 +72,7 @@ export function toggleAgent(id: number, enabled: boolean): Promise<DuzhanAgentIt
   return apiPost('/api/duzhan-agents/' + id + '/toggle', { enabled })
 }
 
-/** 真实内容试跑：用最近一次组表快照渲染出"到点实际会发的那条正文"。 */
+/** 内容试跑：用已有快照台账和当前卡片重新渲染，不发送。 */
 export interface RenderPreviewResult {
   mode: 'render'
   ok: boolean
@@ -74,6 +85,9 @@ export interface RenderPreviewResult {
   group?: string
   renderer?: string
   source?: 'snapshot' | 'snapshot_ledger' | 'empty_ledger'
+  send_allowed?: boolean
+  send_reason?: string
+  message_count?: number
   chars?: number
   body?: string
   note?: string
