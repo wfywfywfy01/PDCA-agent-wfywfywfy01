@@ -111,6 +111,21 @@ class AuthHardeningTests(unittest.TestCase):
             self.assertFalse(user.is_active)
             self.assertEqual(user.display_name, "")
 
+    def test_hybrid_omega_disables_host_identity_fallback(self):
+        self.settings.auth_mode = "hybrid"
+        self.settings.auth_host_fallback = False
+        request = Request({"type": "http", "method": "GET", "path": "/api/auth/me",
+                           "headers": [], "client": ("127.0.0.1", 1)})
+        with Session(self.engine) as session, patch(
+            "app.auth.deps.fetch_vps_me_payload"
+        ) as fetch_vps:
+            self.assertIsNone(asyncio.run(_user_from_vps(session, request)))
+            fetch_vps.assert_not_called()
+        with patch("app.auth.router.fetch_vps_me_payload") as fetch_vps:
+            response = self.client.get("/api/auth/vps-check")
+            self.assertFalse(response.json()["ok"])
+            fetch_vps.assert_not_called()
+
     def test_deactivation_rotates_version_and_reenable_does_not_restore_old_jwt(self):
         self.login()
         for method in ("patch", "delete"):

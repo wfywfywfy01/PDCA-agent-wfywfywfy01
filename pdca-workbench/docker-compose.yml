@@ -128,6 +128,40 @@ services:
       - pdca-net
       - logistics-private
 
+  omega-web:
+    image: ${PDCA_IMAGE:-pdca-workbench:local}
+    profiles: ["omega"]
+    container_name: pdca-omega-web
+    ports:
+      - "127.0.0.1:${PDCA_OMEGA_HOST_PORT:-8771}:8767"
+    env_file:
+      - path: env.docker
+        required: true
+      - path: .env
+        required: false
+    environment:
+      PDCA_ENV: production
+      PDCA_SECRET_KEY: ${PDCA_SECRET_KEY:?请在未跟踪的 .env 中设置 PDCA_SECRET_KEY}
+      PDCA_DATABASE_URL: ${PDCA_DATABASE_URL:?请在未跟踪的 .env 中设置 PDCA_DATABASE_URL}
+      PDCA_HOST: "0.0.0.0"
+      PDCA_WORKBENCH_PORT: "8767"
+      PDCA_AUTH_MODE: hybrid
+      PDCA_AUTH_HOST_FALLBACK: "0"
+      PDCA_SECURE_COOKIES: "1"
+      PDCA_REQUIRE_VERTU: "0"
+      PDCA_SCHEDULER_ENABLED: "0"
+      PDCA_OMEGA_ENABLED: "1"
+      PDCA_KNOWLEDGE_HUB_ENABLED: "0"
+      PDCA_HOME_REDIRECT: /app/omega
+      PDCA_BOOTSTRAP_ADMIN_USERNAME: ""
+      PDCA_BOOTSTRAP_ADMIN_PASSWORD: ""
+    volumes:
+      - ./data:/app/data
+      - pdca-vertu-session:/root/.vertu
+    restart: unless-stopped
+    networks:
+      - pdca-net
+
   omega-worker:
     image: ${PDCA_IMAGE:-pdca-workbench:local}
     profiles: ["omega"]
@@ -149,7 +183,7 @@ services:
       PDCA_SUPERVISOR_API_KEY: ${PDCA_SUPERVISOR_API_KEY:-}
       PDCA_KNOWLEDGE_HUB_TEAM_MAP: ${PDCA_KNOWLEDGE_HUB_TEAM_MAP:-{"overseas":"overseas-sales"}}
     depends_on:
-      pdca-app:
+      omega-web:
         condition: service_healthy
     restart: unless-stopped
     networks:

@@ -87,6 +87,9 @@ async def import_real_meeting(
     db.rollback()
     meeting, error = await vemory_api.meeting_detail(body.meeting_id)
     if error or not meeting:
+        from app.vertu.client import vertu_health
+        if not (await vertu_health())["ok"]:
+            raise HTTPException(503, "VPS 会议服务暂不可用；陪练可继续使用")
         raise HTTPException(404, error or "会议不存在")
     case = db.exec(select(OmegaCase).where(
         OmegaCase.id == body.case_id,

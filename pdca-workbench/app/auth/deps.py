@@ -73,6 +73,8 @@ async def _user_from_vps(session: Session, request: Request) -> User | None:
     都能白嫖服务器本机的 VPS 登录身份（曾经确认过：不带任何 cookie/token
     直接 curl /api/auth/me 也能拿到 manager 身份）。
     """
+    if not getattr(get_settings(), "auth_host_fallback", True):
+        return None
     client_host = request.client.host if request.client else None
     if client_host not in _LOCALHOST_ADDRS:
         return None

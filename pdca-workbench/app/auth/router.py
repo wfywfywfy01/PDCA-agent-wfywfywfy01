@@ -225,7 +225,7 @@ async def vps_check(request: Request):
     # A server-side vertu-cli session identifies the host, not the remote
     # browser. Public multi-user SSO must use trusted proxy headers.
     client_host = request.client.host if request.client else None
-    if client_host not in {"127.0.0.1", "::1"}:
+    if not getattr(settings, "auth_host_fallback", True) or client_host not in {"127.0.0.1", "::1"}:
         return {
             "ok": False,
             "detail": "未检测到与当前访问者绑定的 VPS 身份，请使用本地账号或由管理员配置单点登录",

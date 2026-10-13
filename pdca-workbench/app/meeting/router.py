@@ -364,6 +364,9 @@ async def vemory_detail(
     """单场会议详情：纪要全文、音频链接、章节、待办、逐字稿。"""
     meeting, error = await vemory_api.meeting_detail(meeting_id)
     if error:
+        from app.vertu.client import vertu_health
+        if not (await vertu_health())["ok"]:
+            raise HTTPException(status_code=503, detail="VPS 会议服务暂不可用；陪练可继续使用")
         raise HTTPException(status_code=404, detail=error)
     scope = resolve_data_scope(user, session)
     if not scope.unrestricted:
