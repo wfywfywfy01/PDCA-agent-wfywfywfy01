@@ -288,13 +288,21 @@ def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optio
         condition_data = data
     else:
         # 达标群：只复用台账，始终用当前卡片重渲染，避免展示旧快照里的旧规则。
-        slot_key = group.channel_id[:8]
+        active = runtime.duzhan_agents() if runtime.using_db() else []
+
+        def slot_key_for(slot_hour: int) -> str:
+            channels = [item.channel_id for row, item in active
+                        if item.tz == tz_name and slot_hour in runtime.slots_of(row)]
+            return (duzhan_module._slot_key(channels) if group.channel_id in channels
+                    else group.channel_id[:8])
+
+        slot_key = slot_key_for(hour)
         snapshot = duzhan_module.load_prepared(tz_name, hour, day, slot_key) or duzhan_module.load_prepared(
             tz_name, hour, day
         )
         ledger = snapshot.get("ledger") if isinstance(snapshot, dict) else None
         prev_hour = duzhan_module.prev_slot_hour(hour)
-        prev = duzhan_module.load_prepared(tz_name, prev_hour, day, slot_key) if prev_hour else None
+        prev = duzhan_module.load_prepared(tz_name, prev_hour, day, slot_key_for(prev_hour)) if prev_hour else None
         if prev is None and prev_hour:
             prev = duzhan_module.load_prepared(tz_name, prev_hour, day)
         prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None

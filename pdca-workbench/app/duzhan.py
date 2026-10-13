@@ -351,7 +351,7 @@ def prepare_duzhan(
 ) -> dict:
     """踩点：拉群消息 + WhatsApp MCP + Vemory + VPS + 日报，写快照，不发群。
 
-    `channel_ids` 有值时只组这些群的表（db 源下一个子 Agent 一次）。
+    `channel_ids` 有值时只组这些群的表（db 源下同档群共用一次采集）。
     """
     now = now or datetime.now(ZoneInfo(tz_name))
     if not is_duzhan_workday(tz_name, now):
@@ -363,14 +363,19 @@ def prepare_duzhan(
     except Exception as exc:  # noqa: BLE001
         logger.exception("督战官台账采集失败: {}", exc)
         ledger = empty_ledger(day)
+    slot_key = _slot_key(channel_ids)
     prev_hour = prev_slot_hour(hour)
-    prev = load_prepared(tz_name, prev_hour, day) if prev_hour else None
+    prev = load_prepared(tz_name, prev_hour, day, slot_key) if prev_hour else None
+    if prev is None and prev_hour and slot_key:
+        prev = load_prepared(tz_name, prev_hour, day)
     if hour == 10 and prev is None:
         # 早追：以昨日 20:00 档为上一档，用于“昨日未闭环结转今日第一动作”
         from datetime import timedelta
 
         yday = (now.astimezone(ZoneInfo(tz_name)) - timedelta(days=1)).strftime("%Y-%m-%d")
-        prev = load_prepared(tz_name, 20, yday)
+        prev = load_prepared(tz_name, 20, yday, slot_key)
+        if prev is None and slot_key:
+            prev = load_prepared(tz_name, 20, yday)
     prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
     from app.duzhan_admin import ai_rules
 
@@ -395,7 +400,6 @@ def prepare_duzhan(
         # 老板 2026-10-10：按人拆开发；推送端优先用它，缺失时退回 messages
         "person_messages": person_messages,
     }
-    slot_key = _slot_key(channel_ids)
     slot_path = _slot_path(tz_name, day, hour, slot_key) if slot_key else _slot_path(tz_name, day, hour)
     slot_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
@@ -1485,7 +1489,7 @@ def run_duzhan(
 ) -> dict:
     """整点推送：优先用提前组好的快照，没有快照则现场渲染。周末不发。
 
-    `channel_ids` 有值时只推这些群（db 源下一个子 Agent 一次）。
+    `channel_ids` 有值时只推这些群（db 源下同档群共用一次调度）。
     """
     now = now or datetime.now(ZoneInfo(tz_name))
     if not is_duzhan_workday(tz_name, now):

@@ -7,11 +7,13 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, SQLModel, create_engine
 
+from app.agents.models import AgentEvent  # noqa: F401 - register table before create_all
 from app.models.scheduled_job_run import ScheduledJobRun
 from app.agents import flow_controller
 
@@ -49,12 +51,15 @@ class SlotHealthTests(unittest.TestCase):
             side_effect=self._fake_slot_path,
         )
         self.patch_slot.start()
+        self.patch_code_source = patch("app.duzhan_admin.runtime.using_db", return_value=False)
+        self.patch_code_source.start()
         self.notify_mock = MagicMock()
         # flow_controller 模块级导入 notify，patch 使用方模块。
         self.patch_notify = patch("app.agents.flow_controller.notify", self.notify_mock)
         self.patch_notify.start()
 
     def tearDown(self):
+        self.patch_code_source.stop()
         self.patch_notify.stop()
         self.patch_slot.stop()
         self.patch_engine.stop()
@@ -89,6 +94,28 @@ class SlotHealthTests(unittest.TestCase):
         self.assertTrue(report["ok"], report["problems"])
         self.assertEqual(report["timezone"], "Asia/Shanghai")
         self.assertFalse(self.notify_mock.called)
+
+    def test_db_slot_uses_group_snapshot_and_shared_run_names(self):
+        day = "2026-09-17"
+        channel_id = "11111111-1111-4111-8111-111111111111"
+        bucket = f"Asia/Shanghai:10:{day}"
+        slot = {
+            "day": day, "hour": 10,
+            "prepared_at": datetime(2026, 9, 17, 9, 45, tzinfo=ZoneInfo("Asia/Shanghai")).isoformat(),
+            "messages": {channel_id: "m"},
+        }
+        _insert_run(self.engine, "duzhan_collect:db:Asia/Shanghai", bucket, "sent")
+        _insert_run(self.engine, "duzhan_push:db:Asia/Shanghai", bucket, "sent")
+        with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
+             patch("app.duzhan_admin.runtime.duzhan_agents", return_value=[
+                 (object(), SimpleNamespace(channel_id=channel_id, tz="Asia/Shanghai"))
+             ]), \
+             patch("app.duzhan_admin.runtime.slots_of", return_value=[10]), \
+             patch("app.agents.flow_controller.load_prepared", return_value=slot) as load:
+            self.assertEqual(flow_controller._health_hours("Asia/Shanghai", ["20:00"]), [10])
+            report = flow_controller.check_slot_health("Asia/Shanghai", 10, day)
+        self.assertTrue(report["ok"], report["problems"])
+        load.assert_called_once_with("Asia/Shanghai", 10, day, channel_id[:8])
 
     def test_paris_slot_all_green(self):
         day = "2026-09-17"
@@ -173,6 +200,8 @@ class HealthCatchUpTests(unittest.TestCase):
         self.patch_events.start()
         self.patch_slot = patch("app.duzhan._slot_path", side_effect=self._fake_slot_path)
         self.patch_slot.start()
+        self.patch_code_source = patch("app.duzhan_admin.runtime.using_db", return_value=False)
+        self.patch_code_source.start()
         self.notify_mock = MagicMock()
         self.patch_notify = patch("app.agents.flow_controller.notify", self.notify_mock)
         self.patch_notify.start()
@@ -184,6 +213,7 @@ class HealthCatchUpTests(unittest.TestCase):
         self.patch_settings.start()
 
     def tearDown(self):
+        self.patch_code_source.stop()
         self.patch_settings.stop()
         self.patch_notify.stop()
         self.patch_slot.stop()

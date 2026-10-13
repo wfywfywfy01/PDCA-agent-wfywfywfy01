@@ -900,7 +900,7 @@ def duzhan_job(
 def ctob_job(hour: int = 20, *, owners: tuple | None = None, ledger_job: str = "ctob") -> None:
     """工作日北京 10:00 / 15:00 / 20:00：C转B 群按档推送（P2 封装）。
 
-    db 源下每个子 Agent 注册一条，`owners` 只带自己那个群、台账也各记各的。
+    db 源下同档位合并注册，`owners` 只带该档启用的群。
     """
     from app.agents.flow_controller import run_ctob_slot
 
