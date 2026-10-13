@@ -1,0 +1,19 @@
+# Replace only the pdca-workbench-teams.vertu.cn site block in /etc/caddy/Caddyfile.
+pdca-workbench-teams.vertu.cn {
+    redir /omega /omega/ 301
+    handle_path /omega/* {
+        reverse_proxy 127.0.0.1:8770
+    }
+
+    handle /omega-health {
+        rewrite * /health
+        reverse_proxy 127.0.0.1:8771
+    }
+    @omega_web path /app /app/* /api/auth/* /api/omega/* /api/knowledge/scope /api/meeting-center/vemory/detail
+    handle @omega_web {
+        reverse_proxy 127.0.0.1:8771
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8768
+    }
+}

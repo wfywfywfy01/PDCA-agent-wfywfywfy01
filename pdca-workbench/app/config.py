@@ -573,6 +573,7 @@ class Settings:
         if raw_mode not in ("local", "vps", "hybrid"):
             raw_mode = "local"
         self.auth_mode = raw_mode
+        self.auth_host_fallback = _env_flag("PDCA_AUTH_HOST_FALLBACK", "1")
         # 部署形态：workbench（内部工作台，dealer 禁止登录）/ walkin（门店五件套门户）
         raw_portal = os.environ.get("PDCA_PORTAL_MODE", "workbench").strip().lower()
         self.portal_mode = raw_portal if raw_portal in ("workbench", "walkin") else "workbench"
