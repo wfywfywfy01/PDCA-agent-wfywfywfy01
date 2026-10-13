@@ -11,6 +11,7 @@ param(
     [string]$EnvFile = "",
     [switch]$SkipCiCheck,
     [switch]$SkipImagePull,
+    [switch]$RefreshAgentCredential,
     [switch]$Force
 )
 
@@ -308,12 +309,17 @@ function Get-AgentCredential {
             $existing[$name] = $line.Substring($name.Length + 1)
         }
         $script:AgentAppId = $existing["VERTU_APP_ID"]
-        return $existing
-    }
-    # 首次部署才取本机默认 Agent，失败再回退 cursor。
-    $lines = & vps-work agent env --shell powershell 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $lines = & vps-work agent env --app-id cursor --shell powershell 2>&1
+        if (-not $RefreshAgentCredential) { return $existing }
+        if ($DockerHost -notmatch '^ssh://') {
+            throw "Refreshing the Agent credential requires SSH Docker transport"
+        }
+        $lines = & vps-work agent env --app-id $script:AgentAppId --shell powershell 2>&1
+    } else {
+        # 首次部署才取本机默认 Agent，失败再回退 cursor。
+        $lines = & vps-work agent env --shell powershell 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $lines = & vps-work agent env --app-id cursor --shell powershell 2>&1
+        }
     }
     if ($LASTEXITCODE -ne 0) { throw "vps-work agent env failed" }
     $text = $lines -join "`n"
@@ -333,6 +339,23 @@ function Get-AgentCredential {
         )
         if (-not $match.Success) { throw "vps-work did not return $name" }
         $result[$name] = $match.Groups[1].Value.Replace("''", "'")
+    }
+    if ($currentObject) {
+        if ($script:AgentAppId -cne $existing["VERTU_APP_ID"] -or
+            $result.VERTU_USER_LOGIN -cne $existing["VERTU_USER_LOGIN"] -or
+            $result.VERTU_APP_KEY -ceq $existing["VERTU_APP_KEY"]) {
+            throw "Refreshed Agent credential must keep the production app and login and use a new key"
+        }
+        $headers = @{
+            Authorization = "Bearer $($result.VERTU_APP_KEY)"
+            "x-vertu-agent-app-id" = $script:AgentAppId
+            "x-vertu-user-login" = [uri]::EscapeDataString($result.VERTU_USER_LOGIN)
+            "x-vertu-auth-channel" = "vps-work"
+        }
+        $identity = Invoke-RestMethod -Uri "https://vps-service.vertu.cn/v1/auth/me" -Headers $headers -TimeoutSec 15
+        if ($identity.user.login -cne $existing["VERTU_USER_LOGIN"]) {
+            throw "Refreshed Agent credential resolved to a different login"
+        }
     }
     return $result
 }
