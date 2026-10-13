@@ -892,6 +892,11 @@ async function startVoice() {
       if (event.data instanceof ArrayBuffer) { if (voicePhase.value === 'live' && packetEpoch === voiceEpoch.value) playVoiceAudio(event.data); return }
       try {
         const message = JSON.parse(event.data) as { type: string; message?: string; speaker?: string; speaker_id?: string; text?: string; state?: string; audio_epoch?: number; request_key?: string }
+        if (message.type === 'ending') {
+          notice.value = message.message || '本次通话已达时长上限'
+          void hangupVoice()
+          return
+        }
         if (message.type === 'error') {
           error.value = message.message || '实时语音连接失败'
           if (!voiceClosing.value) { voiceInterrupted.value = true; stopVoice() }

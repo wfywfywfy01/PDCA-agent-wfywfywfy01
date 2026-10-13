@@ -1,4 +1,5 @@
 """Preset launch and automatic scoring use the existing authenticated flow."""
+from tests.omega_audit_fixture import audit_aware
 import json
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -354,7 +355,7 @@ class OmegaTemplateTests(unittest.TestCase):
             self.assertEqual(kind, 'report')
             prompts.extend(messages)
             return result
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         with Session(self.engine) as db:
             report = db.exec(select(OmegaReport).where(OmegaReport.session_id == game_id)).one()
             self.assertEqual(report.input_hash, frozen_hash)

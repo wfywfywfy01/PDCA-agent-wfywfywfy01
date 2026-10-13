@@ -13,6 +13,7 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.auth.models import User
+from app.omega import report_audit
 from app.omega.context import actor_messages, coach_messages, practice_messages, select_next_speaker
 from app.omega.models import (
     OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment,
@@ -36,7 +37,7 @@ def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
             and model.startswith("deepseek-")):
         payload.pop("temperature")
         payload["thinking"] = {"type": "disabled"}
-        if kind in {"report", "memory", "practice"}:
+        if kind in {"report", "memory", "practice", "report_audit"}:
             payload["response_format"] = {"type": "json_object"}
     response = httpx.post(
         provider.rstrip("/") + "/v1/chat/completions",
@@ -65,6 +66,22 @@ def _segments(db: Session, session_id: str) -> list[dict]:
 
 def _aware(value):
     return value.replace(tzinfo=timezone.utc) if value and value.tzinfo is None else value
+
+
+def _check_report_access(engine, job_id, token, session_id, revision, input_hash):
+    with Session(engine) as db:
+        job = db.get(OmegaJob, job_id)
+        if (job.status != "running" or job.lease_token != token
+                or _aware(job.lease_until) <= utcnow()):
+            raise ValueError("报告任务租约已失效")
+        game = db.get(OmegaSession, session_id)
+        if (game.status != "ended" or game.revision != revision
+                or report_input_hash(game) != input_hash):
+            raise ValueError("逐字稿已变化")
+        owner = db.get(User, game.owner_id)
+        if owner is None:
+            raise ValueError("创建者账号已不存在")
+        require_session_source(owner, db, game)
 
 
 def run_once(engine, *, generate=_default_generate) -> bool:
@@ -100,6 +117,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
         job_id, kind = job.id, job.kind
         db.commit()
 
+    result = None
+    candidate = ""
     try:
         with Session(engine) as db:
             job = db.get(OmegaJob, job_id)
@@ -130,6 +149,7 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                 db.commit()
             if kind == "report":
                 hints_used = snapshot.get("report_hints_used", [])
+                feedback = json.loads(job.payload_json or "{}").get("report_validation_feedback")
         if kind == "turn":
             selected_speaker = select_next_speaker(snapshot, segments)
             turn_id = next((part.get("turn_id") for part in reversed(segments) if part["speaker"] == "sales"), None)
@@ -142,27 +162,21 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                 raise ValueError("模拟客户回复超出长度上限")
         elif kind == "report":
             weights = snapshot.get("score_weights", WEIGHTS)
-            messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing)
-            result = validate_report(generate(kind, messages, 8000), segments,
+            messages = coach_messages(snapshot, segments, weights, goal_timing=goal_timing,
+                                      validation_feedback=feedback)
+            candidate = generate(kind, messages, 8000)
+            result = validate_report(candidate, segments,
                                      goal_timing=goal_timing, weights=weights)
             if report_summary(result)["blocker"]:
-                # Recheck before sending the frozen private context to a second call.
-                with Session(engine) as db:
-                    current_job = db.get(OmegaJob, job_id)
-                    if (current_job.status != "running" or current_job.lease_token != token
-                            or _aware(current_job.lease_until) <= utcnow()):
-                        return True
-                    current_game = db.get(OmegaSession, session_id)
-                    if (current_game.status != "ended" or current_game.revision != expected_revision
-                            or report_input_hash(current_game) != input_hash):
-                        raise ValueError("逐字稿已变化")
-                    current_owner = db.get(User, current_game.owner_id)
-                    if current_owner is None:
-                        raise ValueError("创建者账号已不存在")
-                    require_session_source(current_owner, db, current_game)
+                _check_report_access(engine, job_id, token, session_id, expected_revision, input_hash)
                 result["next_practice"] = validate_next_practice(generate(
-                    "practice", practice_messages(snapshot, segments, result), 900))
+                    "practice", practice_messages(snapshot, segments, result,
+                                                   validation_feedback=feedback), 900))
                 result["summary"] = report_summary(result)
+            _check_report_access(engine, job_id, token, session_id, expected_revision, input_hash)
+            result["semantic_audit"] = report_audit.validate(generate(
+                "report_audit", report_audit.messages(snapshot, segments, result), 3000), result, segments)
+            result["semantic_audit"]["model"] = os.environ.get("PDCA_SUPERVISOR_MODEL", "test-model")
             result["hints_used"] = hints_used
         elif kind == "memory":
             result = generate(kind, memory_messages, 4000)
@@ -228,8 +242,13 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             job = db.get(OmegaJob, job_id)
             if job and job.status == "running" and job.lease_token == token:
                 retry = (kind == "report" and isinstance(exc, ValueError)
-                         and str(exc) in {"九维评分缺失", "销售评价缺少销售原话", "引文与当前逐字稿不匹配", "下轮练习建议无效"}
+                         and str(exc) in {"报告不是完整 JSON", "评分越界", "九维评分缺失", "销售评价缺少销售原话", "引文与当前逐字稿不匹配", "下轮练习建议无效", "证据不足的评分项不能附打分引文", report_audit.ERROR}
                          and job.attempts < 2)
+                if retry:
+                    previous = json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else candidate
+                    feedback = {"message": str(exc)[:300], "previous_report": previous[:24000],
+                                "findings": getattr(exc, "findings", [])[:30]}
+                    job.payload_json = json.dumps({"report_validation_feedback": feedback}, ensure_ascii=False)
                 job.status = "queued" if retry else "failed"
                 job.error = "" if retry else str(exc)[:300]
                 job.lease_token = ""

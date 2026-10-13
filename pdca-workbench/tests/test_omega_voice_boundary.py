@@ -19,7 +19,7 @@ class VoiceBoundaryTests(unittest.TestCase):
 
     async def exercise(self, *, late_final=False, missing_final=False, revoke=False,
                        missing_close=False, stop_only=False, reuse_ids=False,
-                       commit_required=False, commit_ack_only=False):
+                       commit_required=False, commit_ack_only=False, expire=False, revoke_token=False):
         owner = self
         transports = []
 
@@ -46,7 +46,7 @@ class VoiceBoundaryTests(unittest.TestCase):
                     self.events.put_nowait({'type': 'session.created'})
                 elif event['type'] == 'input_audio_buffer.commit':
                     self.events.put_nowait({'type': 'input_audio_buffer.committed'})
-                    if commit_required and not commit_ack_only:
+                    if commit_required and not commit_ack_only and not revoke_token:
                         self.events.put_nowait({'type': 'conversation.item.input_audio_transcription.completed',
                                                 'item_id': 'unfinished', 'text': 'Accepted unfinished public speech'})
                 elif event['type'] == 'session.close':
@@ -113,7 +113,7 @@ class VoiceBoundaryTests(unittest.TestCase):
                     self.incoming.put_nowait({'type': 'websocket.receive', 'bytes': b'\x01\x00' * 320})
                     if not commit_required:
                         self.incoming.put_nowait({'type': 'websocket.receive', 'text': 'stop' if stop_only else json.dumps({'type': 'control', 'action': 'pause', 'request_key': 'boundary-pause', 'audio_epoch': 2})})
-                elif event['type'] == 'interrupt' and commit_required and not self.boundary_triggered:
+                elif event['type'] == 'interrupt' and commit_required and not self.boundary_triggered and not expire:
                     self.boundary_triggered = True
                     self.incoming.put_nowait({'type': 'websocket.receive', 'text': 'stop' if stop_only else json.dumps({'type': 'control', 'action': 'pause', 'request_key': 'boundary-pause', 'audio_epoch': event['audio_epoch'] + 1})})
                 elif event.get('request_key') == 'boundary-pause' and event.get('state') == 'coaching':
@@ -130,7 +130,13 @@ class VoiceBoundaryTests(unittest.TestCase):
             transports.append(provider)
             return provider
 
+        auth_checks = 0
         async def authorize(*_):
+            nonlocal auth_checks
+            auth_checks += 1
+            if revoke_token and auth_checks > 1:
+                from fastapi import HTTPException
+                raise HTTPException(401, 'synthetic credential revoked during tail')
             return self.user
 
         browser = Browser()
@@ -140,12 +146,14 @@ class VoiceBoundaryTests(unittest.TestCase):
              patch('app.omega.realtime.ws_user', side_effect=authorize), \
              patch('app.omega.realtime._acquire', return_value=(self.job_id, self.token, 'Synthetic public role')), \
              patch('app.omega.realtime.connect', side_effect=connection), \
+             patch('app.omega.realtime._max_connection_seconds', .5 if expire else 1800), \
+             patch('app.omega.realtime._auth_interval_seconds', .03 if revoke_token else 4), \
              patch.dict('os.environ', {'PDCA_OMEGA_REALTIME_PROVIDER': 'doubao', 'PDCA_DOUBAO_REALTIME_API_KEY': 'synthetic-no-network'}):
             await asyncio.wait_for(realtime_session(browser, self.session_id, db), 20)
         with Session(self.engine) as db:
             job = db.get(OmegaJob, self.job_id)
             saved = list(db.exec(select(OmegaSegment).order_by(OmegaSegment.seq)))
-            if missing_final or revoke or missing_close or commit_ack_only:
+            if missing_final or revoke or missing_close or commit_ack_only or revoke_token:
                 self.assertEqual(job.status, 'failed')
                 self.assertEqual(len(transports), 1)
                 self.assertEqual(browser.audio, [])
@@ -163,9 +171,19 @@ class VoiceBoundaryTests(unittest.TestCase):
                 self.assertNotIn('PRIVATE_LIMIT', transports[1].roles[0])
                 if late_final:
                     self.assertIn('Accepted old public speech', transports[1].roles[0])
+        if expire:
+            kinds = [event["type"] for event in browser.events]
+            self.assertIn("ending", kinds)
+            self.assertLess(kinds.index("ending"), kinds.index("closed"))
         self.assertTrue(all(p.closed for p in transports))
         self.assertTrue(all('response.cancel' not in p.sent for p in transports))
         self.assertEqual(sum(p.sent.count('input_audio_buffer.commit') for p in transports), int(commit_required))
+
+    def test_credential_revocation_during_tail_cannot_finish_successfully(self):
+        asyncio.run(self.exercise(commit_required=True, stop_only=True, revoke_token=True))
+
+    def test_expiry_commits_identified_speech_and_saves_final_before_close(self):
+        asyncio.run(self.exercise(commit_required=True, stop_only=True, expire=True))
 
     def test_stop_commits_identified_speech_and_saves_final_before_close(self):
         asyncio.run(self.exercise(commit_required=True, stop_only=True))

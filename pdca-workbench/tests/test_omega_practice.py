@@ -1,4 +1,5 @@
 """Focused advice must use the actual failed attempt without rewriting evidence."""
+from tests.omega_audit_fixture import audit_aware
 import copy
 import json
 import unittest
@@ -25,7 +26,7 @@ class OmegaPracticeTests(unittest.TestCase):
         self.reply = '先给出滞销兜底的书面条件，否则我现在不能提供这些数据。'
         self.client.post(f"/api/omega/sessions/{self.game['id']}/turns", json={
             'request_key': 'practice-first-attempt', 'text': self.utterance}).raise_for_status()
-        run_once(self.engine, generate=lambda *_: self.reply)
+        run_once(self.engine, generate=audit_aware(lambda *_: self.reply))
         self.parts = self.client.get(f"/api/omega/sessions/{self.game['id']}").json()['segments']
         quote = {'segment_id': self.parts[0]['id'], 'speaker': 'sales',
                  'start': 0, 'end': len(self.utterance), 'text': self.utterance,
@@ -61,7 +62,7 @@ class OmegaPracticeTests(unittest.TestCase):
             self.assertLessEqual(limit, 1000)
             return json.dumps({'next_practice': action}, ensure_ascii=False)
 
-        self.assertTrue(run_once(self.engine, generate=generate))
+        self.assertTrue(run_once(self.engine, generate=audit_aware(generate)))
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'succeeded', job)
         self.assertEqual(calls, ['report', 'practice'])
@@ -75,19 +76,101 @@ class OmegaPracticeTests(unittest.TestCase):
     def test_invalid_advice_is_retried_once_without_publishing_stale_recommendation(self):
         def generate(kind, *_):
             return json.dumps(self.raw) if kind == 'report' else json.dumps({'next_practice': ''})
-        run_once(self.engine, generate=generate)
+        run_once(self.engine, generate=audit_aware(generate))
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'queued')
         self.assertEqual(self.report_rows(), [])
-        run_once(self.engine, generate=generate)
+        run_once(self.engine, generate=audit_aware(generate))
         job = self.client.get('/api/omega/jobs/' + self.job_id).json()
         self.assertEqual(job['status'], 'failed')
         self.assertEqual(self.report_rows(), [])
+
+    def test_invalid_json_is_retried_with_feedback_then_published_only_if_valid(self):
+        reports = []
+        def generate(kind, messages, _limit):
+            if kind == 'report':
+                feedback = json.loads(messages[-1]['content'])['validation_feedback']
+                reports.append(feedback)
+                return json.dumps(self.raw) + ';' if len(reports) == 1 else json.dumps(self.raw)
+            return json.dumps({'next_practice': '先核对客户需要哪些书面风险边界，再准备待审批草案。'})
+        run_once(self.engine, generate=audit_aware(generate))
+        self.assertEqual(self.client.get('/api/omega/jobs/'+self.job_id).json()['status'], 'queued')
+        self.assertEqual(self.report_rows(), [])
+        run_once(self.engine, generate=audit_aware(generate))
+        self.assertEqual(self.client.get('/api/omega/jobs/'+self.job_id).json()['status'], 'succeeded')
+        self.assertEqual(len(reports), 2)
+        self.assertEqual(reports[1]['message'], '报告不是完整 JSON')
+        self.assertTrue(reports[1]['previous_report'].endswith(';'))
+
+    def test_out_of_range_score_retries_once_and_never_publishes(self):
+        invalid = copy.deepcopy(self.raw)
+        next(item for item in invalid['dimensions'] if item['key'] == 'value')['score'] = 13
+        calls = []
+        def generate(kind, messages, _limit):
+            self.assertEqual(kind, 'report')
+            calls.append(json.loads(messages[-1]['content'])['validation_feedback'])
+            return json.dumps(invalid)
+        for _ in range(2):
+            run_once(self.engine, generate=generate)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1]['message'], '评分越界')
+        self.assertEqual(self.client.get('/api/omega/jobs/'+self.job_id).json()['status'], 'failed')
+        self.assertEqual(self.report_rows(), [])
+
+    def test_missing_seller_evidence_feedback_names_the_failed_dimension(self):
+        invalid = copy.deepcopy(self.raw)
+        dimension = next(item for item in invalid['dimensions'] if item['key'] == 'outcome')
+        dimension.update(score=0, quotes=[{'segment_id': self.parts[1]['id'],
+            'speaker': 'counterparty', 'start': 0, 'end': len(self.reply), 'text': self.reply}])
+        attempts = []
+        def generate(kind, messages, _limit):
+            if kind == 'report':
+                attempts.append(json.loads(messages[-1]['content'])['validation_feedback'])
+                return json.dumps(invalid if len(attempts) == 1 else self.raw)
+            return json.dumps({'next_practice': '先核对书面风险边界，再准备待审批的评估草案。'})
+        for _ in range(2):
+            run_once(self.engine, generate=audit_aware(generate))
+        self.assertEqual(attempts[1]['findings'][0]['path'], 'dimensions.outcome')
+        self.assertEqual(self.client.get('/api/omega/jobs/'+self.job_id).json()['status'], 'succeeded')
+
+    def test_final_rewritten_advice_is_audited_and_rejection_never_publishes(self):
+        calls = []
+        final_action = '先给客户填写已被拒绝的库存和资金数据表。'
+        def generate(kind, messages, _limit):
+            calls.append(kind)
+            if kind == 'report':
+                feedback = json.loads(messages[-1]['content'])['validation_feedback']
+                if calls.count('report') == 2:
+                    self.assertEqual(feedback['message'], '报告语义复核未通过')
+                    self.assertEqual(feedback['findings'][0]['path'], 'next_practice')
+                    self.assertIn(final_action, feedback['previous_report'])
+                else:
+                    self.assertEqual(feedback, {})
+                return json.dumps(self.raw)
+            if kind == 'practice':
+                if calls.count('practice') == 2:
+                    feedback = json.loads(messages[-1]['content'])['validation_feedback']
+                    self.assertEqual(feedback[0]['path'], 'next_practice')
+                    self.assertIn('已拒绝', feedback[0]['reason'])
+                return json.dumps({'next_practice': final_action})
+            self.assertEqual(kind, 'report_audit')
+            payload = json.loads(messages[-1]['content'])
+            self.assertEqual(payload['claims']['next_practice'], final_action)
+            return json.dumps({'checks': [{
+                'path': path, 'verdict': 'unsupported' if path == 'next_practice' else 'supported',
+                'reason': '仍索取客户已拒绝提供的数据。',
+                'segment_ids': [item['id'] for item in payload['transcript']],
+            } for path in payload['claims']]})
+        for _ in range(2):
+            run_once(self.engine, generate=generate)
+            self.assertEqual(self.report_rows(), [])
+        self.assertEqual(calls, ['report', 'practice', 'report_audit']*2)
+        self.assertEqual(self.client.get('/api/omega/jobs/'+self.job_id).json()['status'], 'failed')
 
     def test_advice_cannot_return_replacement_scores_or_facts(self):
         def generate(kind, *_):
             return json.dumps(self.raw) if kind == 'report' else json.dumps({
                 'next_practice': '确认订单。', 'score': {'total': 100}})
-        run_once(self.engine, generate=generate)
+        run_once(self.engine, generate=audit_aware(generate))
         self.assertEqual(self.report_rows(), [])
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'queued')
 
@@ -95,7 +178,7 @@ class OmegaPracticeTests(unittest.TestCase):
         for dimension in self.raw['dimensions']:
             dimension.update(score=None, reason='证据不足', quotes=[])
         calls = []
-        run_once(self.engine, generate=lambda kind, *_: calls.append(kind) or json.dumps(self.raw))
+        run_once(self.engine, generate=audit_aware(lambda kind, *_: calls.append(kind) or json.dumps(self.raw)))
         self.assertEqual(calls, ['report'])
         self.assertEqual(self.client.get('/api/omega/jobs/' + self.job_id).json()['status'], 'succeeded')
 
@@ -119,7 +202,7 @@ class OmegaPracticeTests(unittest.TestCase):
                 db.get(User, 1).team_key = 'different-team'
                 db.commit()
             return json.dumps(self.raw)
-        run_once(self.engine, generate=generate)
+        run_once(self.engine, generate=audit_aware(generate))
         self.assertEqual(calls, ['report'])
         self.assertEqual(self.report_rows(), [])
         with Session(self.engine) as db:
@@ -133,7 +216,7 @@ class OmegaPracticeTests(unittest.TestCase):
                 db.get(OmegaSession, self.game['id']).revision += 1
                 db.commit()
             return json.dumps(self.raw)
-        run_once(self.engine, generate=generate)
+        run_once(self.engine, generate=audit_aware(generate))
         self.assertEqual(calls, ['report'])
         self.assertEqual(self.report_rows(), [])
         with Session(self.engine) as db:

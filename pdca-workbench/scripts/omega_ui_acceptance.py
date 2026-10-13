@@ -22,11 +22,13 @@ from playwright.sync_api import expect, sync_playwright
 from sqlmodel import Session, select
 
 from app.omega.jobs import run_once
+from tests.omega_audit_fixture import audit_aware
 from app.omega.models import OmegaSession, OmegaWorkerHeartbeat
 from app.omega.reports import WEIGHTS
 from tests.test_omega_flow import OmegaFlowTests
 
 
+@audit_aware
 def generate(kind, messages, _limit):
     if kind == 'turn':
         return '请明确下一步的负责人和确认时间。'
