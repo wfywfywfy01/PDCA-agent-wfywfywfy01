@@ -76,6 +76,12 @@ test('report weights determine relative strengths and training percentage', () =
   assert.equal(page.focusPercent.value, 40)
 })
 
+test('microphone permission errors give actionable Chinese guidance', () => {
+  const { page } = mountReview()
+  assert.match(page.detail(new DOMException('Permission denied', 'NotAllowedError')), /麦克风权限被拒绝/)
+  assert.match(page.detail(new DOMException('Requested device not found', 'NotFoundError')), /未找到麦克风/)
+})
+
 test('corrected speech retains its original recognition only in collapsed transcript details', async () => {
   const { page, html } = mountReview()
   const original = '今天先不急着订手单。'

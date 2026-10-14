@@ -241,7 +241,14 @@ function caseBody(): CaseDraft {
       currency: draft.value.goal.outcome_type === 'payment_commitment' ? draft.value.goal.currency : null,
       due_date: draft.value.goal.outcome_type === 'payment_commitment' ? draft.value.goal.due_date : null } }
 }
-function detail(err: unknown): string { return err instanceof HttpError ? err.detail : err instanceof Error ? err.message : '请求失败，请重试' }
+function detail(err: unknown): string {
+  if (err instanceof DOMException) {
+    if (['NotAllowedError', 'SecurityError'].includes(err.name)) return '麦克风权限被拒绝，请在浏览器地址栏允许麦克风后重试。'
+    if (err.name === 'NotFoundError') return '未找到麦克风，请连接麦克风后重试。'
+    if (err.name === 'NotReadableError') return '麦克风无法使用，请检查是否被其他程序占用。'
+  }
+  return err instanceof HttpError ? err.detail : err instanceof Error ? err.message : '请求失败，请重试'
+}
 function key(): string { return crypto.randomUUID() }
 function canWrite(ownerId: number): boolean { return me.value?.id === ownerId || ['manager', 'admin'].includes(me.value?.role || '') }
 function caseName(id: string): string { return cases.value.find((row) => row.id === id)?.title || '谈判任务' }
@@ -287,6 +294,9 @@ async function openSession(id: string) {
   chosenSession.value = game
   setupOpen.value = false
   sidebarTab.value = 'sessions'
+  await nextTick()
+  if (token !== openToken) return
+  window.scrollTo(0, 0)
   if (['manager', 'admin'].includes(me.value?.role || '') && members.value.some((row) => row.id === game.owner_id)) {
     assignUserId.value = game.owner_id
   }
@@ -1086,6 +1096,12 @@ watch(callOpen, async (open) => {
 })
 watch(voiceVolume, (volume) => {
   if (voiceGain && voiceOutput) voiceGain.gain.setTargetAtTime(volume, voiceOutput.currentTime, 0.03)
+})
+watch(error, async (message) => {
+  if (message) {
+    await nextTick()
+    document.querySelector('.omega > .omega-alert')?.scrollIntoView({ block: 'center' })
+  }
 })
 watch(caseBriefInput, () => { analysisReady.value = false; reviewOpen.value = false })
 onMounted(async () => {

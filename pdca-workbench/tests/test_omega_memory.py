@@ -783,3 +783,23 @@ class OmegaParticipantContextTests(unittest.TestCase):
         self.assertNotIn("采购自己的信息", prompt)
         self.assertNotIn("销售私有信息", prompt)
         self.assertNotIn("私人教练记忆", prompt)
+
+    def test_actor_prompt_uses_names_without_exposing_internal_speaker_ids(self):
+        from app.omega.context import actor_messages
+
+        buyer_id, finance_id = str(uuid4()), str(uuid4())
+        snapshot = {"participants": [
+            {"id": buyer_id, "name": "王经理", "role": "采购负责人", "is_primary": True},
+            {"id": finance_id, "name": "李总", "role": "财务负责人"},
+        ]}
+        segments = [
+            {"speaker": "counterparty", "speaker_id": buyer_id, "text": "库存要先核实。"},
+            {"speaker": "sales", "speaker_id": "sales", "text": "李总，请谈付款。"},
+            {"speaker": "counterparty", "speaker_id": finance_id, "text": "付款需核实。"},
+        ]
+        messages = actor_messages(snapshot, segments)
+        self.assertEqual([item["role"] for item in messages[1:]], ["user", "user", "assistant"])
+        self.assertEqual([item["content"] for item in messages[1:]], [
+            "王经理：库存要先核实。", "销售：李总，请谈付款。", "付款需核实。"])
+        self.assertNotIn(buyer_id, json.dumps(messages, ensure_ascii=False))
+        self.assertNotIn(finance_id, json.dumps(messages, ensure_ascii=False))

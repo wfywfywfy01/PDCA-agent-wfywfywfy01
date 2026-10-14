@@ -135,9 +135,9 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             turn_id = next((part.get("turn_id") for part in reversed(segments) if part["speaker"] == "sales"), None)
             messages = actor_messages(snapshot, segments, focus=focus)
             result = generate(kind, messages, 1500)
-            if not result or not result.strip():
+            result = (result or "").strip().removeprefix(f"[{selected_speaker['id']}]").strip()
+            if not result:
                 raise ValueError("模拟客户回复为空")
-            result = result.strip()
             if len(result) > 4000:
                 raise ValueError("模拟客户回复超出长度上限")
         elif kind == "report":
