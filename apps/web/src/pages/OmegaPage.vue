@@ -1162,7 +1162,7 @@ onBeforeUnmount(() => {
 
 <template>
   <AppNav />
-  <main class="page omega">
+  <main class="page omega" :class="{ 'is-setup': setupOpen && !profilesOpen }">
     <header class="page-head omega-head">
       <div><p class="omega-kicker">培训 · 会前演练 · 会后复盘</p><h1>会议陪练</h1><p class="sub">选一张场景卡，练到关键问题，带着下一步去见客户。</p></div>
       <div class="omega-head-meta"><button class="btn btn-sm btn-ghost" type="button" :disabled="callOpen || busy || !me" @click="profilesOpen = !profilesOpen">{{ profilesOpen ? '返回练习' : '查看档案' }}</button><span class="pill pill-muted">组内可见</span><span :class="['pill', realtimeReady ? 'pill-green' : 'pill-muted']">{{ realtimeReady ? '实时语音可用' : '实时语音未配置' }}</span></div>
@@ -1577,6 +1577,8 @@ onBeforeUnmount(() => {
   .omega-quick-card { min-height: 64px; flex-direction: row; align-items: center; }
 }
 @media (max-width: 640px) {
+  .omega.is-setup .omega-head > div:first-child { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .omega.is-setup .omega-head { margin-bottom: 12px; }
   .omega-side-toggle { display: inline-flex; }
   .omega-side.is-collapsed .omega-side-tabs, .omega-side.is-collapsed .omega-side-body { display: none; }
   .omega-workspace { display: flex; flex-direction: column; }
