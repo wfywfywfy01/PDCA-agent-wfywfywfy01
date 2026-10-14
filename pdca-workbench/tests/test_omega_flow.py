@@ -122,6 +122,7 @@ class OmegaFlowTests(unittest.TestCase):
         self.assertIn(game["id"], visible_sessions)
         self.assertNotIn(qa_game["id"], visible_sessions)
         self.assertEqual(self.client.get(f"/api/omega/sessions/{qa_game['id']}").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/omega/sessions?before={qa_game['id']}").status_code, 404)
         self.assertEqual(self.client.get(f"/api/omega/reports/{report_id}").status_code, 200)
         reviewed = self.client.post(f"/api/omega/reports/{report_id}/reviews", json={
             "comment": "先明确交付条件，再约定书面确认。"})
@@ -140,6 +141,47 @@ class OmegaFlowTests(unittest.TestCase):
         self.assertIn(assigned.json()["id"], [row["id"] for row in self.client.get("/api/omega/assignments").json()])
         self.current = User(id=1, username="seller-a", role="sales", team_key="team-a")
         self.assertEqual(self.client.get(f"/api/omega/assignments/{assigned.json()['id']}").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/omega/assignments?before={assigned.json()['id']}").status_code, 404)
+
+    def test_session_and_assignment_history_can_be_paged(self):
+        from app.omega.models import OmegaSession
+
+        with Session(self.engine) as db:
+            db.add(User(id=2, username="manager-a", role="manager", team_key="team-a",
+                        hashed_password="test-only", is_active=True))
+            db.commit()
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        session_ids = [self.client.post("/api/omega/sessions", json={"case_id": case["id"]}).json()["id"]
+                       for _ in range(3)]
+        with Session(self.engine) as db:
+            source = db.get(OmegaSession, session_ids[-1])
+            db.add(OmegaSession(case_id=case["id"], case_version_id=source.case_version_id,
+                                team_key="team-a", owner_id=1,
+                                context_source_session_ids_json='["missing-source"]'))
+            db.commit()
+        first = self.client.get("/api/omega/sessions?limit=2")
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual([row["id"] for row in first.json()], session_ids[2:0:-1])
+        second = self.client.get(f"/api/omega/sessions?limit=2&before={first.json()[-1]['id']}")
+        self.assertEqual([row["id"] for row in second.json()], session_ids[:1])
+        self.assertEqual(self.client.get("/api/omega/sessions?limit=0").status_code, 422)
+
+        self.current = User(id=2, username="manager-a", role="manager", team_key="team-a")
+        assignment_ids = []
+        for _ in range(3):
+            response = self.client.post("/api/omega/assignments", json={
+                "case_id": case["id"], "assignee_id": 1, "target_dimension": "objections"})
+            self.assertEqual(response.status_code, 201, response.text)
+            assignment_ids.append(response.json()["id"])
+        self.client.post("/api/omega/assignments", json={
+            "case_id": case["id"], "assignee_id": 2, "target_dimension": "objections"}).raise_for_status()
+        self.current = User(id=1, username="seller-a", role="sales", team_key="team-a")
+        first = self.client.get("/api/omega/assignments?limit=2")
+        self.assertEqual([row["id"] for row in first.json()], assignment_ids[2:0:-1])
+        second = self.client.get(f"/api/omega/assignments?limit=2&before={first.json()[-1]['id']}")
+        self.assertEqual([row["id"] for row in second.json()], assignment_ids[:1])
+        self.assertEqual(self.client.get("/api/omega/assignments?limit=101").status_code, 422)
 
     def test_seller_can_repractice_only_from_own_report(self):
         from app.omega.models import OmegaReport

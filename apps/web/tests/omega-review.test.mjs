@@ -49,6 +49,24 @@ function dimension(key, score) {
   return { key, score, reason: key, quotes: [{ speaker: 'sales', text: '可核验的销售原话' }] }
 }
 
+test('history navigation keeps empty states separate from older-page controls', async () => {
+  const { page, html } = mountReview()
+  page.sidebarTab.value = 'assignments'
+  assert.match(await html(), /暂无指派练习/)
+  page.assignments.value = [{ id: 'assignment-1', case_id: 'case-1', target_dimension: 'objections',
+    status: 'pending', attempts: [] }]
+  page.assignmentsHasMore.value = true
+  assert.doesNotMatch(await html(), /暂无指派练习/)
+  assert.match(await html(), /加载更早指派/)
+  page.sidebarTab.value = 'sessions'
+  page.sessions.value = Array.from({ length: 6 }, (_, index) => ({ id: `session-${index}`,
+    case_id: 'case-1', status: 'ended' }))
+  page.sessionsHasMore.value = true
+  page.showAllSessions.value = true
+  assert.doesNotMatch(await html(), /还没有演练记录/)
+  assert.match(await html(), /加载更早记录/)
+})
+
 test('equal rubric ratios select the same first skill regardless of report array order', () => {
   const { page } = mountReview()
   page.chosenSession.value = { case_snapshot: { score_weights: { concessions: 12, value: 12, information: 12 } } }

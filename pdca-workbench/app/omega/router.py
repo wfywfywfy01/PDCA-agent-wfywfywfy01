@@ -7,7 +7,8 @@ import os
 from datetime import timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -301,6 +302,32 @@ def visible_assignment(db: Session, user: User, row: OmegaAssignment | None) -> 
     return row
 
 
+def history_page(db: Session, stmt, model, user: User, check, before: str | None, limit: int):
+    def older_than(row):
+        return or_(model.created_at < row.created_at,
+                   and_(model.created_at == row.created_at, model.id < row.id))
+
+    if before:
+        cursor = db.get(model, before)
+        check(db, user, cursor)
+        stmt = stmt.where(older_than(cursor))
+    visible = []
+    while len(visible) < limit:
+        rows = db.exec(stmt.order_by(model.created_at.desc(), model.id.desc()).limit(limit)).all()
+        for row in rows:
+            try:
+                check(db, user, row)
+            except HTTPException:
+                continue
+            visible.append(row)
+            if len(visible) == limit:
+                break
+        if len(visible) == limit or len(rows) < limit:
+            break
+        stmt = stmt.where(older_than(rows[-1]))
+    return visible
+
+
 @router.get("/team-members", dependencies=[Depends(enabled)])
 def team_members(user: Annotated[User, Depends(get_current_user)],
                  db: Annotated[Session, Depends(get_session)]):
@@ -368,17 +395,14 @@ def create_assignment(body: AssignmentCreate,
 
 @router.get("/assignments", dependencies=[Depends(enabled)])
 def list_assignments(user: Annotated[User, Depends(get_current_user)],
-                     db: Annotated[Session, Depends(get_session)]):
+                     db: Annotated[Session, Depends(get_session)],
+                     before: str | None = None,
+                     limit: int = Query(100, ge=1, le=100)):
     stmt = select(OmegaAssignment).where(OmegaAssignment.team_key.in_(visible_team_keys(user)))
-    rows = db.exec(stmt.order_by(OmegaAssignment.created_at.desc()).limit(100)).all()
-    visible = []
-    for row in rows:
-        try:
-            visible_assignment(db, user, row)
-        except HTTPException:
-            continue
-        visible.append(assignment_view(db, row))
-    return visible
+    if user.role == "sales":
+        stmt = stmt.where(OmegaAssignment.assignee_id == user.id)
+    rows = history_page(db, stmt, OmegaAssignment, user, visible_assignment, before, limit)
+    return [assignment_view(db, row) for row in rows]
 
 
 @router.get("/assignments/{assignment_id}", dependencies=[Depends(enabled)])
@@ -390,6 +414,10 @@ def get_assignment(assignment_id: str,
 
 def owned_session(db: Session, user: User, session_id: str) -> OmegaSession:
     row = db.get(OmegaSession, session_id)
+    return visible_session(db, user, row)
+
+
+def visible_session(db: Session, user: User, row: OmegaSession | None) -> OmegaSession:
     if row is None:
         raise HTTPException(404, "演练不存在")
     require_case(user, db, db.get(OmegaCase, row.case_id))
@@ -491,21 +519,15 @@ def get_session_view(
 def list_sessions(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_session)],
+    before: str | None = None,
+    limit: int = Query(100, ge=1, le=100),
 ):
     stmt = select(OmegaSession).where(OmegaSession.team_key.in_(visible_team_keys(user)))
-    rows = db.exec(stmt.order_by(OmegaSession.created_at.desc()).limit(100)).all()
-    visible = []
-    for row in rows:
-        try:
-            require_case(user, db, db.get(OmegaCase, row.case_id))
-            require_session_source(user, db, row)
-        except HTTPException:
-            continue
-        visible.append({"id": row.id, "case_id": row.case_id, "owner_id": row.owner_id,
-                        "team_key": row.team_key,
-                        "mode": row.mode, "status": row.status,
-                        "created_at": row.created_at.isoformat()})
-    return visible
+    rows = history_page(db, stmt, OmegaSession, user, visible_session, before, limit)
+    return [{"id": row.id, "case_id": row.case_id, "owner_id": row.owner_id,
+             "team_key": row.team_key,
+             "mode": row.mode, "status": row.status,
+             "created_at": row.created_at.isoformat()} for row in rows]
 
 
 def job_view(row: OmegaJob) -> dict:

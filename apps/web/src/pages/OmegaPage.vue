@@ -79,6 +79,10 @@ const me = ref<{ id: number; role: string } | null>(null)
 const cases = ref<CaseRow[]>([])
 const sessions = ref<SessionRow[]>([])
 const assignments = ref<Assignment[]>([])
+const sessionsHasMore = ref(false)
+const assignmentsHasMore = ref(false)
+const loadingMoreSessions = ref(false)
+const loadingMoreAssignments = ref(false)
 const sidebarTab = ref<'cases' | 'assignments' | 'sessions'>('cases')
 const mobileNavOpen = ref(false)
 const showAllSessions = ref(false)
@@ -304,8 +308,34 @@ async function loadLists() {
   cases.value = caseRows.filter(row => row.kind !== 'template')
   sessions.value = sessionRows
   assignments.value = assignmentRows
+  sessionsHasMore.value = sessionRows.length === 100
+  assignmentsHasMore.value = assignmentRows.length === 100
   if (chosenCase.value) chosenCase.value = caseRows.find((row) => row.id === chosenCase.value?.id) || null
   if (chosenAssignment.value) chosenAssignment.value = assignmentRows.find((row) => row.id === chosenAssignment.value?.id) || null
+}
+async function loadMoreSessions() {
+  if (loadingMoreSessions.value || !sessionsHasMore.value || !sessions.value.length) return
+  const cursor = sessions.value[sessions.value.length - 1].id
+  loadingMoreSessions.value = true
+  try {
+    const rows = await apiGet<SessionRow[]>(`/api/omega/sessions?before=${encodeURIComponent(cursor)}`)
+    if (sessions.value[sessions.value.length - 1]?.id !== cursor) return
+    sessions.value.push(...rows)
+    sessionsHasMore.value = rows.length === 100
+  } catch (err) { error.value = detail(err) }
+  finally { loadingMoreSessions.value = false }
+}
+async function loadMoreAssignments() {
+  if (loadingMoreAssignments.value || !assignmentsHasMore.value || !assignments.value.length) return
+  const cursor = assignments.value[assignments.value.length - 1].id
+  loadingMoreAssignments.value = true
+  try {
+    const rows = await apiGet<Assignment[]>(`/api/omega/assignments?before=${encodeURIComponent(cursor)}`)
+    if (assignments.value[assignments.value.length - 1]?.id !== cursor) return
+    assignments.value.push(...rows)
+    assignmentsHasMore.value = rows.length === 100
+  } catch (err) { error.value = detail(err) }
+  finally { loadingMoreAssignments.value = false }
 }
 async function openSession(id: string) {
   profilesOpen.value = false
@@ -1201,15 +1231,17 @@ onBeforeUnmount(() => {
             <ul v-if="assignments.length" class="omega-list"><li v-for="row in assignments" :key="row.id">
               <button type="button" class="omega-link" :class="{ selected: chosenAssignment?.id === row.id }" :aria-current="chosenAssignment?.id === row.id ? 'true' : undefined" @click="showAssignment(row)"><strong>{{ caseName(row.case_id) }}</strong><small>{{ me?.role === 'admin' && row.team_key ? `${row.team_key} · ` : '' }}{{ dimensionNames[row.target_dimension] }} · {{ row.status === 'passed' ? '已达标' : row.status === 'in_progress' ? '练习中' : '待练' }} · {{ row.attempts.length }} 次</small></button>
             </li></ul>
-            <p v-else class="omega-side-empty">暂无指派练习。</p>
+            <button v-if="assignmentsHasMore" class="omega-more" type="button" :disabled="loadingMoreAssignments" @click="loadMoreAssignments">{{ loadingMoreAssignments ? '加载中…' : '加载更早指派' }}</button>
+            <p v-if="!assignments.length" class="omega-side-empty">暂无指派练习。</p>
           </template>
           <template v-else>
             <p class="omega-list-title">最近演练</p>
             <ul v-if="sessions.length" class="omega-list"><li v-for="(row, index) in (showAllSessions ? sessions : sessions.slice(0, 5))" :key="row.id">
               <button type="button" class="omega-link" :class="{ selected: chosenSession?.id === row.id }" :aria-current="chosenSession?.id === row.id ? 'true' : undefined" @click="openSession(row.id).catch((err) => error = detail(err))"><strong>{{ caseName(row.case_id) }}</strong><small>{{ me?.role === 'admin' && row.team_key ? `${row.team_key} · ` : '' }}记录 {{ index + 1 }} · {{ row.status === 'active' ? '进行中' : '已结束' }}<span v-if="row.created_at"> · {{ new Date(row.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</span></small></button>
             </li></ul>
-            <button v-if="sessions.length > 5" class="omega-more" type="button" @click="showAllSessions = !showAllSessions">{{ showAllSessions ? '收起记录' : `查看全部 ${sessions.length} 条` }}</button>
-            <p v-else class="omega-side-empty">还没有演练记录。</p>
+            <button v-if="sessions.length > 5" class="omega-more" type="button" @click="showAllSessions = !showAllSessions">{{ showAllSessions ? '收起记录' : `查看${sessionsHasMore ? '最近' : '全部'} ${sessions.length} 条` }}</button>
+            <button v-if="showAllSessions && sessionsHasMore" class="omega-more" type="button" :disabled="loadingMoreSessions" @click="loadMoreSessions">{{ loadingMoreSessions ? '加载中…' : '加载更早记录' }}</button>
+            <p v-if="!sessions.length" class="omega-side-empty">还没有演练记录。</p>
           </template>
         </div>
       </aside>
