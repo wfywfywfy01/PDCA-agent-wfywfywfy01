@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import re
 from datetime import datetime
 from typing import Annotated
 from urllib.parse import quote
@@ -15,7 +14,7 @@ from sqlmodel import Session, select
 
 from app.auth.deps import require_role
 from app.auth.models import User
-from app.auth.scope import scoped_active_dealer_names, scoped_active_store_ids
+from app.auth.scope import normalize_scope_key, resolve_data_scope, scoped_active_dealer_names
 from app.config import get_settings
 from app.database import get_session
 from app.models.dealer_sales import DealerSales, snapshot_amount_state
@@ -132,13 +131,18 @@ async def export_dealer_sales(
 ):
     """导出经销商 sell-in/sell-out 业绩 Excel。"""
     stmt = select(DealerSales).order_by(DealerSales.check_date, DealerSales.dealer_name)
-    if month and re.fullmatch(r"\d{4}-\d{2}", month):
+    if month:
+        require_iso_month(month)
         stmt = stmt.where(DealerSales.check_date.startswith(month))
+    scope = resolve_data_scope(user, session)
     names = scoped_active_dealer_names(user, session)
-    rows = (
-        session.exec(stmt.where(DealerSales.dealer_name.in_(names))).all()
-        if names else []
-    )
+    if scope.unrestricted:
+        rows = session.exec(stmt).all()
+    elif names:
+        rows = session.exec(stmt.where(DealerSales.dealer_name.in_(names))).all()
+    else:
+        rows = []
+    active_names = {normalize_scope_key(name) for name in names}
     batches: dict[str, list[DealerSales]] = {}
     for row in rows:
         batches.setdefault(row.check_date, []).append(row)
@@ -149,7 +153,7 @@ async def export_dealer_sales(
     ws.title = f"业绩_{month or '全部'}"
 
     headers = ["日期", "经销商", "区域", "国家",
-                "Sell-in(万)", "Sell-out(万)", "台量", "同步时间", "Sell-in金额状态"]
+                "Sell-in(万)", "Sell-out(万)", "台量", "同步时间", "门店映射状态", "Sell-in金额状态"]
     ws.append(headers)
     _header_style(ws, 1, len(headers))
 
@@ -158,6 +162,7 @@ async def export_dealer_sales(
             r.check_date, r.dealer_name, r.region, r.country,
             r.sell_in_wan if amount_states[r.check_date] == "available" else None, r.sell_out_wan, r.units,
             r.synced_at.strftime("%Y-%m-%d %H:%M") if r.synced_at else "",
+            "已匹配在用门店" if normalize_scope_key(r.dealer_name) in active_names else "未映射门店",
             "金额待复核（旧快照有销量但金额全部为零）" if amount_states[r.check_date] == "suspect" else "可用",
         ])
 

@@ -324,6 +324,21 @@ class ProductionDataReviewTests(unittest.TestCase):
         self.assertIsNone(exported_row[4])
         self.assertIn("待复核", exported_row[-1])
 
+    def test_admin_export_preserves_unmapped_source_rows_without_leaking_to_sales(self):
+        from app.export.router import export_dealer_sales
+        captured = []
+        with Session(self.engine) as session:
+            session.add(DealerSales(check_date="2026-08-31", dealer_name="Masked Source 123", sell_in_wan=25, units=2))
+            session.commit()
+            with patch("app.export.router._wb_response", side_effect=lambda wb, name: captured.append(wb)):
+                asyncio.run(export_dealer_sales(self.admin, session, month="2026-08"))
+                sales_user = User(username="sales", role="sales", hashed_password="unused", data_scope="self")
+                asyncio.run(export_dealer_sales(sales_user, session, month="2026-08"))
+        admin_rows = list(captured[0].active.iter_rows(values_only=True))
+        sales_rows = list(captured[1].active.iter_rows(values_only=True))
+        self.assertTrue(any(row[1] == "Masked Source 123" and row[-2] == "未映射门店" for row in admin_rows))
+        self.assertEqual(len(sales_rows), 1)
+
     def test_verified_zero_amount_remains_real_zero_with_units(self):
         from app.models.dealer_sales import snapshot_amount_state
         self.assertEqual(snapshot_amount_state([DealerSales(check_date="2026-08-31", dealer_name="Real Store", sell_in_wan=0, units=1, source_file="vertu-cli:sales-orders:validated")]), "available")

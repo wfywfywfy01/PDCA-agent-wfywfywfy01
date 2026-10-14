@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.agents.models import AgentRun
-from app.agents.router import create_agent_task, run_detail, runs_list, stats
+from app.agents.router import agent_health, create_agent_task, run_detail, runs_list, stats
 from app.auth.models import User
 from app.models.dealer_store import DealerStore
 from app.models.pdca_task import PdcaTask
@@ -86,6 +86,16 @@ class AgentTeamScopeTests(unittest.TestCase):
                 ))
         self.assertEqual(denied.exception.status_code, 403)
         build_summary.assert_not_called()
+
+    def test_pending_slot_is_not_a_health_problem(self):
+        admin = User(username="admin", role="admin", data_scope="all", hashed_password="x")
+        pending = {"date": "2026-09-17", "timezone": "Asia/Shanghai", "hour": "15:00", "ok": None, "state": "pending"}
+        with patch("app.agents.router.all_slot_health_today", return_value=[pending]), patch(
+            "app.agents.router.list_outbox", return_value=[],
+        ):
+            result = asyncio.run(agent_health(user=admin))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["slot_problem_count"], 0)
 
 
 if __name__ == "__main__":

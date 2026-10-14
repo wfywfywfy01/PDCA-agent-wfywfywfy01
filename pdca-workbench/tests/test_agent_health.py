@@ -82,6 +82,16 @@ class SlotHealthTests(unittest.TestCase):
             "messages": {str(i): "m" for i in range(groups)},
         }, ensure_ascii=False), encoding="utf-8")
 
+    def test_today_future_slot_is_pending_not_failed(self):
+        now = datetime(2026, 9, 17, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch.object(flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]), patch.object(
+            flow_controller, "_health_hours", return_value=[10, 15],
+        ), patch.object(flow_controller, "check_slot_health") as check:
+            reports = flow_controller.all_slot_health_today("2026-09-17", now=now)
+        self.assertEqual([row["state"] for row in reports], ["pending", "pending"])
+        self.assertTrue(all(row["ok"] is None for row in reports))
+        check.assert_not_called()
+
     def test_shanghai_slot_all_green(self):
         day = "2026-09-17"
         self._write_slot(

@@ -10,6 +10,12 @@ from app.auth.vps_identity import vps_username
 
 
 class OdooSsoTicketTests(unittest.TestCase):
+    def test_odoo_addon_points_to_current_pdca_host(self):
+        from pathlib import Path
+
+        controller = Path(__file__).resolve().parents[1] / "odoo_addons/pdca_embed_sso/controllers/embed.py"
+        self.assertIn('PDCA_BASE = "https://pdca-workbench-teams.vertu.cn"', controller.read_text(encoding="utf-8"))
+
     def test_roundtrip(self):
         ticket = issue_odoo_ticket(
             login="fuwangyang",

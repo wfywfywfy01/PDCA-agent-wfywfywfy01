@@ -311,7 +311,7 @@ async def agent_health(
         slot_reports = [
             row for row in slot_reports if row.get("channel_id") in allowed_channels
         ]
-    problems = [item for item in slot_reports if not item.get("ok")]
+    problems = [item for item in slot_reports if item.get("ok") is False]
     return {
         "enabled": settings.agent_enabled,
         "shadow_mode": settings.agent_shadow_mode,

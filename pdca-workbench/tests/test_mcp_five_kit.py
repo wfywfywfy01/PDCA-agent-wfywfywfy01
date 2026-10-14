@@ -158,8 +158,20 @@ class ToolScopeTests(unittest.TestCase):
                 five_kit_missing("2026-09-16")
         with patch("app.mcp_five_kit._authorized_user", lambda: self._auth("admin", ())):
             result = five_kit_missing("2026-09-16")
-        self.assertEqual(result["reported"], 2)
-        self.assertEqual(result["missing_count"], 0)
+        self.assertEqual(result["required_stores"], 6)
+        self.assertEqual(result["reported"], 0)
+        self.assertEqual(result["missing_count"], 6)
+
+        # A zero-visits report from a required store still counts as submitted.
+        self.session.add(WalkinDailyReport(
+            report_date="2026-09-16", dealer_id="me005", dealer_name="Dar Al Sabaek",
+            walkin_visits=0,
+        ))
+        self.session.commit()
+        with patch("app.mcp_five_kit._authorized_user", lambda: self._auth("admin", ())):
+            result = five_kit_missing("2026-09-16")
+        self.assertEqual(result["reported"], 1)
+        self.assertEqual(result["missing_count"], 5)
 
     def test_summary_uses_latest_store_day_revision(self):
         from app.mcp_five_kit import five_kit_summary

@@ -1,6 +1,6 @@
 # Odoo 嵌 PDCA 免登对接说明（给 ERP 同事）
 
-> 适用环境：`https://admin.vertu.cn`（Odoo 17）嵌套 `https://pdca-workbench.vertu.cn`  
+> 适用环境：`https://admin.vertu.cn`（Odoo 17）嵌套 `https://pdca-workbench-teams.vertu.cn`
 > PDCA 侧接口已上线，**缺的是 Odoo 侧 3 件事：装模块、配密钥、改 iframe 地址**。  
 > 需要：Odoo 后台 **设置管理员**（能装应用、能写系统参数、能改 `dealer_sale` 前端）。
 
@@ -11,7 +11,7 @@
 海外渠道中台（`dealer_sale`，菜单「经销商管理」）里，部分页面用 iframe 打开 PDCA：
 
 ```
-https://pdca-workbench.vertu.cn/
+https://pdca-workbench-teams.vertu.cn/
 ```
 
 两个站点不同源：
@@ -19,7 +19,7 @@ https://pdca-workbench.vertu.cn/
 | 站点 | 域 |
 |---|---|
 | Odoo | `admin.vertu.cn` |
-| PDCA 五件套门户 | `pdca-workbench.vertu.cn` |
+| PDCA 五件套门户 | `pdca-workbench-teams.vertu.cn` |
 
 Odoo 的 `session_id` **不会**带到 PDCA。用户在 Odoo 已登录，iframe 里仍要再登一次 PDCA。
 
@@ -38,12 +38,12 @@ iframe src = https://admin.vertu.cn/pdca/embed
     ↓  （同源，Odoo 知道当前 user）
 签发 ticket（120 秒有效，一次性跳转）
     ↓
-https://pdca-workbench.vertu.cn/api/auth/odoo-sso?ticket=...&next=/
+https://pdca-workbench-teams.vertu.cn/api/auth/odoo-sso?ticket=...&next=/
     ↓
 PDCA 校验 HMAC → 按 Odoo login 映射/创建本地账号 → 种 pdca_token → 进入页面
 ```
 
-**iframe 必须改成 Odoo 地址，不能继续直链 `pdca-workbench.vertu.cn`。**  
+**iframe 必须改成 Odoo 地址，不能继续直链 `pdca-workbench-teams.vertu.cn`。**
 直链 PDCA 时，PDCA 拿不到 Odoo 登录态。
 
 ---
@@ -76,7 +76,7 @@ pdca-workbench/odoo_addons/pdca_embed_sso/
 https://admin.vertu.cn/pdca/embed
 ```
 
-应变为 **302** 跳到 `https://pdca-workbench.vertu.cn/api/auth/odoo-sso?ticket=...`。  
+应变为 **302** 跳到 `https://pdca-workbench-teams.vertu.cn/api/auth/odoo-sso?ticket=...`。
 若仍是 404，模块没加载到（addons_path / 没重启 / 没点安装）。
 
 未登录访问该 URL：Odoo 会先跳自己的登录页，这是正常的（`auth='user'`）。
@@ -109,7 +109,7 @@ Odoo 和 PDCA **必须用同一串密钥**。
 把中台里嵌 PDCA 的 `src` 从：
 
 ```
-https://pdca-workbench.vertu.cn/
+https://pdca-workbench-teams.vertu.cn/
 ```
 
 改成：
@@ -141,14 +141,14 @@ https://admin.vertu.cn/pdca/embed?next=/walkin-submit
 iframe URL 很大概率写在 `dealer_sale` 的 OWL/JS（`dealer_dashboard`）或相应 QWeb/XML 里，搜索：
 
 ```
-pdca-workbench.vertu.cn
+pdca-workbench-teams.vertu.cn
 ```
 
 销售订单菜单 `dealer_sale.dealer_sale_order_menu_action`（action 1590）目前是原生 `dealer.sale.order` 列表。若你们后来改成了 iframe，同样搜上面这个域名并替换。
 
 改完后：**升级/更新 `dealer_sale` 模块**，浏览器强刷（Ctrl+F5）。静态资源有 hash 时清一下资源缓存。
 
-不要用 `https://pdca-workbench.vertu.cn/api/auth/odoo-sso?ticket=...` 当 iframe 的固定 src。ticket 120 秒过期，必须每次经 `/pdca/embed` 现签。
+不要用 `https://pdca-workbench-teams.vertu.cn/api/auth/odoo-sso?ticket=...` 当 iframe 的固定 src。ticket 120 秒过期，必须每次经 `/pdca/embed` 现签。
 
 ---
 
@@ -171,7 +171,7 @@ pdca-workbench.vertu.cn
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `/pdca/embed` 404 | 模块未安装或 addons_path 不对 | 步骤 A |
-| iframe 仍「拒绝连接」 | PDCA CSP 被旧镜像盖掉，或 iframe 还在直链且被拦 | 找 PDCA 看 `curl -sI https://pdca-workbench.vertu.cn/` 是否含 `frame-ancestors ... admin.vertu.cn` |
+| iframe 仍「拒绝连接」 | PDCA CSP 被旧镜像盖掉，或 iframe 还在直链且被拦 | 找 PDCA 看 `curl -sI https://pdca-workbench-teams.vertu.cn/` 是否含 `frame-ancestors ... admin.vertu.cn` |
 | 能嵌进去但仍是 PDCA 登录页 | 密钥没配/配错，或 iframe 仍直链 PDCA | 步骤 B、C |
 | 跳登录后马上失败 | ticket 过期（签发到跳转超过 120s）或 HMAC 算法被改 | 不要改 `embed.py` 签名格式；检查服务器时间 |
 | 门户用户 / public 进不去 | 故意拒绝 `public` 等账号 | 用内部员工账号 |
@@ -195,7 +195,7 @@ pdca-workbench.vertu.cn
 | 项 | 说明 |
 |---|---|
 | 模块路径 | PDCA 仓 `pdca-workbench/odoo_addons/pdca_embed_sso` |
-| PDCA 验票 | `GET https://pdca-workbench.vertu.cn/api/auth/odoo-sso` |
+| PDCA 验票 | `GET https://pdca-workbench-teams.vertu.cn/api/auth/odoo-sso` |
 | Odoo 入口 | `GET https://admin.vertu.cn/pdca/embed` |
 | 密钥 | 向 PDCA 要；Odoo key 固定为 `pdca.sso_secret` |
 

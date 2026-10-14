@@ -107,3 +107,9 @@ test('invalid date range cancels pending list without issuing another request', 
   assert.equal(page.vemoryLoading.value, false)
   assert.ok(page.error.value)
 })
+
+test('Vemory list renders its name and clear resets to a valid date', () => {
+  const source = readFileSync(new URL('../src/pages/MeetingPage.vue', import.meta.url), 'utf8')
+  assert.match(source, /asText\(row\.name\).*asText\(row\.title\)/)
+  assert.match(source, /@click="startDate = todayText\(\); endDate = ''"/)
+})

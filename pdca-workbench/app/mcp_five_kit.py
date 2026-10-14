@@ -340,28 +340,36 @@ def five_kit_summary(start_date: str, end_date: str = "", dealer_id: str = "") -
 )
 def five_kit_missing(report_date: str) -> dict:
     day = _iso(report_date, "report_date")
+    from app.daily_report import REQUIRED_FIVE_KIT_STORES
+
     with _authorized_user() as (user, session):
         allowed = _allowed_store_ids(user, session)
         if allowed is not None:
             raise PermissionError("应报未报名单仅管理员可见")
-        stores = list(
-            session.exec(select(DealerStore).where(DealerStore.is_active == True)).all()  # noqa: E712
-        )
+        stores = {
+            store.store_id: store
+            for store in session.exec(
+                select(DealerStore).where(DealerStore.store_id.in_(REQUIRED_FIVE_KIT_STORES))
+            ).all()
+        }
         reported = {
             r.dealer_id
             for r in session.exec(
                 select(WalkinDailyReport).where(WalkinDailyReport.report_date == day)
             ).all()
-        }
+        }.intersection(REQUIRED_FIVE_KIT_STORES)
         missing = [
-            {"store_id": s.store_id, "name": s.name, "region": s.region,
-             "sales_owner": s.sales_owner}
-            for s in stores
-            if s.store_id not in reported
+            {"store_id": store_id,
+             "name": stores[store_id].name if store_id in stores else fallback_name,
+             "region": stores[store_id].region if store_id in stores else "",
+             "sales_owner": stores[store_id].sales_owner if store_id in stores else ""}
+            for store_id, fallback_name in REQUIRED_FIVE_KIT_STORES.items()
+            if store_id not in reported
         ]
         return {
             "report_date": day,
-            "active_stores": len(stores),
+            "required_stores": len(REQUIRED_FIVE_KIT_STORES),
+            "active_stores": len(REQUIRED_FIVE_KIT_STORES),
             "reported": len(reported),
             "missing_count": len(missing),
             "missing": missing,

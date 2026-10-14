@@ -502,7 +502,9 @@ function Start-PdcaContainer {
 
     $logisticsAdminUpstream = Read-OptionalDotEnvValue "PDCA_LOGISTICS_ADMIN_UPSTREAM"
     if ([string]::IsNullOrWhiteSpace($logisticsAdminUpstream)) {
-        $logisticsAdminUpstream = "http://logistics-track:8080"
+        # logistics-track runs on Docker bridge; PDCA runs on dealer-knowledge.
+        # Its host-published private port is reachable from the PDCA container.
+        $logisticsAdminUpstream = "http://10.100.0.176:18080"
     }
 
     $dockerArgs = @(

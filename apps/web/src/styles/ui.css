@@ -65,10 +65,10 @@ select.input { cursor: pointer; }
 .card.pad { padding: 18px; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
-.stat { padding: 16px; display: grid; gap: 4px; }
-.stat-label { color: var(--muted); font-size: 12px; }
+.stat { padding: 16px; display: grid; gap: 4px; min-width: 0; }
+.stat-label { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .stat-value { font-size: 26px; font-weight: 600; line-height: 1.15; }
-.stat-note { color: var(--muted); font-size: 12px; }
+.stat-note { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 
 /* ── 表格 ───────────────────────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; }

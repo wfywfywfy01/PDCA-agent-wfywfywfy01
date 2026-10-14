@@ -371,11 +371,26 @@ def run_health_checks_for(now: datetime | None = None) -> list[dict]:
     return reports
 
 
-def all_slot_health_today(day: str) -> list[dict]:
+def all_slot_health_today(day: str, *, now: datetime | None = None) -> list[dict]:
     """给定日期全部时区/档位的健康状态（供后台展示，不告警）。"""
     settings = get_settings()
     reports = []
     for tz_name in cron_timezones():
+        try:
+            zone = ZoneInfo(tz_name)
+        except Exception:  # noqa: BLE001 - invalid legacy timezone must not break the health page
+            continue
+        local = (now or datetime.now(zone)).astimezone(zone)
+        local_day = local.strftime("%Y-%m-%d")
         for hour in _health_hours(tz_name, settings.duzhan_times):
-            reports.append(check_slot_health(tz_name, hour, day, expect_push=True, alert=False))
+            if day > local_day or (day == local_day and (hour > local.hour or (hour == local.hour and local.minute < 5))):
+                reports.append({
+                    "date": day, "timezone": tz_name, "hour": f"{hour:02d}:00",
+                    "ok": None, "state": "pending", "problems": [],
+                    "suggested_action": "", "checked_at": local.isoformat(timespec="seconds"),
+                })
+                continue
+            report = check_slot_health(tz_name, hour, day, now=local, expect_push=True, alert=False)
+            report["state"] = "passed" if report["ok"] else "failed"
+            reports.append(report)
     return reports

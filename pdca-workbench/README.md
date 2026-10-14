@@ -49,6 +49,7 @@ hybrid/vps 模式也可先通过 VPS 登录，再由管理员面板维护本地�
 | `/meeting-center/` | 会议中心 |
 | `/app/knowledge` | 经销商资料库（证据检索、AI 回答、图片预览） |
 | `/mcp/` | 经销商资料库 MCP（Streamable HTTP，Bearer 登录令牌） |
+| `/mcp-five-kit/` | 门店五件套只读 MCP（与网页相同的账号权限和必报口径） |
 | `/agent-admin` | 多智能体督战管理后台（manager+：待办统计/闭环率/运行/审批/健康） |
 
 ### 表单 POST
@@ -172,6 +173,10 @@ AI 客户端使用 `https://pdca-workbench-teams.vertu.cn/mcp/`。先调用
 `POST /api/auth/login` 获取 `access_token`，再把它作为 MCP 的
 `Authorization: Bearer <token>` 请求头。MCP 仅提供只读工具：列出当前账号可见
 经销商、检索脱敏证据、生成带引用回答；权限与网页完全一致。
+
+门店五件套 MCP 的正式地址是 `https://pdca-workbench-teams.vertu.cn/mcp-five-kit/`。
+旧独立域名 `pdca-mcp.vertu.cn` 不再作为客户端入口；更新客户端配置后，
+分别用 `initialize`、`tools/list` 和一个只读 `tools/call` 验证实际可用性。
 
 ## 实时语音发布
 
