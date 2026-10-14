@@ -819,15 +819,33 @@ Write-Output "Preparing immutable release directory for $Sha"
 # 当成致命错误（2>$null 也拦不住），经 cmd /c 包一层彻底隔离 stderr。
 $localObjectType = & cmd /c "git -C ""$RepoRoot"" cat-file -t $Sha 2>nul"
 $commitAvailable = $LASTEXITCODE -eq 0 -and $localObjectType -eq "commit"
+$archiveRef = $Sha
 if (-not $commitAvailable) {
     & cmd /c "git -C ""$RepoRoot"" fetch --no-tags origin $Sha 2>nul"
     $commitAvailable = $LASTEXITCODE -eq 0
+}
+if (-not $commitAvailable) {
+    # GitHub may be unreachable from this workstation while the private Docker
+    # host still has access. Only use local HEAD when its *tree* matches the
+    # immutable CI commit exactly; never archive an unverified local branch.
+    $treeProbe = "import json,sys,urllib.request; url='https://api.github.com/repos/'+sys.argv[1]+'/git/commits/'+sys.argv[2]; print(json.load(urllib.request.urlopen(url,timeout=10))['tree']['sha'])"
+    $remoteTree = (Invoke-Docker -DockerArgs @(
+        "run", "--rm", "--network", $KnowledgeNetwork, $image,
+        "python", "-c", $treeProbe, $CiRepo, $Sha
+    ) -TimeoutSeconds 35).Trim()
+    $localTree = (& git -C $RepoRoot rev-parse 'HEAD^{tree}').Trim()
+    if ($LASTEXITCODE -ne 0 -or $remoteTree -ne $localTree) {
+        throw "Local release tree does not match CI commit $Sha; deployment blocked"
+    }
+    $archiveRef = "HEAD"
+    $commitAvailable = $true
+    Write-Warning "Git fetch unavailable; using local HEAD with verified identical tree"
 }
 $archive = Join-Path $env:TEMP "pdca-release-$Sha.tar"
 $archiveIsGzip = $false
 try {
     if ($commitAvailable) {
-        & cmd /c "git -C ""$RepoRoot"" archive --format=tar --output=""$archive"" $Sha 2>nul"
+        & cmd /c "git -C ""$RepoRoot"" archive --format=tar --output=""$archive"" $archiveRef 2>nul"
         if ($LASTEXITCODE -ne 0) { throw "git archive failed for $Sha" }
     } else {
         Write-Warning "git fetch failed; downloading the same immutable commit from GitHub codeload"
