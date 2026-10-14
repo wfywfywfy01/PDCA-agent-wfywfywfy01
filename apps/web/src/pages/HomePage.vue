@@ -9,6 +9,7 @@ interface Me {
   username: string
   display_name: string
   role: string
+  must_change_password?: boolean
 }
 
 interface KpiPayload {
@@ -107,7 +108,25 @@ async function loadAll() {
   sellOut.value = null
   today.value = null
   customers.value = null
-  const keys = ['账号', 'sellIn', 'sellOut', 'today', 'customers']
+  try {
+    const identity = await apiGet<Me>('/api/auth/me')
+    if (id !== loadId) return
+    if (identity.must_change_password) {
+      router.replace({ path: '/login', query: { change_password: '1', next: '/' } })
+      return
+    }
+    me.value = identity
+  } catch (err) {
+    if (id !== loadId) return
+    if (err instanceof HttpError && err.status === 401) {
+      router.replace({ path: '/login', query: { next: '/' } })
+      return
+    }
+    error.value = err instanceof HttpError ? err.detail : '工作台数据加载失败，请稍后重试'
+    loading.value = false
+    return
+  }
+  const keys = ['sellIn', 'sellOut', 'today', 'customers']
   const applyResult = (index: number, result: SectionResult<unknown>) => {
     if (id !== loadId) return
     if (result.status === 'rejected' && result.reason instanceof HttpError && result.reason.status === 401) {
@@ -115,26 +134,22 @@ async function loadAll() {
       return
     }
     if (result.status === 'fulfilled') {
-      if (index === 0) me.value = result.value as Me
-      if (index === 1) sellIn.value = result.value as KpiPayload
-      if (index === 2) sellOut.value = result.value as KpiPayload
-      if (index === 3) today.value = result.value as TodayPayload
-      if (index === 4) customers.value = result.value as CustomerRow[]
+      if (index === 0) sellIn.value = result.value as KpiPayload
+      if (index === 1) sellOut.value = result.value as KpiPayload
+      if (index === 2) today.value = result.value as TodayPayload
+      if (index === 3) customers.value = result.value as CustomerRow[]
     }
     if (result.status === 'rejected') {
       sectionErrors.value[keys[index]] = result.reason instanceof HttpError ? result.reason.detail : '加载失败，请重试'
     }
   }
   const settle = await loadSections<unknown>([
-    () => apiGet<Me>('/api/auth/me'),
     () => apiGet<KpiPayload>(`/api/dashboard/sell-in?${qs()}`),
     () => apiGet<KpiPayload>(`/api/dashboard/sell-out?${qs()}`),
     () => apiGet<TodayPayload>(`/api/workbench/today?${qs()}`),
     () => apiGet<CustomerRow[]>('/api/customer-center/summary'),
   ], applyResult)
   if (id !== loadId) return
-  const [meR] = settle
-
   const rejected = settle.find(
     (r): r is PromiseRejectedResult =>
       r.status === 'rejected' && r.reason instanceof HttpError && r.reason.status === 401,
@@ -142,10 +157,6 @@ async function loadAll() {
   if (rejected) {
     router.replace({ path: '/login', query: { next: '/' } })
     return
-  }
-  if (meR?.status === 'rejected') {
-    error.value =
-      meR.reason instanceof HttpError ? meR.reason.detail : '工作台数据加载失败，请稍后重试'
   }
   loading.value = false
 }
@@ -200,7 +211,7 @@ onMounted(loadAll)
 </script>
 
 <template>
-  <AppNav />
+  <AppNav v-if="me" />
   <main class="page home-page">
       <header class="page-head home-head">
         <div>
