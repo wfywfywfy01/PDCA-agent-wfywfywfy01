@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.ctob import (
@@ -16,6 +18,7 @@ from app.ctob import (
     render_brief,
     run_ctob,
 )
+from app import ctob as ctob_module
 
 OWNER = CtobOwner("张心言", "776e2a94-884a-45dd-aab5-566e15e6b521", 31)
 
@@ -226,6 +229,81 @@ class CtobCompactTests(unittest.TestCase):
         self.assertIn("重点客户：汽车预售 迪拜线索", text20)
         self.assertNotIn("回复格式", text20)
 
+    def test_custom_times_use_nearest_business_stage(self):
+        prev = {"summary": {"reached": 21, "replied": 5}, "chats": self._chats()}
+        morning = render_brief(
+            OWNER, "2026-09-19", {}, [], parse_cohort(COHORT), hour=9, minute=35, prev=prev,
+        )
+        midday = render_brief(
+            OWNER, "2026-09-19", {"reached": 30, "replied": 8}, self._chats(), {},
+            hour=14, minute=35, prev=prev,
+        )
+        evening = render_brief(
+            OWNER, "2026-09-19", {"reached": 30, "replied": 8}, self._chats(), {},
+            hour=19, minute=35,
+        )
+        self.assertIn("09:35 C转B早追", morning)
+        self.assertIn("请回：今日汽车/转B 3–5 项", morning)
+        self.assertIn("14:35 C转B中追", midday)
+        self.assertIn("本档新增", midday)
+        self.assertIn("19:35 C转B晚追", evening)
+        self.assertIn("本档口径", evening)
+
+    def test_custom_midday_names_actual_previous_slot(self):
+        prev = {"summary": {"reached": 21, "replied": 5}, "chats": self._chats()}
+        current = {"reached": 30, "replied": 8}
+        text = render_brief(
+            OWNER, "2026-09-19", current, self._chats(), {},
+            hour=14, minute=10, prev=prev, previous_slot="09:35",
+        )
+        self.assertIn("对照 09:35 档", text)
+        self.assertIn("相对 09:35 的变化", text)
+        self.assertNotIn("相对 10:00 的变化", text)
+
+    def test_custom_time_reads_the_actual_previous_follow_snapshot(self):
+        agent = SimpleNamespace(blocks_json=json.dumps({"blocks": [
+            {"type": "times", "slots": ["09:35", "14:10", "19:45"]},
+        ]}))
+        expected = {"summary": {"reached": 3}}
+        with patch("app.ctob.load_snapshot", return_value={OWNER.channel_id: expected}) as load:
+            result = ctob_module._previous_snapshot_for_owner(
+                "2026-09-17", 14, 10, OWNER.channel_id, [(agent, OWNER)],
+            )
+        self.assertEqual(result["summary"], expected["summary"])
+        self.assertEqual(result["_previous_slot"], "09:35")
+        self.assertEqual(result["_previous_day_offset"], 0)
+        load.assert_called_once_with("2026-09-17", 9, 35)
+
+    def test_code_custom_time_reads_the_actual_previous_snapshot(self):
+        settings = SimpleNamespace(ctob_times=["09:35", "14:10", "19:45"])
+        expected = {"summary": {"reached": 3}}
+        with patch("app.ctob.get_settings", return_value=settings), patch(
+            "app.ctob.load_snapshot", return_value={OWNER.channel_id: expected}
+        ) as load:
+            result = ctob_module._previous_snapshot_for_owner(
+                "2026-09-17", 14, 10, OWNER.channel_id,
+            )
+        self.assertEqual(result["summary"], expected["summary"])
+        self.assertEqual(result["_previous_slot"], "09:35")
+        load.assert_called_once_with("2026-09-17", 9, 35)
+
+    def test_sparse_custom_slots_use_current_state_or_actual_baseline(self):
+        current = {"reached": 30, "replied": 8}
+        midday = render_brief(
+            OWNER, "2026-09-19", current, self._chats(), {},
+            hour=14, minute=10, previous_slot="",
+        )
+        self.assertIn("当前状态", midday)
+        self.assertNotIn("相对上一档", midday)
+
+        previous = {"summary": {"reached": 21, "replied": 5}, "chats": self._chats()}
+        morning = render_brief(
+            OWNER, "2026-09-19", current, self._chats(), {},
+            hour=9, minute=35, prev=previous, previous_slot="昨日 14:10",
+        )
+        self.assertIn("昨日 14:10", morning)
+        self.assertNotIn("昨日全天", morning)
+
 
 class CtobTests(CtobLongFormatMixin, unittest.TestCase):
     def test_classify_car_and_ctob_not_headset(self):
@@ -277,6 +355,21 @@ class CtobTests(CtobLongFormatMixin, unittest.TestCase):
         self.assertNotIn("静默耳机", text)
         self.assertNotIn("10:00", text)
         self.assertNotIn("红榜", text)
+
+    def test_sparse_midday_long_format_labels_current_replies(self):
+        chats = parse_wa_chats(CUSTOMERS)
+        text = render_brief(
+            OWNER,
+            "2026-09-19",
+            parse_wa_summary(CUSTOMERS),
+            chats,
+            parse_cohort(COHORT),
+            hour=14,
+            minute=10,
+            previous_slot="",
+        )
+        self.assertIn("当前已回：", text)
+        self.assertNotIn("本档新回：", text)
 
     def test_weekend_skip(self):
         from datetime import datetime
@@ -458,7 +551,7 @@ class CtobRegistrationTests(unittest.TestCase):
             mto_temp_cleanup_enabled=False,
             daily_digest_enabled=False,
             ctob_enabled=True,
-            ctob_times=["10:00", "15:00", "20:00"],
+            ctob_times=["10:00", "15:00", "20:00", "23:50"],
         )
         original = scheduler_jobs._scheduler
         scheduler_jobs._scheduler = None
@@ -483,6 +576,12 @@ class CtobRegistrationTests(unittest.TestCase):
         self.assertEqual(slots["ctob_backup_1530"], (15, 30))
         self.assertEqual(slots["ctob_2000"], (20, 0))
         self.assertEqual(slots["ctob_backup_2030"], (20, 30))
+        custom = next(kwargs for _, _, kwargs in scheduler.jobs if kwargs["id"] == "ctob_2350")
+        custom_backup = next(
+            kwargs for _, _, kwargs in scheduler.jobs if kwargs["id"] == "ctob_backup_0020"
+        )
+        self.assertEqual(custom["kwargs"], {"minute": 50, "trigger_offset_minutes": 0})
+        self.assertEqual(custom_backup["kwargs"], {"minute": 50, "trigger_offset_minutes": 30})
 
 
 class ConfiguredRuleTests(unittest.TestCase):

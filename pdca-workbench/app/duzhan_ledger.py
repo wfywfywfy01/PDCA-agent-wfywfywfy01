@@ -13,6 +13,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -923,9 +924,22 @@ _ITEM_RE = re.compile(
 _AMOUNT_RE = re.compile(
     r"(?:USD|usd|\$|美金|美元)\s*([\d,]+(?:\.\d+)?)|"
     r"([\d,]+(?:\.\d+)?)\s*(?:USD|usd|\$|美金|美元)|"
-    r"([\d,]+(?:\.\d+)?)\s*([Ww万])"
+    r"([\d,]+(?:\.\d+)?)\s*([Ww](?![A-Za-z0-9])|万)"
 )
-_ORDER_RE = re.compile(r"XSD-[A-Z0-9-]+")
+_TASK_EVIDENCE_AMOUNT_RE = re.compile(
+    r"(?:USD|RMB|CNY|GBP|EUR|US\$|[$¥￥€£]|美金|美元|人民币)"
+    r"\s*[\d,]+(?:\.\d+)?\s*(?:[Ww](?![A-Za-z0-9])|万)?|"
+    r"[\d,]+(?:\.\d+)?\s*(?:[Ww](?![A-Za-z0-9])|万)?\s*(?:USD|RMB|CNY|GBP|EUR|US\$|[$¥￥€£]|"
+    r"美金|美元|人民币|元|(?:[Ww](?![A-Za-z0-9])|万)(?:\s*(?:RMB|CNY|人民币|元))?)",
+    re.I,
+)
+_ORDER_RE = re.compile(r"XSD-[A-Z0-9-]+", re.I)
+_ENGLISH_ENTITY_NAME_RE = re.compile(
+    r"\b(Customer|Client|customer|client)\s+("
+    r"[A-Z][A-Za-z'’-]*|"
+    r"(?:will|may)(?=\s+(?:invoice|order|balance|deposit|payment|account|"
+    r"contract|task|profile|is|are|was|were|has|had)\b))",
+)
 _BLOCK_HINTS = (
     "未回复",
     "约不上",
@@ -939,11 +953,486 @@ _BLOCK_HINTS = (
     "undeliver",
 )
 _URL_RE = re.compile(r"https?://[^\s<>）)]+")
+_RELATIVE_DEADLINE_RE = re.compile(
+    r"\b(?:in|within)\s+\d+\s+(?:(?:working|business)\s+)?(?:days?|weeks?)\b",
+    re.I,
+)
+_ABSOLUTE_DEADLINE_RE = re.compile(
+    r"\b(?:(?:on|by)\s+(?:tomorrow|tonight|next\s+(?:week|month)|"
+    r"(?:next|this)\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day|"
+    r"(?:mon|tues|wednes|thurs|fri|satur|sun)day|"
+    r"(?:the\s+)?end\s+of\s+(?:day|week|month)|eod|"
+    r"20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}(?:[-/]\d{2,4})?|"
+    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}"
+    r"(?:,?\s+\d{4})?)|(?:next|this)\s+"
+    r"(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b|"
+    r"\bat\s+(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:am|pm))?\b",
+    re.I,
+)
+_HISTORICAL_TIME_RE = re.compile(
+    r"\b(?:(?:(?:as\s+of|through|until|up\s+to)\s+)?yesterday|before\s+today|"
+    r"previously|earlier)\b",
+    re.I,
+)
+_UNCONFIRMED_STATE_RE = re.compile(
+    r"待[^，。；;！？!?\n]{1,8}(?:确认|核实)|"
+    r"待确认|等待确认|有待确认|待核实|等待核实|尚未确认|还未确认|"
+    r"还没(?:有)?(?:确认|核实)|未经确认|"
+    r"未确认|尚未核实|还未核实|未经核实|无法确认|不能确认|无法核实|不能核实|"
+    r"没有证据(?:证明|表明)?|"
+    r"\b(?:(?:bank|finance|financial|manual|manager|management|further)\s+)?"
+    r"(?:confirmation|verification)\s+(?:was|were)\s+(?:still\s+)?"
+    r"(?:pending|needed|required)(?:\s+(?:yesterday|previously|earlier|before\s+today))?"
+    r"(?:[,;:\n]\s*|[.!?]\s*|\s*,?\s*(?:but|and)\s+|\s+)"
+    r"(?:(?:it|confirmation|verification)\s+)?"
+    r"(?:(?:is|are|remains?)\s+(?:still\s+)?|still\s+)"
+    r"(?:pending|needed|required)\b|"
+    r"\b(?:pending|awaiting)\s+(?:[a-z][a-z-]*\s+){0,3}"
+    r"(?:confirmation|verification)\b|"
+    r"\b(?:(?:bank|finance|financial|manual|manager|management|further)\s+)?"
+    r"(?:confirmation|verification)\s+(?:(?:is|remains|was|were)\s+)?"
+    r"(?:still\s+)?pending\b|"
+    r"\b(?:no|without)\s+(?:supporting\s+)?(?:evidence|proof|confirmation)\s+"
+    r"(?:that|whether|of|for)\b|"
+    r"\b(?:cannot|can['’]t|could\s+not|couldn['’]t|unable\s+to)\s+"
+    r"(?:confirm|verify|be\s+(?:confirmed|verified))\b|"
+    r"\b(?:(?:has|have|had)\s+not|(?:hasn|haven|hadn)['’]t)\s+been\s+"
+    r"(?:confirmed|verified)\b|"
+    r"\b(?:(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t)\s+"
+    r"(?:confirmed|verified)\b|"
+    r"\b(?:unconfirmed|unverified)\b|"
+    r"\b(?:it\s+is\s+)?(?:unclear|unknown)\s+(?:whether|if|that)\b|"
+    r"\bnot\s+(?:yet\s+)?(?:confirmed|verified|reported)(?:\s+as)?\b",
+    re.I,
+)
+_NEEDS_CONFIRMATION_RE = re.compile(
+    r"(?:仍|还)?需(?!求)(?:要)?[^，。；;！？!?\n]{0,8}?(?:确认|核实)|"
+    r"\b(?:still\s+)?(?:needs?|requires?)\s+(?:[a-z][a-z-]*\s+){0,3}"
+    r"(?:confirmation|verification)\b|"
+    r"\b(?:is\s+)?waiting\s+for\s+(?:[a-z][a-z-]*\s+){0,3}"
+    r"(?:confirmation|verification)\b|"
+    r"\b(?:(?:bank|finance|financial|manual|manager|management|further)\s+)?"
+    r"(?:confirmation|verification)\s+(?:(?:is|remains|was|were)\s+)?"
+    r"(?:still\s+)?(?:needed|required)\b",
+    re.I,
+)
+_NEGATED_UNCONFIRMED_RE = re.compile(
+    r"\b(?:(?:bank|finance|financial|manual|manager|management|further)\s+)?"
+    r"(?:confirmation|verification)\s+(?:was|were)\s+(?:still\s+)?"
+    r"(?:pending|needed|required)(?:\s+(?:yesterday|previously|earlier|before\s+today))?"
+    r"(?:[,;:\n]\s*|[.!?]\s*|\s*,?\s*(?:but|and)\s+|\s+)"
+    r"(?:(?:it|confirmation|verification)\s+)?"
+    r"(?:(?:is|are|remains?)\s+)?"
+    r"(?:not|no\s+longer)\s+(?:pending|needed|required)\b|"
+    r"(?:已\s*)?(?:无需|无须|不需(?:要)?|不用|不必)\s*(?:再)?\s*"
+    r"(?:待|等待)?[^，。；;！？!?\n]{0,8}?(?:确认|核实)|"
+    r"不再\s*(?:需要|等待|待)?[^，。；;！？!?\n]{0,8}?(?:确认|核实)|"
+    r"\b(?:not|no\s+longer)\s+(?:pending|awaiting)\s+"
+    r"(?:[a-z][a-z-]*\s+){0,3}(?:confirmation|verification)\b|"
+    r"\b(?:not|no\s+longer)\s+(?:unconfirmed|unverified)\b|"
+    r"\bno\s+(?:(?:bank|finance|financial|manual|manager|management|further)\s+)?"
+    r"(?:confirmation|verification)\s+(?:(?:is|remains|was|were)\s+)?"
+    r"(?:still\s+)?(?:pending|needed|required)\b|"
+    r"\b(?:(?:bank|finance|financial|manual|manager|management|further)\s+)?"
+    r"(?:confirmation|verification)\s+(?:(?:is|remains|was|were)\s+)?"
+    r"(?:not|no\s+longer)\s+(?:pending|needed|required)\b|"
+    r"(?:\band\s+)?\b(?:(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t)\s+(?:need|require)\s+"
+    r"(?:[a-z][a-z-]*\s+){0,3}(?:confirmation|verification)\b|"
+    r"(?:\band\s+)?\b(?:needs?|requires?)\s+no\s+(?:further\s+)?(?:[a-z][a-z-]*\s+){0,3}"
+    r"(?:confirmation|verification)\b|"
+    r"(?:\band\s+)?\bno\s+longer\s+(?:needs?|requires?)\s+"
+    r"(?:[a-z][a-z-]*\s+){0,3}(?:confirmation|verification)\b|"
+    r"(?:\band\s+)?\bno\s+(?:further\s+)?(?:[a-z][a-z-]*\s+){0,3}"
+    r"(?:confirmation|verification)\s+"
+    r"(?:(?:is|remains|was|were)\s+)?(?:needed|required)\b",
+    re.I,
+)
+_QUESTIONED_COMPLETION_RE = re.compile(
+    r"(?:请确认[^，。；;！？!?\n]{0,40})?是否(?:已经|已)?(?:全部|完全|部分)?"
+    r"(?:到账|付款|支付|完成)|"
+    r"(?:请确认)?[^，。；;！？!?\n]{0,60}(?:已经|已)?(?:全部|完全|部分)?"
+    r"(?:到账|付款|支付|完成)(?:了)?吗|"
+    r"(?:请确认|请核实|请检查)[^，。；;！？!?\n]{0,60}"
+    r"(?:已经|已)?(?:全部|完全|部分)?(?:到账|付款|支付|完成)|"
+    r"[^，。；;！？!?\n]{0,80}(?:已经|已)?(?:全部|完全|部分)?"
+    r"(?:到账|付款|支付|完成)[^，。；;！？!?\n]{0,20}[？?]|"
+    r"(?:^|(?<=[,.;!?，。；！？\n]))\s*(?:"
+    r"(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:confirm|check|verify)"
+    r"(?:\s*[,，:：;；\-–—]\s*|\s+)"
+    r"(?:(?:whether|if)\s+)?|(?:whether|if)\s+)"
+    r"[^,.;!?，。；！？\n]{0,80}"
+    r"\b(?:unpaid|unreceived|completed?|complete|done|paid|received)\b"
+    r"[^,.;!?，。；！？\n]{0,40}(?:[?.!]|$)|"
+    r"(?:^|(?<=[,.;!?，。；！？\n]))\s*(?:has|have|had|is|are|was|were|did|does|do|"
+    r"hasn['’]?t|haven['’]?t|hadn['’]?t|isn['’]?t|aren['’]?t|wasn['’]?t|"
+    r"weren['’]?t|didn['’]?t|doesn['’]?t|don['’]?t)\s+"
+    r"[^,.;!?，。；！？\n]{0,80}\b(?:unpaid|unreceived|completed?|complete|done|paid|received)\b"
+    r"[^,.;!?，。；！？\n]{0,40}(?:\?|$)|"
+    r"(?:^|(?<=[,.;!?，。；！？\n]))\s*[^,.;!?，。；！？\n]{0,100}"
+    r"\b(?:unpaid|unreceived|completed?|complete|done|paid|received)\b"
+    r"[^,.;!?，。；！？\n]{0,40}\?",
+    re.I,
+)
+_QUESTION_REQUEST_PREFIX_RE = re.compile(
+    r"(?:^|(?<=[,.;!?，。；！？\n]))\s*"
+    r"(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:confirm|check|verify)"
+    r"(?:\s*[,，:：;；\-–—]\s*|\s+)",
+    re.I,
+)
+_DIRECT_AFFIRMATIVE_ANSWER_RE = re.compile(
+    r"^\s*[?？]?\s*(?:(?:yes|yeah|yep|confirmed)\b|(?:是的?|对的?))"
+    r"\s*(?:[,，:：.!。！]\s*)?"
+    r"(?:(?:thanks|thank\s+you|thx)\b|谢谢(?:你)?|感谢)?\s*[.!。！]?\s*$",
+    re.I,
+)
+_DIRECT_NEGATIVE_ANSWER_RE = re.compile(
+    r"^\s*[?？]?\s*(?:(?:no|nope|not\s+yet)\b|(?:否|不是|没有|还没有))"
+    r"\s*(?:[,，:：.!。！]\s*)?"
+    r"(?:(?:thanks|thank\s+you|thx)\b|谢谢(?:你)?|感谢)?\s*[.!。！]?\s*$",
+    re.I,
+)
+_DIRECT_COMPLETION_ANSWER_RE = re.compile(
+    r"^\s*(?:complete(?:d)?|done|paid(?:\s+in\s+full)?|fully\s+paid|received)"
+    r"\s*[.!。！]?\s*$",
+    re.I,
+)
+_POLITE_TAIL_RE = re.compile(
+    r"\s*(?:[,，;；\-–—]\s*)?(?:(?:thanks|thank\s+you|thx)\b|"
+    r"谢谢(?:你)?|感谢)\s*[.!。！]?\s*$",
+    re.I,
+)
+_DIRECT_ANSWER_PREFIX_RE = re.compile(
+    r"(?<=[?？])\s*(?:(?:yes|yeah|yep|confirmed|no|nope|not\s+yet)\b|"
+    r"(?:是的?|对的?|否|不是|没有|还没有)(?=$|[\s,，.。!！]))"
+    r"\s*(?:[,，:：.!。！]\s*)?",
+    re.I,
+)
+_TRAILING_META_QUESTION_RE = re.compile(
+    r"\s*[,.:;!?，。：；！？]\s*(?:(?:is\s+there\s+)?anything\s+else|what\s+else|"
+    r"any(?:thing)?\s+more)\s*[?？]?\s*$",
+    re.I,
+)
+_EMPHATIC_POSITIVE_RE = re.compile(
+    r"\b(?:not\s+(?:only|just|merely)|but\s+also)\b",
+    re.I,
+)
+_CONTRAST_RE = re.compile(r"\b(?:but|however)\b|但|不过|然而", re.I)
+_PENDING_MARKER_RE = re.compile(
+    r"\b(?:will|shall|should|must|may|might|can|could|would|expected|supposed|"
+    r"planned|scheduled|due)\b|计划|预计|预期|安排|准备|将",
+    re.I,
+)
+_FUTURE_SUFFIX_RE = re.compile(
+    r"^\s*(?:tomorrow|tonight|later|next\b|this\s+(?:week|month)\b|"
+    r"(?:next|this)\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day\b|"
+    r"(?:by|on)\s+(?:tomorrow|tonight|next\s+(?:week|month)|"
+    r"(?:next|this)\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day|"
+    r"(?:mon|tues|wednes|thurs|fri|satur|sun)day|"
+    r"20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}(?:[-/]\d{2,4})?|"
+    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}"
+    r"(?:,?\s+\d{4})?|(?:the\s+)?end\s+of\s+(?:day|week|month)|eod)\b|"
+    r"at\s+(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*(?:am|pm))?\b|"
+    r"20\d{2}[-/]\d{1,2}[-/]\d{1,2}|in\s+\d+\s+(?:days?|weeks?)\b|"
+    r"明天|稍后|下周|本周|届时)",
+    re.I,
+)
+_STATUS_PRONOUN_RE = re.compile(
+    r"\bit\s+(?=(?:is|are|was|were|has|have|had)\b)",
+    re.I,
+)
+_BUSINESS_REQUIREMENT_LINK_RE = re.compile(
+    r"\bit\s+(?:(?:is|was)\s+(?:still\s+)?|remains?\s+)"
+    r"(?:required|needed)\s+for\b",
+    re.I,
+)
 _DEADLINE_HINTS = ("今天", "周四", "周五", "周六", "本周", "下周")
 _DONE_HINTS = ("已到账", "已付款", "已支付", "已完成", "水单已回传", "已回传")
-_STALL_HINTS = ("未回复", "约不上", "无法登陆", "卡住", "未解决")
+_STALL_HINTS = (
+    "未回复", "约不上", "无法登陆", "卡住", "未解决",
+    "尚未付款", "尚未支付", "尚未完成", "尚未到账",
+    "未付款", "未支付", "未完成", "未到账",
+)
 _PROGRESS_HINTS = ("今天可付款", "本周付款", "催收", "推进")
+_DONE_HINTS_EN = ("completed", "complete", "done", "paid")
+_STALL_HINTS_EN = ("no reply", "stalled", "blocked", "unresolved", "unpaid")
+_PROGRESS_HINTS_EN = ("in progress", "progressed", "progress", "follow up", "followup")
+_NEGATED_DONE_RE = re.compile(
+    r"\b(?:no\s+(?:payments?|funds?|money)\s+"
+    r"(?:(?:has|have|had)\s+been\s+|(?:is|are|was|were)\s+)?(?:received|made)|"
+    r"(?:(?:it\s+)?(?:is|are|was|were|remains?)\s+)?(?:unpaid|unreceived)|"
+    r"(?:(?:(?:will|shall|should|must|may|might|can|could|would|did|does|do)\s+"
+    r"(?:not|never)|cannot|can['’]t|couldn['’]t|won['’]t|shouldn['’]t|"
+    r"wouldn['’]t|mustn['’]t|not(?:\s+yet)?|never|no\s+longer|"
+    r"(?:has|have|had|is|are|was|were)n['’]?t(?:\s+yet)?)"
+    r"(?:\s+(?:yet|ever|once|previously|possibly|probably|actually|confirmed|verified|"
+    r"reported|reportedly|apparently|as|be|been|being|have|has|had|already|currently|"
+    r"fully|completely))*\s+"
+    r"(?:(?:partially|partly|half(?:way)?|mostly|almost|nearly|largely)\s+|"
+    r"\d{1,3}(?:\.\d+)?\s*(?:%|percent)\s*)?"
+    r"(?:completed?|done|paid|received?))|"
+    r"(?:(?:failed|fails|failing)\s+to|unable\s+to)\s+"
+    r"(?:be\s+)?(?:completed?|done|paid|received?)|"
+    r"(?:(?:is|are|was|were|remains?)\s+)?yet\s+to\s+be\s+"
+    r"(?:completed?|done|paid|received?))\b"
+)
+_NEGATED_DONE_ZH_RE = re.compile(
+    r"(?:(?:不再|尚未|还未|没有|没能|不能|无法|未|不)"
+    r"(?:全部|完全|部分)?(?:到账|付款|支付|完成)(?:了)?|"
+    r"(?:拒绝|停止|暂停)(?:继续)?(?:到账|付款|支付|完成)(?:了)?)"
+)
+_NEGATED_COMPLETION_BROAD_RE = re.compile(
+    r"\b(?:not|never|no\s+(?:supporting\s+)?(?:evidence|proof|confirmation)|"
+    r"without\s+(?:supporting\s+)?(?:evidence|proof|confirmation)|"
+    r"unclear|unknown|unconfirmed)\b"
+    r"[^,.;!?，。；！？\n]{0,80}?"
+    r"\b(?:completed?|complete|done|paid|received)\b",
+    re.I,
+)
+_NEGATED_PROGRESS_RE = re.compile(
+    r"\b(?:(?:(?:has|have|had)\s+)?made\s+no(?:\s+further)?\s+progress|"
+    r"no(?:\s+further)?\s+progress|not\s+in\s+progress|"
+    r"not\s+progress(?:ed|ing)?|without\s+progress|"
+    r"(?:has|have|had)n['’]?t\s+progressed)\b"
+)
+_PENDING_DONE_RE = re.compile(
+    r"^\s*complete\b|"
+    r"\b(?:will|shall|should|must|may|might|can|could|would)\s+"
+    r"(?:(?!(?:not|never)\b)[a-z]+\s+){0,3}"
+    r"(?:(?:have|has|had)\s+(?:(?!(?:not|never)\b)[a-z]+\s+){0,3}been\s+|"
+    r"be\s+)?"
+    r"(?:(?:already|fully|completely|partially|partly|half(?:way)?|mostly|almost|nearly|largely)\s+|"
+    r"\d{1,3}(?:\.\d+)?\s*(?:%|percent)\s*)?(?:completed?|done|paid|received?)\b|"
+    r"\b(?:needs?|plans?|planned|scheduled|expected|supposed|due|aims?|aimed|remains?)"
+    r"\s+to\s+(?:(?:have|has|had)\s+(?:(?!(?:not|never)\b)[a-z]+\s+){0,3}been\s+|"
+    r"be\s+)?(?:(?:already|fully|completely|partially|partly|half(?:way)?|mostly|almost|nearly|largely)\s+|"
+    r"\d{1,3}(?:\.\d+)?\s*(?:%|percent)\s*)?(?:completed?|done|paid|received?)\b|"
+    r"\bto\s+be\s+(?:(?:already|fully|completely|partially|partly|half(?:way)?|mostly|almost|nearly|largely)\s+|"
+    r"\d{1,3}(?:\.\d+)?\s*(?:%|percent)\s*)?(?:completed?|done|paid|received?)\b"
+)
+_PENDING_COMPLETION_BROAD_RE = re.compile(
+    r"\b(?:will|shall|should|must|may|might|can|could|would|expected|supposed|"
+    r"planned|scheduled|due|aimed?)\b"
+    r"(?![^,.;!?，。；！？\n]{0,80}\b(?:now|currently|today)\b)"
+    r"[^,.;!?，。；！？\n]{0,80}?"
+    r"\b(?:completed?|complete|done|paid|received)\b",
+    re.I,
+)
+_PENDING_DONE_ZH_RE = re.compile(
+    r"(?:计划(?:于)?|预计|预期|安排(?:在)?|准备|将在|将于|明天)"
+    r"[^，。；;！？!?\n]{0,40}?"
+    r"(?:部分(?:完成|付款|支付|到账)|"
+    r"(?:完成|付款|支付|到账)(?:\s*(?:\d{1,3}(?:\.\d+)?\s*%|一半|部分))?)|"
+    r"(?:今日|今天)\s*(?!已经|现已|已)(?:完成|付款|支付|到账)"
+    r"(?!\s*(?:\d{1,3}(?:\.\d+)?\s*%|一半|部分))"
+)
+_CURRENT_DONE_EN_RE = re.compile(
+    r"\b(?:(?:has|have|is|are|was|were)\s+)?(?:now|already|currently|today)\s+"
+    r"(?:(?:has|have|is|are)\s+)?(?:been\s+)?(?:fully\s+|completely\s+)?"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b"
+    r"(?!\s*\d{1,3}(?:\.\d+)?\s*(?:%|percent\b))"
+)
+_CURRENT_DONE_SUFFIX_EN_RE = re.compile(
+    r"\b(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\s+"
+    r"(?:today|now|already)\b"
+)
+_PRESENT_FULL_DONE_EN_RE = re.compile(
+    r"\b(?:is|are|has|have)\s+(?:(?:now|already|currently)\s+)?(?:been\s+)?"
+    r"(?:(?:fully|completely)\s+|100(?:\.0+)?\s*(?:%|percent)\s+)"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b",
+    re.I,
+)
+_CURRENT_PARTIAL_EN_RE = re.compile(
+    r"\b(?:(?:(?:has|have|is|are|was|were)\s+)?(?:now|already|currently|today)\s+"
+    r"(?:(?:has|have|is|are)\s+)?(?:been\s+)?"
+    r"(?:(?:(?:partially|partly|half(?:way)?|mostly|almost|nearly|largely)\s+|"
+    r"\d{1,3}(?:\.\d+)?\s*(?:%|percent)\s*)"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b|"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b"
+    r"\s*\d{1,3}(?:\.\d+)?\s*(?:%|percent\b))|"
+    r"\d{1,3}(?:\.\d+)?\s*(?:%|percent)\s+"
+    r"(?:(?:has|have|is|are)\s+)?(?:now|already|currently|today)\s+"
+    r"(?:been\s+)?(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b)"
+)
+_CURRENT_DONE_ZH_RE = re.compile(
+    r"(?:(?:(?:今日|今天)\s*(?:已经|现已|已)|"
+    r"(?:现在已经|目前已经|当前已经|现已|现在已|目前已|当前已|已经)|"
+    r"(?:刚刚|刚)\s*(?:已经|已)?|已)\s*"
+    r"(?:全部|完全)?(?:到账|付款|支付|完成)|"
+    r"(?:全部|完全)?(?:到账|付款|支付|完成)了(?=$|[\s，。；;！？!?\n]))"
+)
+_ZH_STATE_TRANSITION_RE = re.compile(
+    r"((?:部分)?(?:付款|支付|到账|完成))后"
+    r"(?=(?:已经|现已|已|现在|目前|当前|今日|今天|刚))"
+)
+_ZH_UNCONFIRMED_TRANSITION_RE = re.compile(
+    r"待[^，。；;！？!?\n]{0,8}(?:确认|核实)\s*后"
+    r"(?=(?:已经|现已|已|现在|目前|当前|今日|今天|刚)\s*"
+    r"(?:全部|完全)?(?:到账|付款|支付|完成))"
+)
+_ZH_COMPLETION_PREFIX_RE = re.compile(
+    r"已(?=(?:全部|完全|部分)?(?:到账|付款|支付|完成))"
+)
+_CURRENT_PARTIAL_ZH_RE = re.compile(
+    r"(?:(?:今日|今天)\s*(?:已经|现已|已)?|"
+    r"(?:现在已经|目前已经|当前已经|现已|现在已|目前已|当前已|已经)|"
+    r"(?:刚刚|刚)\s*(?:已经|已)?)\s*"
+    r"(?:部分(?:完成|付款|支付|到账)|"
+    r"(?:完成|付款|支付|到账)\s*(?:\d{1,3}(?:\.\d+)?\s*%|一半|部分))"
+)
+_EXPLICIT_DONE_RE = re.compile(
+    r"^\s*done\s*[:：-]\s*|"
+    r"^\s*done\s+(?:customer|client|invoice|order|balance|deposit|payment|"
+    r"account|task|contract)\b|"
+    r"^\s*paid\s*(?:[:：]\s*|[-–—]\s+)|"
+    r"^\s*paid\s+(?:customer|client|invoice|order|balance|deposit|payment|"
+    r"account)\b|"
+    r"\b(?:customer|client)\s+(?!(?:will|shall|should|must|may|might|can|could|"
+    r"would)\b)(?:[a-z][a-z'’-]*\s+){0,4}paid(?![-\s]+media\b)\s+"
+    r"(?:the\s+)?(?:invoice|order|balance|deposit|payment|account|contract)\b|"
+    r"\b(?:invoice|order|balance|deposit|payment|account|contract)\s+"
+    r"paid(?![-\s]+media\b)\s+by\s+(?:customer|client)\b|"
+    r"\b(?:completed?|complete|done|paid|received)\s+on\s+time\b|"
+    r"\bcompleted\b|"
+    r"\b(?:is|are|was|were|marked|now)\s+(?:complete|done)\b|"
+    r"\b(?:has|have|had)\s+(?:already\s+)?(?:been\s+)?"
+    r"paid(?![-\s]+media\b)\b|"
+    r"\b(?:is|are|was|were|now|already|fully)\s+"
+    r"paid(?![-\s]+media\b)\b|"
+    r"\b(?:has|have|had)\s+(?:already\s+)?been\s+received\b|"
+    r"\b(?:is|are|was|were|now|already|fully)\s+received\b|"
+    r"\b(?:paid|received)\s+(?:today|yesterday|tonight|now|already|"
+    r"(?:usd|rmb|cny|gbp|eur)\s*[\d,]+(?:\.\d+)?|"
+    r"[$¥￥€£]\s*[\d,]+(?:\.\d+)?|"
+    r"[\d,]+(?:\.\d+)?\s*(?:usd|rmb|cny|gbp|eur|元|万))\b|"
+    r"\b(?:complete|done|paid|received)\s*(?:[.!?;；]|$)"
+)
+_PERCENT_VALUE_RE = re.compile(r"\d{1,3}(?:\.\d+)?\s*(?:%|percent\b)", re.I)
+_PERCENT_QUALIFIER_RE = re.compile(
+    r"\b(?:only|about|approximately|roughly)\b(?=\s*\d{1,3}(?:\.\d+)?\s*(?:%|percent\b))|"
+    r"约(?=\s*\d{1,3}(?:\.\d+)?\s*%)",
+    re.I,
+)
+_COMPLETION_PERCENT_RE = re.compile(
+    r"(\d{1,3}(?:\.\d+)?)\s*(?:%|percent\b)"
+    r"[^,.;!?，。；！？\n]{0,40}?"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received|"
+    r"已完成|完成|已付款|付款|已支付|支付|已到账|到账)|"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received|"
+    r"已完成|完成|已付款|付款|已支付|支付|已到账|到账)"
+    r"[^,.;!?，。；！？\n]{0,24}?"
+    r"(\d{1,3}(?:\.\d+)?)\s*(?:%|percent\b)",
+    re.I,
+)
+_FULL_COMPLETION_PERCENT_RE = re.compile(
+    r"100(?:\.0+)?\s*(?:%|percent\b)\s*"
+    r"(?:\b(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b|"
+    r"已完成|完成|已付款|付款|已支付|支付|已到账|到账)|"
+    r"(?:\b(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b|"
+    r"已完成|完成|已付款|付款|已支付|支付|已到账|到账)"
+    r"\s*100(?:\.0+)?\s*(?:%|percent\b)",
+    re.I,
+)
+_FULL_COMPLETION_WORDING_RE = re.compile(
+    r"\b(?:(?:all|fully|completely|entirely)\s+"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received)|"
+    r"(?:completed?|done|paid(?![-\s]+media\b)|received)\s+in\s+full)\b",
+    re.I,
+)
+_INCOMPLETE_FULL_PERCENT_RE = re.compile(
+    r"\b(?:almost|nearly|less\s+than|under|below|up\s+to|about|"
+    r"approximately|roughly|only)\s+100(?:\.0+)?\s*(?:%|percent\b)\s*"
+    r"(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\b|"
+    r"\b(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\s+"
+    r"(?:almost|nearly|less\s+than|under|below|up\s+to|about|"
+    r"approximately|roughly|only)\s+100(?:\.0+)?\s*(?:%|percent\b)|"
+    r"(?:接近|不到|不足|少于|低于|约|大约)\s*100(?:\.0+)?\s*%\s*"
+    r"(?:已完成|完成|已付款|付款|已支付|支付|已到账|到账)|"
+    r"(?:已完成|完成|已付款|付款|已支付|支付|已到账|到账)\s*"
+    r"(?:接近|不到|不足|少于|低于|约|大约)\s*100(?:\.0+)?\s*%",
+    re.I,
+)
+_COMPLETION_SCOPE_RE = re.compile(
+    r"\b(?:all|entirely)\s+(?=(?:completed?|complete|done|"
+    r"paid(?![-\s]+media\b)|received)\b)|"
+    r"\b(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\s+"
+    r"in\s+full\b|"
+    r"全部(?=(?:已经|已)?(?:到账|付款|支付|完成))|"
+    r"(?<![\u4e00-\u9fff])都(?=(?:已经|已)?(?:到账|付款|支付|完成))",
+    re.I,
+)
+_ZH_COMPLETION_SCOPE_RE = re.compile(
+    r"都(?=(?:已经|已)(?:到账|付款|支付|完成))"
+)
+_ZH_PERSON_NAME_RE = re.compile(
+    r"(?:(?:欧阳|司马|上官|诸葛|东方|独孤|南宫|夏侯|皇甫|尉迟|公孙|"
+    r"慕容|宇文|长孙|令狐|钟离|司徒|司空)[\u4e00-\u9fff]{1,2}|"
+    r"[赵钱孙李周吴郑王冯陈蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜"
+    r"谢邹苏潘范彭鲁韦马苗方俞任袁柳史唐薛雷贺倪汤罗毕郝安常于傅齐"
+    r"康伍余顾孟黄萧尹姚邵汪毛米戴宋熊纪舒屈项董梁杜阮蓝季贾江郭林"
+    r"钟徐邱高夏蔡田樊胡霍万卢莫房解丁邓洪石崔龚程邢陆翁叶白廖曾]"
+    r"[\u4e00-\u9fff]{1,2})"
+)
+_ZH_PLURAL_SCOPE_RE = re.compile(
+    r"(?:订单|事项|任务|客户|款项|尾款|项目|问题|工单|合同|记录|货款|回款|"
+    r"经销商|代理商|分销商|供应商|门店|店铺|渠道|人员|成员|团队|"
+    r"所有人|双方|大家|全员|各方|负责人|同事|员工|销售|伙伴|参会人|相关人)$"
+)
+_PARTIAL_DONE_RE = re.compile(
+    r"\b(?:partially|partly|half(?:way)?|mostly|almost|nearly|largely)\s+"
+    r"(?:[a-z]+\s+){0,3}(?:completed?|complete|done|"
+    r"paid(?![-\s]+media\b)|received)\b|"
+    r"\b(?:completed?|complete|done|paid(?![-\s]+media\b)|received)\s+"
+    r"(?:(?:only|about|approximately|roughly)\s+)?(?:half|partially|partly|in\s+part)\b|"
+    r"(?:部分(?:已)?(?:完成|付款|支付|到账)|(?:已)?(?:完成|付款|支付|到账)(?:一半|部分)|"
+    r"基本完成|大部分完成|接近完成)",
+    re.I,
+)
 _STATUS_SET = frozenset({"done", "stalled", "progress", "planned"})
+_TASK_STATUS_TOKENS = tuple(sorted(set(
+    _DONE_HINTS
+    + _STALL_HINTS
+    + _PROGRESS_HINTS
+    + _DONE_HINTS_EN
+    + _STALL_HINTS_EN
+    + _PROGRESS_HINTS_EN
+    + _DEADLINE_HINTS
+    + (
+        "待跟进", "待推进", "需跟进", "继续跟进", "需要确认", "待确认",
+        "已处理", "待处理",
+        "完成", "预计", "预期", "计划于", "计划", "安排", "准备",
+        "将在", "将于", "明天", "截止",
+        "completed", "complete", "done", "pending", "follow up", "followup",
+        "not yet", "has not", "is not", "was not", "no longer", "not", "never",
+        "hasn't", "haven't", "hadn't", "isn't", "aren't", "wasn't", "weren't",
+        "cannot", "can't", "couldn't", "won't", "shouldn't", "wouldn't", "mustn't",
+        "failed to", "fails to", "unable to",
+        "received", "receive", "unreceived",
+        "yet to be", "been", "being", "fully", "completely",
+        "remained", "remains", "remain", "still",
+        "has made no progress", "have made no progress", "had made no progress",
+        "made no progress", "not in progress", "without progress",
+        "no further progress", "no progress",
+        "will be", "shall be", "should be", "must be", "may be", "might be",
+        "can be", "could be", "to be",
+        "need to", "needs to", "plan to", "plans to", "planned to",
+        "scheduled to", "expected to", "supposed to", "due to", "aim to", "aims to", "aimed to",
+        "remain to", "remains to", "scheduled", "expected", "needs", "need",
+        "plan", "plans", "planned", "supposed", "due", "aim", "aims", "aimed",
+        "partially", "partly", "halfway", "half", "mostly", "almost", "nearly",
+        "largely", "部分", "一半", "基本", "大部分", "接近",
+        "水单", "付款凭证", "支付凭证", "receipt", "evidence",
+        "will", "shall", "should", "must", "may", "might", "can", "could", "would", "be",
+        "has", "have", "had", "is", "are", "was", "were",
+        "today", "tomorrow", "yesterday", "tonight", "this week", "next week", "on time",
+        "now", "already", "currently",
+        "but", "however", "although", "though", "while", "despite", "then", "that", "whether", "if", "of",
+        "昨日", "昨天", "此前", "先前", "今日", "随后", "后来", "之后", "以后", "但", "虽然", "尽管", "仍", "尚",
+        "请确认", "请核实", "请检查", "是否", "了吗", "吗",
+        "please confirm", "please check", "please verify",
+        "thank you", "thanks", "thx", "谢谢", "感谢",
+        "刚刚", "刚",
+    )
+), key=len, reverse=True))
 
 
 def _msg_body(msg: dict) -> str:
@@ -974,9 +1463,630 @@ def _deadline_text(title: str) -> str:
     return ""
 
 
+def _english_hint_present(text: str, hints: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"(?<![a-z]){re.escape(token)}(?![a-z])", text)
+        for token in hints
+    )
+
+
+def _mask_english_entity_names(text: str) -> str:
+    """保留字符位置，同时避免把 Will/May/Paid 等姓名当作状态词。"""
+    return _ENGLISH_ENTITY_NAME_RE.sub(
+        lambda match: f"{match.group(1)} {'x' * len(match.group(2))}",
+        text,
+    )
+
+
+def _mask_emphatic_positive(text: str) -> str:
+    """去掉 not only/just/merely 结构中的强调词，并保持字符位置。"""
+    return _EMPHATIC_POSITIVE_RE.sub(
+        lambda match: " " * len(match.group(0)),
+        text,
+    )
+
+
+def _pending_completion_present(text: str) -> bool:
+    return bool(_pending_completion_mentions(text))
+
+
+def _completion_kind(text: str) -> str:
+    lowered = text.lower()
+    if "到账" in text or "received" in lowered:
+        return "received"
+    if any(token in text for token in ("付款", "支付")) or "paid" in lowered or "unpaid" in lowered:
+        return "paid"
+    return "completed"
+
+
+def _historical_state_mention(text: str, start: int, end: int) -> bool:
+    before = text[max(0, start - 48):start].lower()
+    after = text[end:min(len(text), end + 24)].lower()
+    return bool(
+        re.search(
+            r"\b(?:yesterday|previously|earlier)(?:\s+[a-z]+){0,4}\s*$",
+            before,
+        )
+        or re.match(
+            r"^\s*(?:(?:(?:as\s+of|through|until|up\s+to)\s+)?yesterday|"
+            r"before\s+today|previously|earlier)\b",
+            after,
+        )
+        or re.search(r"(?:昨日|昨天|此前|先前)[^，。；;！？!?\n]{0,8}$", before)
+        or re.match(r"^\s*(?:昨日|昨天|此前|先前)", after)
+    )
+
+
+def _pending_completion_mentions(text: str) -> list[tuple[int, int, str, bool]]:
+    lowered = text.lower()
+    matches = list(_PENDING_DONE_RE.finditer(lowered))
+    matches.extend(
+        match
+        for match in _PENDING_COMPLETION_BROAD_RE.finditer(text)
+        if not _contrast_overrides_pending_completion(text, match)
+    )
+    matches.extend(_PENDING_DONE_ZH_RE.finditer(text))
+    mentions = [
+        (
+            *match.span(),
+            _completion_kind(match.group(0)),
+            _historical_state_mention(text, *match.span()),
+        )
+        for match in matches
+    ]
+    for pattern in (_FULL_COMPLETION_PERCENT_RE, _FULL_COMPLETION_WORDING_RE):
+        for match in pattern.finditer(text):
+            future = _FUTURE_SUFFIX_RE.match(text[match.end():])
+            if future is None:
+                continue
+            end = match.end() + future.end()
+            mentions.append(
+                (
+                    match.start(),
+                    end,
+                    _completion_kind(match.group(0)),
+                    _historical_state_mention(text, match.start(), end),
+                )
+            )
+    return mentions
+
+
+def _contrast_overrides_pending_completion(text: str, match: re.Match) -> bool:
+    contrasts = list(_CONTRAST_RE.finditer(match.group(0)))
+    if not contrasts:
+        return False
+    before_contrast = match.group(0)[:contrasts[-1].start()]
+    after_contrast = match.group(0)[contrasts[-1].end():]
+    if _PENDING_MARKER_RE.search(after_contrast):
+        return False
+    past_context = text[max(0, match.start() - 32):match.start()] + before_contrast
+    if re.search(
+        r"\b(?:was|were|had\s+been)\s+(?:planned|scheduled|expected|supposed|due)\b",
+        past_context,
+        re.I,
+    ) and re.match(
+        r"\s*(?:has\s+|have\s+|had\s+)?(?:been\s+)?"
+        r"(?:completed?|complete|done|paid|received)\b",
+        after_contrast,
+        re.I,
+    ):
+        return True
+    suffix = text[match.end():]
+    suffix = re.split(r"[,.;!?，。；！？\n]", suffix, maxsplit=1)[0]
+    return not _FUTURE_SUFFIX_RE.search(suffix)
+
+
+def _pending_completion_blocks_current(
+    text: str,
+    current_start: int,
+    current_end: int,
+    status: str,
+    current_kind: str,
+) -> bool:
+    for start, end, pending_kind, historical in _pending_completion_mentions(text):
+        overlaps = start < current_end and current_start < end
+        if overlaps or not _current_state_resolves(status, current_kind, pending_kind):
+            return True
+        if end > current_start and not historical:
+            return True
+    return False
+
+
+def _negative_state_mentions(text: str) -> list[tuple[int, int, str, bool]]:
+    lowered = text.lower()
+    mentions = [
+        (
+            *match.span(),
+            _completion_kind(match.group(0)),
+            _historical_state_mention(text, *match.span()),
+        )
+        for match in _NEGATED_DONE_RE.finditer(lowered)
+    ]
+    mentions.extend(
+        (
+            *match.span(),
+            _completion_kind(match.group(0)),
+            _historical_state_mention(text, *match.span()),
+        )
+        for match in _NEGATED_COMPLETION_BROAD_RE.finditer(lowered)
+    )
+    mentions.extend(
+        (
+            *match.span(),
+            _completion_kind(match.group(0)),
+            _historical_state_mention(text, *match.span()),
+        )
+        for match in _NEGATED_DONE_ZH_RE.finditer(text)
+    )
+    mentions.extend(
+        (*match.span(), "progress", _historical_state_mention(text, *match.span()))
+        for match in _NEGATED_PROGRESS_RE.finditer(lowered)
+    )
+    for token in _STALL_HINTS:
+        kind = _completion_kind(token) if token.startswith(("未", "尚未")) else "generic"
+        mentions.extend(
+            (*match.span(), kind, _historical_state_mention(text, *match.span()))
+            for match in re.finditer(re.escape(token), text)
+        )
+    for token in _STALL_HINTS_EN:
+        kind = "paid" if token == "unpaid" else "generic"
+        mentions.extend(
+            (*match.span(), kind, _historical_state_mention(text, *match.span()))
+            for match in re.finditer(
+                rf"(?<![a-z]){re.escape(token)}(?![a-z])",
+                lowered,
+            )
+        )
+    return mentions
+
+
+def _current_state_resolves(
+    status: str,
+    current_kind: str,
+    negative_kind: str,
+) -> bool:
+    if current_kind == negative_kind:
+        return True
+    if current_kind == "received":
+        return negative_kind in {"received", "paid", "progress"}
+    if status == "progress":
+        return negative_kind == "progress"
+    if current_kind == "completed":
+        return negative_kind in {"completed", "progress", "generic"}
+    if current_kind == "paid":
+        return negative_kind in {"paid", "progress"}
+    return False
+
+
+def _current_completion_state(text: str) -> tuple[str, str, int, int] | None:
+    """返回明确当前状态；不同业务阶段的未完成项不会互相覆盖。"""
+    lowered = text.lower()
+    candidates: list[tuple[int, int, str, str]] = []
+    for pattern, source, status in (
+        (_CURRENT_DONE_EN_RE, lowered, "done"),
+        (_CURRENT_DONE_SUFFIX_EN_RE, lowered, "done"),
+        (_PRESENT_FULL_DONE_EN_RE, lowered, "done"),
+        (_FULL_COMPLETION_WORDING_RE, lowered, "done"),
+        (_FULL_COMPLETION_PERCENT_RE, lowered, "done"),
+        (_CURRENT_PARTIAL_EN_RE, lowered, "progress"),
+        (_CURRENT_DONE_ZH_RE, text, "done"),
+        (_CURRENT_PARTIAL_ZH_RE, text, "progress"),
+    ):
+        for match in pattern.finditer(source):
+            resolved_status = status
+            percent = re.search(r"\d{1,3}(?:\.\d+)?\s*(?:%|percent)", match.group(0))
+            if status == "progress" and percent:
+                value = re.search(r"\d{1,3}(?:\.\d+)?", percent.group(0))
+                if value and float(value.group(0)) >= 100:
+                    resolved_status = "done"
+            candidates.append(
+                (*match.span(), resolved_status, _completion_kind(match.group(0)))
+            )
+    negatives = _negative_state_mentions(text)
+    ordered = sorted(
+        candidates,
+        key=lambda candidate: (candidate[1], -candidate[0]),
+        reverse=True,
+    )
+    for start, current_end, status, kind in ordered:
+        if all(
+            not (negative_start < current_end and start < end)
+            and (end <= start or historical)
+            and _current_state_resolves(status, kind, negative_kind)
+            for negative_start, end, negative_kind, historical in negatives
+        ):
+            return status, kind, start, current_end
+    return None
+
+
+def _partial_completion_mentions(text: str) -> list[tuple[int, int, bool]]:
+    mentions = []
+    for pattern in (_PARTIAL_DONE_RE, _INCOMPLETE_FULL_PERCENT_RE):
+        mentions.extend(
+            (*match.span(), _historical_state_mention(text, *match.span()))
+            for match in pattern.finditer(text)
+        )
+    for match in _COMPLETION_PERCENT_RE.finditer(text):
+        value = next((part for part in match.groups() if part is not None), None)
+        if value is not None and float(value) < 100:
+            mentions.append(
+                (*match.span(), _historical_state_mention(text, *match.span()))
+            )
+    return mentions
+
+
+def _partial_completion_present(text: str) -> bool:
+    return bool(_partial_completion_mentions(text))
+
+
+def _partial_completion_affects_current(
+    text: str,
+    current_start: int,
+    current_end: int,
+) -> bool:
+    for start, end, historical in _partial_completion_mentions(text):
+        if start < current_end and current_start < end:
+            return True
+        if start >= current_start and not historical:
+            return True
+    return False
+
+
+def _active_unconfirmed_matches(text: str) -> list[re.Match]:
+    negated = [match.span() for match in _NEGATED_UNCONFIRMED_RE.finditer(text)]
+    matches = list(_UNCONFIRMED_STATE_RE.finditer(text))
+    matches.extend(_NEEDS_CONFIRMATION_RE.finditer(text))
+    return sorted([
+        match
+        for match in matches
+        if not any(start <= match.start() and match.end() <= end for start, end in negated)
+    ], key=lambda match: (match.start(), match.end()))
+
+
+def _continues_current_unconfirmed_state(state: str) -> bool:
+    return bool(re.search(
+        r"(?:\b(?:but|and)\b\s+|[,;:\n]\s*|[.!?]\s*|\s+)"
+        r"(?:(?:it|confirmation|verification)\s+)?"
+        r"(?:(?:is|are|remains?)\s+(?:still\s+)?|still\s+)"
+        r"(?:pending|needed|required)\b",
+        state,
+        re.I,
+    ))
+
+
+def _past_unconfirmed_state_mention(text: str, match: re.Match) -> bool:
+    state = match.group(0).lower()
+    if _continues_current_unconfirmed_state(state):
+        return False
+    if re.match(
+        r"^(?:(?:(?:bank|finance|financial|manual|manager|management|further)\s+)?"
+        r"(?:confirmation|verification)\s+(?:was|were)\s+(?:still\s+)?"
+        r"(?:pending|needed|required)\b|"
+        r"(?:(?:was|were)\s+not|(?:wasn|weren)['’]t)\s+"
+        r"(?:confirmed|verified)\b|"
+        r"(?:(?:had\s+not|hadn['’]t)\s+been\s+(?:confirmed|verified)\b))",
+        state,
+    ):
+        return True
+    if not re.match(
+        r"^(?:(?:pending|awaiting|unconfirmed|unverified)\b|"
+        r"not\s+(?:yet\s+)?(?:confirmed|verified)\b)",
+        state,
+    ):
+        return False
+    before = text[max(0, match.start() - 48):match.start()].lower()
+    return bool(
+        re.search(
+            r"\b(?:(?:was|were)\s+(?:(?:still|already|previously|earlier|once)\s+)?|"
+            r"had\s+(?:been|remained)\s+"
+            r"(?:(?:still|already|previously|earlier)\s+)?)$",
+            before,
+        )
+    )
+
+
+def _unconfirmed_state_blocks_current(
+    text: str,
+    current_start: int,
+) -> bool:
+    separators = ",.;!?，。；！？\n"
+    for match in _active_unconfirmed_matches(text):
+        if _historical_state_mention(text, match.start(), match.end()):
+            continue
+        if match.end() <= current_start:
+            if _past_unconfirmed_state_mention(text, match):
+                continue
+            between = text[match.end():current_start]
+            if re.fullmatch(r"\s*后[\s,，;；:：\-–—]*", between):
+                continue
+            state = match.group(0)
+            transition_state = bool(
+                re.fullmatch(r"(?:待|等待|有待)[^，。；;！？!?\n]{0,8}(?:确认|核实)", state)
+                or re.fullmatch(
+                    r"(?:pending|awaiting)\s+(?:[a-z][a-z-]*\s+){0,3}"
+                    r"(?:confirmation|verification)",
+                    state,
+                    re.I,
+                )
+                or re.fullmatch(
+                    r"(?:confirmation|verification)\s+(?:is\s+)?pending",
+                    state,
+                    re.I,
+                )
+            )
+            if (
+                transition_state
+                and any(separator in between for separator in ",.;，。；")
+                and not re.search(
+                    r"\b(?:but|however|although|though|while|despite)\b|"
+                    r"但|但是|不过|然而|虽然|尽管",
+                    between,
+                    re.I,
+                )
+                and not re.search(
+                    r"(?:\bstill|\bremains?|仍|尚)\s*$",
+                    text[max(0, match.start() - 16):match.start()],
+                    re.I,
+                )
+            ):
+                continue
+        suffix = text[match.end():]
+        if any(
+            token in suffix
+            for token in ("水单已回传", "付款凭证已回传", "支付凭证已回传")
+        ):
+            continue
+        clause_start = max(
+            (text.rfind(char, 0, match.start()) for char in separators),
+            default=-1,
+        ) + 1
+        ends = [text.find(char, match.end()) for char in separators]
+        clause_end = min((end for end in ends if end >= 0), default=len(text))
+        clause = text[clause_start:clause_end]
+        if _continues_current_unconfirmed_state(match.group(0)):
+            return True
+        historical_ends = [
+            clause_start + historical.end()
+            for historical in _HISTORICAL_TIME_RE.finditer(clause)
+        ]
+        historical_ends.extend(
+            clause_start + historical.end()
+            for historical in re.finditer(r"昨日|昨天|此前|先前", clause)
+        )
+        if not (
+            match.start() < current_start
+            and any(end <= current_start for end in historical_ends)
+        ):
+            return True
+    return False
+
+
+def _normalized_task_key(item: dict, *, strip_evidence: bool) -> str:
+    title = _POLITE_TAIL_RE.sub("", str(item.get("title") or ""))
+    preserved_orders = ""
+    if strip_evidence:
+        title = _URL_RE.sub("", title)
+        title = _ORDER_RE.sub("", title)
+        title = _TASK_EVIDENCE_AMOUNT_RE.sub("", title)
+    else:
+        preserved_orders = "".join(
+            re.sub(r"[^0-9a-z]+", "", order.lower())
+            for order in sorted(set(_ORDER_RE.findall(title)), key=str.lower)
+        )
+        title = _ORDER_RE.sub("", title)
+    question_at = max(title.rfind("?"), title.rfind("？"))
+    if question_at >= 0:
+        answer = title[question_at + 1:]
+        if (
+            _DIRECT_AFFIRMATIVE_ANSWER_RE.search(answer)
+            or _DIRECT_NEGATIVE_ANSWER_RE.search(answer)
+        ):
+            title = title[:question_at + 1]
+        else:
+            answer = re.sub(r"\b(?:funds?|money)\b", "payment", answer, flags=re.I)
+            title = title[:question_at + 1] + answer
+    title = _RELATIVE_DEADLINE_RE.sub("", title)
+    title = _ABSOLUTE_DEADLINE_RE.sub("", title)
+    title = _HISTORICAL_TIME_RE.sub("", title)
+    title = _ZH_UNCONFIRMED_TRANSITION_RE.sub("", title)
+    title = _NEGATED_UNCONFIRMED_RE.sub("", title)
+    title = _UNCONFIRMED_STATE_RE.sub("", title)
+    title = _NEEDS_CONFIRMATION_RE.sub("", title)
+    title = _QUESTION_REQUEST_PREFIX_RE.sub("", title)
+    title = _DIRECT_ANSWER_PREFIX_RE.sub("", title)
+    title = _TRAILING_META_QUESTION_RE.sub("", title)
+    title = _ZH_STATE_TRANSITION_RE.sub(r"\1", title)
+    title = _mask_emphatic_positive(title)
+    title = _BUSINESS_REQUIREMENT_LINK_RE.sub(" for ", title)
+    title = _STATUS_PRONOUN_RE.sub("", title)
+    protected_names: list[tuple[str, str]] = []
+
+    def protect_name(match: re.Match) -> str:
+        placeholder = f"zzperson{len(protected_names)}zz"
+        protected_names.append((placeholder, match.group(2).lower()))
+        return f"{match.group(1)} {placeholder}"
+
+    title = _ENGLISH_ENTITY_NAME_RE.sub(protect_name, title)
+    title = title.lower()
+    title = _COMPLETION_SCOPE_RE.sub("", title)
+    for pattern in (
+        _NEGATED_DONE_ZH_RE,
+        _CURRENT_PARTIAL_EN_RE,
+        _CURRENT_PARTIAL_ZH_RE,
+        _CURRENT_DONE_EN_RE,
+        _CURRENT_DONE_SUFFIX_EN_RE,
+        _PRESENT_FULL_DONE_EN_RE,
+        _FULL_COMPLETION_WORDING_RE,
+        _INCOMPLETE_FULL_PERCENT_RE,
+        _FULL_COMPLETION_PERCENT_RE,
+        _CURRENT_DONE_ZH_RE,
+        _NEGATED_DONE_RE,
+        _NEGATED_PROGRESS_RE,
+        _PENDING_DONE_RE,
+        _PENDING_DONE_ZH_RE,
+        _ZH_COMPLETION_PREFIX_RE,
+        _PARTIAL_DONE_RE,
+    ):
+        title = pattern.sub("", title)
+    title = _PERCENT_QUALIFIER_RE.sub("", title)
+    title = _PERCENT_VALUE_RE.sub("", title)
+    for token in _TASK_STATUS_TOKENS:
+        lowered = token.lower()
+        if lowered.isascii() and any(char.isalpha() for char in lowered):
+            title = re.sub(rf"(?<![a-z]){re.escape(lowered)}(?![a-z])", "", title)
+        else:
+            title = title.replace(lowered, "")
+    for placeholder, name in protected_names:
+        title = title.replace(placeholder, re.sub(r"[^0-9a-z]+", "", name))
+    tokens = re.findall(r"[0-9a-z]+|[\u4e00-\u9fff]+", title)
+    index = 0
+    normalized_tokens: list[str] = []
+    while index < len(tokens):
+        repeated = False
+        for width in range((len(tokens) - index) // 2, 0, -1):
+            if tokens[index:index + width] == tokens[index + width:index + 2 * width]:
+                normalized_tokens.extend(tokens[index:index + width])
+                index += 2 * width
+                repeated = True
+                break
+        if not repeated:
+            normalized_tokens.append(tokens[index])
+            index += 1
+    normalized = "".join(normalized_tokens)
+    return normalized + preserved_orders
+
+
 def task_key(item: dict) -> str:
-    """同一事项的短键，用来做档间 diff。"""
-    return re.sub(r"\s+", " ", str(item.get("title") or "")).strip()[:24]
+    """状态词归一后的精确事项键；保留用于区分订单的单号和金额。"""
+    return _normalized_task_key(item, strip_evidence=False)
+
+
+def _task_base_key(item: dict) -> str:
+    """仅用于唯一候选回退匹配；剥离后续可能新增的证据。"""
+    return _normalized_task_key(item, strip_evidence=True)
+
+
+def _is_chinese_people_sequence(value: str) -> bool:
+    parts = [part for part in re.split(r"[、和与及]", value) if part]
+    if len(parts) > 1:
+        return all(_ZH_PERSON_NAME_RE.fullmatch(part) for part in parts)
+    counts = {0: 0}
+    for start in range(len(value)):
+        if start not in counts:
+            continue
+        for end in range(start + 2, min(len(value), start + 4) + 1):
+            if _ZH_PERSON_NAME_RE.fullmatch(value[start:end]):
+                counts[end] = max(counts.get(end, 0), counts[start] + 1)
+    return counts.get(len(value), 0) > 1
+
+
+def _task_scope_base_key(item: dict) -> str:
+    """仅在唯一候选匹配时，把中文完成句末的“都”视为范围词。"""
+    base = _task_base_key(item)
+    title = str(item.get("title") or "")
+    subject = base[:-1]
+    if (
+        base.endswith("都")
+        and (
+            _ZH_PERSON_NAME_RE.fullmatch(subject)
+            or _is_chinese_people_sequence(subject)
+            or _ZH_PLURAL_SCOPE_RE.search(subject)
+            or bool(re.search(r"[a-z0-9]", subject))
+        )
+        and _ZH_COMPLETION_SCOPE_RE.search(title)
+    ):
+        return base[:-1]
+    return base
+
+
+def _canonical_amount_evidence(text: str) -> str:
+    lowered = text.lower()
+    if re.search(r"usd|us\$|\$|美金|美元", lowered):
+        currency = "usd"
+    elif re.search(r"rmb|cny|[¥￥]|人民币|元", lowered):
+        currency = "cny"
+    elif re.search(r"gbp|£", lowered):
+        currency = "gbp"
+    elif re.search(r"eur|€", lowered):
+        currency = "eur"
+    else:
+        currency = "unspecified"
+    number = re.search(r"[\d,]+(?:\.\d+)?", text)
+    if number is None:
+        return re.sub(r"[\s,]+", "", lowered)
+    value = Decimal(number.group(0).replace(",", ""))
+    if re.search(r"[Ww万]", text):
+        value *= 10_000
+    normalized = format(value.normalize(), "f")
+    return f"{currency}:{normalized}"
+
+
+def _task_identity_evidence(item: dict) -> tuple[frozenset[str], frozenset[str]]:
+    title = str(item.get("title") or "")
+    orders = frozenset(match.group(0).upper() for match in _ORDER_RE.finditer(title))
+    amounts = frozenset(
+        _canonical_amount_evidence(match.group(0))
+        for match in _TASK_EVIDENCE_AMOUNT_RE.finditer(title)
+    )
+    return orders, amounts
+
+
+def _compatible_task_evidence(left: dict, right: dict) -> bool:
+    left_orders, left_amounts = _task_identity_evidence(left)
+    right_orders, right_amounts = _task_identity_evidence(right)
+    if not (left_orders or left_amounts) or not (right_orders or right_amounts):
+        return True
+    if left_orders and right_orders:
+        return bool(left_orders & right_orders)
+    return bool(left_amounts & right_amounts)
+
+
+def _explicit_status_answer_present(
+    text: str,
+    current_state: tuple[str, str, int, int] | None,
+) -> bool:
+    """问句后的片段必须含明确状态，不能把空泛回复当成闭环。"""
+    lowered = text.lower()
+    return bool(
+        current_state is not None
+        or _DIRECT_AFFIRMATIVE_ANSWER_RE.search(text)
+        or _DIRECT_NEGATIVE_ANSWER_RE.search(text)
+        or _DIRECT_COMPLETION_ANSWER_RE.search(text)
+        or _EXPLICIT_DONE_RE.search(lowered)
+        or _NEGATED_DONE_RE.search(lowered)
+        or _NEGATED_COMPLETION_BROAD_RE.search(lowered)
+        or _NEGATED_PROGRESS_RE.search(lowered)
+        or _partial_completion_present(lowered)
+        or _pending_completion_present(lowered)
+        or _active_unconfirmed_matches(text)
+        or any(token in text for token in _DONE_HINTS + _STALL_HINTS + _PROGRESS_HINTS)
+        or _english_hint_present(lowered, _STALL_HINTS_EN + _PROGRESS_HINTS_EN)
+    )
+
+
+def _direct_answer_status(question: str, answer: str) -> str:
+    """按问句谓词解释简短的“是/否”，避免把部分完成提前闭环。"""
+    affirmative = bool(_DIRECT_AFFIRMATIVE_ANSWER_RE.search(answer))
+    negative = bool(_DIRECT_NEGATIVE_ANSWER_RE.search(answer))
+    if not affirmative and not negative:
+        return ""
+    lowered = question.lower()
+    asks_partial = _partial_completion_present(lowered)
+    asks_negative = bool(
+        _NEGATED_DONE_RE.search(lowered)
+        or _NEGATED_COMPLETION_BROAD_RE.search(lowered)
+        or any(token in question for token in _STALL_HINTS)
+        or _english_hint_present(lowered, _STALL_HINTS_EN)
+    )
+    if affirmative:
+        if asks_negative:
+            return "stalled"
+        if asks_partial:
+            return "progress"
+        return "done"
+    if asks_negative:
+        return "progress" if asks_partial else "done"
+    return "stalled"
 
 
 def infer_status(item: dict) -> str:
@@ -984,12 +2094,88 @@ def infer_status(item: dict) -> str:
     current = str(item.get("status") or "")
     if current in _STATUS_SET:
         return current
-    blob = f"{item.get('title') or ''} {item.get('progress') or ''}"
-    if any(token in blob for token in _DONE_HINTS):
-        return "done"
+    title_text = _TRAILING_META_QUESTION_RE.sub(
+        "", _POLITE_TAIL_RE.sub("", str(item.get("title") or ""))
+    )
+    progress_text = _TRAILING_META_QUESTION_RE.sub(
+        "", _POLITE_TAIL_RE.sub("", str(item.get("progress") or ""))
+    )
+    blob = f"{title_text} {progress_text}"
+    status_blob = _mask_emphatic_positive(_mask_english_entity_names(blob))
+    lowered = status_blob.lower()
+    english_parts = (
+        _mask_emphatic_positive(
+            _mask_english_entity_names(title_text)
+        ).lower(),
+        _mask_emphatic_positive(
+            _mask_english_entity_names(progress_text)
+        ).lower(),
+    )
+    current_state = _current_completion_state(status_blob)
+    questions = list(_QUESTIONED_COMPLETION_RE.finditer(status_blob))
+    direct_answer_status = ""
+    if questions:
+        latest_question = max(questions, key=lambda question: question.end())
+        answer_blob = status_blob[latest_question.end():]
+        answer_current_state = _current_completion_state(answer_blob)
+        if not _explicit_status_answer_present(answer_blob, answer_current_state):
+            return "planned"
+        direct_answer_status = _direct_answer_status(
+            latest_question.group(0), answer_blob
+        )
+        if not direct_answer_status and _DIRECT_COMPLETION_ANSWER_RE.search(answer_blob):
+            direct_answer_status = "done"
+        status_blob = answer_blob
+        lowered = status_blob.lower()
+        english_parts = (lowered,)
+        current_state = answer_current_state
+    pending = any(_pending_completion_present(text) for text in english_parts)
+    partial = _partial_completion_present(lowered)
+    if _active_unconfirmed_matches(status_blob) and (
+        current_state is None
+        or _unconfirmed_state_blocks_current(status_blob, current_state[2])
+    ):
+        return "stalled"
+    if direct_answer_status:
+        return direct_answer_status
+    if current_state is not None and not _pending_completion_blocks_current(
+        status_blob,
+        current_state[2],
+        current_state[3],
+        current_state[0],
+        current_state[1],
+    ):
+        if current_state[0] == "progress" or _partial_completion_affects_current(
+            status_blob,
+            current_state[2],
+            current_state[3],
+        ):
+            return "progress"
+        return current_state[0]
+    if any(
+        _NEGATED_DONE_RE.search(text) or _NEGATED_COMPLETION_BROAD_RE.search(text)
+        for text in english_parts
+    ):
+        return "stalled"
+    if pending:
+        return "planned"
+    if _NEGATED_DONE_ZH_RE.search(status_blob):
+        return "stalled"
     if any(token in blob for token in _STALL_HINTS):
         return "stalled"
-    if any(token in blob for token in _PROGRESS_HINTS):
+    if any(_NEGATED_PROGRESS_RE.search(text) for text in english_parts):
+        return "stalled"
+    if partial:
+        return "progress"
+    if any(token in blob for token in _DONE_HINTS) or any(
+        _EXPLICIT_DONE_RE.search(text) for text in english_parts
+    ):
+        return "done"
+    if _english_hint_present(lowered, _STALL_HINTS_EN):
+        return "stalled"
+    if any(token in blob for token in _PROGRESS_HINTS) or _english_hint_present(
+        lowered, _PROGRESS_HINTS_EN
+    ):
         return "progress"
     return "planned"
 
@@ -998,6 +2184,37 @@ def diff_tasks(curr: list, prev: list) -> dict[str, list[dict]]:
     """相对上一档：完成 / 推进 / 停滞 / 新增 / 未回复。"""
     prev_map = {task_key(item): item for item in prev if task_key(item)}
     curr_map = {task_key(item): item for item in curr if task_key(item)}
+    matches = {key: key for key in curr_map.keys() & prev_map.keys()}
+    unmatched_curr = [key for key in curr_map if key not in matches]
+    unmatched_prev = [key for key in prev_map if key not in matches.values()]
+    curr_by_base: dict[str, list[str]] = {}
+    prev_by_base: dict[str, list[str]] = {}
+    for key in unmatched_curr:
+        curr_by_base.setdefault(_task_base_key(curr_map[key]), []).append(key)
+    for key in unmatched_prev:
+        prev_by_base.setdefault(_task_base_key(prev_map[key]), []).append(key)
+    for base, curr_keys in curr_by_base.items():
+        prev_keys = prev_by_base.get(base, [])
+        if len(curr_keys) != 1 or len(prev_keys) != 1:
+            continue
+        curr_key, prev_key = curr_keys[0], prev_keys[0]
+        if _compatible_task_evidence(curr_map[curr_key], prev_map[prev_key]):
+            matches[curr_key] = prev_key
+    scope_curr_by_base: dict[str, list[str]] = {}
+    scope_prev_by_base: dict[str, list[str]] = {}
+    for key in curr_map:
+        if key not in matches:
+            scope_curr_by_base.setdefault(_task_scope_base_key(curr_map[key]), []).append(key)
+    for key in prev_map:
+        if key not in matches.values():
+            scope_prev_by_base.setdefault(_task_scope_base_key(prev_map[key]), []).append(key)
+    for base, curr_keys in scope_curr_by_base.items():
+        prev_keys = scope_prev_by_base.get(base, [])
+        if len(curr_keys) != 1 or len(prev_keys) != 1:
+            continue
+        curr_key, prev_key = curr_keys[0], prev_keys[0]
+        if _compatible_task_evidence(curr_map[curr_key], prev_map[prev_key]):
+            matches[curr_key] = prev_key
     out: dict[str, list[dict]] = {
         "completed": [],
         "progressed": [],
@@ -1006,7 +2223,7 @@ def diff_tasks(curr: list, prev: list) -> dict[str, list[dict]]:
         "unanswered": [],
     }
     for key, item in curr_map.items():
-        old = prev_map.get(key)
+        old = prev_map.get(matches.get(key, ""))
         status = infer_status(item)
         if old is None:
             out["new"].append(item)
@@ -1020,8 +2237,9 @@ def diff_tasks(curr: list, prev: list) -> dict[str, list[dict]]:
             out["progressed"].append(item)
         else:
             out["stalled"].append(item)
+    matched_prev = set(matches.values())
     for key, item in prev_map.items():
-        if key not in curr_map:
+        if key not in matched_prev:
             out["unanswered"].append(item)
     return out
 
@@ -1029,8 +2247,21 @@ def diff_tasks(curr: list, prev: list) -> dict[str, list[dict]]:
 def _make_task_item(title: str, created: str) -> dict:
     """标题抽金额/截止/状态。"""
     progress = "待确认"
-    if any(token in title for token in _DONE_HINTS):
-        progress = "已到账"
+    status = infer_status({"title": title})
+    status_text = _mask_emphatic_positive(_mask_english_entity_names(title))
+    current_state = _current_completion_state(status_text)
+    if status == "done":
+        kind = current_state[1] if current_state is not None else _completion_kind(status_text)
+        if kind == "received":
+            progress = "已到账"
+        elif kind == "paid":
+            progress = "已付款"
+        else:
+            progress = "已完成"
+    elif status == "progress" and _partial_completion_present(status_text.lower()):
+        progress = "部分完成"
+    elif status == "stalled":
+        progress = "未确认" if _active_unconfirmed_matches(status_text) else "未完成"
     elif "今天可付款" in title:
         progress = "今天可付款"
     elif "本周付款" in title:
@@ -1043,8 +2274,8 @@ def _make_task_item(title: str, created: str) -> dict:
         "progress": progress,
         "deadline": _deadline_text(title),
         "source": created,
+        "status": status,
     }
-    item["status"] = infer_status(item)
     orders = _ORDER_RE.findall(title)
     if orders:
         item["evidence"] = orders
@@ -1073,6 +2304,8 @@ def _named_order_titles(body: str) -> list[str]:
     titles: list[str] = []
     for raw in body.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
+        if _ITEM_RE.match(line):
+            continue
         if "：" not in line and ":" not in line:
             continue
         if any(token in line for token in ("水单", "付款", "订单", "USD", "$", "待付", "万RMB")):
@@ -1091,6 +2324,25 @@ def _outreach_titles(body: str) -> list[str]:
     return []
 
 
+def _plain_status_update_title(body: str) -> str:
+    """普通群回复只更新已有事项，不单独把闲聊建成任务。"""
+    title = re.sub(r"\s+", " ", body).strip()
+    if not 3 <= len(title) <= 180 or _ITEM_RE.search(body):
+        return ""
+    masked = _mask_emphatic_positive(_mask_english_entity_names(title))
+    if (
+        _current_completion_state(masked) is not None
+        or infer_status({"title": title}) == "done"
+        or _negative_state_mentions(masked)
+        or _partial_completion_present(masked)
+        or _pending_completion_present(masked)
+        or _active_unconfirmed_matches(masked)
+        or _QUESTIONED_COMPLETION_RE.search(masked)
+    ):
+        return title
+    return ""
+
+
 def _push_evidence(evidence: list[str], text: str) -> None:
     blob = re.sub(r"\s+", " ", text).strip()[:160]
     if blob and blob not in evidence:
@@ -1103,11 +2355,54 @@ def parse_owner_reports(
     """从本人群消息抠催款条目/卡点/单号。无百分比就不编。"""
     if not sender_id:
         return [], [], []
-    collections: list[dict] = []
+    collections_by_key: dict[str, dict] = {}
     blockers: list[str] = []
     evidence: list[str] = []
-    seen: set[str] = set()
-    for msg in messages or []:
+    ordered = sorted(
+        enumerate(messages or []),
+        key=lambda row: (
+            str(row[1].get("created_at") or "") if isinstance(row[1], dict) else "",
+            row[0],
+        ),
+    )
+
+    def upsert(title: str, created: str, *, existing_only: bool = False) -> bool:
+        item = _make_task_item(title, created)
+        key = task_key(item)
+        if not key:
+            return False
+        existing_key = key if key in collections_by_key else None
+        if existing_key is None:
+            base = _task_base_key(item)
+            candidates = [
+                old_key
+                for old_key, old_item in collections_by_key.items()
+                if _task_base_key(old_item) == base
+                and _compatible_task_evidence(item, old_item)
+            ]
+            if len(candidates) == 1:
+                existing_key = candidates[0]
+        if existing_key is None:
+            scope_base = _task_scope_base_key(item)
+            candidates = [
+                old_key
+                for old_key, old_item in collections_by_key.items()
+                if _task_scope_base_key(old_item) == scope_base
+                and _compatible_task_evidence(item, old_item)
+            ]
+            if len(candidates) == 1:
+                existing_key = candidates[0]
+        if existing_key is None and existing_only:
+            return False
+        existing = collections_by_key.pop(existing_key, None) if existing_key else None
+        if existing is not None:
+            for field in ("amount", "deadline", "evidence"):
+                if not item.get(field) and existing.get(field):
+                    item[field] = existing[field]
+        collections_by_key[key] = item
+        return True
+
+    for _index, msg in ordered:
         if not isinstance(msg, dict) or msg.get("revoked_at"):
             continue
         if msg.get("sender_user_id") != sender_id:
@@ -1119,7 +2414,14 @@ def parse_owner_reports(
         if len(body) < 3:
             continue
         has_url = bool(_URL_RE.search(body))
-        if len(body) < 12 and "已填写" not in body and not has_url:
+        plain_update = _plain_status_update_title(body)
+        if (
+            len(body) < 12
+            and "已填写" not in body
+            and not has_url
+            and not _ITEM_RE.search(body)
+            and not plain_update
+        ):
             continue
         body = re.sub(
             r"(?<=\S)\s+(?:订单\s*)?(\d{1,2})\s*[\.．、:：]\s+",
@@ -1129,20 +2431,15 @@ def parse_owner_reports(
         created = str(msg.get("created_at") or "")[:10]
         for hit in _ITEM_RE.finditer(body):
             title = re.sub(r"\s+", " ", hit.group(2)).strip()[:180]
-            key = title[:24]
-            if not title or key in seen:
-                continue
-            seen.add(key)
-            collections.append(_make_task_item(title, created))
+            if title:
+                upsert(title, created)
         extra_titles = _loose_work_titles(body) + _named_order_titles(body)
         outreach = _outreach_titles(body)
         extra_titles += outreach
         for title in extra_titles:
-            key = title[:24]
-            if key in seen:
-                continue
-            seen.add(key)
-            collections.append(_make_task_item(title, created))
+            upsert(title, created)
+        if plain_update:
+            upsert(plain_update, created, existing_only=True)
         for title in outreach:
             _push_evidence(evidence, title)
         for hint in _BLOCK_HINTS:
@@ -1161,7 +2458,7 @@ def parse_owner_reports(
             _push_evidence(evidence, "客户跟进台账")
         for url in _URL_RE.findall(body):
             _push_evidence(evidence, url)
-    return collections[:12], blockers[:5], evidence[:8]
+    return list(collections_by_key.values())[-12:], blockers[:5], evidence[:8]
 
 
 def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list[dict]:

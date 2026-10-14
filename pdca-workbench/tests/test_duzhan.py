@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import unittest
 
+from app import duzhan as duzhan_module
 from app.duzhan import (
     TZ_PARIS,
     TZ_SHANGHAI,
@@ -167,6 +170,63 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         now = datetime(2026, 9, 15, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         self.assertIn("中追·追变化", render_brief(group, 15, now))
         self.assertIn("晚追·验兑现", render_brief(group, 20, now))
+
+    def test_custom_times_use_nearest_business_stage(self):
+        group = _group("于冰业绩达标群")
+        now = datetime(2026, 9, 15, 9, 35, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        self.assertIn("早追·定任务", render_brief(group, 9, now, minute=35))
+        self.assertIn("中追·追变化", render_brief(group, 14, now, minute=35))
+        self.assertIn("晚追·验兑现", render_brief(group, 19, now, minute=35))
+
+    def test_custom_midday_names_actual_previous_slot(self):
+        group = _group("于冰业绩达标群")
+        now = datetime(2026, 9, 15, 14, 10, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        previous = {"people": []}
+        text = render_brief(
+            group, 14, now, previous, previous,
+            minute=10, previous_slot="09:35",
+        )
+        self.assertIn("相对 09:35 的变化", text)
+        self.assertNotIn("相对 10:00 的变化", text)
+
+    def test_sparse_custom_slots_use_current_state_or_actual_baseline(self):
+        group = _group("于冰业绩达标群")
+        now = datetime(2026, 9, 15, 14, 10, tzinfo=ZoneInfo(TZ_SHANGHAI))
+        ledger = {"people": [{"group": group.name, "display": "于冰"}]}
+        midday = render_brief(
+            group, 14, now, ledger, minute=10, previous_slot="",
+        )
+        self.assertIn("当前状态", midday)
+        self.assertNotIn("相对上一档", midday)
+        self.assertIn("当前口径；累计已录单", midday)
+        self.assertNotIn("本次新增 待确认", midday)
+
+        morning = render_brief(
+            group, 9, now, ledger, ledger,
+            minute=35, previous_slot="昨日 14:10",
+        )
+        self.assertIn("昨日 14:10 未闭环", morning)
+        self.assertNotIn("昨日未闭环", morning)
+
+    def test_custom_time_reads_the_actual_previous_configured_snapshot(self):
+        group = _group("于冰业绩达标群")
+        agent = SimpleNamespace(blocks_json=json.dumps({"blocks": [
+            {"type": "times", "slots": ["09:35", "14:10", "19:45"]},
+        ]}))
+        with patch("app.duzhan.load_prepared", return_value={"ledger": {"marker": "previous"}}) as load:
+            result = duzhan_module._previous_prepared_for_group(
+                TZ_SHANGHAI, "2026-09-17", 14, 10, group.channel_id, [(agent, group)],
+            )
+        self.assertEqual(result["ledger"]["marker"], "previous")
+        load.assert_called_once_with(
+            TZ_SHANGHAI, 9, "2026-09-17", group.channel_id[:8], 35,
+        )
+
+        with patch("app.duzhan.load_prepared", return_value={}) as load:
+            duzhan_module._previous_prepared_for_group(
+                TZ_SHANGHAI, "2026-09-17", 9, 35, group.channel_id, [(agent, group)],
+            )
+        load.assert_any_call(TZ_SHANGHAI, 19, "2026-09-16", group.channel_id[:8], 45)
 
     def test_weekend_skips_push(self):
         saturday = datetime(2026, 9, 19, 10, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
@@ -1162,6 +1222,2264 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         stalled = next(item for item in collections if "马来" in item["title"])
         self.assertEqual(stalled["status"], "stalled")
         self.assertIn("XSD-DL26091502472", paid.get("evidence") or evidence)
+
+    def test_parse_owner_reports_latest_status_wins_for_same_item(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        collections, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. 待跟进客户A付款，今天完成",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. 已完成客户A付款，水单已回传",
+                },
+            ],
+            13063,
+        )
+
+        matching = [item for item in collections if "客户A付款" in item["title"]]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["status"], "done")
+
+    def test_parse_owner_reports_keeps_latest_twelve_updates(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        initial = "\n".join(
+            f"{index}. 客户{index:02d}付款事项等待确认"
+            for index in range(1, 14)
+        )
+        collections, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": initial,
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. 已完成客户01付款事项等待确认，水单已回传",
+                },
+            ],
+            13063,
+        )
+
+        titles = [item["title"] for item in collections]
+        self.assertEqual(len(titles), 12)
+        self.assertTrue(any("客户01" in title for title in titles))
+        self.assertFalse(any("客户02" in title for title in titles))
+        self.assertEqual(collections[-1]["status"], "done")
+
+    def test_parse_owner_reports_understands_english_completion(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, parse_owner_reports, task_key
+
+        collections, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. pending Customer Alpha contract follow up",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. completed Customer Alpha contract follow up",
+                },
+            ],
+            13063,
+        )
+
+        self.assertEqual(len(collections), 1)
+        self.assertEqual(collections[0]["status"], "done")
+        for title in (
+            "Customer Beta remains unpaid",
+            "Customer Alpha has not paid",
+            "Customer Beta is not done",
+            "Payment is not completed",
+            "Customer Gamma is not yet complete",
+            "Customer Delta has never paid",
+            "Customer Epsilon is no longer complete",
+            "Customer Zeta has not been paid",
+            "Customer Eta is not fully paid",
+            "Payment has not been completed",
+            "Customer Theta is yet to be completed",
+            "Payment could not have been completed",
+            "Payment couldn't have been completed",
+            "Payment may not have been completed",
+            "Customer Iota payment has not been received",
+            "Payment is not currently paid",
+            "Payment hasn't currently been paid",
+            "Payment was not already paid yesterday",
+            "Payment not already paid before shipment",
+            "Payment may never have been paid",
+            "Payment could never have been paid",
+            "Payment never has been paid",
+            "Payment could not possibly have been completed",
+            "Payment should not have actually been paid",
+            "Payment could not ever have been paid",
+            "尚未确认客户A已付款",
+            "No evidence that Customer A has paid",
+            "It is unclear whether payment has been received",
+            "Payment has never previously been paid",
+            "Payment has never once been paid",
+            "Payment is not confirmed paid",
+            "Payment was not reported as paid",
+        ):
+            self.assertEqual(infer_status({"title": title}), "stalled")
+        for unfinished, finished in (
+            ("Customer Zeta has not paid", "Customer Zeta has paid"),
+            ("Customer Eta is not done", "Customer Eta is done"),
+            ("Payment was not completed", "Payment was completed"),
+            ("Customer Iota has not been paid", "Customer Iota paid"),
+            ("Customer Kappa is not fully paid", "Customer Kappa paid"),
+            ("Customer Lambda is yet to be completed", "Customer Lambda completed"),
+            ("Customer Mu remains unpaid", "Customer Mu paid"),
+        ):
+            self.assertEqual(task_key({"title": unfinished}), task_key({"title": finished}))
+        updated, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. Customer Mu remains unpaid",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. Customer Mu paid",
+                },
+            ],
+            13063,
+        )
+        self.assertEqual(len(updated), 1)
+        self.assertEqual(updated[0]["status"], "done")
+        unpaid = {"title": "Customer Mu remains unpaid"}
+        paid = {"title": "Customer Mu paid"}
+        changes = diff_tasks([paid], [unpaid])
+        self.assertEqual(changes["completed"], [paid])
+        self.assertEqual(changes["new"], [])
+        self.assertEqual(changes["unanswered"], [])
+
+    def test_infer_status_requires_explicit_english_completion(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, task_key
+
+        for title in (
+            "Complete distributor contract tomorrow",
+            "Complete customer profile today",
+            "Paid media campaign proposal",
+            "Today paid media campaign proposal",
+            "Today paid-media campaign proposal",
+            "Customer Alpha will be completed tomorrow",
+            "Customer Alpha is scheduled to be completed",
+            "Payment is expected to be paid this week",
+            "Order needs to be completed",
+            "Balance to be paid tomorrow",
+            "Task remains to be completed",
+            "Payment should have been paid",
+            "Payment may have been paid",
+            "Payment should already have been paid",
+            "Payment might have already been received",
+            "Payment may possibly have been paid",
+            "Payment may well have been paid",
+            "Payment should perhaps have been paid",
+            "Payment is expected to have been paid",
+            "Payment was supposed to have been paid",
+            "Payment would have been paid",
+            "Payment should be received tomorrow but is now paid",
+            "Customer Alpha contract will be reviewed by legal but completed tomorrow",
+            "Customer Alpha contract will be reviewed by legal but completed on Friday",
+            "Customer Alpha contract will be reviewed by legal but completed on 2026-10-16",
+            "Customer Alpha contract will be reviewed by legal but completed at 17:00",
+            "Payment is to be fully paid tomorrow",
+            "Payment is to be completely paid next week",
+            "预计明天到账，客户A今天已付款",
+        ):
+            self.assertEqual(infer_status({"title": title}), "planned")
+        for title in (
+            "Completed Customer Alpha contract follow up",
+            "Customer Alpha contract is complete",
+            "Customer Alpha payment is done",
+            "Customer Alpha has paid",
+            "Customer Alpha has been paid",
+            "Customer Alpha paid today",
+            "Customer Alpha paid USD 10,000 today",
+            "Done: Customer Alpha contract",
+            "Done Customer Alpha contract",
+            "Paid: Customer Alpha invoice",
+            "Paid Customer Alpha invoice",
+            "Customer Alpha payment has now been received",
+            "Customer Alpha payment is now received",
+            "Customer Will is now paid",
+            "Customer May has paid invoice",
+            "Payment was not only paid but also received",
+            "Payment was not just paid but also received",
+            "Payment was not merely paid but also received",
+            "Customer Alpha paid invoice",
+            "Invoice paid by Customer Alpha",
+            "customer may has paid invoice",
+            "customer will is now paid",
+            "Customer Alpha Trading paid invoice",
+            "Customer ACME Corp paid invoice",
+            "Customer Van Dyke paid invoice",
+            "Payment was not only planned but completed",
+            "Payment was scheduled but is complete",
+            "Customer paid invoice",
+            "Customer paid invoice today",
+            "Payment was partially paid but is fully paid",
+            "Payment was 50% paid but is 100% paid",
+            "客户A尾款部分付款后已全部付款",
+            "Contract was planned but completed on time",
+            "Payment was scheduled but paid on time",
+            "Payment was scheduled but completed on 2026-10-10",
+            "Payment was scheduled but completed at 17:00",
+        ):
+            self.assertEqual(infer_status({"title": title}), "done")
+        for unfinished, finished in (
+            ("Payment will be completed tomorrow", "Payment completed"),
+            ("Payment should be completed tomorrow", "Payment completed"),
+            ("Payment is expected to be paid this week", "Payment paid"),
+            ("Order needs to be completed", "Order completed"),
+            ("Balance to be paid tomorrow", "Balance paid"),
+            ("Task remains to be completed", "Task completed"),
+            ("Payment unpaid", "Payment was not only paid but also received"),
+            ("Payment unpaid", "Payment was not just paid but also received"),
+            ("Payment unpaid", "Payment was not merely paid but also received"),
+            ("Customer Alpha invoice unpaid", "Customer Alpha paid invoice"),
+            ("Customer Will unpaid", "Customer Will is now paid"),
+            ("Customer May invoice unpaid", "Customer May has paid invoice"),
+            ("customer may invoice unpaid", "customer may has paid invoice"),
+            ("Customer Alpha Trading invoice unpaid", "Customer Alpha Trading paid invoice"),
+            ("Customer ACME Corp invoice unpaid", "Customer ACME Corp paid invoice"),
+            ("Customer Van Dyke invoice unpaid", "Customer Van Dyke paid invoice"),
+            ("Payment not completed", "Payment was not only planned but completed"),
+            ("Payment not completed", "Payment was scheduled but is complete"),
+            ("Customer invoice unpaid", "Customer paid invoice"),
+            ("Customer invoice unpaid", "Customer paid invoice today"),
+            ("Payment unpaid", "Payment was partially paid but is fully paid"),
+            ("Payment unpaid", "Payment was 50% paid but is 100% paid"),
+            ("客户A尾款未付款", "客户A尾款部分付款后已全部付款"),
+            ("Contract not completed", "Contract was planned but completed on time"),
+            ("Payment unpaid", "Payment was scheduled but paid on time"),
+            (
+                "Customer Alpha contract to be completed on Friday",
+                "Customer Alpha contract completed",
+            ),
+            (
+                "Customer Alpha contract to be completed on 2026-10-16",
+                "Customer Alpha contract completed",
+            ),
+            (
+                "Customer Alpha contract to be completed at 17:00",
+                "Customer Alpha contract completed",
+            ),
+        ):
+            self.assertEqual(task_key({"title": unfinished}), task_key({"title": finished}))
+            current = {"title": finished}
+            changes = diff_tasks([current], [{"title": unfinished}])
+            self.assertEqual(changes["completed"], [current])
+            self.assertEqual(changes["new"], [])
+            self.assertEqual(changes["unanswered"], [])
+
+        self.assertNotEqual(
+            task_key({"title": "customer may invoice unpaid"}),
+            task_key({"title": "customer will invoice unpaid"}),
+        )
+        automotive_before = {"title": "汽车后市场合同未完成"}
+        automotive_after = {"title": "汽车市场合同已完成"}
+        self.assertNotEqual(task_key(automotive_before), task_key(automotive_after))
+        automotive_changes = diff_tasks([automotive_after], [automotive_before])
+        self.assertEqual(automotive_changes["new"], [automotive_after])
+        self.assertEqual(automotive_changes["unanswered"], [automotive_before])
+        queen_before = {"title": "客户王后订单尾款尚未付款"}
+        wang_before = {"title": "客户王订单尾款尚未付款"}
+        self.assertNotEqual(task_key(queen_before), task_key(wang_before))
+        distinct_names = diff_tasks([wang_before], [queen_before])
+        self.assertEqual(distinct_names["new"], [wang_before])
+        self.assertEqual(distinct_names["unanswered"], [queen_before])
+
+    def test_infer_status_understands_stalled_english_progress(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, task_key
+
+        for title in (
+            "Customer Nu no progress",
+            "Customer Nu has made no progress",
+            "Customer Nu not in progress",
+            "Customer Nu has not progressed",
+            "Customer Nu has no further progress",
+        ):
+            self.assertEqual(infer_status({"title": title}), "stalled")
+            self.assertEqual(
+                task_key({"title": title}),
+                task_key({"title": "Customer Nu completed"}),
+            )
+        stalled = {"title": "Customer Nu has made no progress"}
+        done = {"title": "Customer Nu completed"}
+        changes = diff_tasks([done], [stalled])
+        self.assertEqual(changes["completed"], [done])
+        self.assertEqual(changes["new"], [])
+        self.assertEqual(changes["unanswered"], [])
+
+    def test_parse_owner_reports_merges_new_completion_evidence(self):
+        from app.duzhan_ledger import diff_tasks, parse_owner_reports, task_key
+
+        collections, _, evidence = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. 待跟进客户A付款，今天完成",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. 已完成客户A付款，水单已回传 XSD-DL26091502472",
+                },
+            ],
+            13063,
+        )
+
+        self.assertEqual(len(collections), 1)
+        self.assertEqual(collections[0]["status"], "done")
+        self.assertIn("XSD-DL26091502472", collections[0]["evidence"])
+        self.assertIn("XSD-DL26091502472", evidence)
+        previous = {"title": "待跟进客户A付款，今天完成"}
+        current = {"title": "已完成客户A付款，水单已回传 XSD-DL26091502472"}
+        changes = diff_tasks([current], [previous])
+        self.assertEqual(changes["completed"], [current])
+        self.assertEqual(changes["new"], [])
+        self.assertEqual(changes["unanswered"], [])
+
+        paid, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. pending Customer Alpha invoice",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. Customer Alpha invoice paid USD 10,000 today",
+                },
+            ],
+            13063,
+        )
+        self.assertEqual(len(paid), 1)
+        self.assertEqual(paid[0]["status"], "done")
+
+        reordered_amount, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. Customer Beta invoice USD 10,000 unpaid",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. Customer Beta invoice 10,000 USD paid",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T10:00:00Z",
+                    "body": "1. Customer Beta invoice $10,000 paid",
+                },
+            ],
+            13063,
+        )
+        self.assertEqual(len(reordered_amount), 1)
+        self.assertEqual(reordered_amount[0]["status"], "done")
+
+        for before, after in (
+            ("Customer Gamma invoice RMB 10万 unpaid", "Customer Gamma invoice 10万 RMB paid"),
+            ("Customer Delta invoice USD 10W unpaid", "Customer Delta invoice 10W USD paid"),
+        ):
+            scaled_amount, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-09-15T01:00:00Z",
+                        "body": f"1. {before}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-09-15T09:00:00Z",
+                        "body": f"1. {after}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(scaled_amount), 1)
+            self.assertEqual(scaled_amount[0]["status"], "done")
+
+        separate, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": (
+                        "1. Customer Alpha invoice XSD-ONE USD 10,000 unpaid\n"
+                        "2. Customer Alpha invoice XSD-TWO USD 10,000 unpaid"
+                    ),
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. Customer Alpha invoice XSD-ONE USD 10,000 paid",
+                },
+            ],
+            13063,
+        )
+        self.assertEqual(len(separate), 2)
+        self.assertNotEqual(task_key(separate[0]), task_key(separate[1]))
+        self.assertEqual(sorted(item["status"] for item in separate), ["done", "stalled"])
+
+        status_word_orders, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": (
+                        "1. Customer Alpha invoice XSD-PAID-123 unpaid\n"
+                        "2. Customer Alpha invoice XSD-123 unpaid"
+                    ),
+                }
+            ],
+            13063,
+        )
+        self.assertEqual(len(status_word_orders), 2)
+        self.assertNotEqual(task_key(status_word_orders[0]), task_key(status_word_orders[1]))
+
+        named_customers, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": (
+                        "1. Customer Will invoice unpaid\n"
+                        "2. Customer May invoice unpaid\n"
+                        "3. Customer Paid invoice unpaid"
+                    ),
+                }
+            ],
+            13063,
+        )
+        self.assertEqual(len(named_customers), 3)
+        self.assertNotEqual(task_key(named_customers[0]), task_key(named_customers[1]))
+        self.assertNotEqual(task_key(named_customers[1]), task_key(named_customers[2]))
+
+    def test_partial_completion_remains_open(self):
+        from app.duzhan_ledger import infer_status, parse_owner_reports, task_key
+
+        for title, finished in (
+            ("Customer Alpha contract 50% completed", "Customer Alpha contract completed"),
+            ("Customer Alpha contract partially completed", "Customer Alpha contract completed"),
+            ("Customer Alpha contract almost complete", "Customer Alpha contract completed"),
+            ("Customer Alpha contract mostly completed", "Customer Alpha contract completed"),
+            ("Customer Alpha invoice partially paid", "Customer Alpha invoice paid"),
+            ("客户A合同已完成50%", "客户A合同已完成"),
+            ("客户A合同部分完成", "客户A合同已完成"),
+            ("客户A合同已完成一半", "客户A合同已完成"),
+            ("客户A合同基本完成", "客户A合同已完成"),
+        ):
+            self.assertEqual(infer_status({"title": title}), "progress")
+            self.assertEqual(
+                task_key({"title": title}),
+                task_key({"title": finished}),
+            )
+        self.assertEqual(
+            infer_status({"title": "Customer Alpha contract 100% completed"}),
+            "done",
+        )
+        self.assertEqual(
+            infer_status({"title": "Customer Alpha payment not 100% completed"}),
+            "stalled",
+        )
+        for title in (
+            "Payment will be partially paid tomorrow",
+            "Contract is expected to be 50% completed this week",
+            "计划完成50%客户A合同",
+            "预计客户A尾款部分付款",
+            "明天完成50%客户A合同",
+        ):
+            self.assertEqual(infer_status({"title": title}), "planned")
+        partial, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. 客户A合同已完成50%",
+                }
+            ],
+            13063,
+        )
+        self.assertEqual(partial[0]["status"], "progress")
+        self.assertEqual(partial[0]["progress"], "部分完成")
+        future, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. Payment will be partially paid tomorrow",
+                }
+            ],
+            13063,
+        )
+        self.assertEqual(future[0]["status"], "planned")
+        self.assertEqual(future[0]["progress"], "待确认")
+
+        chinese_future, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. 明天完成50%客户A合同",
+                }
+            ],
+            13063,
+        )
+        self.assertEqual(chinese_future[0]["status"], "planned")
+        self.assertEqual(chinese_future[0]["progress"], "待确认")
+
+    def test_chinese_negative_completion_remains_open_and_merges(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, parse_owner_reports, task_key
+
+        for unfinished, finished in (
+            ("客户A尾款未付款", "客户A尾款已付款"),
+            ("客户A尾款未支付", "客户A尾款已支付"),
+            ("客户A合同未完成", "客户A合同已完成"),
+            ("客户A尾款未到账", "客户A尾款已到账"),
+        ):
+            self.assertEqual(infer_status({"title": unfinished}), "stalled")
+            self.assertEqual(task_key({"title": unfinished}), task_key({"title": finished}))
+            current = {"title": finished}
+            changes = diff_tasks([current], [{"title": unfinished}])
+            self.assertEqual(changes["completed"], [current])
+            self.assertEqual(changes["new"], [])
+            self.assertEqual(changes["unanswered"], [])
+
+        collections, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. 客户A尾款未付款，需要确认",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. 客户A尾款已付款，需要确认",
+                },
+            ],
+            13063,
+        )
+        self.assertEqual(len(collections), 1)
+        self.assertEqual(collections[0]["status"], "stalled")
+        self.assertEqual(collections[0]["progress"], "未确认")
+
+    def test_current_completion_overrides_historical_negative_state(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, parse_owner_reports, task_key
+
+        for title in (
+            "客户A昨日未付款，今日已付款",
+            "客户A今天已付款，昨天未付款",
+            "Customer A was unpaid but is now paid",
+            "Customer A is now paid; it was unpaid yesterday",
+            "Customer A is now paid; it was unpaid as of yesterday",
+            "Customer A is now paid; it was unpaid until yesterday",
+            "Customer A is now paid; it was unpaid through yesterday",
+            "Payment was expected to be paid yesterday but is now paid",
+            "客户A原计划昨日付款，今日已付款",
+            "Customer A was unpaid but is now paid 100%",
+            "Payment was 50% paid yesterday; it is now 100% paid",
+            "Payment was partially paid yesterday but is now fully paid",
+            "此前尚未确认客户A已付款，现已到账",
+            "No evidence that payment was paid yesterday; payment is now received",
+            "客户A已经付款",
+            "客户A刚完成",
+        ):
+            self.assertEqual(infer_status({"title": title}), "done")
+        for title in (
+            "客户A今日已付款，但尚未到账",
+            "客户A尾款尚未到账，今天已付款",
+            "Customer A is not already paid",
+            "Payment could not be completed",
+            "Payment cannot be completed",
+            "Payment couldn't be completed",
+        ):
+            self.assertEqual(infer_status({"title": title}), "stalled")
+        self.assertEqual(
+            infer_status({"title": "客户A尚未付款，今天付款"}),
+            "planned",
+        )
+        for title in (
+            "Customer A was unpaid but is now partially paid",
+            "客户A昨日未付款，今日部分付款",
+            "Customer A was unpaid but is now paid 50%",
+            "Customer A invoice 50% has now been paid",
+            "Payment was unpaid yesterday but is now received 50%",
+            "Payment is now paid only 50%",
+            "Payment has now been received only 50%",
+            "客户A今天已付款约50%",
+            "Payment 50% has been paid",
+            "50% of payment has now been paid",
+            "Payment has partially been paid",
+            "Payment is received 50%",
+            "客户A尾款已到账50%",
+            "Payment is partially received",
+            "客户A尾款部分到账",
+        ):
+            self.assertEqual(infer_status({"title": title}), "progress")
+
+        for unfinished, progressing in (
+            ("Customer A invoice unpaid", "Customer A invoice was unpaid but is now partially paid"),
+            ("客户A尾款未付款", "客户A尾款昨日未付款，今日部分付款"),
+            ("Customer A invoice unpaid", "Customer A invoice was unpaid but is now paid 50%"),
+            ("Customer A invoice unpaid", "Customer A invoice 50% has now been paid"),
+            ("Payment unpaid", "Payment was unpaid yesterday but is now received 50%"),
+            ("Payment unpaid", "Payment 50% has been paid"),
+            ("Payment unpaid", "50% of payment has now been paid"),
+            ("Payment unpaid", "Payment has partially been paid"),
+            ("Payment unreceived", "Payment is received 50%"),
+            ("客户A尾款未到账", "客户A尾款已到账50%"),
+            ("Payment unreceived", "Payment is partially received"),
+            ("客户A尾款未到账", "客户A尾款部分到账"),
+            ("Payment unpaid", "Payment is now paid only 50%"),
+            ("Payment unpaid", "Payment is now paid about 50%"),
+            ("Payment unpaid", "Payment is now paid roughly 50%"),
+            ("客户A未付款", "客户A今天已付款约50%"),
+        ):
+            self.assertEqual(task_key({"title": unfinished}), task_key({"title": progressing}))
+            current = {"title": progressing}
+            changes = diff_tasks([current], [{"title": unfinished}])
+            self.assertEqual(changes["progressed"], [current])
+            self.assertEqual(changes["new"], [])
+            self.assertEqual(changes["unanswered"], [])
+
+        for unfinished, finished in (
+            ("Customer A invoice unpaid", "Customer A invoice now paid"),
+            ("客户Alpha尾款未付款", "客户Alpha尾款现已付款"),
+            ("Customer A invoice unpaid", "Customer A invoice was unpaid but is now paid"),
+            ("Customer A unpaid", "Customer A is now paid; it was unpaid yesterday"),
+            ("Customer A unpaid", "Customer A is now paid; it was unpaid as of yesterday"),
+            ("Customer A unpaid", "Customer A is now paid; it was unpaid until yesterday"),
+            ("Customer A unpaid", "Customer A is now paid; it was unpaid through yesterday"),
+            (
+                "Customer A payment has not been received",
+                "Customer A payment has now been received",
+            ),
+            (
+                "Payment unpaid",
+                "Payment was 50% paid yesterday; it is now 100% paid",
+            ),
+            (
+                "Payment not received",
+                "No evidence that payment was paid yesterday; payment is now received",
+            ),
+            (
+                "Customer Alpha payment has not been received",
+                "No evidence that Customer Alpha payment was received yesterday; "
+                "Customer Alpha payment is now received",
+            ),
+            (
+                "客户A尾款未付款，需要确认",
+                "此前尚未确认客户A尾款已付款，现已到账",
+            ),
+        ):
+            self.assertEqual(task_key({"title": unfinished}), task_key({"title": finished}))
+            current = {"title": finished}
+            changes = diff_tasks([current], [{"title": unfinished}])
+            self.assertEqual(changes["completed"], [current])
+            self.assertEqual(changes["new"], [])
+            self.assertEqual(changes["unanswered"], [])
+
+        amount_before = {"title": "Customer B invoice USD 10 waiting approval unpaid"}
+        amount_after = {"title": "Customer B invoice 10 USD waiting approval paid"}
+        amount_changes = diff_tasks([amount_after], [amount_before])
+        self.assertEqual(amount_changes["completed"], [amount_after])
+        self.assertEqual(amount_changes["new"], [])
+        self.assertEqual(amount_changes["unanswered"], [])
+
+        for before, after in (
+            ("Customer A follow up in 2 weeks", "Customer A follow up in 3 weeks"),
+            ("Customer A follow up in 2 working days", "Customer A follow up in 3 working days"),
+        ):
+            self.assertEqual(task_key({"title": before}), task_key({"title": after}))
+            deadline_changes = diff_tasks([{"title": after}], [{"title": before}])
+            self.assertEqual(deadline_changes["new"], [])
+            self.assertEqual(deadline_changes["unanswered"], [])
+
+        planned_customer = {"title": "Customer will be paid tomorrow"}
+        finished_customer = {"title": "Customer paid"}
+        self.assertEqual(task_key(planned_customer), task_key(finished_customer))
+        customer_changes = diff_tasks([finished_customer], [planned_customer])
+        self.assertEqual(customer_changes["completed"], [finished_customer])
+        self.assertEqual(customer_changes["new"], [])
+        self.assertEqual(customer_changes["unanswered"], [])
+
+        for before, after in (
+            ("Customer invoice unpaid", "Customer has paid invoice"),
+            ("Customer contract unpaid", "Customer completed contract"),
+            ("Customer Alpha follow up", "Customer Alpha will follow up"),
+            ("Customer Alpha follow up", "Customer Alpha should follow up"),
+            ("Customer Alpha follow up", "Customer Alpha may follow up"),
+        ):
+            self.assertEqual(task_key({"title": before}), task_key({"title": after}))
+
+        collections, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T01:00:00Z",
+                    "body": "1. 客户A尾款未付款，需要确认",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-09-15T09:00:00Z",
+                    "body": "1. 客户A尾款昨日未付款，今日已付款，需要确认",
+                }
+            ],
+            13063,
+        )
+        self.assertEqual(len(collections), 1)
+        self.assertEqual(collections[0]["status"], "stalled")
+        self.assertEqual(collections[0]["progress"], "未确认")
+
+        for title, expected_progress in (
+            ("Payment was not only paid but also received", "已到账"),
+            ("Payment was 50% paid yesterday; it is now 100% paid", "已付款"),
+            ("Customer May has paid invoice", "已付款"),
+            ("Customer Will is now paid", "已付款"),
+            ("Customer paid invoice today", "已付款"),
+            ("Payment was partially paid but is fully paid", "已付款"),
+            ("Payment was 50% paid but is 100% paid", "已付款"),
+            ("客户A尾款部分付款后已全部付款", "已付款"),
+            (
+                "No evidence that payment was paid yesterday; payment is now received",
+                "已到账",
+            ),
+        ):
+            parsed, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-09-15T09:00:00Z",
+                        "body": f"1. {title}",
+                    }
+                ],
+                13063,
+            )
+            self.assertEqual(len(parsed), 1)
+            self.assertEqual(parsed[0]["status"], "done")
+            self.assertEqual(parsed[0]["progress"], expected_progress)
+
+        for previous, current, expected_progress in (
+            (
+                "Customer Alpha payment has not been received",
+                "No evidence that Customer Alpha payment was received yesterday; "
+                "Customer Alpha payment is now received",
+                "已到账",
+            ),
+            (
+                "客户A尾款未付款，需要确认",
+                "此前尚未确认客户A尾款已付款，现已到账",
+                "已到账",
+            ),
+        ):
+            parsed, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-09-15T01:00:00Z",
+                        "body": f"1. {previous}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-09-15T09:00:00Z",
+                        "body": f"1. {current}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(parsed), 1)
+            self.assertEqual(parsed[0]["status"], "done")
+            self.assertEqual(parsed[0]["progress"], expected_progress)
+
+    def test_questioned_completion_stays_pending(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, parse_owner_reports, task_key
+
+        for title, completed_title in (
+            ("请确认客户A是否已付款", "客户A已付款"),
+            ("客户A是否已全部付款", "客户A已付款"),
+            ("请确认客户A已付款了吗", "客户A已付款"),
+            ("请核实客户A已付款", "客户A已付款"),
+            ("客户A已付款？", "客户A已付款"),
+            ("Has Customer Alpha paid invoice?", "Customer Alpha paid invoice"),
+            ("Hasn't Customer Alpha paid invoice?", "Customer Alpha paid invoice"),
+            ("Customer Alpha paid invoice?", "Customer Alpha paid invoice"),
+            ("Is Customer Alpha payment complete?", "Customer Alpha payment complete"),
+            ("Was Customer Alpha invoice paid?", "Customer Alpha invoice paid"),
+            (
+                "Please confirm whether Customer Alpha payment is complete?",
+                "Customer Alpha payment is complete",
+            ),
+            (
+                "Please check if Customer Alpha payment is complete?",
+                "Customer Alpha payment is complete",
+            ),
+            (
+                "Please confirm Customer Alpha payment is complete?",
+                "Customer Alpha payment is complete",
+            ),
+            (
+                "Please check Customer Alpha payment is complete?",
+                "Customer Alpha payment is complete",
+            ),
+            (
+                "Please verify Customer Alpha payment is complete.",
+                "Customer Alpha payment is complete",
+            ),
+            (
+                "Could you please confirm whether Customer Alpha payment is complete?",
+                "Customer Alpha payment is complete",
+            ),
+            (
+                "Can you confirm whether Customer Alpha payment is complete?",
+                "Customer Alpha payment is complete",
+            ),
+        ):
+            self.assertEqual(infer_status({"title": title}), "planned")
+            parsed, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {title}",
+                    }
+                ],
+                13063,
+            )
+            self.assertEqual(len(parsed), 1)
+            self.assertEqual(parsed[0]["status"], "planned")
+            self.assertEqual(parsed[0]["progress"], "待确认")
+            self.assertEqual(
+                task_key({"title": title}),
+                task_key({"title": completed_title}),
+            )
+            completed_chain, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T08:00:00Z",
+                        "body": f"1. {title}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {completed_title}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(completed_chain), 1)
+            self.assertEqual(completed_chain[0]["status"], "done")
+
+        for resolved_title, expected_progress, previous_titles in (
+            (
+                "此前请确认客户A是否已付款，现已到账",
+                "已到账",
+                ("客户A未付款", "客户A尚未到账"),
+            ),
+            (
+                "Has Customer Alpha paid invoice? Invoice paid.",
+                "已付款",
+                ("Customer Alpha invoice unpaid",),
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid: Customer Alpha invoice",
+                "已付款",
+                ("Customer Alpha invoice unpaid",),
+            ),
+            (
+                "Is Customer Alpha payment complete? Done: Customer Alpha payment",
+                "已完成",
+                ("Customer Alpha payment not complete",),
+            ),
+            (
+                "Has Customer Alpha not paid invoice? Invoice paid.",
+                "已付款",
+                ("Customer Alpha invoice unpaid",),
+            ),
+            (
+                "Is Customer Alpha payment not complete? Done: Customer Alpha payment",
+                "已完成",
+                ("Customer Alpha payment not complete",),
+            ),
+            (
+                "Was Customer Alpha invoice not paid? Invoice paid.",
+                "已付款",
+                ("Customer Alpha invoice unpaid",),
+            ),
+        ):
+            self.assertEqual(infer_status({"title": resolved_title}), "done")
+            resolved, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {resolved_title}",
+                    }
+                ],
+                13063,
+            )
+            self.assertEqual(len(resolved), 1)
+            self.assertEqual(resolved[0]["status"], "done")
+            self.assertEqual(resolved[0]["progress"], expected_progress)
+            for previous_title in previous_titles:
+                previous = {"title": previous_title}
+                changes = diff_tasks(resolved, [previous])
+                self.assertEqual(changes["completed"], resolved)
+                self.assertEqual(changes["progressed"], [])
+
+        for answered_title, expected_status, expected_progress in (
+            (
+                "Has Customer Alpha paid invoice? Yes.",
+                "done",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Yes, thanks.",
+                "done",
+                "已付款",
+            ),
+            (
+                "客户A是否已付款？是的。",
+                "done",
+                "已付款",
+            ),
+            (
+                "客户A是否已付款？是的，谢谢。",
+                "done",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Confirmed, thanks.",
+                "done",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha payment been received? Confirmed: payment received.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Has Customer Alpha payment been received? Confirmed received.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Has Customer Alpha payment been received? Confirmed: funds received.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Has Customer Alpha payment been received? "
+                "Confirmed: Customer Alpha payment received.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Has Customer Alpha payment been received? "
+                "Confirmed: payment received yesterday.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Has Customer Alpha payment been received? "
+                "Confirmed: payment received USD 10,000.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Invoice paid, thanks.",
+                "done",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid, thanks.",
+                "done",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha payment been received? "
+                "Confirmed: payment received, thanks.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Has Customer Alpha paid invoice? No.",
+                "stalled",
+                "未完成",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Confirmed: no payment received.",
+                "stalled",
+                "未完成",
+            ),
+            (
+                "Is Customer Alpha invoice partially paid? Yes.",
+                "progress",
+                "部分完成",
+            ),
+            (
+                "客户A是否已部分付款？是的。",
+                "progress",
+                "部分完成",
+            ),
+            (
+                "Is Customer Alpha invoice unpaid? No.",
+                "done",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Confirmed pending.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Is Customer Alpha invoice not 50% paid? No.",
+                "progress",
+                "部分完成",
+            ),
+            (
+                "Is Customer Alpha invoice not partially paid? No.",
+                "progress",
+                "部分完成",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Customer Alpha invoice unpaid.",
+                "stalled",
+                "未完成",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Customer Alpha invoice paid 50%.",
+                "progress",
+                "部分完成",
+            ),
+        ):
+            self.assertEqual(infer_status({"title": answered_title}), expected_status)
+            answered, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {answered_title}",
+                    }
+                ],
+                13063,
+            )
+            self.assertEqual(len(answered), 1)
+            self.assertEqual(answered[0]["status"], expected_status)
+            self.assertEqual(answered[0]["progress"], expected_progress)
+
+        for answered_title, previous_title in (
+            (
+                "Has Customer Alpha paid invoice? Yes.",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "客户A是否已付款？是的。",
+                "客户A未付款。",
+            ),
+            (
+                "Customer Alpha invoice paid; anything else?",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "Customer Alpha invoice paid, anything else?",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "Customer Alpha invoice paid. Anything else?",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "Customer Alpha invoice paid: anything else?",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "Is Customer Alpha invoice unpaid? No.",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Yes, thanks.",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "客户A是否已付款？是的，谢谢。",
+                "客户A未付款。",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Confirmed, thanks.",
+                "Customer Alpha invoice unpaid.",
+            ),
+            (
+                "Has Customer Alpha payment been received? Confirmed: payment received.",
+                "Customer Alpha payment unreceived.",
+            ),
+            (
+                "Has Customer Alpha payment been received? Confirmed: funds received.",
+                "Customer Alpha payment unreceived.",
+            ),
+            (
+                "Has Customer Alpha payment been received? "
+                "Confirmed: Customer Alpha payment received.",
+                "Customer Alpha payment unreceived.",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Invoice paid, thanks.",
+                "Customer Alpha invoice unpaid.",
+            ),
+        ):
+            answered = {"title": answered_title}
+            previous = {"title": previous_title}
+            self.assertEqual(infer_status(answered), "done")
+            self.assertEqual(task_key(answered), task_key(previous))
+            self.assertEqual(diff_tasks([answered], [previous])["completed"], [answered])
+            chain, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T08:00:00Z",
+                        "body": f"1. {previous_title}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {answered_title}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(chain), 1)
+            self.assertEqual(chain[0]["status"], "done")
+
+        for request in (
+            "Please confirm: Customer Alpha payment is complete",
+            "Please check: Customer Alpha payment is complete",
+            "Please verify: Customer Alpha payment is complete",
+            "Please confirm, Customer Alpha payment is complete",
+            "Please check, Customer Alpha payment is complete",
+            "Please verify, Customer Alpha payment is complete",
+            "Please confirm; Customer Alpha payment is complete",
+            "Please check; Customer Alpha payment is complete",
+            "Please verify; Customer Alpha payment is complete",
+            "Please confirm - Customer Alpha payment is complete",
+            "Please check — Customer Alpha payment is complete",
+        ):
+            self.assertEqual(infer_status({"title": request}), "planned")
+            self.assertEqual(
+                task_key({"title": request}),
+                task_key({"title": "Customer Alpha payment is complete"}),
+            )
+            changes = diff_tasks(
+                [{"title": request}],
+                [{"title": "Customer Alpha payment not complete"}],
+            )
+            self.assertEqual(changes["completed"], [])
+
+        confirmed_negative = {
+            "title": "Has Customer Alpha paid invoice? Confirmed: no payment received."
+        }
+        previous_unpaid = {"title": "Customer Alpha invoice unpaid."}
+        self.assertEqual(task_key(confirmed_negative), task_key(previous_unpaid))
+        confirmed_chain, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T08:00:00Z",
+                    "body": "1. Customer Alpha invoice unpaid.",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T09:00:00Z",
+                    "body": "1. Has Customer Alpha paid invoice? "
+                    "Confirmed: no payment received.",
+                },
+            ],
+            13063,
+        )
+        self.assertEqual(len(confirmed_chain), 1)
+        self.assertEqual(confirmed_chain[0]["status"], "stalled")
+
+        pending_confirmation, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T08:00:00Z",
+                    "body": "1. Customer Alpha invoice unpaid.",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T09:00:00Z",
+                    "body": "1. Has Customer Alpha paid invoice? Confirmed pending.",
+                },
+            ],
+            13063,
+        )
+        self.assertEqual(len(pending_confirmation), 1)
+        self.assertEqual(pending_confirmation[0]["status"], "planned")
+
+        partial_answer = {"title": "客户A是否已部分付款？是的。"}
+        partial_previous = {"title": "客户A未付款。"}
+        self.assertEqual(task_key(partial_answer), task_key(partial_previous))
+        self.assertEqual(
+            diff_tasks([partial_answer], [partial_previous])["progressed"],
+            [partial_answer],
+        )
+
+        invoice_answer = {"title": "Has Customer Alpha paid? Invoice paid."}
+        order_answer = {"title": "Has Customer Alpha paid? Order paid."}
+        self.assertEqual(
+            task_key(invoice_answer),
+            task_key({"title": "Customer Alpha invoice unpaid."}),
+        )
+        self.assertNotEqual(task_key(invoice_answer), task_key(order_answer))
+
+        amount_receipt = {
+            "title": "Has Customer Alpha payment been received? "
+            "Confirmed: payment received USD 10,000."
+        }
+        previous_receipt = {"title": "Customer Alpha payment unreceived."}
+        self.assertEqual(
+            diff_tasks([amount_receipt], [previous_receipt])["completed"],
+            [amount_receipt],
+        )
+
+        self.assertEqual(
+            infer_status(
+                {
+                    "title": "Has Customer Alpha payment been received? "
+                    "Confirmed: payment received tomorrow."
+                }
+            ),
+            "planned",
+        )
+
+    def test_short_numbered_completion_updates_previous_state(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        parsed, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T01:00:00Z",
+                    "body": "1. 客户A尾款尚未付款，今天可付款",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T09:00:00Z",
+                    "body": "1. 客户A尾款已付款",
+                },
+            ],
+            13063,
+        )
+
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["title"], "客户A尾款已付款")
+        self.assertEqual(parsed[0]["status"], "done")
+        self.assertEqual(parsed[0]["progress"], "已付款")
+
+    def test_full_completion_wording_closes_existing_task(self):
+        from app.duzhan_ledger import (
+            diff_tasks,
+            infer_status,
+            parse_owner_reports,
+            task_key,
+        )
+
+        for completed_title, previous_title, expected_progress in (
+            (
+                "Customer Alpha invoice paid 100%.",
+                "Customer Alpha invoice unpaid.",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid 100%.",
+                "Customer Alpha invoice unpaid.",
+                "已付款",
+            ),
+            (
+                "Customer Alpha payment received 100%.",
+                "Customer Alpha payment unreceived.",
+                "已到账",
+            ),
+            (
+                "Is Customer Alpha payment complete? Complete.",
+                "Customer Alpha payment not complete.",
+                "已完成",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid in full.",
+                "Customer Alpha invoice unpaid.",
+                "已付款",
+            ),
+            (
+                "Customer Alpha invoice paid in full.",
+                "Customer Alpha invoice unpaid.",
+                "已付款",
+            ),
+            (
+                "Has Customer Alpha paid invoice? All paid.",
+                "Customer Alpha invoice unpaid.",
+                "已付款",
+            ),
+            ("客户A付款了", "客户A未付款", "已付款"),
+            ("客户A支付了", "客户A未支付", "已付款"),
+            ("客户A到账了", "客户A未到账", "已到账"),
+            ("客户A完成了", "客户A未完成", "已完成"),
+            ("客户A是否已付款？全部已付款。", "客户A未付款", "已付款"),
+            ("客户A都已付款。", "客户A未付款", "已付款"),
+        ):
+            completed = {"title": completed_title}
+            previous = {"title": previous_title}
+            self.assertEqual(infer_status(completed), "done", completed_title)
+            self.assertEqual(task_key(completed), task_key(previous), completed_title)
+            self.assertEqual(
+                diff_tasks([completed], [previous])["completed"],
+                [completed],
+                completed_title,
+            )
+            chain, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T08:00:00Z",
+                        "body": f"1. {previous_title}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {completed_title}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(chain), 1, completed_title)
+            self.assertEqual(chain[0]["status"], "done", completed_title)
+            self.assertEqual(chain[0]["progress"], expected_progress, completed_title)
+
+        self.assertEqual(
+            infer_status({"title": "Customer Alpha prepaid campaign reached 100%."}),
+            "planned",
+        )
+
+    def test_plain_status_reply_updates_numbered_item(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        chain, _, evidence = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T08:00:00Z",
+                    "body": "1. 客户A未付款",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T09:00:00Z",
+                    "body": "客户A今天已付款，水单已回传",
+                },
+            ],
+            13063,
+        )
+
+        self.assertEqual(len(chain), 1)
+        self.assertEqual(chain[0]["status"], "done")
+        self.assertEqual(chain[0]["progress"], "已付款")
+        self.assertIn("群内提及水单", evidence)
+
+    def test_short_plain_status_reply_updates_numbered_item(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        chain, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T08:00:00Z",
+                    "body": "1. 客户A未付款",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T09:00:00Z",
+                    "body": "客户A已付款",
+                },
+            ],
+            13063,
+        )
+
+        self.assertEqual(len(chain), 1)
+        self.assertEqual(chain[0]["status"], "done")
+        self.assertEqual(chain[0]["progress"], "已付款")
+
+    def test_plain_english_completion_updates_numbered_item(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        chain, _, _ = parse_owner_reports(
+            [
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T08:00:00Z",
+                    "body": "1. Customer Alpha invoice unpaid",
+                },
+                {
+                    "message_type": "text",
+                    "sender_user_id": 13063,
+                    "created_at": "2026-10-14T09:00:00Z",
+                    "body": "Customer Alpha invoice paid",
+                },
+            ],
+            13063,
+        )
+
+        self.assertEqual(len(chain), 1)
+        self.assertEqual(chain[0]["status"], "done")
+        self.assertEqual(chain[0]["progress"], "已付款")
+
+    def test_required_confirmation_variants_stay_open_and_merge(self):
+        from app.duzhan_ledger import infer_status, parse_owner_reports, task_key
+
+        previous_title = "Customer Alpha payment unreceived."
+        cases = (
+            (
+                "Customer Alpha payment received today but requires bank confirmation.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation is required.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation is still required.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation remains required.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation remains pending.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation is still needed.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha payment received today but is waiting for bank confirmation.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha payment received today and no longer requires bank confirmation.",
+                "done",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation is no longer required.",
+                "done",
+            ),
+            (
+                "Customer Alpha payment received today; no bank confirmation remains pending.",
+                "done",
+            ),
+            (
+                "Customer Alpha payment received today; no bank confirmation remains required.",
+                "done",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation was pending yesterday.",
+                "done",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation was required yesterday.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending; payment received today.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was required; payment received today.",
+                "done",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation was not pending.",
+                "done",
+            ),
+            (
+                "Customer Alpha payment received today; bank confirmation was no longer required.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending but is still pending; "
+                "payment received today.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha bank confirmation was required and is still required; "
+                "payment received today.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending and remains pending; "
+                "payment received today.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending but is no longer pending; "
+                "payment received today.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was required but is no longer required; "
+                "payment received today.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was needed but is no longer needed; "
+                "payment received today.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was required. It is no longer required. "
+                "Payment received today.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was needed. It is no longer needed. "
+                "Payment received today.",
+                "done",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending. It remains pending. "
+                "Payment received today.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending yesterday but remains pending; "
+                "payment received today.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending yesterday, remains pending; "
+                "payment received today.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending; remains pending; "
+                "payment received today.",
+                "stalled",
+            ),
+            (
+                "Customer Alpha bank confirmation was pending\nremains pending; "
+                "payment received today.",
+                "stalled",
+            ),
+        )
+        for current_title, expected_status in cases:
+            with self.subTest(current_title=current_title):
+                self.assertEqual(infer_status({"title": current_title}), expected_status)
+                self.assertEqual(task_key({"title": current_title}), task_key({"title": previous_title}))
+                chain, _, _ = parse_owner_reports(
+                    [
+                        {
+                            "message_type": "text",
+                            "sender_user_id": 13063,
+                            "created_at": "2026-10-14T08:00:00Z",
+                            "body": f"1. {previous_title}",
+                        },
+                        {
+                            "message_type": "text",
+                            "sender_user_id": 13063,
+                            "created_at": "2026-10-14T09:00:00Z",
+                            "body": f"1. {current_title}",
+                        },
+                    ],
+                    13063,
+                )
+                self.assertEqual(len(chain), 1)
+                self.assertEqual(chain[0]["status"], expected_status)
+
+    def test_negated_confirmation_continuation_merges_plain_update(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        for current_title in (
+            "Customer Alpha bank confirmation was required but is no longer required; "
+            "payment received today.",
+            "Customer Alpha bank confirmation was needed but is no longer needed; "
+            "payment received today.",
+            "Customer Alpha bank confirmation was required. It is no longer required. "
+            "Payment received today.",
+            "Customer Alpha bank confirmation was needed. It is no longer needed. "
+            "Payment received today.",
+        ):
+            with self.subTest(current_title=current_title):
+                chain, _, _ = parse_owner_reports(
+                    [
+                        {
+                            "message_type": "text",
+                            "sender_user_id": 13063,
+                            "created_at": "2026-10-14T08:00:00Z",
+                            "body": "1. Customer Alpha payment unreceived.",
+                        },
+                        {
+                            "message_type": "text",
+                            "sender_user_id": 13063,
+                            "created_at": "2026-10-14T09:00:00Z",
+                            "body": current_title,
+                        },
+                    ],
+                    13063,
+                )
+                self.assertEqual(len(chain), 1)
+                self.assertEqual(chain[0]["status"], "done")
+                self.assertEqual(chain[0]["progress"], "已到账")
+
+    def test_elliptical_confirmation_continuation_merges_plain_update(self):
+        from app.duzhan_ledger import parse_owner_reports
+
+        for current_title in (
+            "Customer Alpha bank confirmation was pending yesterday, remains pending; "
+            "payment received today.",
+            "Customer Alpha bank confirmation was pending; remains pending; "
+            "payment received today.",
+            "Customer Alpha bank confirmation was pending\nremains pending; "
+            "payment received today.",
+        ):
+            with self.subTest(current_title=current_title):
+                chain, _, _ = parse_owner_reports(
+                    [
+                        {
+                            "message_type": "text",
+                            "sender_user_id": 13063,
+                            "created_at": "2026-10-14T08:00:00Z",
+                            "body": "1. Customer Alpha payment unreceived.",
+                        },
+                        {
+                            "message_type": "text",
+                            "sender_user_id": 13063,
+                            "created_at": "2026-10-14T09:00:00Z",
+                            "body": current_title,
+                        },
+                    ],
+                    13063,
+                )
+                self.assertEqual(len(chain), 1)
+                self.assertEqual(chain[0]["status"], "stalled")
+                self.assertEqual(chain[0]["progress"], "未确认")
+
+    def test_business_requirement_after_completion_does_not_mean_unconfirmed(self):
+        from app.duzhan_ledger import infer_status, parse_owner_reports
+
+        cases = (
+            (
+                "Customer Alpha invoice for audit unpaid.",
+                "Customer Alpha invoice paid today. It is required for audit.",
+                "已付款",
+            ),
+            (
+                "Customer Alpha invoice for audit unpaid.",
+                "Customer Alpha invoice paid today. It is still required for audit.",
+                "已付款",
+            ),
+            (
+                "Customer Alpha invoice for audit unpaid.",
+                "Customer Alpha invoice paid today. It remains required for audit.",
+                "已付款",
+            ),
+            (
+                "Customer Alpha payment for order release unreceived.",
+                "Customer Alpha payment received today. It is needed for order release.",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment for order release unreceived.",
+                "Customer Alpha payment received today. It is still needed for order release.",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment for order release unreceived.",
+                "Customer Alpha payment received today. It remains needed for order release.",
+                "已到账",
+            ),
+        )
+        for previous_title, current_title, expected_progress in cases:
+            self.assertEqual(infer_status({"title": current_title}), "done")
+            for prefix in ("", "1. "):
+                with self.subTest(current_title=current_title, prefix=prefix):
+                    chain, _, _ = parse_owner_reports(
+                        [
+                            {
+                                "message_type": "text",
+                                "sender_user_id": 13063,
+                                "created_at": "2026-10-14T08:00:00Z",
+                                "body": f"1. {previous_title}",
+                            },
+                            {
+                                "message_type": "text",
+                                "sender_user_id": 13063,
+                                "created_at": "2026-10-14T09:00:00Z",
+                                "body": f"{prefix}{current_title}",
+                            },
+                        ],
+                        13063,
+                    )
+                    self.assertEqual(len(chain), 1)
+                    self.assertEqual(chain[0]["status"], "done")
+                    self.assertEqual(chain[0]["progress"], expected_progress)
+
+    def test_unconfirmed_receipt_language_stays_open(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, parse_owner_reports
+
+        previous = {"title": "Customer Alpha payment unreceived."}
+        for title in (
+            "Has Customer Alpha payment been received? "
+            "Pending confirmation: payment received.",
+            "Has Customer Alpha payment been received? "
+            "Unable to confirm payment received.",
+            "Has Customer Alpha payment been received? "
+            "Awaiting confirmation: payment received.",
+        ):
+            current = {"title": title}
+            self.assertEqual(infer_status(current), "stalled", title)
+            self.assertEqual(diff_tasks([current], [previous])["completed"], [], title)
+            chain, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T08:00:00Z",
+                        "body": f"1. {previous['title']}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {title}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(chain), 1, title)
+            self.assertEqual(chain[0]["status"], "stalled", title)
+
+    def test_completion_qualifiers_keep_items_open(self):
+        from app.duzhan_ledger import diff_tasks, infer_status, parse_owner_reports, task_key
+
+        for title in (
+            "客户A需求已确认且款项今天已到账",
+            "客户A需求已核实合同已完成",
+        ):
+            self.assertEqual(infer_status({"title": title}), "done", title)
+
+        for title in (
+            "Review all paid media campaigns.",
+            "Audit fully paid media campaign.",
+            "Audit fully paid-media campaign.",
+            "Paid-media campaign launched.",
+            "Customer Alpha 100% paid media budget planned.",
+            "Customer Alpha 100% paid-media budget planned.",
+            "Customer Alpha 50% paid media budget planned.",
+            "Audit partially paid media campaign.",
+        ):
+            self.assertEqual(infer_status({"title": title}), "planned", title)
+
+        for title, previous_title, expected_status, expected_progress in (
+            ("客户A不付款了", "客户A未付款", "stalled", "未完成"),
+            ("客户A拒绝付款了", "客户A未付款", "stalled", "未完成"),
+            ("客户A停止付款了", "客户A未付款", "stalled", "未完成"),
+            (
+                "Customer Alpha invoice is almost 100% paid.",
+                "Customer Alpha invoice unpaid.",
+                "progress",
+                "部分完成",
+            ),
+            (
+                "Customer Alpha invoice is less than 100% paid.",
+                "Customer Alpha invoice unpaid.",
+                "progress",
+                "部分完成",
+            ),
+            ("客户A接近100%已付款", "客户A未付款", "progress", "部分完成"),
+            ("客户A已付款接近100%", "客户A未付款", "progress", "部分完成"),
+            (
+                "Has Customer Alpha paid invoice? Paid 100% tomorrow.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid in full tomorrow.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid 100% by tomorrow.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid 100% next Monday.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid 100% by next Monday.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid in full on next Monday.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid 100% by next Friday.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid in full this Friday.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid 100% by the end of day.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            (
+                "Has Customer Alpha paid invoice? Paid 100% by EOD.",
+                "Customer Alpha invoice unpaid.",
+                "planned",
+                "待确认",
+            ),
+            ("客户A已到账，待确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A已到账但未确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A已到账但尚未核实", "客户A未到账", "stalled", "未确认"),
+            ("客户A已到账但还没确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A已到账但待财务确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A今天已到账但需要确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A今天已到账但仍需财务确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A今天已到账，需要确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A今天已到账，仍需财务确认", "客户A未到账", "stalled", "未确认"),
+            ("客户A已付款，需要财务确认", "客户A未付款", "stalled", "未确认"),
+            ("客户A已付款，仍需财务确认", "客户A未付款", "stalled", "未确认"),
+            ("客户A待财务确认后已到账", "客户A未到账", "done", "已到账"),
+            ("客户A待确认，现已到账", "客户A未到账", "done", "已到账"),
+            ("客户A仍待确认，但今天已到账", "客户A未到账", "stalled", "未确认"),
+            ("客户A仍需财务确认，虽然今天已到账", "客户A未到账", "stalled", "未确认"),
+            ("客户A尚未确认，但今天已到账", "客户A未到账", "stalled", "未确认"),
+            (
+                "Customer Alpha payment has been received but unconfirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment awaiting confirmation yesterday; "
+                "payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment received today; "
+                "yesterday it was awaiting confirmation.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was unconfirmed, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was pending confirmation, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was awaiting confirmation, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was still unconfirmed, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was still pending confirmation, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment had remained unconfirmed, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was received today but was not confirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment was not confirmed, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was not yet confirmed, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment was received today but was pending confirmation.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment was received today but was unconfirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            ("客户A已付款，无需待确认", "客户A未付款", "done", "已付款"),
+            ("客户A已到账，不需等待确认", "客户A未到账", "done", "已到账"),
+            ("客户A已到账，不再等待确认", "客户A未到账", "done", "已到账"),
+            ("客户A已到账，已无需财务确认", "客户A未到账", "done", "已到账"),
+            ("客户A已到账，不再需要确认", "客户A未到账", "done", "已到账"),
+            (
+                "Customer Alpha payment received; not awaiting confirmation.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment received; no longer pending confirmation.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment received; no longer unconfirmed.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment received; not unverified.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment has been received but awaiting finance confirmation.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment has been received but pending finance confirmation.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today but awaiting bank verification.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today but still needs bank confirmation.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha invoice paid today but still needs bank confirmation.",
+                "Customer Alpha invoice unpaid.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha invoice paid today but needs bank confirmation.",
+                "Customer Alpha invoice unpaid.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment pending confirmation; payment received today.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment still pending confirmation, but payment received today.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment is unconfirmed, although payment received today.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment remains unconfirmed, although payment received today.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today but has not been confirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today but hasn't been confirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today but isn't confirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today but couldn't be confirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today and does not need bank confirmation.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment received today and needs no further confirmation.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment received today and no longer needs bank confirmation.",
+                "Customer Alpha payment unreceived.",
+                "done",
+                "已到账",
+            ),
+            (
+                "Customer Alpha payment received today but could not be confirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment has been received but cannot be confirmed.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            (
+                "Customer Alpha payment received today but was unable to be verified.",
+                "Customer Alpha payment unreceived.",
+                "stalled",
+                "未确认",
+            ),
+            ("张三都已付款", "张三未付款", "done", "已付款"),
+        ):
+            current = {"title": title}
+            previous = {"title": previous_title}
+            self.assertEqual(infer_status(current), expected_status, title)
+            if title != "张三都已付款":
+                self.assertEqual(task_key(current), task_key(previous), title)
+            changes = diff_tasks([current], [previous])
+            self.assertEqual(
+                changes["completed"],
+                [current] if expected_status == "done" else [],
+                title,
+            )
+            chain, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T08:00:00Z",
+                        "body": f"1. {previous_title}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {title}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(chain), 1, title)
+            self.assertEqual(chain[0]["status"], expected_status, title)
+            self.assertEqual(chain[0]["progress"], expected_progress, title)
+
+        for title, previous_title in (
+            ("客户订单都已付款", "客户订单未付款"),
+            ("三个订单都已付款", "三个订单未付款"),
+            ("欧阳娜娜都已付款", "欧阳娜娜未付款"),
+            ("经销商都已付款", "经销商未付款"),
+            ("门店都已完成", "门店未完成"),
+            ("张三李四都已付款", "张三李四未付款"),
+            ("所有人都已完成", "所有人未完成"),
+            ("双方都已付款", "双方未付款"),
+            ("负责人都已完成", "负责人未完成"),
+            ("所有同事都已完成", "所有同事未完成"),
+        ):
+            current = {"title": title}
+            previous = {"title": previous_title}
+            self.assertEqual(infer_status(current), "done", title)
+            self.assertEqual(diff_tasks([current], [previous])["completed"], [current], title)
+            chain, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T08:00:00Z",
+                        "body": f"1. {previous_title}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {title}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(chain), 1, title)
+            self.assertEqual(chain[0]["status"], "done", title)
+
+        self.assertEqual(
+            task_key({"title": "成都已付款"}),
+            task_key({"title": "成都未付款"}),
+        )
+        for current_title, previous_title in (
+            ("成都已付款", "成未付款"),
+            ("新华都已付款", "新华未付款"),
+            ("大成都已付款", "大成未付款"),
+        ):
+            current = {"title": current_title}
+            previous = {"title": previous_title}
+            changes = diff_tasks([current], [previous])
+            self.assertEqual(changes["completed"], [], current_title)
+            self.assertEqual(changes["new"], [current], current_title)
+            self.assertEqual(changes["unanswered"], [previous], current_title)
+            chain, _, _ = parse_owner_reports(
+                [
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T08:00:00Z",
+                        "body": f"1. {previous_title}",
+                    },
+                    {
+                        "message_type": "text",
+                        "sender_user_id": 13063,
+                        "created_at": "2026-10-14T09:00:00Z",
+                        "body": f"1. {current_title}",
+                    },
+                ],
+                13063,
+            )
+            self.assertEqual(len(chain), 2, current_title)
 
     def test_parse_water_slip_and_loose_plan(self):
         from app.duzhan_ledger import parse_owner_reports

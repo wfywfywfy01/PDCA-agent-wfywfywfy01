@@ -76,6 +76,7 @@ PREVIEW_MODES = ("structure", "render")
 class PreviewIn(BaseModel):
     day: Optional[str] = Field(default=None, max_length=10, description="试跑日期 YYYY-MM-DD")
     hour: Optional[int] = Field(default=None, ge=0, le=23, description="试跑档位（整点）")
+    slot: Optional[str] = Field(default=None, max_length=5, description="试跑时刻 HH:MM")
     mode: Optional[str] = Field(default=None, description="structure=结构试跑；render=真实内容试跑")
 
     @field_validator("mode")
@@ -102,6 +103,18 @@ class PreviewIn(BaseModel):
             raise ValueError("试跑日期不存在") from None
         return text
 
+    @field_validator("slot")
+    @classmethod
+    def _slot_shape(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        from app.duzhan_blocks import normalize_time_slot
+
+        slot = normalize_time_slot(value)
+        if slot is None:
+            raise ValueError("试跑时刻格式应为 HH:MM")
+        return slot
+
 
 @router.get("/ai-status", summary="AI 规则今日用量（调用次数 / 缓存条数 / 上限）")
 async def ai_status(
@@ -123,7 +136,9 @@ async def runtime_status(
     return {
         "source": config_source(),
         "enabled": bool(settings.duzhan_enabled),
+        "ctob_enabled": bool(settings.ctob_enabled),
         "bot_app_id": settings.duzhan_bot_app_id,
+        "supported_channel_ids": service.supported_channel_ids(),
         "schedule_updates_require_restart": True,
     }
 
@@ -278,8 +293,8 @@ async def preview_agent(
     row = _get_agent(session, agent_id)
     body = payload or PreviewIn()
     if body.mode == "render":
-        return service.render_preview(row, day=body.day, hour=body.hour)
-    return service.preview_agent(row, day=body.day, hour=body.hour)
+        return service.render_preview(row, day=body.day, hour=body.hour, slot=body.slot)
+    return service.preview_agent(row, day=body.day, hour=body.hour, slot=body.slot)
 
 
 @router.delete("/{agent_id}", summary="删除子 Agent")

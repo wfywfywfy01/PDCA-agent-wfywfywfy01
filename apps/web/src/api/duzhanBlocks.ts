@@ -75,6 +75,28 @@ export function updateBlockField(blocks: Block[], index: number, key: string, va
   return blocks.map((block, position) => (position === index ? { ...block, [key]: value } : block))
 }
 
+export function addTimeSlot(slots: unknown, candidate: string): string[] {
+  const current = Array.isArray(slots) ? slots.filter((item): item is string => typeof item === 'string') : []
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(candidate)) return [...new Set(current)].sort()
+  const stage = timeStage(candidate)
+  if (current.some((item) => item !== candidate && timeStage(item) === stage)) {
+    return [...new Set(current)].sort()
+  }
+  return [...new Set([...current, candidate])].sort()
+}
+
+export function timeStage(slot: string): string {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(slot)
+  if (!match) return ''
+  const total = Number(match[1]) * 60 + Number(match[2])
+  const anchors = [{ hour: 10, label: '早追' }, { hour: 15, label: '中追' }, { hour: 20, label: '晚追' }]
+  return anchors.reduce((best, item) => {
+    const distance = Math.abs(total - item.hour * 60)
+    const bestDistance = Math.abs(total - best.hour * 60)
+    return distance < bestDistance || (distance === bestDistance && item.hour > best.hour) ? item : best
+  }).label
+}
+
 export function toJson(blocks: Block[]): string {
   return JSON.stringify({ blocks }, null, 2)
 }
@@ -159,8 +181,8 @@ export function blockSummary(block: Block, spec?: BlockTypeSpec): string {
       return String(block.kind || '') + ' ' + String(block.id || '')
     case 'condition':
       return (spec?.fields.find((field) => field.key === 'key')?.option_labels?.[String(block.key || '')]
-        || (block.key ? '未知发送条件' : '未选择发送条件')) + ' · '
-        + (block.value === true ? '满足时发送' : block.value === false ? '不满足时发送' : '发送时机未设置')
+        || (block.key ? '未知提醒条件' : '未选择提醒条件')) + ' · '
+        + (block.value === true ? '成立时提醒' : block.value === false ? '不成立时提醒' : '提醒时机未设置')
     case 'style':
       return String(block.lang || 'zh') + (block.title ? ' · ' + String(block.title) : '')
     default:

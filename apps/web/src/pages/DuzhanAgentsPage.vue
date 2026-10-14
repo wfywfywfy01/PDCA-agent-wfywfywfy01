@@ -58,11 +58,13 @@ const isDraft = computed(() => selectedId.value === null)
 const groupOptions = computed(() => {
   const botId = runtime.value?.bot_app_id
   if (!botId) return []
+  const supported = new Set(runtime.value?.supported_channel_ids || [])
   const seen = new Set<string>()
   return channels.value
     .filter((channel) => channel.channel_type === 'group'
       && (channel.app_id || channel.bot_app_id) === botId
-      && channel.channel_id)
+      && channel.channel_id
+      && supported.has(channel.channel_id))
     .filter((channel) => {
       if (seen.has(channel.channel_id)) return false
       seen.add(channel.channel_id)
@@ -71,7 +73,10 @@ const groupOptions = computed(() => {
     .map((channel) => ({ id: channel.channel_id, label: channel.channel_name || channel.channel_id }))
     .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
 })
-const liveConfig = computed(() => runtime.value?.enabled && runtime.value.source === 'db')
+const selectedPlaneEnabled = computed(() =>
+  current.value?.renderer === 'ctob' ? runtime.value?.ctob_enabled : runtime.value?.enabled,
+)
+const liveConfig = computed(() => selectedPlaneEnabled.value && runtime.value?.source === 'db')
 const filteredAgents = computed(() => agents.value.filter((item) =>
   (groupLabel(item) + ' ' + item.name).toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()),
 ))
@@ -85,7 +90,7 @@ const extraIndices = computed(() => blocks.value.flatMap((block, index) =>
 const previewSlots = computed(() => {
   const times = blocks.value.find((block) => block.type === 'times')
   return Array.isArray(times?.slots)
-    ? times.slots.filter((slot): slot is string => typeof slot === 'string' && /^\d{2}:00$/.test(slot))
+    ? times.slots.filter((slot): slot is string => typeof slot === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(slot))
     : []
 })
 const jsonPending = computed(() => jsonText.value !== toJson(blocks.value))
@@ -307,7 +312,7 @@ async function runPreview() {
     const result = await previewAgent(
       selectedId.value,
       day.value,
-      hour.value === '' ? undefined : Number(hour.value),
+      hour.value || undefined,
       previewMode.value,
     )
     if (previewMode.value === 'render') {
@@ -394,7 +399,7 @@ onMounted(load)
       <div>
         <p class="eyebrow">督战官 · 管理后台</p>
         <h1>群聊与规则</h1>
-        <p class="sub">每个群一张卡片。按顺序设置目标群、时间、发送条件和文案。</p>
+        <p class="sub">每个群一张卡片。系统按时收集业务数据和群内反馈，判断事项是否闭环，再发送检查结果。</p>
       </div>
       <div class="actions">
         <button class="btn" type="button" :disabled="busy || unsaved" @click="load">刷新</button>
@@ -406,7 +411,7 @@ onMounted(load)
       <span class="mode-dot" aria-hidden="true"></span>
       <div>
         <strong>{{ liveConfig ? '页面配置已接管督战调度' : '当前为预备配置' }}</strong>
-        <p v-if="!runtime.enabled">督战官总开关未开启。卡片可保存和试跑，暂不发送。</p>
+        <p v-if="!selectedPlaneEnabled">当前卡片所属功能的总开关未开启。卡片可保存和试跑，暂不发送。</p>
         <p v-else-if="runtime.source === 'code'">线上仍按代码中的群清单发送。卡片可保存和试跑；切换配置来源并重启服务后才接管。</p>
         <p v-else>文案和条件在下一档生效；改群、时间或启停后，需重启服务更新定时任务。</p>
       </div>
@@ -477,7 +482,7 @@ onMounted(load)
         </section>
 
         <section class="step" aria-labelledby="time-step">
-          <div class="step-head"><span class="step-number">2</span><div><h3 id="time-step">什么时间发</h3><p>可选多个档位。仅支持 10:00、15:00、20:00。当前时区：{{ timezone }}（可在高级设置修改）。</p></div></div>
+          <div class="step-head"><span class="step-number">2</span><div><h3 id="time-step">什么时间检查并发结果</h3><p>早追、中追、晚追各可自定义一个时间，精确到分钟；系统按最近的 10:00 / 15:00 / 20:00 匹配阶段。当前时区：{{ timezone }}。C 转 B 群固定使用 Asia/Shanghai。</p></div></div>
           <BlockCard
             v-for="index in timeIndices" :key="'times-' + index"
             :block="blocks[index]" :spec="specs.find((item) => item.type === 'times') || { type: 'times', label: '推送档位', fields: [] }"
@@ -488,38 +493,39 @@ onMounted(load)
         </section>
 
         <section class="step" aria-labelledby="condition-step">
-          <div class="step-head"><span class="step-number">3</span><div><h3 id="condition-step">满足什么条件才发</h3><p>可选。不加条件时，按原有群督战逻辑发送；多条条件需同时满足。</p></div></div>
-          <p v-if="!conditionIndices.length" class="empty-inline">当前没有附加条件</p>
+          <div class="step-head"><span class="step-number">3</span><div><h3 id="condition-step">检查后，什么时候提醒</h3><p>默认每个时段都发送事项检查结果。只有需要筛选时才加条件；多条条件必须同时成立。</p></div></div>
+          <div class="workflow-note"><strong>默认闭环检查已开启</strong><span>收集业务数据 / 群内反馈 → 识别事项 → 标出已闭环 / 待确认 → 提醒负责人补充下一步和截止时间</span></div>
+          <p v-if="!conditionIndices.length" class="empty-inline">当前：每个时段都发送检查结果</p>
           <BlockCard
             v-for="index in conditionIndices" :key="'condition-' + index"
-            :block="blocks[index]" :spec="specs.find((item) => item.type === 'condition') || { type: 'condition', label: '发送条件', fields: [] }"
+            :block="blocks[index]" :spec="specs.find((item) => item.type === 'condition') || { type: 'condition', label: '提醒条件', fields: [] }"
             :index="index" :total="blocks.length" :disabled="busy"
             :can-move-up="canMove(index, -1)" :can-move-down="canMove(index, 1)"
             @change="(key, value) => onFieldChange(index, key, value)"
             @move="(offset) => onMove(index, offset)" @remove="() => onRemove(index)"
           />
-          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('condition')">＋ 添加发送条件</button>
+          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('condition')">＋ 只在特定情况提醒</button>
         </section>
 
         <section class="step" aria-labelledby="rule-step">
-          <div class="step-head"><span class="step-number">4</span><div><h3 id="rule-step">发送什么文案</h3><p>可用固定文案或 AI。多条规则从上到下匹配，首条命中生效；未命中则用原有档位文案。</p></div></div>
-          <p v-if="!ruleIndices.length" class="empty-inline">当前使用原有档位文案</p>
+          <div class="step-head"><span class="step-number">4</span><div><h3 id="rule-step">提醒里重点说什么</h3><p>系统按现有数据标出已闭环或待确认。这里仅覆盖“本档动作”这一行；留空就使用早追、中追、晚追的默认重点。</p></div></div>
+          <p v-if="!ruleIndices.length" class="empty-inline">当前：使用默认重点，自动生成整条检查提醒</p>
           <BlockCard
             v-for="index in ruleIndices" :key="'rule-' + index"
-            :block="blocks[index]" :spec="specs.find((item) => item.type === 'rule') || { type: 'rule', label: '文案规则', fields: [] }"
+            :block="blocks[index]" :spec="specs.find((item) => item.type === 'rule') || { type: 'rule', label: '提醒重点', fields: [] }"
             :index="index" :total="blocks.length" :disabled="busy"
             :can-move-up="canMove(index, -1)" :can-move-down="canMove(index, 1)"
             @change="(key, value) => onFieldChange(index, key, value)"
             @move="(offset) => onMove(index, offset)" @remove="() => onRemove(index)"
           />
-          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('rule')">＋ 添加文案规则</button>
+          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('rule')">＋ 自定义提醒重点</button>
         </section>
 
         <details class="panel advanced-settings">
           <summary>高级设置与旧版积木</summary>
           <div class="meta">
             <label class="field"><span>配置名称</span><input v-model="name" type="text" maxlength="128" placeholder="例如：海外一组督战" /></label>
-            <label class="field"><span>时区</span><input v-model="timezone" type="text" placeholder="Asia/Shanghai" /></label>
+            <label class="field"><span>时区（C 转 B 固定 Asia/Shanghai）</span><input v-model="timezone" type="text" placeholder="Asia/Shanghai" /></label>
             <label class="field"><span>备注</span><input v-model="note" type="text" maxlength="256" placeholder="可选" /></label>
           </div>
           <p v-if="extraIndices.length" class="hint">以下旧版积木已保留，部分字段只用于结构预览，不控制实际发送。</p>
@@ -574,7 +580,7 @@ onMounted(load)
             <label>档位
               <select v-model="hour">
                 <option value="">最近档位</option>
-                <option v-for="slot in previewSlots" :key="slot" :value="slot.slice(0, 2)">{{ slot }}</option>
+                <option v-for="slot in previewSlots" :key="slot" :value="slot">{{ slot }}</option>
               </select>
             </label>
           </div>
@@ -593,7 +599,7 @@ onMounted(load)
               <p :class="rendered.send_allowed ? 'preview-allowed' : 'preview-blocked'">
                 {{ rendered.send_reason }}{{ rendered.send_allowed ? '；还需核对启用与调度状态' : '，本档不发送' }}
               </p>
-              <p class="meta-line">{{ rendered.day }} {{ String(rendered.hour).padStart(2, '0') }}:00 · {{ rendered.group }}</p>
+              <p class="meta-line">{{ rendered.day }} {{ rendered.slot || (String(rendered.hour).padStart(2, '0') + ':00') }} · {{ rendered.group }}</p>
               <p v-if="(rendered.message_count || 0) > 1" class="hint">本档共 {{ rendered.message_count }} 条，按人分开发送。</p>
               <pre class="body">{{ rendered.body }}</pre>
             </template>
@@ -662,6 +668,9 @@ onMounted(load)
 .step-number { display: grid; flex: none; place-items: center; width: 27px; height: 27px; border-radius: 8px; background: var(--blue-soft); color: var(--blue); font-weight: 700; font-size: 13px; }
 .step-head h3 { margin: 1px 0 3px; font-size: 15px; }
 .step-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.workflow-note { display: grid; gap: 3px; padding: 12px; border: 1px solid rgba(52, 211, 153, .25); border-radius: var(--radius-md); background: rgba(52, 211, 153, .06); font-size: 12px; }
+.workflow-note strong { color: var(--green); }
+.workflow-note span { color: var(--muted); line-height: 1.55; }
 .empty-inline { margin: 0; padding: 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); color: var(--muted); font-size: 12px; }
 .btn-add { justify-self: start; }
 .advanced-settings summary { cursor: pointer; font-size: 13px; }
@@ -683,6 +692,6 @@ onMounted(load)
 .advanced summary { cursor: pointer; font-size: 13px; }
 .advanced textarea { margin: 14px 0 8px; font-family: ui-monospace, Consolas, monospace; }
 .alert-sticky { position: sticky; top: 8px; z-index: 5; }
-@media (max-width: 840px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: 1fr; } .list { position: static; max-height: 310px; } }
-@media (max-width: 560px) { .preview-fields { grid-template-columns: 1fr; } .step { padding: 14px; } }
+@media (max-width: 840px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: minmax(0, 1fr); } .list { position: static; max-height: 310px; } }
+@media (max-width: 560px) { .preview-fields, .meta, .step :deep(.fields) { grid-template-columns: minmax(0, 1fr); } .step { min-width: 0; padding: 14px; } }
 </style>

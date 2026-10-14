@@ -66,15 +66,18 @@ class SlotHealthTests(unittest.TestCase):
         self.engine.dispose()
         self.tmp.cleanup()
 
-    def _fake_slot_path(self, tz_name, day, hour):
+    def _fake_slot_path(self, tz_name, day, hour, key="", minute=0):
         slug = tz_name.lower().replace("/", "_")
-        return self.slots_dir / f"{slug}_{day}_{hour:02d}.json"
+        clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
+        suffix = f"_{key}" if key else ""
+        return self.slots_dir / f"{slug}_{day}_{clock}{suffix}.json"
 
-    def _write_slot(self, tz_name, day, hour, prepared_iso, groups=4):
-        path = self._fake_slot_path(tz_name, day, hour)
+    def _write_slot(self, tz_name, day, hour, prepared_iso, groups=4, minute=0):
+        path = self._fake_slot_path(tz_name, day, hour, minute=minute)
         path.write_text(json.dumps({
             "tz": tz_name,
             "hour": hour,
+            "minute": minute,
             "day": day,
             "prepared_at": prepared_iso,
             "idempotency_key": "duzhan-x",
@@ -84,7 +87,15 @@ class SlotHealthTests(unittest.TestCase):
 
     def test_today_future_slot_is_pending_not_failed(self):
         now = datetime(2026, 9, 17, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
-        with patch.object(flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]), patch.object(
+        settings = SimpleNamespace(
+            duzhan_enabled=True,
+            ctob_enabled=False,
+            duzhan_times=["10:00", "15:00"],
+            agent_healthcheck_delay_minutes=5,
+        )
+        with patch.object(flow_controller, "get_settings", return_value=settings), patch.object(
+            flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]
+        ), patch.object(
             flow_controller, "_health_hours", return_value=[10, 15],
         ), patch.object(flow_controller, "check_slot_health") as check:
             reports = flow_controller.all_slot_health_today("2026-09-17", now=now)
@@ -139,6 +150,20 @@ class SlotHealthTests(unittest.TestCase):
         self.assertEqual(report["timezone"], "Asia/Shanghai")
         self.assertFalse(self.notify_mock.called)
 
+    def test_cross_midnight_custom_slot_all_green(self):
+        day = "2026-09-17"
+        self._write_slot(
+            "Asia/Shanghai", day, 0,
+            datetime(2026, 9, 16, 23, 50, tzinfo=ZoneInfo("Asia/Shanghai")).isoformat(),
+            minute=5,
+        )
+        bucket = "Asia/Shanghai:0005:2026-09-17"
+        _insert_run(self.engine, "duzhan_collect", bucket, "sent")
+        _insert_run(self.engine, "duzhan", bucket, "sent")
+        report = flow_controller.check_slot_health("Asia/Shanghai", 0, day, minute=5)
+        self.assertTrue(report["ok"], report["problems"])
+        self.assertEqual(report["slot"], "00:05")
+
     def test_db_slot_uses_group_snapshot_and_shared_run_names(self):
         day = "2026-09-17"
         channel_id = "11111111-1111-4111-8111-111111111111"
@@ -155,11 +180,40 @@ class SlotHealthTests(unittest.TestCase):
                  (object(), SimpleNamespace(channel_id=channel_id, tz="Asia/Shanghai"))
              ]), \
              patch("app.duzhan_admin.runtime.slots_of", return_value=[10]), \
+             patch("app.duzhan_admin.runtime.slot_times_of", return_value=["10:00"]), \
              patch("app.agents.flow_controller.load_prepared", return_value=slot) as load:
             self.assertEqual(flow_controller._health_hours("Asia/Shanghai", ["20:00"]), [10])
             report = flow_controller.check_slot_health("Asia/Shanghai", 10, day)
         self.assertTrue(report["ok"], report["problems"])
         load.assert_called_once_with("Asia/Shanghai", 10, day, channel_id[:8])
+
+    def test_db_health_keeps_same_hour_custom_slots_separate(self):
+        day = "2026-09-17"
+        exact = SimpleNamespace(slots=["09:00"])
+        custom = SimpleNamespace(slots=["09:35"])
+        exact_group = SimpleNamespace(
+            channel_id="11111111-1111-4111-8111-111111111111", tz="Asia/Shanghai",
+        )
+        custom_group = SimpleNamespace(
+            channel_id="22222222-2222-4222-8222-222222222222", tz="Asia/Shanghai",
+        )
+        bucket = f"Asia/Shanghai:09:{day}"
+        _insert_run(self.engine, "duzhan_collect:db:Asia/Shanghai", bucket, "sent")
+        _insert_run(self.engine, "duzhan_push:db:Asia/Shanghai", bucket, "sent")
+        slot = {
+            "day": day, "hour": 9, "minute": 0,
+            "prepared_at": datetime(2026, 9, 17, 8, 45, tzinfo=ZoneInfo("Asia/Shanghai")).isoformat(),
+            "messages": {exact_group.channel_id: "m"},
+        }
+        with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
+             patch("app.duzhan_admin.runtime.duzhan_agents", return_value=[
+                 (exact, exact_group), (custom, custom_group),
+             ]), \
+             patch("app.duzhan_admin.runtime.slot_times_of", side_effect=lambda agent: agent.slots), \
+             patch("app.agents.flow_controller.load_prepared", return_value=slot) as load:
+            report = flow_controller.check_slot_health("Asia/Shanghai", 9, day)
+        self.assertTrue(report["ok"], report["problems"])
+        load.assert_called_once_with("Asia/Shanghai", 9, day, exact_group.channel_id[:8])
 
     def test_db_mode_accepts_prior_code_slot_after_cutover(self):
         from app.duzhan import GROUPS
@@ -178,6 +232,7 @@ class SlotHealthTests(unittest.TestCase):
         with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
              patch("app.duzhan_admin.runtime.duzhan_agents", return_value=[(object(), group)]), \
              patch("app.duzhan_admin.runtime.slots_of", return_value=[10]), \
+             patch("app.duzhan_admin.runtime.slot_times_of", return_value=["10:00"]), \
              patch("app.agents.flow_controller.load_prepared", side_effect=lambda *_args: slot if len(_args) == 3 else None) as load:
             report = flow_controller.check_slot_health("Asia/Shanghai", 10, day, alert=False)
         self.assertTrue(report["ok"], report["problems"])
@@ -198,6 +253,7 @@ class SlotHealthTests(unittest.TestCase):
         with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
              patch("app.duzhan_admin.runtime.duzhan_agents", return_value=[(object(), group)]), \
              patch("app.duzhan_admin.runtime.slots_of", return_value=[10]), \
+             patch("app.duzhan_admin.runtime.slot_times_of", return_value=["10:00"]), \
              patch("app.agents.flow_controller.load_prepared", return_value=slot):
             report = flow_controller.check_slot_health("Asia/Shanghai", 10, day, alert=False)
         self.assertFalse(report["ok"])
@@ -309,9 +365,11 @@ class HealthCatchUpTests(unittest.TestCase):
         self.engine.dispose()
         self.tmp.cleanup()
 
-    def _fake_slot_path(self, tz_name, day, hour):
+    def _fake_slot_path(self, tz_name, day, hour, key="", minute=0):
         slug = tz_name.lower().replace("/", "_")
-        return self.slots_dir / f"{slug}_{day}_{hour:02d}.json"
+        clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
+        suffix = f"_{key}" if key else ""
+        return self.slots_dir / f"{slug}_{day}_{clock}{suffix}.json"
 
     def test_catch_up_checks_past_hour_after_restart(self):
         """11:00 时 10:00 档已过：补扫检查到且告警一次，重复 tick 不再告警。"""
@@ -336,6 +394,133 @@ class HealthCatchUpTests(unittest.TestCase):
         now = datetime(2026, 9, 17, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
         reports = flow_controller.run_health_checks_for(now=now)
         self.assertEqual(reports, [])
+
+    def test_previous_day_cross_midnight_slot_is_checked(self):
+        """23:59 档的宽限期跨到次日后，仍按前一天档位补扫。"""
+        self.patch_settings.stop()
+        settings_stub = MagicMock()
+        settings_stub.duzhan_times = ["23:59"]
+        settings_stub.agent_healthcheck_delay_minutes = 5
+        self.patch_settings = patch(
+            "app.agents.flow_controller.get_settings", return_value=settings_stub
+        )
+        self.patch_settings.start()
+
+        now = datetime(2026, 9, 18, 0, 5, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch.object(flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]), \
+             patch.object(flow_controller, "_health_slots", return_value=["23:59"]):
+            reports = flow_controller.run_health_checks_for(now=now)
+
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0]["date"], "2026-09-17")
+        self.assertEqual(reports[0]["hour"], "23:59")
+
+    def test_previous_day_slot_due_between_ticks_is_checked(self):
+        """23:53 + 5 分钟宽限在 23:58 结束，下一次 00:00 扫描不能漏档。"""
+        self.patch_settings.stop()
+        settings_stub = MagicMock()
+        settings_stub.duzhan_times = ["23:53"]
+        settings_stub.agent_healthcheck_delay_minutes = 5
+        self.patch_settings = patch(
+            "app.agents.flow_controller.get_settings", return_value=settings_stub
+        )
+        self.patch_settings.start()
+
+        now = datetime(2026, 9, 18, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch.object(flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]), \
+             patch.object(flow_controller, "_health_slots", return_value=["23:53"]):
+            reports = flow_controller.run_health_checks_for(now=now)
+
+        self.assertEqual([(item["date"], item["hour"]) for item in reports], [
+            ("2026-09-17", "23:53"),
+        ])
+
+    def test_previous_day_missed_slot_is_checked_after_midnight_restart(self):
+        """前一天 23:30 检查点停机，次日重启后仍补扫未记录的健康事件。"""
+        self.patch_settings.stop()
+        settings_stub = MagicMock()
+        settings_stub.duzhan_times = ["23:30"]
+        settings_stub.agent_healthcheck_delay_minutes = 5
+        self.patch_settings = patch(
+            "app.agents.flow_controller.get_settings", return_value=settings_stub
+        )
+        self.patch_settings.start()
+
+        now = datetime(2026, 9, 18, 0, 1, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch.object(flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]), \
+             patch.object(flow_controller, "_health_slots", return_value=["23:30"]):
+            reports = flow_controller.run_health_checks_for(now=now)
+
+        self.assertEqual([(item["date"], item["hour"]) for item in reports], [
+            ("2026-09-17", "23:30"),
+        ])
+
+
+class CtobDbHealthTests(unittest.TestCase):
+    def test_code_ctob_only_does_not_create_duzhan_health_targets(self):
+        settings = SimpleNamespace(
+            duzhan_enabled=False,
+            ctob_enabled=True,
+            duzhan_times=["10:00", "15:00", "20:00"],
+        )
+        with patch("app.duzhan_admin.runtime.using_db", return_value=False):
+            self.assertEqual(flow_controller._health_targets(settings), [])
+
+    def test_missing_ctob_db_slot_is_reported(self):
+        agent = SimpleNamespace(slots=["09:35"])
+        owner = SimpleNamespace(channel_id="11111111-1111-4111-8111-111111111111")
+        with patch("app.duzhan_admin.runtime.using_db", return_value=True), patch(
+            "app.duzhan_admin.runtime.follow_agents", return_value=[(agent, owner)],
+        ), patch(
+            "app.duzhan_admin.runtime.slot_times_of", side_effect=lambda row: row.slots,
+        ), patch(
+            "app.agents.flow_controller._scheduled_run_status", return_value={"found": False},
+        ), patch(
+            "app.ctob.load_snapshot", return_value={},
+        ), patch.object(flow_controller, "notify") as notify:
+            report = flow_controller.check_ctob_slot_health(
+                9, "2026-09-17", minute=35,
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            {item["step"] for item in report["problems"]},
+            {"ctob_run", "ctob_snapshot"},
+        )
+        notify.assert_called_once()
+
+    def test_ctob_only_db_slot_enters_catch_up_health_scan(self):
+        agent = SimpleNamespace(slots=["09:35"])
+        owner = SimpleNamespace(channel_id="11111111-1111-4111-8111-111111111111")
+        settings = SimpleNamespace(
+            duzhan_enabled=False,
+            ctob_enabled=True,
+            duzhan_times=["10:00", "15:00", "20:00"],
+            agent_healthcheck_delay_minutes=5,
+        )
+        expected = {
+            "date": "2026-09-17", "timezone": "Asia/Shanghai",
+            "hour": "09:35", "slot": "09:35", "ok": False, "problems": [],
+            "suggested_action": "", "checked_at": "now",
+        }
+        now = datetime(2026, 9, 17, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch.object(flow_controller, "get_settings", return_value=settings), patch.object(
+            flow_controller, "cron_timezones", return_value=[],
+        ), patch("app.duzhan_admin.runtime.using_db", return_value=True), patch(
+            "app.duzhan_admin.runtime.follow_agents", return_value=[(agent, owner)],
+        ), patch(
+            "app.duzhan_admin.runtime.slot_times_of", side_effect=lambda row: row.slots,
+        ), patch(
+            "app.agents.events.write_event", return_value=True,
+        ), patch.object(
+            flow_controller, "check_ctob_slot_health", return_value=expected,
+        ) as check:
+            reports = flow_controller.run_health_checks_for(now=now)
+
+        self.assertEqual(reports, [expected])
+        check.assert_called_once_with(
+            9, "2026-09-17", minute=35, now=now, alert=True,
+        )
 
 
 class BackupSlotRegistrationTests(unittest.TestCase):
