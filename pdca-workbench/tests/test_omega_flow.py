@@ -467,6 +467,19 @@ class OmegaFlowTests(unittest.TestCase):
         details = self.client.get(f"/api/omega/sessions/{game['id']}").json()
         self.assertEqual([part["speaker"] for part in details["segments"]], ["sales", "counterparty"])
 
+    def test_worker_removes_internal_speaker_label_from_model_reply(self):
+        from app.omega.jobs import run_once
+
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        game = self.client.post("/api/omega/sessions", json={"case_id": case["id"]}).json()
+        self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
+            "request_key": "turn-speaker-label", "text": "请说说您的顾虑。",
+        }).raise_for_status()
+        self.assertTrue(run_once(self.engine, generate=lambda *_: "[counterparty] 库存风险还需核实。"))
+        parts = self.client.get(f"/api/omega/sessions/{game['id']}").json()["segments"]
+        self.assertEqual(parts[-1]["text"], "库存风险还需核实。")
+
     def test_report_rejects_fabricated_quote(self):
         from app.omega.jobs import run_once
 
