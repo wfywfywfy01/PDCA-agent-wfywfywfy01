@@ -25,6 +25,7 @@ function mountReview() {
     '@/api/client': { apiGet() {}, apiPost() {}, apiPatch() {}, apiRequest() {}, HttpError: class extends Error {} },
     '@/components/AppNav.vue': { default: stubComponent },
     '@/components/omega/OmegaSetup.vue': { default: stubComponent },
+    '@/components/omega/OmegaMeetingMaterials.vue': { default: stubComponent },
     '@/components/omega/OmegaMemoryReview.vue': { default: stubComponent },
     '@/components/omega/OmegaProfiles.vue': { default: stubComponent },
   }

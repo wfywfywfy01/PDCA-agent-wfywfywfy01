@@ -27,7 +27,7 @@ const identityError = ref('')
 const collapsed = ref(false)
 const mobileOpen = ref(false)
 const paletteOpen = ref(false)
-// 谈判陪练（Omega）/ 督战官配置只在后端就绪时出现，避免展示 404 的入口。
+// 会议陪练（Omega）/ 督战官配置只在后端就绪时出现，避免展示 404 的入口。
 // 探测结果按会话缓存 5 分钟，避免每次路由切换都打一次探测请求。
 const omegaEnabled = ref(false)
 const duzhanEnabled = ref(false)
@@ -81,7 +81,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { to: '/signalseller', label: '获客指挥', icon: 'M4 20 20 4M14 4h6v6' },
       { to: '/walkin', label: '客流五件套', icon: 'M12 3v18M6 9l6-6 6 6' },
       { to: '/onboarding', label: '新人培训', icon: 'M12 4 3 8l9 4 9-4zM7 11v5c0 1.5 2.2 2.6 5 2.6s5-1.1 5-2.6v-5' },
-      { to: '/omega', label: '谈判陪练', icon: 'M4 5h16v10H9l-5 4zM8 9h8M8 12h5', roles: ['sales', 'manager', 'admin'] },
+      { to: '/omega', label: '会议陪练', icon: 'M4 5h16v10H9l-5 4zM8 9h8M8 12h5', roles: ['sales', 'manager', 'admin'] },
     ],
   },
   {

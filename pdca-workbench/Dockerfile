@@ -38,7 +38,7 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 COPY pdca-workbench/requirements.txt pdca-workbench/requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock
-RUN pip install --no-cache-dir requests pillow rapidocr-onnxruntime pypdf
+RUN pip install --no-cache-dir requests pillow rapidocr-onnxruntime
 RUN python -m playwright install --with-deps chromium
 
 ARG SOURCE_REVISION

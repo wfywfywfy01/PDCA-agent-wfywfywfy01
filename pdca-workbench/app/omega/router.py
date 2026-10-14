@@ -348,6 +348,10 @@ def create_assignment(body: AssignmentCreate,
             OmegaCaseVersion.version == case.current_version,
         )).one()
         version_id = version.id
+    version = db.get(OmegaCaseVersion, version_id)
+    weights = json.loads(version.snapshot_json).get("score_weights") or WEIGHTS
+    if weights.get(body.target_dimension, 0) == 0:
+        raise HTTPException(422, "本场会议不适用该评分项")
     row = OmegaAssignment(case_id=case.id, case_version_id=version_id,
                           team_key=team, assignee_id=assignee.id, assigned_by=user.id,
                           source_report_id=body.source_report_id,
