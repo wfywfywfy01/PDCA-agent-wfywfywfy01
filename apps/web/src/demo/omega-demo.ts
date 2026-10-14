@@ -53,11 +53,7 @@ export function installOmegaDemo() {
         quotes: [{ segment_id: 'demo-real-sales', speaker: 'sales', start: 0, end: 8, text: '请确认付款日期。' }] }],
       score_weights: draft.score_weights, score: { earned: 4, available: 10, total: null },
       next_practice: '先复述交付顾虑，再确认付款日期。' }, reviews: [] }]])
-  const assignments: Row[] = [{ id: 'demo-assignment', case_id: 'demo-case', assignee_id: 1,
-    source_report_id: 'demo-real-report', target_dimension: 'objections', pass_percent: 70,
-    instructions: '先复述交付顾虑，再锁定付款时间。', due_at: null,
-    baseline: { score: 4, maximum: 10, percent: 40, report_id: 'demo-real-report' },
-    attempts: [], status: 'pending' }]
+  const assignments: Row[] = []
   const nextId = () => crypto.randomUUID()
   const launches = new Map<string, { body: string; result: Row }>()
   const opportunities: Row[] = []
@@ -167,7 +163,9 @@ export function installOmegaDemo() {
       const maximum = scenario?.draft.score_weights[body.target_dimension] || 10
       const baseline = dimension?.score == null ? null : { score: dimension.score, maximum,
         percent: Math.round(dimension.score * 100 / maximum), report_id: sourceReport!.id }
-      const row = { id: nextId(), ...body, baseline, attempts: [], status: 'pending' }
+      const row = { id: nextId(), ...body, baseline, source_session_id: sourceReport?.session_id || null,
+        baseline_quote: dimension?.quotes?.find((quote: Row) => quote.speaker === 'sales')?.text || null,
+        baseline_reason: dimension?.reason || '', attempts: [], status: 'pending' }
       assignments.unshift(row)
       return json(row, 201)
     }

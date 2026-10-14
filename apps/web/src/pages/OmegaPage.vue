@@ -48,7 +48,7 @@ type Quote = { segment_id: string; speaker: string; text: string; start: number;
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
 type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; score_weights?: Record<string, number>; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
-type Assignment = { id: string; case_id: string; assignee_id: number; source_report_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
+type Assignment = { id: string; case_id: string; assignee_id: number; source_report_id: string | null; source_session_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; baseline_quote: string | null; baseline_reason: string; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
 
 const defaultWeights: Record<string, number> = { outcome: 25, information: 12, value: 12,
   concessions: 12, objections: 10, listening: 8, compliance: 10, relationship: 6, closure: 5 }
@@ -89,6 +89,7 @@ const assignDueDate = ref('')
 const chosenCase = ref<CaseRow | null>(null)
 const chosenSession = ref<SessionRow | null>(null)
 const report = ref<Report | null>(null)
+const focusedQuoteId = ref('')
 const activeJob = ref<Job | null>(null)
 const textInput = ref('')
 const reviewText = ref('')
@@ -173,6 +174,8 @@ const focusPercent = computed(() => {
 const focusPassPercent = computed(() => Math.min(100, Math.max(70, (focusPercent.value ?? 0) + 10)))
 const currentAssignment = computed(() => assignments.value.find((row) => row.id === chosenSession.value?.assignment_id) || null)
 const currentAttempt = computed(() => currentAssignment.value?.attempts.find((item) => item.session_id === chosenSession.value?.id) || null)
+const matchingAssignment = computed(() => assignments.value.find((row) => row.source_report_id === report.value?.id
+  && row.assignee_id === assignUserId.value && row.target_dimension === coachingPoint.value?.key) || null)
 const reportNextPractice = computed(() => {
   const value = report.value?.content.next_practice
   if (typeof value === 'string') return value
@@ -200,6 +203,7 @@ const missingDraftFields = computed(() => {
   return fields
 })
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+let quoteTimer: ReturnType<typeof setTimeout> | undefined
 let recorder: MediaRecorder | undefined
 let stream: MediaStream | undefined
 let audioContext: AudioContext | undefined
@@ -252,6 +256,16 @@ function detail(err: unknown): string {
 function key(): string { return crypto.randomUUID() }
 function canWrite(ownerId: number): boolean { return me.value?.id === ownerId || ['manager', 'admin'].includes(me.value?.role || '') }
 function caseName(id: string): string { return cases.value.find((row) => row.id === id)?.title || '谈判任务' }
+function quoteNumber(quote: Quote): number { return (chosenSession.value?.segments || []).findIndex((part) => part.id === quote.segment_id) + 1 }
+function showQuote(quote: Quote) {
+  const target = document.getElementById(`omega-segment-${quote.segment_id}`)
+  if (!target) return
+  focusedQuoteId.value = quote.segment_id
+  target.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+  target.focus({ preventScroll: true })
+  if (quoteTimer) clearTimeout(quoteTimer)
+  quoteTimer = setTimeout(() => { focusedQuoteId.value = '' }, 3000)
+}
 function minorDigits(currency: string | null): number {
   try {
     return new Intl.NumberFormat('en', { style: 'currency', currency: currency || 'USD' })
@@ -470,7 +484,7 @@ async function repeatPractice() {
   })
 }
 async function assignFromReport() {
-  if (!chosenSession.value || !report.value || !coachingPoint.value || !assignUserId.value) return
+  if (!chosenSession.value || !report.value || !coachingPoint.value || !assignUserId.value || matchingAssignment.value) return
   await run(async () => {
     await apiPost('/api/omega/assignments', {
       case_id: chosenSession.value!.case_id, assignee_id: assignUserId.value,
@@ -1130,6 +1144,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   openToken++
   if (pollTimer) clearTimeout(pollTimer)
+  if (quoteTimer) clearTimeout(quoteTimer)
   stopCapture(true)
   stopVoice()
   primedVoice = false
@@ -1240,6 +1255,9 @@ onBeforeUnmount(() => {
           <p v-if="chosenAssignment.due_at">截止：{{ new Date(chosenAssignment.due_at).toLocaleString() }}</p>
           <p v-if="chosenAssignment.baseline">来源报告该项：{{ chosenAssignment.baseline.score }}/{{ chosenAssignment.baseline.maximum }}（{{ chosenAssignment.baseline.percent }}%）</p>
           <p v-else-if="chosenAssignment.source_report_id">来源报告该项证据不足，暂无基线分数。</p>
+          <blockquote v-if="chosenAssignment.baseline_quote" class="omega-assignment-quote">上轮原话：“{{ chosenAssignment.baseline_quote }}”</blockquote>
+          <p v-if="chosenAssignment.baseline_reason">上轮评语：{{ chosenAssignment.baseline_reason }}</p>
+          <button v-if="chosenAssignment.source_session_id" class="btn btn-sm btn-ghost" type="button" @click="openSession(chosenAssignment.source_session_id).catch((err) => error = detail(err))">查看上轮完整复盘</button>
           <ul><li v-for="(attempt, index) in chosenAssignment.attempts" :key="attempt.session_id">
             <button type="button" class="omega-link" @click="openSession(attempt.session_id).catch((err) => error = detail(err))">第 {{ index + 1 }} 次：{{ attempt.result ? `${attempt.result.score}/${attempt.result.maximum}（${attempt.result.percent}%）` : '尚无可核验评分' }} · {{ attempt.passed ? '达标' : '待重练' }}</button>
           </li></ul>
@@ -1253,7 +1271,7 @@ onBeforeUnmount(() => {
           </header>
           <section class="card omega-conversation" aria-labelledby="omega-conversation-title">
             <div class="omega-conversation-head"><div><p class="omega-kicker">对话实录</p><h3 id="omega-conversation-title">逐字稿</h3></div><span class="omega-turn-count">{{ (chosenSession.segments || []).length }} 条发言</span></div>
-            <ol v-if="chosenSession.segments?.length" class="omega-transcript"><li v-for="part in chosenSession.segments" :key="part.id" :class="part.speaker === 'sales' ? 'is-sales' : 'is-counterparty'"><span class="omega-speaker">{{ part.speaker === 'sales' ? (part.source_speaker || '销售') : participants.find(person => person.id === part.speaker_id)?.name || part.source_speaker || '对手／身份未细分' }}</span><p>{{ part.text }}</p><details v-if="part.asr_original && part.asr_original !== part.text" class="omega-asr-original"><summary>查看原始识别</summary><p>{{ part.asr_original }}</p></details></li></ol>
+            <ol v-if="chosenSession.segments?.length" class="omega-transcript"><li v-for="part in chosenSession.segments" :id="`omega-segment-${part.id}`" :key="part.id" tabindex="-1" :class="[part.speaker === 'sales' ? 'is-sales' : 'is-counterparty', { 'is-quoted': focusedQuoteId === part.id }]"><span class="omega-speaker">{{ part.speaker === 'sales' ? (part.source_speaker || '销售') : participants.find(person => person.id === part.speaker_id)?.name || part.source_speaker || '对手／身份未细分' }}</span><p>{{ part.text }}</p><details v-if="part.asr_original && part.asr_original !== part.text" class="omega-asr-original"><summary>查看原始识别</summary><p>{{ part.asr_original }}</p></details></li></ol>
             <div v-else class="omega-transcript-empty"><strong>准备好了就开始对话</strong><p>你的发言和对手回复会按顺序显示在这里。</p></div>
             <p v-if="voiceCaption" class="omega-live-caption" role="status">{{ voiceCaption }}</p>
             <div v-if="activeJob && ['queued', 'running'].includes(activeJob.status)" class="omega-responding" role="status">{{ activeJob.kind === 'turn' ? '对手正在回应…' : '报告生成中…' }}</div>
@@ -1277,25 +1295,27 @@ onBeforeUnmount(() => {
             <p v-if="report.content.hints_used?.length" class="sub">本场使用了 {{ report.content.hints_used.length }} 次教练建议。评分仍依据本场原话。</p>
             <div class="omega-score-summary"><strong>{{ report.content.score?.total == null ? '证据不足' : `${report.content.score.total} 分` }}</strong><span>{{ report.content.score?.total == null ? `已获 ${report.content.score?.earned ?? 0} 分／可评分 ${report.content.score?.available ?? 0} 分，暂不折算总分` : '本场综合评分 · 满分 100' }}</span></div>
             <p class="omega-report-result"><strong>{{ outcomeNames[report.content.outcome?.status || 'unverified'] || '证据不足' }}</strong>　{{ report.content.outcome?.reason }}</p>
-            <div v-if="strengthPoint" class="omega-report-strength"><span>做得好 · {{ dimensionNames[strengthPoint.key] || strengthPoint.key }}</span><p>{{ strengthPoint.reason }}</p><blockquote v-if="strengthPoint.quotes[0]">“{{ strengthPoint.quotes[0].text }}”</blockquote></div>
-            <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]">“{{ coachingPoint.quotes[0].text }}”</blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
+            <div v-if="strengthPoint" class="omega-report-strength"><span>做得好 · {{ dimensionNames[strengthPoint.key] || strengthPoint.key }}</span><p>{{ strengthPoint.reason }}</p><blockquote v-if="strengthPoint.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(strengthPoint.quotes[0])">“{{ strengthPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(strengthPoint.quotes[0]) }} 条原话</small></button></blockquote></div>
+            <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(coachingPoint.quotes[0])">“{{ coachingPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(coachingPoint.quotes[0]) }} 条原话</small></button></blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
             <p v-if="currentAssignment?.baseline" class="omega-session-note">{{ dimensionNames[currentAssignment.target_dimension] }}：上次 {{ currentAssignment.baseline.percent }}% · 本轮 {{ currentAttempt?.result ? `${currentAttempt.result.percent}%` : '待评分' }} · {{ currentAttempt?.passed ? '已达标' : '继续练习' }}</p>
             <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">{{ currentAssignment ? '继续练本项' : coachingPoint ? '按这个卡点再练' : '再练一轮' }}</button>
             <OmegaMemoryReview :report-id="report.id" />
             <form v-if="['manager', 'admin'].includes(me?.role || '') && coachingPoint" class="omega-import" @submit.prevent="assignFromReport">
               <h4>让销售练这个卡点</h4><p>推荐练 {{ dimensionNames[coachingPoint.key] || coachingPoint.key }}；当前 {{ focusPercent }}%，目标 {{ focusPassPercent }}%。{{ reportNextPractice }}</p>
               <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
-              <button class="btn" type="submit" :disabled="busy">指派这项练习</button>
+              <p v-if="matchingAssignment" role="status">已指派 · {{ matchingAssignment.status === 'passed' ? '已达标' : matchingAssignment.status === 'in_progress' ? '练习中' : '待练' }} · {{ matchingAssignment.attempts.length }} 次练习</p>
+              <button v-if="matchingAssignment" class="btn" type="button" @click="showAssignment(matchingAssignment)">查看指派进展</button>
+              <button v-else class="btn" type="submit" :disabled="busy">指派这项练习</button>
             </form>
             <details class="omega-report-details"><summary>查看原话证据和完整评分</summary>
-              <blockquote v-for="quote in report.content.outcome?.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote>
+              <blockquote v-for="quote in report.content.outcome?.quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote>
               <h4>承诺、让步与底线</h4>
               <div v-for="(items, title) in { '承诺': report.content.commitments || [], '让步代价': report.content.concession_costs || [], '底线': report.content.hard_limit_findings || [] }" :key="title">
                 <strong>{{ title }}</strong><p v-if="!items.length">没有可核验的原话</p>
-                <div v-for="(item, index) in items" :key="index"><p>{{ item.description || item.reason }}</p><blockquote v-for="quote in item.quotes" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote></div>
+                <div v-for="(item, index) in items" :key="index"><p>{{ item.description || item.reason }}</p><blockquote v-for="quote in item.quotes" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote></div>
               </div>
               <p>评分覆盖 {{ report.content.score?.available ?? 0 }}/100；{{ report.content.score?.total === null ? '证据不足，暂无总分' : `总分 ${report.content.score?.total}` }}</p>
-              <ul><li v-for="dim in report.content.dimensions || []" :key="dim.key"><strong>{{ dimensionNames[dim.key] || dim.key }}：</strong>{{ dim.score === null ? '证据不足' : dim.score }} / {{ dim.reason }}<blockquote v-for="quote in dim.quotes || []" :key="quote.segment_id + quote.start">“{{ quote.text }}”</blockquote></li></ul>
+              <ul><li v-for="dim in report.content.dimensions || []" :key="dim.key"><strong>{{ dimensionNames[dim.key] || dim.key }}：</strong>{{ dim.score === null ? '证据不足' : dim.score }} / {{ dim.reason }}<blockquote v-for="quote in dim.quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote></li></ul>
             </details>
             <h4>主管点评</h4><p v-for="(item, index) in report.reviews" :key="index">{{ item.content.comment }} <small>{{ item.content.next_practice }}</small></p>
             <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
@@ -1450,6 +1470,7 @@ onBeforeUnmount(() => {
 .omega-transcript li.is-sales .omega-speaker { text-align: right; margin-right: 2px; }
 .omega-transcript li p { margin: 0; padding: 12px 15px; border: 1px solid var(--border); border-radius: 4px 12px 12px; background: var(--card-2); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .omega-transcript li.is-sales p { border-color: rgba(78, 158, 245, .24); border-radius: 12px 4px 12px 12px; background: var(--blue-soft); }
+.omega-transcript li.is-quoted p { outline: 3px solid var(--blue); outline-offset: 3px; }
 .omega-asr-original { margin-top: 4px; color: var(--muted); font-size: 12px; }
 .omega-asr-original summary { line-height: 44px; cursor: pointer; }
 .omega-transcript-empty { display: grid; align-content: center; justify-items: center; flex: 1; padding: 56px 16px; text-align: center; }
@@ -1488,6 +1509,10 @@ onBeforeUnmount(() => {
 .omega-report-details { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
 .omega-report-details > summary { cursor: pointer; font-weight: 600; }
 .omega-report blockquote { margin: 4px 0 12px; padding-left: 10px; border-left: 2px solid var(--blue); color: var(--muted); }
+.omega-quote-link { max-width: 100%; padding: 2px 0; border: 0; background: transparent; color: inherit; text-align: left; line-height: 1.6; overflow-wrap: anywhere; cursor: pointer; }
+.omega-quote-link small { display: block; color: var(--blue); font-size: 11px; }
+.omega-quote-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.omega-assignment-quote { margin: 16px 0; padding: 12px 14px; border-left: 3px solid var(--blue); background: var(--blue-soft); line-height: 1.6; overflow-wrap: anywhere; }
 .omega-import { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
 .omega-import > summary { cursor: pointer; font-size: 15px; font-weight: 600; }
 .omega-import > form, .omega-import > p { margin-top: 16px; }
