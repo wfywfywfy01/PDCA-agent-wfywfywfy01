@@ -101,3 +101,17 @@ test('corrected speech retains its original recognition only in collapsed transc
   assert.equal(rendered.split('查看原始识别').length - 1, 1, 'unchanged and typed segments need no history entry')
   assert.ok(!rendered.replace(details[0][0], '').includes(original), 'original recognition does not replace the canonical dialogue')
 })
+
+test('report evidence links back to the matching transcript turn', async () => {
+  const { page, html } = mountReview()
+  const quote = { segment_id: 'line-1', speaker: 'sales', start: 0, end: 8, text: '请核对退换条件。' }
+  page.chosenSession.value = { id: 'practice-1', owner_id: 1, status: 'ended', case_snapshot: page.blankDraft(),
+    segments: [{ id: 'line-1', speaker: 'sales', text: quote.text }] }
+  page.report.value = { id: 'report-1', reviews: [], content: { score: { total: null, earned: 0, available: 0 },
+    outcome: { status: 'unverified', reason: '尚无承诺', quotes: [] },
+    dimensions: [{ key: 'objections', score: 3, reason: '需要再追问', quotes: [quote] }] } }
+  const rendered = await html()
+  assert.match(rendered, /id="omega-segment-line-1"/)
+  assert.match(rendered, /查看第 1 条原话/)
+  assert.match(rendered, /omega-quote-link/)
+})

@@ -260,6 +260,10 @@ def dimension_result(report: OmegaReport | None, dimension: str) -> dict | None:
 def assignment_view(db: Session, row: OmegaAssignment) -> dict:
     source = db.get(OmegaReport, row.source_report_id) if row.source_report_id else None
     baseline = dimension_result(source, row.target_dimension)
+    source_dimension = next((item for item in json.loads(source.content_json).get("dimensions", [])
+                             if item.get("key") == row.target_dimension), None) if source else None
+    baseline_quote = next((quote.get("text") for quote in (source_dimension or {}).get("quotes", [])
+                           if isinstance(quote, dict) and quote.get("speaker") == "sales"), None)
     games = db.exec(select(OmegaSession).where(
         OmegaSession.assignment_id == row.id,
     ).order_by(OmegaSession.created_at)).all()
@@ -274,9 +278,11 @@ def assignment_view(db: Session, row: OmegaAssignment) -> dict:
     return {"id": row.id, "case_id": row.case_id, "case_version_id": row.case_version_id,
             "assignee_id": row.assignee_id, "assigned_by": row.assigned_by,
             "source_report_id": row.source_report_id, "target_dimension": row.target_dimension,
+            "source_session_id": source.session_id if source else None,
             "pass_percent": row.pass_percent, "instructions": row.instructions,
             "due_at": row.due_at.isoformat() if row.due_at else None,
-            "baseline": baseline, "attempts": attempts,
+            "baseline": baseline, "baseline_quote": baseline_quote,
+            "baseline_reason": (source_dimension or {}).get("reason", ""), "attempts": attempts,
             "status": "passed" if any(item["passed"] for item in attempts)
                       else "in_progress" if attempts else "pending"}
 

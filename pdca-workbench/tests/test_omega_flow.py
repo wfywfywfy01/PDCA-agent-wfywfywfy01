@@ -131,6 +131,19 @@ class OmegaFlowTests(unittest.TestCase):
             self.assertIn("交付时间不明确", role)
             self.assertNotIn("PRIVATE_BOTTOM_LINE", role)
 
+    def test_default_buyer_raises_a_stage_specific_blocker_without_private_facts(self):
+        from app.omega.context import actor_messages
+        from app.omega.realtime import _voice_role
+
+        for meeting_type, expected in (("introduction", "why this introduction matters"),
+                                       ("discovery", "resist a generic pitch"),
+                                       ("negotiation", "conditional risk")):
+            snapshot = {**self.case_body(), "meeting_type": meeting_type, "buyer_objections": []}
+            for role in (actor_messages(snapshot, [])[0]["content"], _voice_role(snapshot)):
+                self.assertIn("if no blocker has yet been voiced", role)
+                self.assertIn(expected, role)
+                self.assertNotIn("PRIVATE_BOTTOM_LINE", role)
+
     def test_unauthenticated_requests_and_cross_origin_write_are_rejected(self):
         del app.dependency_overrides[get_current_user]
         self.assertEqual(self.client.get("/api/omega/cases").status_code, 401)
@@ -668,6 +681,9 @@ class OmegaFlowTests(unittest.TestCase):
         self.assertEqual(created.status_code, 201, created.text)
         assignment = created.json()
         self.assertEqual(assignment["baseline"]["percent"], 67)
+        self.assertEqual(assignment["baseline_quote"], "Can you explain the delivery concern?")
+        self.assertEqual(assignment["baseline_reason"], "Asked about delivery")
+        self.assertEqual(assignment["source_session_id"], original["id"])
         self.assertEqual(assignment["status"], "pending")
         self.current = User(id=3, username="seller-b", role="sales", team_key="team-a")
         self.assertEqual(self.client.get(f"/api/omega/assignments/{assignment['id']}").status_code, 404)
