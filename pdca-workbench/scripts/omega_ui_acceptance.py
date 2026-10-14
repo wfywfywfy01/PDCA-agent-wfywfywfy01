@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -177,7 +178,7 @@ def main():
                 window.__socket.onmessage({data:JSON.stringify({type:'audio',audio_epoch:1})});
                 window.__socket.onmessage({data:new Int16Array(48000).buffer});
             }""")
-            expect(dialog.get_by_role('heading', name='对手正在说话')).to_be_visible()
+            expect(dialog.get_by_role('heading', name=re.compile('正在说话$'))).to_be_visible()
             page.evaluate("window.__socket.onmessage({data:JSON.stringify({type:'interrupt',audio_epoch:2})})")
             expect(dialog.get_by_role('heading', name='正在听')).to_be_visible()
             dialog.get_by_role('button', name='暂停，问问教练').click()

@@ -17,24 +17,71 @@ from app.omega.schemas import CaseCreate, TemplateStart
 
 
 PRESETS = (
-    ("新人上手", "introduction", "清楚介绍价值，确认客户最关心的问题和一个下一步。", "公司介绍和真实产品资料尚未提供，请先澄清，不能作未经核实的承诺。"),
-    ("首次触达", "discovery", "问清需求、决策角色和下次沟通时间。", "模拟首次交流；客户需求和采购权限尚未确认。"),
-    ("首单谈判", "negotiation", "澄清首单顾虑，争取明确的行动负责人和时间表。", "模拟首单讨论；价格、交期和商业授权尚未提供。"),
+    {"title": "新人：30秒介绍价值", "meeting_type": "introduction",
+     "stage": "模拟首次见面，对方只愿给很短时间了解是否值得继续谈。",
+     "brief": "模拟代理首次听销售介绍；公司和产品的具体资料须由销售依据已核实信息说明。",
+     "stance": "你是代理负责人。对泛泛介绍没有耐心；销售若不能说明与你业务相关的可核实价值，就不安排后续。",
+     "objection": "先说清楚对我的门店有什么实际价值，否则没必要继续。",
+     "goal": "说明可核实的相关价值，问出对方最关心的问题，并争取具体的后续沟通。",
+     "minimum": "让对方说出一个关注点，并确认是否愿意继续了解。"},
+    {"title": "初访：对方没时间", "meeting_type": "introduction",
+     "stage": "模拟首次联系代理；尚未确认采购计划与决策角色。",
+     "brief": "模拟第一次联系代理；目前合作状况、采购计划和选品负责人均未知。",
+     "stance": "你正在处理其他事务。销售若长篇推介，你会说没时间；只有具体相关的问题才值得约下次沟通。",
+     "objection": "我现在没时间，先发资料吧。",
+     "goal": "确认对方角色和一个业务关注点，并争取可执行的下次沟通安排。",
+     "minimum": "确认资料需要回答什么问题，以及对方是否接受后续联系。"},
+    {"title": "需求：已有合作品牌", "meeting_type": "discovery",
+     "stage": "模拟代理已与其他品牌合作；是否愿意增加品牌尚未确认。",
+     "brief": "代理已有合作品牌；具体品牌、销量及条款均未知。",
+     "stance": "你担心新品牌占用门店资源。要求销售先理解现有合作的不足，再谈引入理由。",
+     "objection": "我们已经有合作品牌，再加一个有什么必要？",
+     "goal": "问清现有合作中未解决的需求、决策角色及一个可核实的评估动作。",
+     "minimum": "明确一个值得共同验证的业务问题。"},
+    {"title": "首单：担心压库存", "meeting_type": "negotiation",
+     "stage": "模拟谈到首批订单，但代理尚未接受库存风险。",
+     "brief": "双方讨论试单；订单量、周转数据、退换货政策和授权条件均未知。",
+     "stance": "你担心货卖不动。要求销售说明如何评估风险；若对方保证退货，追问书面授权。",
+     "objection": "首批货压在店里卖不动怎么办？",
+     "goal": "识别库存风险的判断口径，争取可核实的试单评估下一步。",
+     "minimum": "确认一个影响首单决定的库存条件和负责核对的人。"},
+    {"title": "拿单：先要降价", "meeting_type": "order",
+     "stage": "模拟已谈到下单条件；代理提出先降价，具体报价与授权未知。",
+     "brief": "双方讨论首单；报价、折扣权限、付款和交付条件均未知。",
+     "stance": "你关注利润空间，要求销售先降价才继续谈；若对方答应，追问批准人和交换条件。",
+     "objection": "你先降价，我才考虑下单。",
+     "goal": "问清降价诉求的依据，在授权边界内争取可核实的订单条件核对。",
+     "minimum": "确认价格判断依据和下一步核对的负责人。"},
+    {"title": "新人上手", "meeting_type": "introduction", "goal": "清楚介绍价值，确认客户最关心的问题和一个下一步。",
+     "brief": "公司介绍和真实产品资料尚未提供，请先澄清，不能作未经核实的承诺。"},
+    {"title": "首次触达", "meeting_type": "discovery", "goal": "问清需求、决策角色和下次沟通时间。",
+     "brief": "模拟首次交流；客户需求和采购权限尚未确认。"},
+    {"title": "首单谈判", "meeting_type": "negotiation", "goal": "澄清首单顾虑，争取明确的行动负责人和时间表。",
+     "brief": "模拟首单讨论；价格、交期和商业授权尚未提供。"},
 )
 
 
 def seed_templates(db: Session, user: User) -> None:
     team = require_team_user(user)
-    for title, meeting_type, goal, brief in PRESETS:
+    for preset in PRESETS:
+        title = preset["title"]
         case_id = str(uuid5(NAMESPACE_URL, f"omega-preset:{team}:{title}"))
         if db.get(OmegaCase, case_id):
             continue
+        objection = preset.get("objection", "")
         snapshot = CaseCreate(
-            kind="template", title=title, usage="training", meeting_type=meeting_type,
-            public_brief=f"模拟练习：{goal}", counterparty_brief=brief,
-            buyer_name="模拟买方", buyer_role="待确认", stage_summary="尚未开始；真实业务事实未提供",
-            goal={"outcome_type": "schedule", "success_condition": goal,
-                  "ideal": "双方明确下一步、负责人和时间", "minimum": "确认一个可执行的下一步",
+            kind="template", title=title, usage="training", meeting_type=preset["meeting_type"],
+            public_brief=preset.get("brief", f"模拟练习：{preset['goal']}"),
+            counterparty_brief=preset.get("stance", preset["brief"]),
+            buyer_name="模拟代理" if objection else "模拟买方",
+            buyer_role="代理负责人" if objection else "待确认",
+            buyer_objections=[objection] if objection else [],
+            participants=[{"id": "lead", "name": "模拟代理", "role": "代理负责人",
+                           "is_primary": True, "concerns": [objection], "known_facts": [],
+                           "decision_authority": "决策权限待确认"}] if objection else [],
+            stage_summary=preset.get("stage", "尚未开始；真实业务事实未提供"),
+            goal={"outcome_type": "schedule", "success_condition": preset["goal"],
+                  "ideal": "双方明确下一步、负责人和时间", "minimum": preset.get("minimum", "确认一个可执行的下一步"),
                   "hard_limits": ["不编造公司、产品、价格、交付及客户事实", "未经授权不得作商业承诺"]},
         ).model_dump(mode="json")
         row = OmegaCase(id=case_id, team_key=team, owner_id=0, title=title, kind="template",
