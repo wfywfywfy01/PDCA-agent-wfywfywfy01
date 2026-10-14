@@ -116,6 +116,8 @@ def main():
             if not page.get_by_role('heading', name='今天要练哪场会？').count():
                 print('UI startup:', page.url, page.locator('body').inner_text()[:3000], 'errors:', errors)
             expect(page.get_by_role('heading', name='今天要练哪场会？')).to_be_visible()
+            start_box = page.get_by_role('button', name='语音开练', exact=True).bounding_box()
+            assert start_box and start_box['y'] >= 0 and start_box['y'] + start_box['height'] <= 844, 'first card start requires scrolling'
             for control in page.locator('.shell-topbar button').all():
                 box = control.bounding_box()
                 assert box and box['x'] >= 0 and box['x'] + box['width'] <= 390 and box['height'] >= 44, 'mobile topbar control is clipped or too small'
