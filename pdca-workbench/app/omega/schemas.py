@@ -55,6 +55,24 @@ class Participant(BaseModel):
         return self
 
 
+class MeetingMaterial(BaseModel):
+    """Extracted text attached to one case, never a reusable team preset."""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    purpose: Literal["reference", "content", "topic"]
+    visibility: Literal["shared", "coach"]
+    text: str = Field(min_length=1, max_length=1800)
+    truncated: bool = False
+
+    @field_validator("name", "text")
+    @classmethod
+    def reject_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("资料名称和内容不能为空")
+        return value
+
+
 class CaseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -62,8 +80,14 @@ class CaseCreate(BaseModel):
     kind: Literal["case", "template"] = "case"
     source_template_version_id: str | None = Field(default=None, min_length=1, max_length=36)
     usage: Literal["training", "rehearsal", "real_review"] = "rehearsal"
-    meeting_type: Literal["introduction", "discovery", "proposal", "negotiation", "order"] = "negotiation"
+    meeting_type: Literal[
+        "introduction", "discovery", "proposal", "negotiation", "order",
+        "enablement", "retail_training", "marketing_support", "product_launch",
+        "store_weekly", "store_monthly", "custom", "store_opening", "reorder", "aftersales",
+    ] = "negotiation"
     stage_summary: str = Field(default="", max_length=1000)
+    meeting_topic: str = Field(default="", max_length=500)
+    meeting_materials: list[MeetingMaterial] = Field(default_factory=list, max_length=3)
     simulation: bool = True
     participants: list[Participant] = Field(default_factory=list, max_length=3)
     public_brief: str = Field(min_length=5, max_length=4000)
@@ -81,11 +105,13 @@ class CaseCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_scorecard(self):
+        if self.kind == "template" and self.meeting_materials:
+            raise ValueError("临时资料只能用于本次会议，不能保存进团队预设")
         if (set(self.score_weights) != set(WEIGHTS)
-                or any(type(value) is not int or value < 1 or value > 100
+                or any(type(value) is not int or value < 0 or value > 100
                        for value in self.score_weights.values())
                 or sum(self.score_weights.values()) != 100):
-            raise ValueError("评分卡须包含九项正整数权重，合计 100")
+            raise ValueError("评分卡须包含九项非负整数权重，合计 100")
         if any(not value.strip() for value in self.buyer_objections):
             raise ValueError("买方异议不能为空")
         if self.participants and (sum(person.is_primary for person in self.participants) != 1

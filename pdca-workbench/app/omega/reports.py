@@ -10,13 +10,31 @@ WEIGHTS = {
     "objections": 10, "listening": 8, "compliance": 10,
     "relationship": 6, "closure": 5,
 }
+TRAINING_WEIGHTS = {
+    "outcome": 25, "information": 10, "value": 22, "concessions": 0,
+    "objections": 12, "listening": 10, "compliance": 12,
+    "relationship": 5, "closure": 4,
+}
+STORE_REVIEW_WEIGHTS = {
+    "outcome": 25, "information": 25, "value": 12, "concessions": 0,
+    "objections": 6, "listening": 10, "compliance": 10,
+    "relationship": 5, "closure": 7,
+}
+
+
+def weights_for_meeting(meeting_type: str) -> dict[str, int]:
+    if meeting_type in {"enablement", "retail_training", "product_launch"}:
+        return dict(TRAINING_WEIGHTS)
+    if meeting_type in {"store_weekly", "store_monthly"}:
+        return dict(STORE_REVIEW_WEIGHTS)
+    return dict(WEIGHTS)
 
 
 def report_summary(report: dict) -> dict:
     """Pick evidence-backed skills by relative score, using stable rubric order for ties."""
     weights = report.get("score_weights") or WEIGHTS
     by_key = {item["key"]: item for item in report.get("dimensions", [])}
-    eligible = [by_key[key] for key in WEIGHTS if key != "outcome" and key in by_key
+    eligible = [by_key[key] for key in WEIGHTS if key != "outcome" and weights.get(key, 0) > 0 and key in by_key
                 and by_key[key].get("score") is not None and by_key[key].get("quotes")]
     ratio = lambda item: Fraction(item["score"], weights[item["key"]])
     return {"score": report.get("score", {}), "goal_progress": report.get("outcome", {}),
@@ -99,6 +117,10 @@ def validate_report(raw: str, segments: list[dict], *, goal_timing: str = "pre",
         seen.add(key)
         score = dim.get("score")
         quotes = dim.get("quotes", [])
+        if weights[key] == 0:
+            if score is not None or quotes:
+                raise ValueError("不适用评分项不能打分或引用原话")
+            continue
         check_quotes(quotes, sales_required=score is not None and (key != "outcome" or goal_timing == "pre"))
         if key == "outcome" and goal_timing != "pre":
             dim.update(score=None, reason="目标未能证明在会前确认", quotes=[])

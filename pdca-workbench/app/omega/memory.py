@@ -482,7 +482,8 @@ def prepare_memory_job(db: Session, user: User, job: OmegaJob) -> list[dict]:
     frozen = session_snapshot(game, db.get(OmegaCaseVersion, game.case_version_id))
     # Only opening-time memory has inherited source permissions on this session.
     # Pulling newly confirmed entries here would introduce untracked dependencies.
-    context = canonical(frozen)
+    # One-meeting uploads are reference material, not profile facts to promote.
+    context = canonical({key: value for key, value in frozen.items() if key != "meeting_materials"})
     payload = json.loads(job.payload_json)
     context_hash = digest(json.loads(context))
     if payload.get("context_hash") and payload["context_hash"] != context_hash:

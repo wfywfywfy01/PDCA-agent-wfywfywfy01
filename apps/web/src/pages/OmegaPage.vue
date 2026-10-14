@@ -3,9 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } fro
 import { useRouter } from 'vue-router'
 import AppNav from '@/components/AppNav.vue'
 import OmegaSetup from '@/components/omega/OmegaSetup.vue'
+import OmegaMeetingMaterials from '@/components/omega/OmegaMeetingMaterials.vue'
 import OmegaMemoryReview from '@/components/omega/OmegaMemoryReview.vue'
 import OmegaProfiles from '@/components/omega/OmegaProfiles.vue'
-import type { Participant, TemplateStart } from '@/components/omega/omega-types'
+import type { MeetingMaterial, Participant, TemplateStart } from '@/components/omega/omega-types'
 import { apiGet, apiPatch, apiPost, apiRequest, HttpError } from '@/api/client'
 
 type Goal = {
@@ -23,6 +24,8 @@ type CaseDraft = {
   usage?: 'training' | 'rehearsal' | 'real_review'
   meeting_type?: string
   stage_summary?: string
+  meeting_topic?: string
+  meeting_materials?: MeetingMaterial[]
   participants?: Participant[]
   title: string
   public_brief: string
@@ -150,6 +153,7 @@ const participantMap = ref<Record<string, string>>({})
 const meetingPreview = ref<Array<{ speaker: string; text: string }>>([])
 const draft = ref<CaseDraft>(blankDraft())
 const caseBriefInput = ref('')
+const materialBusy = ref(false)
 const analysisBusy = ref(false)
 const analysisReady = ref(false)
 const reviewOpen = ref(false)
@@ -223,6 +227,7 @@ const voiceSources = new Set<AudioBufferSourceNode>()
 
 function blankDraft(): CaseDraft {
   return { title: '', public_brief: '', seller_private: '', counterparty_brief: '', dealer_id: '',
+    meeting_topic: '', meeting_materials: [],
     buyer_name: '', buyer_role: '', buyer_company: '', buyer_emotion: '', buyer_objections: [],
     score_weights: { ...defaultWeights },
     goal: { outcome_type: 'payment_commitment', success_condition: '', ideal: '', minimum: '',
@@ -373,6 +378,7 @@ async function run(action: () => Promise<void>) {
   try { await action() } catch (err) { error.value = detail(err) } finally { busy.value = false }
 }
 async function saveCase() {
+  if (materialBusy.value) return
   await run(async () => {
     const body = caseBody()
     const saved = chosenCase.value && editing.value
@@ -385,7 +391,7 @@ async function saveCase() {
   })
 }
 async function saveAndStart() {
-  if (missingDraftFields.value.length) return
+  if (missingDraftFields.value.length || materialBusy.value) return
   await run(async () => {
     const saved = await apiPost<CaseRow>('/api/omega/cases', caseBody())
     chosenCase.value = saved
@@ -430,6 +436,7 @@ async function analyzeCaseDraft() {
     const practiceGoal = goal.success_condition || '澄清客户顾虑，并约定可核实的下一步。'
     draft.value = {
       ...blankDraft(),
+      meeting_topic: draft.value.meeting_topic, meeting_materials: draft.value.meeting_materials,
       title: found.title || '客户谈判练习', public_brief: found.public_brief || '双方正在商谈交易，具体背景待澄清。',
       seller_private: found.seller_private || '', counterparty_brief: found.counterparty_brief || '客户顾虑需要在对话中澄清。',
       buyer_name: found.buyer_name || '', buyer_role: found.buyer_role || '',
@@ -1121,7 +1128,7 @@ watch(caseBriefInput, () => { analysisReady.value = false; reviewOpen.value = fa
 onMounted(async () => {
   try {
     const status = await apiGet<{ ready: boolean; actor_id: number; role: string; realtime_configured: boolean; model_configured: boolean; worker_online: boolean; multi_voice_ready?: boolean }>('/api/omega/status')
-    if (!status.ready) { error.value = '谈判陪练暂不可用，请联系管理员检查语音与复盘服务。'; return }
+    if (!status.ready) { error.value = '会议陪练暂不可用，请联系管理员检查语音与复盘服务。'; return }
     realtimeReady.value = status.realtime_configured
     textReady.value = status.model_configured && status.worker_online
     multiVoiceReady.value = status.multi_voice_ready === true
@@ -1157,7 +1164,7 @@ onBeforeUnmount(() => {
   <AppNav />
   <main class="page omega">
     <header class="page-head omega-head">
-      <div><p class="omega-kicker">培训 · 会前演练 · 会后复盘</p><h1>谈判陪练</h1><p class="sub">选一张场景卡，练到关键问题，带着下一步去见客户。</p></div>
+      <div><p class="omega-kicker">培训 · 会前演练 · 会后复盘</p><h1>会议陪练</h1><p class="sub">选一张场景卡，练到关键问题，带着下一步去见客户。</p></div>
       <div class="omega-head-meta"><button class="btn btn-sm btn-ghost" type="button" :disabled="callOpen || busy || !me" @click="profilesOpen = !profilesOpen">{{ profilesOpen ? '返回练习' : '查看档案' }}</button><span class="pill pill-muted">组内可见</span><span :class="['pill', realtimeReady ? 'pill-green' : 'pill-muted']">{{ realtimeReady ? '实时语音可用' : '实时语音未配置' }}</span></div>
     </header>
     <p v-if="demoMode" class="omega-notice" role="status"><strong>交互原型 · 模拟数据</strong>　AI 分析、文字回复、语音识别和复盘内容均为预设；麦克风音频不会上传。刷新页面会重置演示数据。</p>
@@ -1209,6 +1216,8 @@ onBeforeUnmount(() => {
             </div>
             <label for="omega-case-brief">带入手头客户</label>
             <textarea id="omega-case-brief" v-model="caseBriefInput" rows="4" minlength="1" maxlength="6000" placeholder="例如：客户觉得价格高，要求再降 10%。我想先弄清他跟谁比较，再争取本周确认订单。"></textarea>
+            <label for="omega-custom-topic">本次会议命题（可选）</label><input id="omega-custom-topic" v-model.trim="draft.meeting_topic" maxlength="500" placeholder="例如：给代理销售主管做新品培训">
+            <OmegaMeetingMaterials :model-value="draft.meeting_materials || []" @update:model-value="draft.meeting_materials = $event" @busy="materialBusy = $event" />
             <div class="omega-intake-actions"><span>AI 只整理你写出的客户事实，缺少的金额、日期不会猜。</span><button class="btn btn-primary" type="button" :disabled="analysisBusy || !caseBriefInput.trim()" @click="analyzeCaseDraft">{{ analysisBusy ? '分析中…' : analysisReady ? '重新分析' : '整理练习' }}</button></div>
           </template>
           <template v-else><h2>编辑任务草稿</h2><p class="sub">修改后需重新确认目标版本，既有演练仍使用原版本。</p></template>
@@ -1217,7 +1226,7 @@ onBeforeUnmount(() => {
             <dl class="omega-analysis-summary"><div><dt>对手会知道</dt><dd>{{ draft.public_brief }} {{ draft.counterparty_brief }} {{ draft.buyer_objections.join('；') }}</dd></div><div><dt>本场目标</dt><dd>{{ draft.goal.success_condition }}</dd></div><div><dt>不能承诺</dt><dd>{{ draft.goal.hard_limits.filter(Boolean).join('；') }}</dd></div><div v-if="draft.goal.outcome_type === 'payment_commitment'"><dt>金额与日期</dt><dd>{{ amountMajor }} {{ draft.goal.currency }} · {{ draft.goal.due_date }}</dd></div><div v-if="draft.seller_private"><dt>仅销售可见</dt><dd>{{ draft.seller_private }}</dd></div></dl>
             <p v-if="missingDraftFields.length" class="omega-missing" role="status">还需补充：{{ missingDraftFields.join('、') }}。请展开更多设定修改。</p>
             <p v-else class="omega-review-note">确认目标和底线无误后开始；这一步会保存并确认本场目标。</p>
-            <div class="omega-actions"><button class="btn btn-primary" type="button" :disabled="busy || !!missingDraftFields.length" @click="saveAndStart">确认并开练</button><button class="btn btn-ghost" type="button" :aria-expanded="reviewOpen" @click="reviewOpen = !reviewOpen">{{ reviewOpen ? '收起更多设定' : '修改内容或更多设定' }}</button></div>
+            <div class="omega-actions"><button class="btn btn-primary" type="button" :disabled="busy || materialBusy || !!missingDraftFields.length" @click="saveAndStart">确认并开练</button><button class="btn btn-ghost" type="button" :aria-expanded="reviewOpen" @click="reviewOpen = !reviewOpen">{{ reviewOpen ? '收起更多设定' : '修改内容或更多设定' }}</button></div>
           </section>
           <div v-show="chosenCase || reviewOpen" class="omega-review-fields">
           <form class="form-grid omega-form" @submit.prevent="saveCase">
@@ -1244,7 +1253,7 @@ onBeforeUnmount(() => {
               <label>币种<input v-model.trim="draft.goal.currency" maxlength="3" pattern="[A-Z]{3}" required></label>
               <label>最迟日期<input v-model="draft.goal.due_date" type="date" required></label>
             </template>
-            <div class="span-2 omega-actions"><button class="btn" type="submit" :disabled="busy || (!chosenCase && !!missingDraftFields.length)">保存草稿</button><button class="btn btn-ghost" type="button" @click="editing = false">取消</button></div>
+            <div class="span-2 omega-actions"><button class="btn" type="submit" :disabled="busy || materialBusy || (!chosenCase && !!missingDraftFields.length)">保存草稿</button><button class="btn btn-ghost" type="button" @click="editing = false">取消</button></div>
           </form>
           </div>
         </div>
@@ -1267,6 +1276,8 @@ onBeforeUnmount(() => {
           <header class="card omega-session-summary">
             <div class="omega-session-heading"><div><p class="omega-kicker">{{ chosenSession.mode === 'real_review' ? (demoMode ? '模拟会议复盘样本' : '真实会议复盘') : '模拟对手演练' }} <span v-if="chosenSession.mode === 'real_review'">· {{ chosenSession.goal_timing === 'pre' ? '会前目标' : '目标时点未获会前确认' }}</span></p><h2>{{ caseName(chosenSession.case_id) }}</h2></div><span :class="['pill', chosenSession.status === 'active' ? 'pill-green' : 'pill-muted']">{{ chosenSession.status === 'active' ? '演练中' : '已结束' }}</span></div>
             <div v-if="chosenSession.case_snapshot" class="omega-goal"><span>本场目标 · 版本 {{ chosenSession.case_version }}</span><p>{{ chosenSession.case_snapshot.goal.success_condition }}</p></div>
+          <p v-if="chosenSession.case_snapshot?.meeting_topic" class="sub">本次命题：{{ chosenSession.case_snapshot.meeting_topic }}</p>
+          <p v-if="chosenSession.case_snapshot?.meeting_materials?.length" class="sub">本场资料：{{ chosenSession.case_snapshot.meeting_materials.map(item => item.name).join('、') }}</p>
           <div v-if="currentAssignment" class="omega-session-note"><strong>本轮只练：{{ dimensionNames[currentAssignment.target_dimension] || currentAssignment.target_dimension }}</strong><p>{{ currentAssignment.instructions || '先处理客户的主要卡点，再争取具体下一步。' }} · 达到 {{ currentAssignment.pass_percent }}% 算达标</p></div>
           </header>
           <section class="card omega-conversation" aria-labelledby="omega-conversation-title">
@@ -1315,7 +1326,7 @@ onBeforeUnmount(() => {
                 <div v-for="(item, index) in items" :key="index"><p>{{ item.description || item.reason }}</p><blockquote v-for="quote in item.quotes" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote></div>
               </div>
               <p>评分覆盖 {{ report.content.score?.available ?? 0 }}/100；{{ report.content.score?.total === null ? '证据不足，暂无总分' : `总分 ${report.content.score?.total}` }}</p>
-              <ul><li v-for="dim in report.content.dimensions || []" :key="dim.key"><strong>{{ dimensionNames[dim.key] || dim.key }}：</strong>{{ dim.score === null ? '证据不足' : dim.score }} / {{ dim.reason }}<blockquote v-for="quote in dim.quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote></li></ul>
+              <ul><li v-for="dim in report.content.dimensions || []" :key="dim.key"><strong>{{ dimensionNames[dim.key] || dim.key }}：</strong>{{ reportWeights[dim.key] === 0 ? '不适用' : dim.score === null ? '证据不足' : dim.score }} / {{ dim.reason }}<blockquote v-for="quote in dim.quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote></li></ul>
             </details>
             <h4>主管点评</h4><p v-for="(item, index) in report.reviews" :key="index">{{ item.content.comment }} <small>{{ item.content.next_practice }}</small></p>
             <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
@@ -1368,7 +1379,7 @@ onBeforeUnmount(() => {
   </main>
   <dialog ref="voiceDialog" class="omega-call" aria-label="实时语音对话" @cancel.prevent="exitVoice">
     <div class="omega-call-shell">
-      <div class="omega-call-top"><span>谈判陪练 · 实时对话</span><span>{{ chosenSession ? caseName(chosenSession.case_id) : '' }}</span></div>
+      <div class="omega-call-top"><span>会议陪练 · 实时对话</span><span>{{ chosenSession ? caseName(chosenSession.case_id) : '' }}</span></div>
       <div class="omega-call-center">
         <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting, 'is-paused': voicePhase !== 'live' }" aria-hidden="true"></div>
         <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'error' ? '演练已暂停' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>

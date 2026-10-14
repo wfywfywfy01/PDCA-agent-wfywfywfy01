@@ -35,24 +35,28 @@ class OmegaTemplateTests(unittest.TestCase):
         response = self.client.get('/api/omega/templates')
         self.assertEqual(response.status_code, 200, response.text)
         rows = response.json()
-        self.assertEqual([row['title'] for row in rows[:5]], [
-            '新人：30秒介绍价值', '初访：对方没时间', '需求：已有合作品牌',
-            '首单：担心压库存', '拿单：先要降价',
+        self.assertEqual([row['title'] for row in rows[:13]], [
+            '破冰会议', '方案推进会议', '试订单推进', '合作启动培训', '终销培训',
+            '市场营销支持会议', '新品培训', '店铺周会', '店铺月会',
+            '开店准备会议', '补货复购会议', '售后问题协调会议', '临时自定义会议',
         ])
-        self.assertEqual({row['title'] for row in rows[5:]}, {'新人上手', '首次触达', '首单谈判'})
+        self.assertEqual({row['title'] for row in rows[13:]}, {
+            '新人：30秒介绍价值', '初访：对方没时间', '需求：已有合作品牌',
+            '首单：担心压库存', '拿单：先要降价', '新人上手', '首次触达', '首单谈判'})
         self.assertTrue(all(row['simulation'] and row['current_version'] == 1 for row in rows))
         self.assertTrue(all(row['draft']['buyer_company'] == '' for row in rows))
-        for row in rows[:5]:
+        for row in rows[:13]:
             self.assertTrue(row['draft']['stage_summary'])
             self.assertEqual(len(row['draft']['buyer_objections']), 1)
             self.assertEqual(len(row['draft']['participants']), 1)
             self.assertTrue(row['draft']['participants'][0]['is_primary'])
             self.assertIn(row['draft']['buyer_objections'][0], row['draft']['participants'][0]['concerns'])
             self.assertTrue(row['draft']['goal']['minimum'])
-        self.assertEqual(len(self.client.get('/api/omega/templates').json()), 8)
+        self.assertEqual(len(self.client.get('/api/omega/templates').json()), 21)
 
     def test_scenario_card_starts_editable_personal_practice(self):
-        card = self.client.get('/api/omega/templates').json()[3]
+        card = next(row for row in self.client.get('/api/omega/templates').json()
+                    if row['title'] == '首单：担心压库存')
         response = self.client.post('/api/omega/template-starts', json=self.start_body(card,
             request_key='scenario-card-start-001', overrides={'stage_summary': '销售刚提出小批量试单，代理仍担心库存。'}))
         self.assertEqual(response.status_code, 201, response.text)

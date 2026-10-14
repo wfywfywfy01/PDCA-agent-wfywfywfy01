@@ -113,22 +113,33 @@ def main():
             page.route('**/api/**', api)
             page.goto(base + '/app/omega')
             page.wait_for_timeout(1000)
-            if not page.get_by_role('heading', name='今天要练什么？').count():
+            if not page.get_by_role('heading', name='今天要练哪场会？').count():
                 print('UI startup:', page.url, page.locator('body').inner_text()[:3000], 'errors:', errors)
-            expect(page.get_by_role('heading', name='今天要练什么？')).to_be_visible()
+            expect(page.get_by_role('heading', name='今天要练哪场会？')).to_be_visible()
             for control in page.locator('.shell-topbar button').all():
                 box = control.bounding_box()
                 assert box and box['x'] >= 0 and box['x'] + box['width'] <= 390 and box['height'] >= 44, 'mobile topbar control is clipped or too small'
-            for usage in ('新人培训', '会前演练', '会后复盘'):
+            for usage in ('模拟练习', '会前演练', '会后复盘'):
                 page.get_by_role('group', name='会议用途').get_by_role('button', name=usage).click()
                 expect(page.get_by_role('group', name='场景卡').get_by_role('button').first).to_be_visible()
-            page.get_by_role('group', name='会议用途').get_by_role('button', name='新人培训').click()
+            page.get_by_role('group', name='会议用途').get_by_role('button', name='模拟练习').click()
             page.get_by_role('button', name='调整这张场景卡').click()
             page.get_by_label('场景名称', exact=True).fill('手机验收场景')
             page.get_by_label('一句话说明目前进展').fill('已介绍价值，对方仍担心价格')
+            page.locator('.scenario-card.selected summary').click()
+            page.locator('.scenario-card.selected textarea').first.fill('核对当地市场需求')
+            page.locator('.scenario-card.selected input[type=file]').set_input_files({
+                'name': 'agenda.txt', 'mimeType': 'text/plain', 'buffer': '客户关注市场定位'.encode('utf-8')})
+            expect(page.locator('.scenario-card.selected')).to_contain_text('agenda.txt')
             page.get_by_role('button', name='文字开练', exact=True).click()
             expect(page.get_by_role('heading', name='手机验收场景')).to_be_visible()
-            assert seen_starts[-1]['overrides'] == {'title': '手机验收场景', 'stage_summary': '已介绍价值，对方仍担心价格'}
+            overrides = seen_starts[-1]['overrides']
+            assert overrides['title'] == '手机验收场景'
+            assert overrides['stage_summary'] == '已介绍价值，对方仍担心价格'
+            assert overrides['meeting_topic'] == '核对当地市场需求'
+            assert overrides['meeting_materials'] == [{
+                'name': 'agenda.txt', 'text': '客户关注市场定位', 'truncated': False,
+                'purpose': 'reference', 'visibility': 'shared'}]
             assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
             page.get_by_label('文字发言').fill('你们哪位负责采购决策？我们约定明天下午确认。')
             page.get_by_role('button', name='发送', exact=True).click()
@@ -277,7 +288,7 @@ def main():
             page.get_by_role('button', name='查看档案').click()
             expect(page.get_by_text('下次先明确负责人与时间', exact=True)).to_be_visible()
             page.get_by_role('button', name='新练习', exact=True).click()
-            expect(page.get_by_role('heading', name='今天要练什么？')).to_be_visible()
+            expect(page.get_by_role('heading', name='今天要练哪场会？')).to_be_visible()
             page.evaluate("""() => {
               const audio=window.__testAudio=new AudioContext();
               const oscillator=window.__testOscillator=audio.createOscillator();

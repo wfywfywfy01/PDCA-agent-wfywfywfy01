@@ -27,20 +27,35 @@ function json(value: unknown, status = 200): Response {
 
 export function installOmegaDemo() {
   const scenarios = [
-    { title: '新人：30秒介绍价值', meeting: 'introduction', objection: '先说清楚对我的门店有什么实际价值，否则没必要继续。', goal: '说明可核实的价值，并争取具体的后续沟通。' },
-    { title: '初访：对方没时间', meeting: 'introduction', objection: '我现在没时间，先发资料吧。', goal: '确认一个业务关注点和下次沟通安排。' },
-    { title: '需求：已有合作品牌', meeting: 'discovery', objection: '我们已经有合作品牌，再加一个有什么必要？', goal: '问清未解决的需求和评估动作。' },
-    { title: '首单：担心压库存', meeting: 'negotiation', objection: '首批货压在店里卖不动怎么办？', goal: '识别库存风险，争取可核实的试单评估。' },
-    { title: '拿单：先要降价', meeting: 'order', objection: '你先降价，我才考虑下单。', goal: '问清降价依据和订单条件。' },
-    { title: '新人上手', meeting: 'introduction', objection: '', goal: '确认客户最关心的问题和下一步。' },
-    { title: '首次触达', meeting: 'discovery', objection: '', goal: '问清需求、决策角色和下次沟通时间。' },
-    { title: '首单谈判', meeting: 'negotiation', objection: '', goal: '澄清首单顾虑和行动时间表。' },
+    { title: '破冰会议', meeting: 'introduction', group: 'cooperation', objection: '你们的品牌在我们市场适合哪些客户？', goal: '了解客户背景、当地市场、需求与下一步。' },
+    { title: '方案推进会议', meeting: 'proposal', group: 'cooperation', objection: '这套方案如何帮我赚钱并提升品牌定位？', goal: '将客户痛点转成可核对的方案。' },
+    { title: '试订单推进', meeting: 'order', group: 'cooperation', objection: '折扣、售后、交期和物流条件能写清楚吗？', goal: '列清试单政策、负责人和决定时间。' },
+    { title: '合作启动培训', meeting: 'enablement', group: 'training', objection: '到店里该怎么实际操作？', goal: '完成品牌、产品、工具或门店主题的讲解与复述。' },
+    { title: '终销培训', meeting: 'retail_training', group: 'training', objection: '顾客看完就走，怎么跟进？', goal: '演练终销、门店五件套和社媒动作。' },
+    { title: '市场营销支持会议', meeting: 'marketing_support', group: 'operation', objection: '你们具体支持什么，怎么衡量？', goal: '确认营销目标、资源、责任和复盘指标。' },
+    { title: '新品培训', meeting: 'product_launch', group: 'training', objection: '新品和旧品具体差在哪？', goal: '讲清新品定位、差异和演示。' },
+    { title: '店铺周会', meeting: 'store_weekly', group: 'operation', objection: '下周具体改哪一件事？', goal: '核对终销与库存，定一项周行动。' },
+    { title: '店铺月会', meeting: 'store_monthly', group: 'operation', objection: '哪些店有效，哪些库存要处理？', goal: '分析月度终销、库存和门店表现。' },
+    { title: '开店准备会议', meeting: 'store_opening', group: 'operation', objection: '开业前哪些条件必须到位？', goal: '确认开店前置条件和负责人。' },
+    { title: '补货复购会议', meeting: 'reorder', group: 'operation', objection: '上批货还有库存，为什么现在补货？', goal: '依据动销和库存核对补货条件。' },
+    { title: '售后问题协调会议', meeting: 'aftersales', group: 'operation', objection: '谁负责、何时给处理方案？', goal: '确认售后事实、政策和回复时间。' },
+    { title: '临时自定义会议', meeting: 'custom', group: 'other', objection: '今天这场会要解决什么问题？', goal: '明确本次命题和可核对的下一步。' },
+    { title: '新人：30秒介绍价值', meeting: 'introduction', group: 'drill', objection: '先说清楚对我的门店有什么实际价值，否则没必要继续。', goal: '说明可核实的价值，并争取具体的后续沟通。' },
+    { title: '初访：对方没时间', meeting: 'introduction', group: 'drill', objection: '我现在没时间，先发资料吧。', goal: '确认一个业务关注点和下次沟通安排。' },
+    { title: '需求：已有合作品牌', meeting: 'discovery', group: 'drill', objection: '我们已经有合作品牌，再加一个有什么必要？', goal: '问清未解决的需求和评估动作。' },
+    { title: '首单：担心压库存', meeting: 'negotiation', group: 'drill', objection: '首批货压在店里卖不动怎么办？', goal: '识别库存风险，争取可核实的试单评估。' },
+    { title: '拿单：先要降价', meeting: 'order', group: 'drill', objection: '你先降价，我才考虑下单。', goal: '问清降价依据和订单条件。' },
+    { title: '新人上手', meeting: 'introduction', group: 'drill', objection: '', goal: '确认客户最关心的问题和下一步。' },
+    { title: '首次触达', meeting: 'discovery', group: 'drill', objection: '', goal: '问清需求、决策角色和下次沟通时间。' },
+    { title: '首单谈判', meeting: 'negotiation', group: 'drill', objection: '', goal: '澄清首单顾虑和行动时间表。' },
   ]
-  const templates: Row[] = scenarios.map(({ title, meeting, objection, goal }, index) => ({
+  const templates: Row[] = scenarios.map(({ title, meeting, group, objection, goal }, index) => ({
     id: `demo-template-${index}`, title, owner_id: 0, kind: 'template', current_version: 1,
     case_version_id: `demo-template-version-${index}`, draft_confirmed: true,
+    card_group: group, material_hint: '本次会议资料或正式课件', suggested_topics: group === 'training' ? ['品牌与产品', '门店实操'] : ['本次重点', '下一步'],
     available_usages: ['training', 'rehearsal', 'real_review'], simulation: true,
     draft: { ...clone(draft), kind: 'template', usage: 'training', title: `模拟演示：${title}`,
+      meeting_topic: '', meeting_materials: [],
       meeting_type: meeting, stage_summary: `模拟练习：${title}；真实业务事实尚未提供。`,
       buyer_name: '模拟代理', buyer_role: '代理负责人', buyer_company: '', buyer_emotion: '',
       buyer_objections: objection ? [objection] : [],
@@ -134,6 +149,12 @@ export function installOmegaDemo() {
       const row = { id: nextId(), ...body }; opportunities.push(row); return json(row, 201)
     }
     if (path === '/api/omega/templates') return json([...templates, ...cases.filter(row => row.kind === 'template' && row.draft_confirmed)])
+    if (path === '/api/omega/materials/extract') {
+      const file = init?.body instanceof FormData ? init.body.get('file') : null
+      if (!(file instanceof File)) return json({ detail: '未选择资料' }, 422)
+      const text = await file.text()
+      return json({ name: file.name, text: text.slice(0, 1800), truncated: text.length > 1800 })
+    }
     if (path === '/api/omega/template-starts') {
       const previous = launches.get(body.request_key)
       if (previous) return previous.body === JSON.stringify(body) ? json(previous.result) : json({ detail: '模拟请求编号冲突' }, 409)

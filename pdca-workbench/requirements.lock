@@ -104,6 +104,8 @@ pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.15.0
     # via mcp
+pypdf==6.19.0
+    # via -r requirements.txt
 pyee==13.0.1
     # via playwright
 pyjwt==2.13.0
