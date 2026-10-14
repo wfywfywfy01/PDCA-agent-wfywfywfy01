@@ -43,15 +43,15 @@ type CaseDraft = {
 type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer_id'>> & {
   goal?: Partial<Omit<Goal, 'amount_minor'>> & { amount_major?: string }
 }
-type CaseRow = { id: string; kind?: string; title: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
+type CaseRow = { id: string; kind?: string; title: string; team_key?: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
 type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; asr_original?: string; seq: number }
-type SessionRow = { id: string; case_id: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string }
+type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
 type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; score_weights?: Record<string, number>; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
-type Assignment = { id: string; case_id: string; assignee_id: number; source_report_id: string | null; source_session_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; baseline_quote: string | null; baseline_reason: string; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
+type Assignment = { id: string; case_id: string; team_key?: string; assignee_id: number; source_report_id: string | null; source_session_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; baseline_quote: string | null; baseline_reason: string; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
 
 const defaultWeights: Record<string, number> = { outcome: 25, information: 12, value: 12,
   concessions: 12, objections: 10, listening: 8, compliance: 10, relationship: 6, closure: 5 }
@@ -82,7 +82,7 @@ const assignments = ref<Assignment[]>([])
 const sidebarTab = ref<'cases' | 'assignments' | 'sessions'>('cases')
 const mobileNavOpen = ref(false)
 const showAllSessions = ref(false)
-const members = ref<Array<{ id: number; name: string }>>([])
+const members = ref<Array<{ id: number; name: string; username?: string; team_key?: string }>>([])
 const chosenAssignment = ref<Assignment | null>(null)
 const assignUserId = ref<number | null>(null)
 const assignDimension = ref('objections')
@@ -177,6 +177,14 @@ const focusPercent = computed(() => {
 })
 const focusPassPercent = computed(() => Math.min(100, Math.max(70, (focusPercent.value ?? 0) + 10)))
 const currentAssignment = computed(() => assignments.value.find((row) => row.id === chosenSession.value?.assignment_id) || null)
+const assignableMembers = computed(() => {
+  const team = chosenSession.value?.team_key || chosenCase.value?.team_key
+  return team ? members.value.filter((row) => row.team_key === team) : members.value
+})
+function memberLabel(member: { id: number; name: string; username?: string }): string {
+  return members.value.some((row) => row.id !== member.id && row.name === member.name)
+    ? `${member.name}（${member.username || member.id}）` : member.name
+}
 const currentAttempt = computed(() => currentAssignment.value?.attempts.find((item) => item.session_id === chosenSession.value?.id) || null)
 const matchingAssignment = computed(() => assignments.value.find((row) => row.source_report_id === report.value?.id
   && row.assignee_id === assignUserId.value && row.target_dimension === coachingPoint.value?.key) || null)
@@ -316,9 +324,9 @@ async function openSession(id: string) {
   await nextTick()
   if (token !== openToken) return
   window.scrollTo(0, 0)
-  if (['manager', 'admin'].includes(me.value?.role || '') && members.value.some((row) => row.id === game.owner_id)) {
-    assignUserId.value = game.owner_id
-  }
+  assignUserId.value = ['manager', 'admin'].includes(me.value?.role || '')
+    && members.value.some((row) => row.id === game.owner_id && (!game.team_key || row.team_key === game.team_key))
+    ? game.owner_id : null
   if (game.latest_report_id) {
     const loadedReport = await apiGet<Report>(`/api/omega/reports/${game.latest_report_id}`)
     if (token !== openToken) return
@@ -679,6 +687,7 @@ function showCase(row: CaseRow) {
   openToken++
   if (pollTimer) clearTimeout(pollTimer)
   chosenCase.value = row
+  assignUserId.value = null
   chosenSession.value = null
   chosenAssignment.value = null
   activeJob.value = null
@@ -1173,7 +1182,7 @@ onBeforeUnmount(() => {
     <p v-if="loading">正在读取演练…</p>
     <div v-else class="omega-grid">
       <aside class="card omega-side" :class="{ 'is-collapsed': !mobileNavOpen }" aria-label="演练导航">
-        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>我的练习</h2></div><div class="omega-side-actions"><button class="btn btn-sm btn-ghost omega-side-toggle" type="button" :aria-expanded="mobileNavOpen" aria-controls="omega-side-tabs omega-side-body" @click="mobileNavOpen = !mobileNavOpen">{{ mobileNavOpen ? '收起列表' : '展开列表' }}</button><button class="btn btn-sm btn-primary" type="button" @click="newCase">新练习</button></div></div>
+        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>{{ me?.role === 'admin' ? '团队训练' : '我的练习' }}</h2></div><div class="omega-side-actions"><button class="btn btn-sm btn-ghost omega-side-toggle" type="button" :aria-expanded="mobileNavOpen" aria-controls="omega-side-tabs omega-side-body" @click="mobileNavOpen = !mobileNavOpen">{{ mobileNavOpen ? '收起列表' : '展开列表' }}</button><button class="btn btn-sm btn-primary" type="button" @click="newCase">新练习</button></div></div>
         <div id="omega-side-tabs" class="omega-side-tabs" role="group" aria-label="列表类型">
           <button type="button" :class="{ active: sidebarTab === 'cases' }" :aria-pressed="sidebarTab === 'cases'" @click="sidebarTab = 'cases'">任务 <span>{{ cases.length }}</span></button>
           <button type="button" :class="{ active: sidebarTab === 'assignments' }" :aria-pressed="sidebarTab === 'assignments'" @click="sidebarTab = 'assignments'">指派 <span>{{ assignments.length }}</span></button>
@@ -1183,21 +1192,21 @@ onBeforeUnmount(() => {
           <template v-if="sidebarTab === 'cases'">
             <p class="omega-list-title">谈判任务</p>
             <ul v-if="cases.length" class="omega-list"><li v-for="row in cases" :key="row.id">
-              <button type="button" class="omega-link" :class="{ selected: chosenCase?.id === row.id }" :aria-current="chosenCase?.id === row.id ? 'true' : undefined" @click="showCase(row)"><strong>{{ row.title }}</strong><small>{{ row.draft_confirmed ? `目标版本 ${row.current_version}` : '待确认目标' }}</small></button>
+              <button type="button" class="omega-link" :class="{ selected: chosenCase?.id === row.id }" :aria-current="chosenCase?.id === row.id ? 'true' : undefined" @click="showCase(row)"><strong>{{ row.title }}</strong><small>{{ me?.role === 'admin' && row.team_key ? `${row.team_key} · ` : '' }}{{ row.draft_confirmed ? `目标版本 ${row.current_version}` : '待确认目标' }}</small></button>
             </li></ul>
             <p v-else class="omega-side-empty">还没有任务。先新建一个谈判目标。</p>
           </template>
           <template v-else-if="sidebarTab === 'assignments'">
             <p class="omega-list-title">待练与复练</p>
             <ul v-if="assignments.length" class="omega-list"><li v-for="row in assignments" :key="row.id">
-              <button type="button" class="omega-link" :class="{ selected: chosenAssignment?.id === row.id }" :aria-current="chosenAssignment?.id === row.id ? 'true' : undefined" @click="showAssignment(row)"><strong>{{ caseName(row.case_id) }}</strong><small>{{ dimensionNames[row.target_dimension] }} · {{ row.status === 'passed' ? '已达标' : row.status === 'in_progress' ? '练习中' : '待练' }} · {{ row.attempts.length }} 次</small></button>
+              <button type="button" class="omega-link" :class="{ selected: chosenAssignment?.id === row.id }" :aria-current="chosenAssignment?.id === row.id ? 'true' : undefined" @click="showAssignment(row)"><strong>{{ caseName(row.case_id) }}</strong><small>{{ me?.role === 'admin' && row.team_key ? `${row.team_key} · ` : '' }}{{ dimensionNames[row.target_dimension] }} · {{ row.status === 'passed' ? '已达标' : row.status === 'in_progress' ? '练习中' : '待练' }} · {{ row.attempts.length }} 次</small></button>
             </li></ul>
             <p v-else class="omega-side-empty">暂无指派练习。</p>
           </template>
           <template v-else>
             <p class="omega-list-title">最近演练</p>
             <ul v-if="sessions.length" class="omega-list"><li v-for="(row, index) in (showAllSessions ? sessions : sessions.slice(0, 5))" :key="row.id">
-              <button type="button" class="omega-link" :class="{ selected: chosenSession?.id === row.id }" :aria-current="chosenSession?.id === row.id ? 'true' : undefined" @click="openSession(row.id).catch((err) => error = detail(err))"><strong>{{ caseName(row.case_id) }}</strong><small>记录 {{ index + 1 }} · {{ row.status === 'active' ? '进行中' : '已结束' }}<span v-if="row.created_at"> · {{ new Date(row.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</span></small></button>
+              <button type="button" class="omega-link" :class="{ selected: chosenSession?.id === row.id }" :aria-current="chosenSession?.id === row.id ? 'true' : undefined" @click="openSession(row.id).catch((err) => error = detail(err))"><strong>{{ caseName(row.case_id) }}</strong><small>{{ me?.role === 'admin' && row.team_key ? `${row.team_key} · ` : '' }}记录 {{ index + 1 }} · {{ row.status === 'active' ? '进行中' : '已结束' }}<span v-if="row.created_at"> · {{ new Date(row.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</span></small></button>
             </li></ul>
             <button v-if="sessions.length > 5" class="omega-more" type="button" @click="showAllSessions = !showAllSessions">{{ showAllSessions ? '收起记录' : `查看全部 ${sessions.length} 条` }}</button>
             <p v-else class="omega-side-empty">还没有演练记录。</p>
@@ -1310,10 +1319,10 @@ onBeforeUnmount(() => {
             <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(coachingPoint.quotes[0])">“{{ coachingPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(coachingPoint.quotes[0]) }} 条原话</small></button></blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
             <p v-if="currentAssignment?.baseline" class="omega-session-note">{{ dimensionNames[currentAssignment.target_dimension] }}：上次 {{ currentAssignment.baseline.percent }}% · 本轮 {{ currentAttempt?.result ? `${currentAttempt.result.percent}%` : '待评分' }} · {{ currentAttempt?.passed ? '已达标' : '继续练习' }}</p>
             <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">{{ currentAssignment ? '继续练本项' : coachingPoint ? '按这个卡点再练' : '再练一轮' }}</button>
-            <OmegaMemoryReview :report-id="report.id" />
+            <OmegaMemoryReview v-if="chosenSession?.owner_id === me?.id" :report-id="report.id" />
             <form v-if="['manager', 'admin'].includes(me?.role || '') && coachingPoint" class="omega-import" @submit.prevent="assignFromReport">
               <h4>让销售练这个卡点</h4><p>推荐练 {{ dimensionNames[coachingPoint.key] || coachingPoint.key }}；当前 {{ focusPercent }}%，目标 {{ focusPassPercent }}%。{{ reportNextPractice }}</p>
-              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
+              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ memberLabel(member) }}</option></select></label>
               <p v-if="matchingAssignment" role="status">已指派 · {{ matchingAssignment.status === 'passed' ? '已达标' : matchingAssignment.status === 'in_progress' ? '练习中' : '待练' }} · {{ matchingAssignment.attempts.length }} 次练习</p>
               <button v-if="matchingAssignment" class="btn" type="button" @click="showAssignment(matchingAssignment)">查看指派进展</button>
               <button v-else class="btn" type="submit" :disabled="busy">指派这项练习</button>
@@ -1332,7 +1341,7 @@ onBeforeUnmount(() => {
             <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
             <details v-if="['manager', 'admin'].includes(me?.role || '')" class="omega-import"><summary>手动设置指派</summary>
             <form @submit.prevent="createAssignment(report.id)">
-              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
+              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ memberLabel(member) }}</option></select></label>
               <label>目标技能<select v-model="assignDimension"><option v-for="(name, scoreKey) in dimensionNames" :key="scoreKey" :value="scoreKey">{{ name }}</option></select></label>
               <label>达标百分比<input v-model.number="assignPassPercent" type="number" min="1" max="100" required></label>
               <label>截止日期<input v-model="assignDueDate" type="date"></label>
@@ -1351,7 +1360,7 @@ onBeforeUnmount(() => {
           <div class="omega-actions"><button v-if="chosenCase.draft_confirmed" class="btn btn-primary" type="button" :disabled="busy" @click="startSession">开始新演练</button><button v-if="canWrite(chosenCase.owner_id) && !chosenCase.draft_confirmed" class="btn btn-primary" type="button" :disabled="busy" @click="confirmCase">确认目标版本</button><button v-if="canWrite(chosenCase.owner_id)" class="btn btn-ghost" type="button" @click="editCase(chosenCase)">编辑草稿</button></div>
           <details v-if="chosenCase.draft_confirmed && ['manager', 'admin'].includes(me?.role || '')" class="omega-import"><summary>指派练习</summary>
           <form @submit.prevent="createAssignment()">
-            <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in members" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
+            <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ memberLabel(member) }}</option></select></label>
             <label>目标技能<select v-model="assignDimension"><option v-for="(name, scoreKey) in dimensionNames" :key="scoreKey" :value="scoreKey">{{ name }}</option></select></label>
             <label>达标百分比<input v-model.number="assignPassPercent" type="number" min="1" max="100" required></label>
             <label>截止日期<input v-model="assignDueDate" type="date"></label>

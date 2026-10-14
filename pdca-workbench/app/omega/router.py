@@ -18,7 +18,7 @@ from app.omega.models import (
     OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaReview, OmegaSegment,
     OmegaSession, OmegaWorkerHeartbeat, utcnow,
 )
-from app.omega.policy import require_case, require_session_source, require_team_user, require_writer
+from app.omega.policy import can_access_team, require_case, require_session_source, require_team_user, require_writer, visible_team_keys
 from app.omega.schemas import CaseCreate, CaseUpdate, DraftAnalysisRequest, OperationRequest, ReviewRequest, TurnRequest
 from app.omega.reports import WEIGHTS
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -143,8 +143,7 @@ def list_cases(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_session)],
 ):
-    team = require_team_user(user)
-    rows = db.exec(select(OmegaCase).where(OmegaCase.team_key == team)).all()
+    rows = db.exec(select(OmegaCase).where(OmegaCase.team_key.in_(visible_team_keys(user)))).all()
     result = []
     for row in rows:
         try:
@@ -276,6 +275,7 @@ def assignment_view(db: Session, row: OmegaAssignment) -> dict:
         attempts.append({"session_id": game.id, "status": game.status,
                          "result": score, "passed": bool(score and score["score"] * 100 >= row.pass_percent * score["maximum"])})
     return {"id": row.id, "case_id": row.case_id, "case_version_id": row.case_version_id,
+            "team_key": row.team_key,
             "assignee_id": row.assignee_id, "assigned_by": row.assigned_by,
             "source_report_id": row.source_report_id, "target_dimension": row.target_dimension,
             "source_session_id": source.session_id if source else None,
@@ -288,7 +288,7 @@ def assignment_view(db: Session, row: OmegaAssignment) -> dict:
 
 
 def visible_assignment(db: Session, user: User, row: OmegaAssignment | None) -> OmegaAssignment:
-    if row is None or row.team_key != require_team_user(user):
+    if row is None or not can_access_team(user, row.team_key):
         raise HTTPException(404, "练习指派不存在")
     if user.id != row.assignee_id and user.role not in {"manager", "admin"}:
         raise HTTPException(404, "练习指派不存在")
@@ -304,19 +304,22 @@ def visible_assignment(db: Session, user: User, row: OmegaAssignment | None) -> 
 @router.get("/team-members", dependencies=[Depends(enabled)])
 def team_members(user: Annotated[User, Depends(get_current_user)],
                  db: Annotated[Session, Depends(get_session)]):
-    team = require_team_user(user)
+    teams = visible_team_keys(user)
     if user.role not in {"manager", "admin"}:
         raise HTTPException(403, "仅同组主管可以查看可指派人员")
-    rows = db.exec(select(User).where(User.team_key == team, User.is_active == True,
-                                          User.role.in_(["sales", "manager", "admin"]))).all()
-    return [{"id": row.id, "name": row.display_name or row.username} for row in rows]
+    stmt = select(User).where(User.is_active == True,
+                              User.role.in_(["sales", "manager", "admin"]),
+                              User.team_key.in_(teams))
+    rows = db.exec(stmt).all()
+    return [{"id": row.id, "name": row.display_name or row.username, "username": row.username,
+             "team_key": row.team_key} for row in rows]
 
 
 @router.post("/assignments", status_code=201, dependencies=[Depends(enabled)])
 def create_assignment(body: AssignmentCreate,
                       user: Annotated[User, Depends(get_current_user)],
                       db: Annotated[Session, Depends(get_session)]):
-    team = require_team_user(user)
+    require_team_user(user)
     self_practice = (user.role == "sales" and body.assignee_id == user.id
                      and body.source_report_id is not None)
     if user.role not in {"manager", "admin"} and not self_practice:
@@ -326,7 +329,7 @@ def create_assignment(body: AssignmentCreate,
     case = db.get(OmegaCase, body.case_id)
     require_case(user, db, case)
     assignee = db.get(User, body.assignee_id)
-    if not assignee or not assignee.is_active or assignee.team_key != team or assignee.role not in {"sales", "manager", "admin"}:
+    if not assignee or not assignee.is_active or assignee.team_key != case.team_key or assignee.role not in {"sales", "manager", "admin"}:
         raise HTTPException(422, "被指派人不在当前团队")
     require_case(assignee, db, case)
     source = db.get(OmegaReport, body.source_report_id) if body.source_report_id else None
@@ -353,7 +356,7 @@ def create_assignment(body: AssignmentCreate,
     if weights.get(body.target_dimension, 0) == 0:
         raise HTTPException(422, "本场会议不适用该评分项")
     row = OmegaAssignment(case_id=case.id, case_version_id=version_id,
-                          team_key=team, assignee_id=assignee.id, assigned_by=user.id,
+                          team_key=case.team_key, assignee_id=assignee.id, assigned_by=user.id,
                           source_report_id=body.source_report_id,
                           target_dimension=body.target_dimension,
                           pass_percent=body.pass_percent, instructions=body.instructions,
@@ -366,10 +369,8 @@ def create_assignment(body: AssignmentCreate,
 @router.get("/assignments", dependencies=[Depends(enabled)])
 def list_assignments(user: Annotated[User, Depends(get_current_user)],
                      db: Annotated[Session, Depends(get_session)]):
-    team = require_team_user(user)
-    rows = db.exec(select(OmegaAssignment).where(
-        OmegaAssignment.team_key == team,
-    ).order_by(OmegaAssignment.created_at.desc()).limit(100)).all()
+    stmt = select(OmegaAssignment).where(OmegaAssignment.team_key.in_(visible_team_keys(user)))
+    rows = db.exec(stmt.order_by(OmegaAssignment.created_at.desc()).limit(100)).all()
     visible = []
     for row in rows:
         try:
@@ -414,7 +415,7 @@ def session_view(db: Session, row: OmegaSession) -> dict:
         OmegaJob.status.in_(["queued", "running"]),
     ).order_by(OmegaJob.created_at.desc()).limit(1)).first()
     return {
-        "id": row.id, "case_id": row.case_id, "mode": row.mode,
+        "id": row.id, "case_id": row.case_id, "team_key": row.team_key, "mode": row.mode,
         "assignment_id": row.assignment_id,
         "case_version_id": row.case_version_id,
         "case_version": version.version if version else None,
@@ -491,10 +492,8 @@ def list_sessions(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_session)],
 ):
-    team = require_team_user(user)
-    rows = db.exec(select(OmegaSession).where(
-        OmegaSession.team_key == team
-    ).order_by(OmegaSession.created_at.desc()).limit(100)).all()
+    stmt = select(OmegaSession).where(OmegaSession.team_key.in_(visible_team_keys(user)))
+    rows = db.exec(stmt.order_by(OmegaSession.created_at.desc()).limit(100)).all()
     visible = []
     for row in rows:
         try:
@@ -503,6 +502,7 @@ def list_sessions(
         except HTTPException:
             continue
         visible.append({"id": row.id, "case_id": row.case_id, "owner_id": row.owner_id,
+                        "team_key": row.team_key,
                         "mode": row.mode, "status": row.status,
                         "created_at": row.created_at.isoformat()})
     return visible
