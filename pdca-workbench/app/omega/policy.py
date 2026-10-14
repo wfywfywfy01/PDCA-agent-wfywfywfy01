@@ -12,6 +12,9 @@ from app.auth.scope import effective_data_scope, normalize_scope_key, resolve_da
 from app.knowledge.client import require_knowledge_access
 
 
+SALES_TEAM_KEYS = frozenset({"经销商一部", "经销商二部", "经销商三部", "经销商四部", "经销商五部"})
+
+
 def require_team_user(user: User) -> str:
     team = (user.team_key or "").strip()
     if user.role not in {"sales", "manager", "admin"} or not team or user.id is None:
@@ -23,10 +26,13 @@ def is_global_admin(user: User) -> bool:
     return user.role == "admin" and effective_data_scope(user) == "all"
 
 
+def visible_team_keys(user: User) -> set[str]:
+    own_team = require_team_user(user)
+    return {own_team, *SALES_TEAM_KEYS} if is_global_admin(user) else {own_team}
+
+
 def can_access_team(user: User, team_key: str) -> bool:
-    return bool(team_key and team_key.strip()) and (
-        team_key == require_team_user(user) or is_global_admin(user)
-    )
+    return team_key in visible_team_keys(user)
 
 
 def _require_context_scope(user: User, session: Session, dealer_id: str, opportunity_id: str | None) -> None:

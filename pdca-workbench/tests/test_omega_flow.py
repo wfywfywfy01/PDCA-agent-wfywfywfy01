@@ -83,18 +83,24 @@ class OmegaFlowTests(unittest.TestCase):
 
         with Session(self.engine) as db:
             db.add_all([
-                User(id=2, username="seller-b", role="sales", team_key="team-b",
+                User(id=2, username="seller-b", role="sales", team_key="经销商二部",
                      hashed_password="test-only", is_active=True),
-                User(id=3, username="admin-a", role="admin", team_key="team-a",
+                User(id=3, username="admin-a", role="admin", team_key="经销商一部",
                      hashed_password="test-only", is_active=True),
-                User(id=4, username="manager-a", role="manager", team_key="team-a",
+                User(id=4, username="manager-a", role="manager", team_key="经销商一部",
+                     hashed_password="test-only", is_active=True),
+                User(id=5, username="qa", role="sales", team_key="omega-release-qa",
                      hashed_password="test-only", is_active=True),
             ])
             db.commit()
-        self.current = User(id=2, username="seller-b", role="sales", team_key="team-b")
+        self.current = User(id=2, username="seller-b", role="sales", team_key="经销商二部")
         case = self.client.post("/api/omega/cases", json=self.case_body()).json()
         self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
         game = self.client.post("/api/omega/sessions", json={"case_id": case["id"]}).json()
+        self.current = User(id=5, username="qa", role="sales", team_key="omega-release-qa")
+        qa_case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{qa_case['id']}/confirm").raise_for_status()
+        qa_game = self.client.post("/api/omega/sessions", json={"case_id": qa_case["id"]}).json()
         with Session(self.engine) as db:
             report = OmegaReport(session_id=game["id"], input_hash="cross-team-report",
                                  content_json=json.dumps({"score_weights": {"objections": 10},
@@ -103,19 +109,26 @@ class OmegaFlowTests(unittest.TestCase):
             db.commit()
             report_id = report.id
 
-        self.current = User(id=4, username="manager-a", role="manager", team_key="team-a")
+        self.current = User(id=4, username="manager-a", role="manager", team_key="经销商一部")
         self.assertEqual(self.client.get(f"/api/omega/reports/{report_id}").status_code, 404)
-        self.current = User(id=3, username="admin-a", role="admin", team_key="team-a", data_scope="team")
+        self.current = User(id=3, username="admin-a", role="admin", team_key="经销商一部", data_scope="team")
         self.assertEqual(self.client.get(f"/api/omega/reports/{report_id}").status_code, 404)
-        self.current = User(id=3, username="admin-a", role="admin", team_key="team-a")
-        self.assertIn(case["id"], [row["id"] for row in self.client.get("/api/omega/cases").json()])
-        self.assertIn(game["id"], [row["id"] for row in self.client.get("/api/omega/sessions").json()])
+        self.current = User(id=3, username="admin-a", role="admin", team_key="经销商一部")
+        visible_cases = [row["id"] for row in self.client.get("/api/omega/cases").json()]
+        self.assertIn(case["id"], visible_cases)
+        self.assertNotIn(qa_case["id"], visible_cases)
+        self.assertEqual(self.client.get(f"/api/omega/cases/{qa_case['id']}").status_code, 404)
+        visible_sessions = [row["id"] for row in self.client.get("/api/omega/sessions").json()]
+        self.assertIn(game["id"], visible_sessions)
+        self.assertNotIn(qa_game["id"], visible_sessions)
+        self.assertEqual(self.client.get(f"/api/omega/sessions/{qa_game['id']}").status_code, 404)
         self.assertEqual(self.client.get(f"/api/omega/reports/{report_id}").status_code, 200)
         reviewed = self.client.post(f"/api/omega/reports/{report_id}/reviews", json={
             "comment": "先明确交付条件，再约定书面确认。"})
         self.assertEqual(reviewed.status_code, 201, reviewed.text)
-        self.assertIn({"id": 2, "name": "seller-b", "team_key": "team-b"},
+        self.assertIn({"id": 2, "name": "seller-b", "team_key": "经销商二部"},
                       self.client.get("/api/omega/team-members").json())
+        self.assertNotIn(5, [row["id"] for row in self.client.get("/api/omega/team-members").json()])
         self.assertEqual(self.client.post("/api/omega/assignments", json={
             "case_id": case["id"], "assignee_id": 1, "source_report_id": report_id,
             "target_dimension": "objections"}).status_code, 422)
@@ -123,7 +136,7 @@ class OmegaFlowTests(unittest.TestCase):
             "case_id": case["id"], "assignee_id": 2, "source_report_id": report_id,
             "target_dimension": "objections", "instructions": "练习锁定交付条件"})
         self.assertEqual(assigned.status_code, 201, assigned.text)
-        self.assertEqual(assigned.json()["team_key"], "team-b")
+        self.assertEqual(assigned.json()["team_key"], "经销商二部")
         self.assertIn(assigned.json()["id"], [row["id"] for row in self.client.get("/api/omega/assignments").json()])
         self.current = User(id=1, username="seller-a", role="sales", team_key="team-a")
         self.assertEqual(self.client.get(f"/api/omega/assignments/{assigned.json()['id']}").status_code, 404)

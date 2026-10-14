@@ -18,7 +18,7 @@ from app.omega.models import (
     OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaReview, OmegaSegment,
     OmegaSession, OmegaWorkerHeartbeat, utcnow,
 )
-from app.omega.policy import can_access_team, is_global_admin, require_case, require_session_source, require_team_user, require_writer
+from app.omega.policy import can_access_team, require_case, require_session_source, require_team_user, require_writer, visible_team_keys
 from app.omega.schemas import CaseCreate, CaseUpdate, DraftAnalysisRequest, OperationRequest, ReviewRequest, TurnRequest
 from app.omega.reports import WEIGHTS
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -143,11 +143,7 @@ def list_cases(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_session)],
 ):
-    team = require_team_user(user)
-    stmt = select(OmegaCase)
-    if not is_global_admin(user):
-        stmt = stmt.where(OmegaCase.team_key == team)
-    rows = db.exec(stmt).all()
+    rows = db.exec(select(OmegaCase).where(OmegaCase.team_key.in_(visible_team_keys(user)))).all()
     result = []
     for row in rows:
         try:
@@ -308,13 +304,12 @@ def visible_assignment(db: Session, user: User, row: OmegaAssignment | None) -> 
 @router.get("/team-members", dependencies=[Depends(enabled)])
 def team_members(user: Annotated[User, Depends(get_current_user)],
                  db: Annotated[Session, Depends(get_session)]):
-    team = require_team_user(user)
+    teams = visible_team_keys(user)
     if user.role not in {"manager", "admin"}:
         raise HTTPException(403, "仅同组主管可以查看可指派人员")
     stmt = select(User).where(User.is_active == True,
-                              User.role.in_(["sales", "manager", "admin"]))
-    if not is_global_admin(user):
-        stmt = stmt.where(User.team_key == team)
+                              User.role.in_(["sales", "manager", "admin"]),
+                              User.team_key.in_(teams))
     rows = db.exec(stmt).all()
     return [{"id": row.id, "name": row.display_name or row.username,
              "team_key": row.team_key} for row in rows]
@@ -374,10 +369,7 @@ def create_assignment(body: AssignmentCreate,
 @router.get("/assignments", dependencies=[Depends(enabled)])
 def list_assignments(user: Annotated[User, Depends(get_current_user)],
                      db: Annotated[Session, Depends(get_session)]):
-    team = require_team_user(user)
-    stmt = select(OmegaAssignment)
-    if not is_global_admin(user):
-        stmt = stmt.where(OmegaAssignment.team_key == team)
+    stmt = select(OmegaAssignment).where(OmegaAssignment.team_key.in_(visible_team_keys(user)))
     rows = db.exec(stmt.order_by(OmegaAssignment.created_at.desc()).limit(100)).all()
     visible = []
     for row in rows:
@@ -500,10 +492,7 @@ def list_sessions(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_session)],
 ):
-    team = require_team_user(user)
-    stmt = select(OmegaSession)
-    if not is_global_admin(user):
-        stmt = stmt.where(OmegaSession.team_key == team)
+    stmt = select(OmegaSession).where(OmegaSession.team_key.in_(visible_team_keys(user)))
     rows = db.exec(stmt.order_by(OmegaSession.created_at.desc()).limit(100)).all()
     visible = []
     for row in rows:
