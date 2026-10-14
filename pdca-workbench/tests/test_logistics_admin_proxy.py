@@ -109,6 +109,7 @@ class LogisticsAdminProxyTests(unittest.TestCase):
         self.assertIn("name: dealer-knowledge", compose)
         self.assertIn('return "http://10.100.0.176:18080"', deploy)
         self.assertIn('Assert-LogisticsAdminReachable -Image $image -Upstream $logisticsAdminUpstream', deploy)
+        self.assertIn('cat-file -t $Sha', deploy)
         self.assertIn('"PDCA_LOGISTICS_ADMIN_UPSTREAM", # 已迁移、探测并显式注入', deploy)
         self.assertIn('"-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$LogisticsAdminUpstream"', deploy)
         self.assertIn(

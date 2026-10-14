@@ -817,11 +817,16 @@ Assert-LogisticsAdminReachable -Image $image -Upstream $logisticsAdminUpstream
 Write-Output "Preparing immutable release directory for $Sha"
 # git 的进度信息写在 stderr，在 $ErrorActionPreference=Stop 下会被 PS 5.1
 # 当成致命错误（2>$null 也拦不住），经 cmd /c 包一层彻底隔离 stderr。
-& cmd /c "git -C ""$RepoRoot"" fetch --no-tags origin $Sha 2>nul"
+$localObjectType = & cmd /c "git -C ""$RepoRoot"" cat-file -t $Sha 2>nul"
+$commitAvailable = $LASTEXITCODE -eq 0 -and $localObjectType -eq "commit"
+if (-not $commitAvailable) {
+    & cmd /c "git -C ""$RepoRoot"" fetch --no-tags origin $Sha 2>nul"
+    $commitAvailable = $LASTEXITCODE -eq 0
+}
 $archive = Join-Path $env:TEMP "pdca-release-$Sha.tar"
 $archiveIsGzip = $false
 try {
-    if ($LASTEXITCODE -eq 0) {
+    if ($commitAvailable) {
         & cmd /c "git -C ""$RepoRoot"" archive --format=tar --output=""$archive"" $Sha 2>nul"
         if ($LASTEXITCODE -ne 0) { throw "git archive failed for $Sha" }
     } else {
