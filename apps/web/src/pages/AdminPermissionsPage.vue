@@ -121,6 +121,7 @@ onMounted(load)
     <div v-if="!loading && users.length" class="layout">
       <section class="workspace">
         <div class="card list-card">
+          <p class="scroll-hint">横向滑动可查看数据范围与状态</p>
           <div class="table-scroll"><table class="grid"><thead><tr><th>账号</th><th>角色</th><th>数据范围</th><th>状态</th></tr></thead><tbody>
             <tr v-for="user in visibleUsers" :key="user.username" :class="{ active: selected?.username === user.username }">
               <td><button type="button" :aria-pressed="selected?.username === user.username" @click="choose(user)"><strong>{{ user.display_name || user.username }}</strong><small>{{ user.username }}</small></button></td>
@@ -149,6 +150,7 @@ onMounted(load)
 <style scoped>
 .head,.section-title { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }.head { margin-bottom:18px; }.head h1,.editor h2 { margin:0 0 5px; }.head h1 { font-size:24px; }.head p,.editor p { margin:0; color:var(--muted); font-size:13px; }
 .layout { display:grid; grid-template-columns:minmax(0, 2fr) minmax(280px, 1fr); gap:16px; }.layout > *,.workspace,.list-card,.editor,.table-scroll { min-width:0; }.workspace { display:grid; gap:16px; }.list-card,.editor { padding:18px; }.search { display:grid; grid-template-columns:auto minmax(180px, 280px); align-items:center; gap:12px; color:var(--muted); font-size:13px; margin-bottom:12px; }.table-scroll { overflow-x:auto; }table { width:100%; min-width:480px; border-collapse:collapse; font-size:13px; }th,td { padding:10px; border-bottom:1px solid var(--border); text-align:left; }th { color:var(--muted); }tr.active { background:var(--blue-soft); }td button { all:unset; cursor:pointer; color:var(--text); display:grid; width:100%; }td button:focus-visible { outline:2px solid var(--blue); }small,.muted { color:var(--muted); }.warn { margin-left:7px; color:var(--amber); font-weight:600; }
+.grid th:nth-child(2),.grid td:nth-child(2) { white-space:nowrap; }.scroll-hint { display:none; margin:0 0 8px; color:var(--muted); font-size:12px; }
 .fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:18px 0; }.fields label { display:grid; gap:7px; color:var(--muted); font-size:13px; }.switch { display:block; font-size:14px; }.message { padding:10px 14px; border-radius:var(--radius); }.error { color:var(--red); background:rgba(244,63,94,.1); }.ok { color:var(--green); background:rgba(16,185,129,.1); }.state { padding:40px; text-align:center; color:var(--muted); }
-@media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}@media(max-width:600px){.page{padding:16px 12px 40px}.fields{grid-template-columns:1fr}.head,.section-title{align-items:stretch;flex-direction:column}.section-title .btn{width:100%}.search{grid-template-columns:1fr}}
+@media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}@media(max-width:600px){.page{padding:16px 12px 40px}.fields{grid-template-columns:1fr}.head,.section-title{align-items:stretch;flex-direction:column}.section-title .btn{width:100%}.search{grid-template-columns:1fr}.scroll-hint{display:block}}
 </style>
