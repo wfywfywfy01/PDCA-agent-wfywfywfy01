@@ -137,6 +137,11 @@ export function installOmegaDemo() {
     const path = url.pathname
     const method = init?.method || 'GET'
     const body = init?.body && typeof init.body === 'string' ? JSON.parse(init.body) as Row : {}
+    const historyPage = (rows: Row[]) => {
+      const before = url.searchParams.get('before')
+      const start = before ? rows.findIndex((row) => row.id === before) + 1 : 0
+      return before && !start ? json({ detail: '记录不存在' }, 404) : json(rows.slice(start, start + 100))
+    }
     if (path === '/api/auth/me') return json({ id: 1, username: 'demo-manager', display_name: '演示主管', role: 'manager' })
     if (path === '/api/auth/logout') return json({ ok: true })
     if (path === '/api/omega/status') return json({ enabled: true, ready: true, actor_id: 1, role: 'manager',
@@ -192,7 +197,7 @@ export function installOmegaDemo() {
       goal: { ...clone(draft.goal), amount_major: '10000' },
     } })
     if (path === '/api/omega/assignments') {
-      if (method === 'GET') return json(assignments)
+      if (method === 'GET') return historyPage(assignments)
       const scenario = cases.find((item) => item.id === body.case_id)
       const sourceReport = reports.get(body.source_report_id)
       const dimension = sourceReport?.content.dimensions.find((item: Row) => item.key === body.target_dimension)
@@ -237,7 +242,7 @@ export function installOmegaDemo() {
       return json(row)
     }
     if (path === '/api/omega/sessions') {
-      if (method === 'GET') return json(sessions)
+      if (method === 'GET') return historyPage(sessions)
       const scenario = cases.find((item) => item.id === body.case_id)
       if (!scenario?.draft_confirmed) return json({ detail: '先确认目标版本' }, 409)
       const assignment = body.assignment_id ? assignments.find((item) => item.id === body.assignment_id) : null
