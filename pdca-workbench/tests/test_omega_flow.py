@@ -78,6 +78,56 @@ class OmegaFlowTests(unittest.TestCase):
         self.current = User(id=3, username="seller-c", role="sales", team_key="team-b")
         self.assertEqual(self.client.get(f"/api/omega/cases/{case_id}").status_code, 404)
 
+    def test_admin_can_review_and_assign_across_teams_without_opening_manager_scope(self):
+        from app.omega.models import OmegaReport
+
+        with Session(self.engine) as db:
+            db.add_all([
+                User(id=2, username="seller-b", role="sales", team_key="team-b",
+                     hashed_password="test-only", is_active=True),
+                User(id=3, username="admin-a", role="admin", team_key="team-a",
+                     hashed_password="test-only", is_active=True),
+                User(id=4, username="manager-a", role="manager", team_key="team-a",
+                     hashed_password="test-only", is_active=True),
+            ])
+            db.commit()
+        self.current = User(id=2, username="seller-b", role="sales", team_key="team-b")
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        game = self.client.post("/api/omega/sessions", json={"case_id": case["id"]}).json()
+        with Session(self.engine) as db:
+            report = OmegaReport(session_id=game["id"], input_hash="cross-team-report",
+                                 content_json=json.dumps({"score_weights": {"objections": 10},
+                                     "dimensions": [{"key": "objections", "score": 4}]}))
+            db.add(report)
+            db.commit()
+            report_id = report.id
+
+        self.current = User(id=4, username="manager-a", role="manager", team_key="team-a")
+        self.assertEqual(self.client.get(f"/api/omega/reports/{report_id}").status_code, 404)
+        self.current = User(id=3, username="admin-a", role="admin", team_key="team-a", data_scope="team")
+        self.assertEqual(self.client.get(f"/api/omega/reports/{report_id}").status_code, 404)
+        self.current = User(id=3, username="admin-a", role="admin", team_key="team-a")
+        self.assertIn(case["id"], [row["id"] for row in self.client.get("/api/omega/cases").json()])
+        self.assertIn(game["id"], [row["id"] for row in self.client.get("/api/omega/sessions").json()])
+        self.assertEqual(self.client.get(f"/api/omega/reports/{report_id}").status_code, 200)
+        reviewed = self.client.post(f"/api/omega/reports/{report_id}/reviews", json={
+            "comment": "先明确交付条件，再约定书面确认。"})
+        self.assertEqual(reviewed.status_code, 201, reviewed.text)
+        self.assertIn({"id": 2, "name": "seller-b", "team_key": "team-b"},
+                      self.client.get("/api/omega/team-members").json())
+        self.assertEqual(self.client.post("/api/omega/assignments", json={
+            "case_id": case["id"], "assignee_id": 1, "source_report_id": report_id,
+            "target_dimension": "objections"}).status_code, 422)
+        assigned = self.client.post("/api/omega/assignments", json={
+            "case_id": case["id"], "assignee_id": 2, "source_report_id": report_id,
+            "target_dimension": "objections", "instructions": "练习锁定交付条件"})
+        self.assertEqual(assigned.status_code, 201, assigned.text)
+        self.assertEqual(assigned.json()["team_key"], "team-b")
+        self.assertIn(assigned.json()["id"], [row["id"] for row in self.client.get("/api/omega/assignments").json()])
+        self.current = User(id=1, username="seller-a", role="sales", team_key="team-a")
+        self.assertEqual(self.client.get(f"/api/omega/assignments/{assigned.json()['id']}").status_code, 404)
+
     def test_seller_can_repractice_only_from_own_report(self):
         from app.omega.models import OmegaReport
 

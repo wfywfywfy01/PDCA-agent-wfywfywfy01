@@ -16,7 +16,7 @@ from app.auth.models import User
 from app.knowledge.client import require_knowledge_access
 from app.omega.memory_models import OmegaMemoryEntry, OmegaMemoryProfile, OmegaMemoryProposal, OmegaOpportunity
 from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment, OmegaSession, new_id, utcnow
-from app.omega.policy import require_case, require_session_source, require_team_user
+from app.omega.policy import can_access_team, require_case, require_session_source, require_team_user
 from app.omega.reports import verify_quote
 
 MEMORY_PROMPT_VERSION = "memory-v1"
@@ -53,7 +53,7 @@ def require_dealer(user: User, db: Session, dealer_id: str) -> str:
 
 def require_opportunity(user: User, db: Session, opportunity_id: str, *, dealer_id: str | None = None):
     row = db.get(OmegaOpportunity, opportunity_id)
-    if (row is None or row.team_key != require_team_user(user)
+    if (row is None or not can_access_team(user, row.team_key)
             or dealer_id is not None and row.dealer_id != dealer_id):
         raise HTTPException(404, "合作事项不存在或不属于当前代理")
     require_dealer(user, db, row.dealer_id)

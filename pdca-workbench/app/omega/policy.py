@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from app.auth.models import User
-from app.auth.scope import normalize_scope_key, resolve_data_scope
+from app.auth.scope import effective_data_scope, normalize_scope_key, resolve_data_scope
 from app.knowledge.client import require_knowledge_access
 
 
@@ -17,6 +17,16 @@ def require_team_user(user: User) -> str:
     if user.role not in {"sales", "manager", "admin"} or not team or user.id is None:
         raise HTTPException(403, "Omega 需要有效的销售团队身份")
     return team
+
+
+def is_global_admin(user: User) -> bool:
+    return user.role == "admin" and effective_data_scope(user) == "all"
+
+
+def can_access_team(user: User, team_key: str) -> bool:
+    return bool(team_key and team_key.strip()) and (
+        team_key == require_team_user(user) or is_global_admin(user)
+    )
 
 
 def _require_context_scope(user: User, session: Session, dealer_id: str, opportunity_id: str | None) -> None:
@@ -44,7 +54,7 @@ def _require_frozen_scope(user: User, session: Session, version) -> None:
 
 
 def require_case(user: User, session: Session, case, _seen: set[str] | None = None) -> None:
-    if case is None or case.team_key != require_team_user(user):
+    if case is None or not can_access_team(user, case.team_key):
         raise HTTPException(404, "谈判任务不存在")
     seen = set(_seen or ())
     if case.id in seen:
@@ -66,7 +76,7 @@ def require_writer(user: User, owner_id: int) -> None:
 
 def require_session_source(user: User, session: Session, game, _seen: set[str] | None = None) -> None:
     _seen = set(_seen or ())
-    if game is None or game.team_key != require_team_user(user) or game.id in _seen:
+    if game is None or not can_access_team(user, game.team_key) or game.id in _seen:
         raise HTTPException(404, "会议来源链无效")
     _seen.add(game.id)
     from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaSession
