@@ -311,7 +311,7 @@ def team_members(user: Annotated[User, Depends(get_current_user)],
                               User.role.in_(["sales", "manager", "admin"]),
                               User.team_key.in_(teams))
     rows = db.exec(stmt).all()
-    return [{"id": row.id, "name": row.display_name or row.username,
+    return [{"id": row.id, "name": row.display_name or row.username, "username": row.username,
              "team_key": row.team_key} for row in rows]
 
 

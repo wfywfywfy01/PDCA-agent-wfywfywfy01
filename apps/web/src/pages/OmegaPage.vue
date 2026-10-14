@@ -82,7 +82,7 @@ const assignments = ref<Assignment[]>([])
 const sidebarTab = ref<'cases' | 'assignments' | 'sessions'>('cases')
 const mobileNavOpen = ref(false)
 const showAllSessions = ref(false)
-const members = ref<Array<{ id: number; name: string; team_key?: string }>>([])
+const members = ref<Array<{ id: number; name: string; username?: string; team_key?: string }>>([])
 const chosenAssignment = ref<Assignment | null>(null)
 const assignUserId = ref<number | null>(null)
 const assignDimension = ref('objections')
@@ -181,6 +181,10 @@ const assignableMembers = computed(() => {
   const team = chosenSession.value?.team_key || chosenCase.value?.team_key
   return team ? members.value.filter((row) => row.team_key === team) : members.value
 })
+function memberLabel(member: { id: number; name: string; username?: string }): string {
+  return members.value.some((row) => row.id !== member.id && row.name === member.name)
+    ? `${member.name}（${member.username || member.id}）` : member.name
+}
 const currentAttempt = computed(() => currentAssignment.value?.attempts.find((item) => item.session_id === chosenSession.value?.id) || null)
 const matchingAssignment = computed(() => assignments.value.find((row) => row.source_report_id === report.value?.id
   && row.assignee_id === assignUserId.value && row.target_dimension === coachingPoint.value?.key) || null)
@@ -1318,7 +1322,7 @@ onBeforeUnmount(() => {
             <OmegaMemoryReview v-if="chosenSession?.owner_id === me?.id" :report-id="report.id" />
             <form v-if="['manager', 'admin'].includes(me?.role || '') && coachingPoint" class="omega-import" @submit.prevent="assignFromReport">
               <h4>让销售练这个卡点</h4><p>推荐练 {{ dimensionNames[coachingPoint.key] || coachingPoint.key }}；当前 {{ focusPercent }}%，目标 {{ focusPassPercent }}%。{{ reportNextPractice }}</p>
-              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
+              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ memberLabel(member) }}</option></select></label>
               <p v-if="matchingAssignment" role="status">已指派 · {{ matchingAssignment.status === 'passed' ? '已达标' : matchingAssignment.status === 'in_progress' ? '练习中' : '待练' }} · {{ matchingAssignment.attempts.length }} 次练习</p>
               <button v-if="matchingAssignment" class="btn" type="button" @click="showAssignment(matchingAssignment)">查看指派进展</button>
               <button v-else class="btn" type="submit" :disabled="busy">指派这项练习</button>
@@ -1337,7 +1341,7 @@ onBeforeUnmount(() => {
             <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
             <details v-if="['manager', 'admin'].includes(me?.role || '')" class="omega-import"><summary>手动设置指派</summary>
             <form @submit.prevent="createAssignment(report.id)">
-              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
+              <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ memberLabel(member) }}</option></select></label>
               <label>目标技能<select v-model="assignDimension"><option v-for="(name, scoreKey) in dimensionNames" :key="scoreKey" :value="scoreKey">{{ name }}</option></select></label>
               <label>达标百分比<input v-model.number="assignPassPercent" type="number" min="1" max="100" required></label>
               <label>截止日期<input v-model="assignDueDate" type="date"></label>
@@ -1356,7 +1360,7 @@ onBeforeUnmount(() => {
           <div class="omega-actions"><button v-if="chosenCase.draft_confirmed" class="btn btn-primary" type="button" :disabled="busy" @click="startSession">开始新演练</button><button v-if="canWrite(chosenCase.owner_id) && !chosenCase.draft_confirmed" class="btn btn-primary" type="button" :disabled="busy" @click="confirmCase">确认目标版本</button><button v-if="canWrite(chosenCase.owner_id)" class="btn btn-ghost" type="button" @click="editCase(chosenCase)">编辑草稿</button></div>
           <details v-if="chosenCase.draft_confirmed && ['manager', 'admin'].includes(me?.role || '')" class="omega-import"><summary>指派练习</summary>
           <form @submit.prevent="createAssignment()">
-            <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ member.name }}</option></select></label>
+            <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ memberLabel(member) }}</option></select></label>
             <label>目标技能<select v-model="assignDimension"><option v-for="(name, scoreKey) in dimensionNames" :key="scoreKey" :value="scoreKey">{{ name }}</option></select></label>
             <label>达标百分比<input v-model.number="assignPassPercent" type="number" min="1" max="100" required></label>
             <label>截止日期<input v-model="assignDueDate" type="date"></label>

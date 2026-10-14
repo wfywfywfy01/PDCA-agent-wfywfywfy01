@@ -126,7 +126,7 @@ class OmegaFlowTests(unittest.TestCase):
         reviewed = self.client.post(f"/api/omega/reports/{report_id}/reviews", json={
             "comment": "先明确交付条件，再约定书面确认。"})
         self.assertEqual(reviewed.status_code, 201, reviewed.text)
-        self.assertIn({"id": 2, "name": "seller-b", "team_key": "经销商二部"},
+        self.assertIn({"id": 2, "name": "seller-b", "username": "seller-b", "team_key": "经销商二部"},
                       self.client.get("/api/omega/team-members").json())
         self.assertNotIn(5, [row["id"] for row in self.client.get("/api/omega/team-members").json()])
         self.assertEqual(self.client.post("/api/omega/assignments", json={
