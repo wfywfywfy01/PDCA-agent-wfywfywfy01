@@ -9,7 +9,7 @@ pdca-workbench-teams.vertu.cn {
         rewrite * /health
         reverse_proxy 127.0.0.1:8771
     }
-    @omega_web path /app /app/* /api/auth/* /api/omega/* /api/knowledge/scope /api/meeting-center/vemory/detail
+    @omega_web path /app /app/* /api/auth/* /api/omega/* /api/meeting-center/vemory/detail
     handle @omega_web {
         reverse_proxy 127.0.0.1:8771
     }

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from sqlmodel import Session
 
-from app.agents.flow_controller import all_slot_health_today, run_health_checks_for
+from app.agents.flow_controller import all_slot_health_today, run_health_checks_for, scoped_slot_health
 from app.agents.group_context import (
     ctob_group_configs,
     daily_report_group_config,
@@ -276,11 +276,7 @@ async def stats(
     owners = None if scope.unrestricted else set(scope.owner_keys)
     channels = {config.channel_id for config in _visible_group_configs(user, _today())}
     allowed_channels = None if scope.unrestricted else channels
-    slot_health = all_slot_health_today(_today())
-    if allowed_channels is not None:
-        slot_health = [
-            row for row in slot_health if row.get("channel_id") in allowed_channels
-        ]
+    slot_health = scoped_slot_health(all_slot_health_today(_today()), allowed_channels)
     return {
         "task_stats": _tool_task_stats(allowed_owners=owners),
         "pending_outbox": list_outbox(
@@ -306,12 +302,9 @@ async def agent_health(
     scope = _scope(user)
     channels = {config.channel_id for config in _visible_group_configs(user, _today())}
     allowed_channels = None if scope.unrestricted else channels
-    slot_reports = all_slot_health_today(_today())
-    if allowed_channels is not None:
-        slot_reports = [
-            row for row in slot_reports if row.get("channel_id") in allowed_channels
-        ]
-    problems = [item for item in slot_reports if not item.get("ok")]
+    slot_reports = scoped_slot_health(all_slot_health_today(_today()), allowed_channels)
+    problems = [item for item in slot_reports if item.get("ok") is False]
+    unknown = [item for item in slot_reports if item.get("state") == "partial"]
     return {
         "enabled": settings.agent_enabled,
         "shadow_mode": settings.agent_shadow_mode,
@@ -326,11 +319,12 @@ async def agent_health(
         "db_mode": get_db_mode(),
         "slot_problems": problems,
         "slot_problem_count": len(problems),
+        "slot_unknown_count": len(unknown),
         "pending_outbox_count": len(list_outbox(
             approval_status="pending", limit=200,
             allowed_channel_ids=allowed_channels,
         )),
-        "ok": not problems,
+        "ok": not problems and not unknown,
     }
 
 

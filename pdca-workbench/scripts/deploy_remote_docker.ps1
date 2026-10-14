@@ -294,6 +294,29 @@ function Read-OptionalDotEnvValue {
     return $value
 }
 
+function Resolve-LogisticsAdminUpstream {
+    $value = Read-OptionalDotEnvValue "PDCA_LOGISTICS_ADMIN_UPSTREAM"
+    if ([string]::IsNullOrWhiteSpace($value) -or $value.TrimEnd('/') -eq "http://logistics-track:8080") {
+        # Legacy service DNS is not on PDCA's Docker network.
+        return "http://10.100.0.176:18080"
+    }
+    $uri = $null
+    if (-not [Uri]::TryCreate($value, [UriKind]::Absolute, [ref]$uri) -or
+        $uri.Scheme -notin @("http", "https") -or -not $uri.Host) {
+        throw "Invalid PDCA_LOGISTICS_ADMIN_UPSTREAM"
+    }
+    return $value.TrimEnd('/')
+}
+
+function Assert-LogisticsAdminReachable {
+    param([string]$Image, [string]$Upstream)
+    $probe = "import sys, urllib.request; response = urllib.request.urlopen(sys.argv[1].rstrip('/') + '/orders', timeout=10); assert response.status == 200"
+    Invoke-Docker -DockerArgs @(
+        "run", "--rm", "--network", $KnowledgeNetwork,
+        $Image, "python", "-c", $probe, $Upstream
+    ) -TimeoutSeconds 45 | Out-Null
+}
+
 function Get-AgentCredential {
     # 更新已有容器时保留生产身份，避免开发机默认 Agent 改变数据权限。
     if ($currentObject) {
@@ -495,15 +518,11 @@ function Start-PdcaContainer {
         [string]$ReleasePath,
         [string]$Revision,
         [hashtable]$Secrets,
-        [hashtable]$Agent
+        [hashtable]$Agent,
+        [string]$LogisticsAdminUpstream
     )
     $secretEnvFile = New-SecretEnvFile -Secrets $Secrets -Agent $Agent
     try {
-
-    $logisticsAdminUpstream = Read-OptionalDotEnvValue "PDCA_LOGISTICS_ADMIN_UPSTREAM"
-    if ([string]::IsNullOrWhiteSpace($logisticsAdminUpstream)) {
-        $logisticsAdminUpstream = "http://logistics-track:8080"
-    }
 
     $dockerArgs = @(
         "run", "-d", "--name", "pdca-workbench",
@@ -547,7 +566,7 @@ function Start-PdcaContainer {
         "-e", "PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080",
         "-e", "PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE=/run/secrets/dealer-knowledge-jwt.key",
         "-e", 'PDCA_KNOWLEDGE_HUB_TEAM_MAP={"overseas":"overseas-sales"}',
-        "-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$logisticsAdminUpstream",
+        "-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$LogisticsAdminUpstream",
         "-e", "VERTU_COMMAND=vps-work",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
@@ -557,6 +576,7 @@ function Start-PdcaContainer {
     # 老白名单的坑：新增开关忘了登记就静默丢失（MTO 清理阈值 / OCR 并发与预算 / CTOB_COMPACT / VEMORY_* 都吃过亏）。
     $envExcluded = @(
         "PDCA_DATABASE_URL",        # 容器库地址由 compose 注入，透传会把容器指向生产库
+        "PDCA_LOGISTICS_ADMIN_UPSTREAM", # 已迁移、探测并显式注入，不能被旧 .env 覆盖
         "PDCA_SECRET_KEY",          # 由 compose/密钥文件管理
         "PDCA_SUPERVISOR_API_KEY", "PDCA_QWEN_REALTIME_API_KEY", "PDCA_DOUBAO_REALTIME_API_KEY", # 通过临时密钥文件传入
         "PDCA_CUSTOMER_MGMT_ROOT",  # 以下都是本机路径/命令，容器里不存在
@@ -790,16 +810,42 @@ if ($sourceRevision -ne $Sha) { throw "Image source revision mismatch: expected 
 
 Write-Output "Ensuring private dealer knowledge network and shared signing key"
 Initialize-KnowledgeRuntime -Image $image
+$logisticsAdminUpstream = Resolve-LogisticsAdminUpstream
+Write-Output "Probing logistics upstream from the PDCA Docker network"
+Assert-LogisticsAdminReachable -Image $image -Upstream $logisticsAdminUpstream
 
 Write-Output "Preparing immutable release directory for $Sha"
 # git 的进度信息写在 stderr，在 $ErrorActionPreference=Stop 下会被 PS 5.1
 # 当成致命错误（2>$null 也拦不住），经 cmd /c 包一层彻底隔离 stderr。
-& cmd /c "git -C ""$RepoRoot"" fetch --no-tags origin $Sha 2>nul"
+$localObjectType = & cmd /c "git -C ""$RepoRoot"" cat-file -t $Sha 2>nul"
+$commitAvailable = $LASTEXITCODE -eq 0 -and $localObjectType -eq "commit"
+$archiveRef = $Sha
+if (-not $commitAvailable) {
+    & cmd /c "git -C ""$RepoRoot"" fetch --no-tags origin $Sha 2>nul"
+    $commitAvailable = $LASTEXITCODE -eq 0
+}
+if (-not $commitAvailable) {
+    # GitHub may be unreachable from this workstation while the private Docker
+    # host still has access. Only use local HEAD when its *tree* matches the
+    # immutable CI commit exactly; never archive an unverified local branch.
+    $treeProbe = "import json,sys,urllib.request; url='https://api.github.com/repos/'+sys.argv[1]+'/git/commits/'+sys.argv[2]; print(json.load(urllib.request.urlopen(url,timeout=10))['tree']['sha'])"
+    $remoteTree = (Invoke-Docker -DockerArgs @(
+        "run", "--rm", "--network", $KnowledgeNetwork, $image,
+        "python", "-c", $treeProbe, $CiRepo, $Sha
+    ) -TimeoutSeconds 35).Trim()
+    $localTree = (& git -C $RepoRoot rev-parse 'HEAD^{tree}').Trim()
+    if ($LASTEXITCODE -ne 0 -or $remoteTree -ne $localTree) {
+        throw "Local release tree does not match CI commit $Sha; deployment blocked"
+    }
+    $archiveRef = "HEAD"
+    $commitAvailable = $true
+    Write-Warning "Git fetch unavailable; using local HEAD with verified identical tree"
+}
 $archive = Join-Path $env:TEMP "pdca-release-$Sha.tar"
 $archiveIsGzip = $false
 try {
-    if ($LASTEXITCODE -eq 0) {
-        & cmd /c "git -C ""$RepoRoot"" archive --format=tar --output=""$archive"" $Sha 2>nul"
+    if ($commitAvailable) {
+        & cmd /c "git -C ""$RepoRoot"" archive --format=tar --output=""$archive"" $archiveRef 2>nul"
         if ($LASTEXITCODE -ne 0) { throw "git archive failed for $Sha" }
     } else {
         Write-Warning "git fetch failed; downloading the same immutable commit from GitHub codeload"
@@ -951,7 +997,7 @@ try {
         Invoke-Docker -DockerArgs @("rename", $oldObject.Id, $rollbackName) | Out-Null
     }
     Write-Output "Starting PDCA container for $Sha"
-    Start-PdcaContainer $image $releasePath $Sha $secrets $agent
+    Start-PdcaContainer $image $releasePath $Sha $secrets $agent $logisticsAdminUpstream
     Write-Output "Waiting for container health"
     Wait-ContainerHealthy
     Write-Output "Validating activation source through the legacy fallback"

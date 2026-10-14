@@ -5,17 +5,20 @@ from __future__ import annotations
 import re
 import asyncio
 import traceback
+import httpx
+from urllib.parse import urlsplit
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.audit import log_action
 from app.auth.deps import require_role
 from app.auth.models import ROLE_LEVELS, User
+from app.auth.security import request_access_token
 from app.config import get_settings
 from app.database import check_db_connection, get_db_mode, get_session
 from app.legacy import bridge
@@ -29,10 +32,46 @@ from app.validation import require_iso_date, require_iso_month
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+async def _upstream_probe(url: str, path: str) -> dict:
+    if not url:
+        return {"ok": False, "state": "not_configured"}
+    try:
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=False) as client:
+            response = await client.get(f"{url.rstrip('/')}{path}")
+        login_redirect = (
+            path == "/orders" and response.status_code in (301, 302, 303)
+            and urlsplit(response.headers.get("location", "")).path == "/login"
+            and not urlsplit(response.headers.get("location", "")).netloc
+        )
+        return {"ok": response.status_code == 200 or login_redirect,
+                "http_status": response.status_code,
+                "state": "login_required" if login_redirect else "reachable" if response.status_code == 200 else "failed"}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": type(exc).__name__}
+
+
+async def _public_knowledge_scope_probe(token: str | None) -> dict:
+    """Check the actual Caddy route, not only the internal knowledge service."""
+    if not token:
+        return {"ok": False, "state": "no_user_token"}
+    try:
+        async with httpx.AsyncClient(timeout=4.0, follow_redirects=False) as client:
+            response = await client.get(
+                "https://pdca-workbench-teams.vertu.cn/api/knowledge/scope",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        payload = response.json() if response.status_code == 200 else {}
+        enabled = payload.get("enabled") is True if isinstance(payload, dict) else False
+        return {"ok": response.status_code == 200 and enabled,
+                "http_status": response.status_code, "enabled": enabled}
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "error": type(exc).__name__}
+
+
 # ── 部署自检 ───────────────────────────────────────────────────────────────────
 
 @router.get("/diagnostics")
-async def diagnostics(_user: Annotated[User, Depends(require_role("admin"))] = None):
+async def diagnostics(request: Request, _user: Annotated[User, Depends(require_role("admin"))] = None):
     """一次性自检：MVP 模块目录 / 数据库连通性 / 关键配置，方便远程排障无需登服务器。"""
     settings = get_settings()
 
@@ -79,6 +118,12 @@ async def diagnostics(_user: Annotated[User, Depends(require_role("admin"))] = N
             "traceback": traceback.format_exc(limit=6),
         }
 
+    knowledge_probe, logistics_probe, public_scope_probe = await asyncio.gather(
+        _upstream_probe(settings.knowledge_hub_url if settings.knowledge_hub_enabled else "", "/health"),
+        _upstream_probe(settings.logistics_admin_upstream, "/orders"),
+        _public_knowledge_scope_probe(request_access_token(request)),
+    )
+
     return {
         "mvp_root": str(settings.mvp_root),
         "mvp_root_exists": settings.mvp_root.is_dir(),
@@ -87,6 +132,9 @@ async def diagnostics(_user: Annotated[User, Depends(require_role("admin"))] = N
         "modules": modules,
         "legacy_scripts": legacy_scripts,
         "legacy_bridge_probe": legacy_bridge_probe,
+        "knowledge_hub_probe": knowledge_probe,
+        "knowledge_public_scope_probe": public_scope_probe,
+        "logistics_admin_probe": logistics_probe,
         "database": {
             "mode": get_db_mode(),
             "connected": check_db_connection(),

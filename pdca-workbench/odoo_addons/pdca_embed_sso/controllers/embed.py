@@ -12,7 +12,7 @@ from urllib.parse import quote, urlencode
 from odoo import http
 from odoo.http import request
 
-PDCA_BASE = "https://pdca-workbench.vertu.cn"
+PDCA_BASE = "https://pdca-workbench-teams.vertu.cn"
 
 
 class PdcaEmbedController(http.Controller):

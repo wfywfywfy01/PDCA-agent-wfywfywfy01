@@ -308,7 +308,7 @@ watch([startDate, endDate], load)
       <span class="muted">至</span>
       <label class="sr-only" for="meeting-end">会议结束日期</label>
       <input id="meeting-end" v-model="endDate" type="date" class="input" :min="startDate" />
-      <button v-if="startDate || endDate" type="button" class="chip-filter" @click="startDate = ''; endDate = ''">
+      <button v-if="endDate || startDate !== todayText()" type="button" class="chip-filter" @click="startDate = todayText(); endDate = ''">
         清除筛选
       </button>
       <span class="spacer" />
@@ -422,7 +422,7 @@ watch([startDate, endDate], load)
           </thead>
           <tbody>
             <tr v-for="(row, index) in vemory.meetings" :key="index">
-              <td><strong>{{ asText(row.title) || asText(row.subject) || '（未命名会议）' }}</strong></td>
+              <td><strong>{{ asText(row.name) || asText(row.title) || asText(row.subject) || '（未命名会议）' }}</strong></td>
               <td>{{ asText(row.owner_name) || '—' }}</td>
               <td class="num">{{ asText(row.start_time) || asText(row.meeting_date) || asText(row.created_at) || '—' }}</td>
               <td><button class="link-btn" type="button" @click="openVemoryDetail(row)">查看详情</button></td>

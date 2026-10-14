@@ -82,6 +82,50 @@ class SlotHealthTests(unittest.TestCase):
             "messages": {str(i): "m" for i in range(groups)},
         }, ensure_ascii=False), encoding="utf-8")
 
+    def test_today_future_slot_is_pending_not_failed(self):
+        now = datetime(2026, 9, 17, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch.object(flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]), patch.object(
+            flow_controller, "_health_hours", return_value=[10, 15],
+        ), patch.object(flow_controller, "check_slot_health") as check:
+            reports = flow_controller.all_slot_health_today("2026-09-17", now=now)
+        self.assertEqual([row["state"] for row in reports], ["pending", "pending"])
+        self.assertTrue(all(row["ok"] is None for row in reports))
+        check.assert_not_called()
+
+    def test_configured_grace_period_controls_pending_state(self):
+        day = "2026-09-17"
+        settings = SimpleNamespace(duzhan_times=["10:00"], agent_healthcheck_delay_minutes=15)
+        with patch.object(flow_controller, "get_settings", return_value=settings), patch.object(
+            flow_controller, "cron_timezones", return_value=["Asia/Shanghai"]
+        ), patch.object(flow_controller, "_health_hours", return_value=[10]), patch.object(
+            flow_controller, "_health_channels", return_value=["g1"]
+        ), patch.object(flow_controller, "check_slot_health", return_value={
+            "date": day, "timezone": "Asia/Shanghai", "hour": "10:00", "ok": True,
+            "problems": [], "checked_at": "2026-09-17T10:15:00+08:00",
+        }) as check:
+            before = flow_controller.all_slot_health_today(
+                day, now=datetime(2026, 9, 17, 10, 14, tzinfo=ZoneInfo("Asia/Shanghai"))
+            )
+            after = flow_controller.all_slot_health_today(
+                day, now=datetime(2026, 9, 17, 10, 15, tzinfo=ZoneInfo("Asia/Shanghai"))
+            )
+        self.assertEqual(before[0]["state"], "pending")
+        self.assertEqual(after[0]["state"], "passed")
+        check.assert_called_once()
+
+    def test_shared_slot_is_unknown_not_false_green_for_limited_manager(self):
+        report = {
+            "date": "2026-09-17", "timezone": "Asia/Shanghai", "hour": "10:00",
+            "ok": True, "state": "passed", "problems": [],
+            "checked_at": "2026-09-17T10:15:00+08:00", "channel_ids": ["mine", "other"],
+        }
+        scoped = flow_controller.scoped_slot_health([report], {"mine"})
+        self.assertEqual(len(scoped), 1)
+        self.assertIsNone(scoped[0]["ok"])
+        self.assertEqual(scoped[0]["state"], "partial")
+        self.assertNotIn("channel_ids", scoped[0])
+        self.assertEqual(flow_controller.scoped_slot_health([report], {"unrelated"}), [])
+
     def test_shanghai_slot_all_green(self):
         day = "2026-09-17"
         self._write_slot(
@@ -249,6 +293,7 @@ class HealthCatchUpTests(unittest.TestCase):
         self.patch_notify.start()
         settings_stub = MagicMock()
         settings_stub.duzhan_times = ["10:00", "15:00", "20:00"]
+        settings_stub.agent_healthcheck_delay_minutes = 5
         self.patch_settings = patch(
             "app.agents.flow_controller.get_settings", return_value=settings_stub
         )

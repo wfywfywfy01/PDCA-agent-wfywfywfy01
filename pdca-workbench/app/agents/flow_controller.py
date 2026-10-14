@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -337,8 +337,44 @@ def _health_hours(tz_name: str, default_slots: list[str]) -> list[int]:
     return parse_hours(default_slots)
 
 
+def _health_channels(tz_name: str, hour: int) -> list[str]:
+    from app.duzhan_admin import runtime
+
+    if runtime.using_db():
+        return sorted({group.channel_id for agent, group in runtime.duzhan_agents()
+                       if group.tz == tz_name and hour in runtime.slots_of(agent)})
+    return sorted({group.channel_id for group in groups_for_tz(tz_name)})
+
+
+def scoped_slot_health(reports: list[dict], allowed_channels: set[str] | None) -> list[dict]:
+    """Do not expose a shared-slot aggregate as a scoped group's own health."""
+    if allowed_channels is None:
+        return reports
+    visible = []
+    for report in reports:
+        channels = set(report.get("channel_ids") or [])
+        if not channels.intersection(allowed_channels):
+            continue
+        if channels.issubset(allowed_channels):
+            visible.append(report)
+        else:
+            visible.append({
+                "date": report["date"], "timezone": report["timezone"],
+                "hour": report["hour"], "ok": None, "state": "partial",
+                "problems": [], "suggested_action": "档位含无权群，无法单独判定本群健康",
+                "checked_at": report["checked_at"],
+            })
+    return visible
+
+
+def _slot_grace_ends(local: datetime, hour: int, delay_minutes: int) -> datetime:
+    return local.replace(hour=hour, minute=0, second=0, microsecond=0) + timedelta(
+        minutes=max(0, delay_minutes)
+    )
+
+
 def run_health_checks_for(now: datetime | None = None) -> list[dict]:
-    """每 5 分钟扫描：补扫当天已过档位 + 当前档（整点后 5 分钟起）。
+    """每 5 分钟扫描：补扫当天已过宽限期的档位。
 
     补扫语义：调度器/容器在整点前后重启也不会漏检——当天任何已到点的
     档位都会在下一个 5 分钟 tick 被检查。每个（时区, 日期, 档位）只告警
@@ -358,10 +394,8 @@ def run_health_checks_for(now: datetime | None = None) -> list[dict]:
             continue
         day = local.strftime("%Y-%m-%d")
         for hour in _health_hours(tz_name, settings.duzhan_times):
-            if hour > local.hour:
-                continue  # 未到点的档位
-            if hour == local.hour and local.minute < 5:
-                continue  # 整点后 5 分钟内推送可能尚未完成，等下一轮
+            if local < _slot_grace_ends(local, hour, settings.agent_healthcheck_delay_minutes):
+                continue  # 宽限期内推送可能尚未完成，等下一轮
             event_key = f"flow_controller:health_checked:{tz_name}:{day}:{hour:02d}"
             if not write_event("slot.health_checked", producer="flow_controller",
                                event_key=event_key,
@@ -371,11 +405,30 @@ def run_health_checks_for(now: datetime | None = None) -> list[dict]:
     return reports
 
 
-def all_slot_health_today(day: str) -> list[dict]:
+def all_slot_health_today(day: str, *, now: datetime | None = None) -> list[dict]:
     """给定日期全部时区/档位的健康状态（供后台展示，不告警）。"""
     settings = get_settings()
     reports = []
     for tz_name in cron_timezones():
+        try:
+            zone = ZoneInfo(tz_name)
+        except Exception:  # noqa: BLE001 - invalid legacy timezone must not break the health page
+            continue
+        local = (now or datetime.now(zone)).astimezone(zone)
+        local_day = local.strftime("%Y-%m-%d")
         for hour in _health_hours(tz_name, settings.duzhan_times):
-            reports.append(check_slot_health(tz_name, hour, day, expect_push=True, alert=False))
+            channels = _health_channels(tz_name, hour)
+            if day > local_day or (day == local_day and local < _slot_grace_ends(
+                local, hour, settings.agent_healthcheck_delay_minutes
+            )):
+                reports.append({
+                    "date": day, "timezone": tz_name, "hour": f"{hour:02d}:00",
+                    "ok": None, "state": "pending", "problems": [], "channel_ids": channels,
+                    "suggested_action": "", "checked_at": local.isoformat(timespec="seconds"),
+                })
+                continue
+            report = check_slot_health(tz_name, hour, day, now=local, expect_push=True, alert=False)
+            report["state"] = "passed" if report["ok"] else "failed"
+            report["channel_ids"] = channels
+            reports.append(report)
     return reports

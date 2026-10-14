@@ -211,14 +211,14 @@ def _tool_slot_health(target: str = "all", allowed_owners: set[str] | None = Non
     from datetime import datetime as _dt
     from zoneinfo import ZoneInfo
 
-    from app.agents.flow_controller import all_slot_health_today
+    from app.agents.flow_controller import all_slot_health_today, scoped_slot_health
 
     day = _dt.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
     reports = all_slot_health_today(day)
     if allowed_owners is not None:
         groups = _tool_group_state(target, allowed_owners)["groups"]
         channels = {row.get("channel_id") for row in groups if row.get("channel_id")}
-        reports = [row for row in reports if row.get("channel_id") in channels]
+        reports = scoped_slot_health(reports, channels)
     return {"day": day, "reports": reports}
 
 

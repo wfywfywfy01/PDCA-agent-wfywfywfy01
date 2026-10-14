@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
 from loguru import logger
 from sqlmodel import Session, select
@@ -42,14 +41,15 @@ def build_progress(username: str, role: str) -> dict:
 
     curriculum = load_curriculum()
     modules = _all_module_ids(curriculum)
-    total = len(modules)
+    valid_ids = {m["module_id"] for m in modules if m["module_id"]}
+    total = len(valid_ids)
     completed_ids: set[str] = set()
     try:
         with Session(get_engine()) as session:
             rows = session.exec(
                 select(OnboardingProgress).where(OnboardingProgress.username == username),
             ).all()
-            completed_ids = {r.module_id for r in rows}
+            completed_ids = {r.module_id for r in rows if r.module_id in valid_ids}
     except Exception as exc:
         logger.warning("读取 onboarding_progress 失败: {}", exc)
 
@@ -68,7 +68,7 @@ def build_progress(username: str, role: str) -> dict:
     # 之前对非 sales 角色（viewer/dealer/manager/admin）无条件判定 graduated=True，
     # 结果比如 manager 账号进度 1/20（5%）也显示"已完成上岗课表"，具有误导性——
     # 毕业与否统一按实际完成数判断，不再按角色开后门
-    graduated = completed >= min_modules if min_modules else True
+    graduated = bool(min_modules) and completed >= min_modules
 
     return {
         "username": username,
@@ -87,31 +87,33 @@ def complete_module(username: str, module_id: str, day: int = 1, score: int = 0,
     """打卡完成一个培训模块。"""
     from app.models.onboarding_progress import OnboardingProgress
 
-    if not module_id.strip():
+    module_id = module_id.strip()
+    if not module_id:
         return {"ok": False, "detail": "module_id 不能为空"}
+    module = next((m for m in _all_module_ids(load_curriculum()) if m["module_id"] == module_id), None)
+    if module is None:
+        return {"ok": False, "detail": "培训模块不存在"}
+    if day != module["day"]:
+        return {"ok": False, "detail": "培训模块日期不匹配"}
     score = max(0, min(100, score))
     try:
         with Session(get_engine()) as session:
             exists = session.exec(
                 select(OnboardingProgress).where(
                     OnboardingProgress.username == username,
-                    OnboardingProgress.module_id == module_id.strip(),
+                    OnboardingProgress.module_id == module_id,
                 ),
             ).first()
-            if exists:
-                exists.score = score
-                exists.completed_at = datetime.utcnow()
-                session.add(exists)
-            else:
+            if not exists:
                 session.add(
                     OnboardingProgress(
                         username=username,
                         day=day,
-                        module_id=module_id.strip(),
+                        module_id=module_id,
                         score=score,
                     ),
                 )
-            session.commit()
+                session.commit()
         return {"ok": True, **build_progress(username, role)}
     except Exception as exc:
         logger.warning("写入 onboarding_progress 失败: {}", exc)
