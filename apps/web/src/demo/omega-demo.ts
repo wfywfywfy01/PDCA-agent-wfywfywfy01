@@ -26,16 +26,31 @@ function json(value: unknown, status = 200): Response {
 }
 
 export function installOmegaDemo() {
-  const templates: Row[] = ['新人上手', '首次触达', '首单谈判'].map((title, index) => ({
+  const scenarios = [
+    { title: '新人：30秒介绍价值', meeting: 'introduction', objection: '先说清楚对我的门店有什么实际价值，否则没必要继续。', goal: '说明可核实的价值，并争取具体的后续沟通。' },
+    { title: '初访：对方没时间', meeting: 'introduction', objection: '我现在没时间，先发资料吧。', goal: '确认一个业务关注点和下次沟通安排。' },
+    { title: '需求：已有合作品牌', meeting: 'discovery', objection: '我们已经有合作品牌，再加一个有什么必要？', goal: '问清未解决的需求和评估动作。' },
+    { title: '首单：担心压库存', meeting: 'negotiation', objection: '首批货压在店里卖不动怎么办？', goal: '识别库存风险，争取可核实的试单评估。' },
+    { title: '拿单：先要降价', meeting: 'order', objection: '你先降价，我才考虑下单。', goal: '问清降价依据和订单条件。' },
+    { title: '新人上手', meeting: 'introduction', objection: '', goal: '确认客户最关心的问题和下一步。' },
+    { title: '首次触达', meeting: 'discovery', objection: '', goal: '问清需求、决策角色和下次沟通时间。' },
+    { title: '首单谈判', meeting: 'negotiation', objection: '', goal: '澄清首单顾虑和行动时间表。' },
+  ]
+  const templates: Row[] = scenarios.map(({ title, meeting, objection, goal }, index) => ({
     id: `demo-template-${index}`, title, owner_id: 0, kind: 'template', current_version: 1,
     case_version_id: `demo-template-version-${index}`, draft_confirmed: true,
     available_usages: ['training', 'rehearsal', 'real_review'], simulation: true,
     draft: { ...clone(draft), kind: 'template', usage: 'training', title: `模拟演示：${title}`,
-      meeting_type: ['introduction', 'discovery', 'negotiation'][index], buyer_company: '',
+      meeting_type: meeting, stage_summary: `模拟练习：${title}；真实业务事实尚未提供。`,
+      buyer_name: '模拟代理', buyer_role: '代理负责人', buyer_company: '', buyer_emotion: '',
+      buyer_objections: objection ? [objection] : [],
+      participants: objection ? [{ id: 'lead', name: '模拟代理', role: '代理负责人', is_primary: true,
+        concerns: [objection], known_facts: [], decision_authority: '决策权限待确认' }] : [],
       public_brief: '模拟练习：公司和客户的真实业务信息尚未提供。',
-      counterparty_brief: '模拟买方需要了解价值、授权边界和一个明确的下一步。',
+      counterparty_brief: objection ? `模拟代理关注：${objection}` : '模拟买方需要了解价值、授权边界和一个明确的下一步。',
       goal: { ...clone(draft.goal), outcome_type: 'schedule', amount_minor: null, currency: null, due_date: null,
-        success_condition: '确认对方关心的问题，并约定下一步负责人和时间。' } },
+        success_condition: goal, ideal: '双方明确下一步、负责人和时间', minimum: '确认一个可执行的下一步',
+        hard_limits: ['不编造公司、产品、价格、交付及客户事实', '未经授权不得作商业承诺'] } },
   }))
   const cases: Row[] = [{ id: 'demo-case', title: draft.title, owner_id: 1, revision: 1,
     current_version: 1, draft_confirmed: true, draft: clone(draft) }]

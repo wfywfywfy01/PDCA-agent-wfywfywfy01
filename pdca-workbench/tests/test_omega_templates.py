@@ -35,10 +35,32 @@ class OmegaTemplateTests(unittest.TestCase):
         response = self.client.get('/api/omega/templates')
         self.assertEqual(response.status_code, 200, response.text)
         rows = response.json()
-        self.assertEqual({row['title'] for row in rows}, {'新人上手', '首次触达', '首单谈判'})
+        self.assertEqual([row['title'] for row in rows[:5]], [
+            '新人：30秒介绍价值', '初访：对方没时间', '需求：已有合作品牌',
+            '首单：担心压库存', '拿单：先要降价',
+        ])
+        self.assertEqual({row['title'] for row in rows[5:]}, {'新人上手', '首次触达', '首单谈判'})
         self.assertTrue(all(row['simulation'] and row['current_version'] == 1 for row in rows))
         self.assertTrue(all(row['draft']['buyer_company'] == '' for row in rows))
-        self.assertEqual(len(self.client.get('/api/omega/templates').json()), 3)
+        for row in rows[:5]:
+            self.assertTrue(row['draft']['stage_summary'])
+            self.assertEqual(len(row['draft']['buyer_objections']), 1)
+            self.assertEqual(len(row['draft']['participants']), 1)
+            self.assertTrue(row['draft']['participants'][0]['is_primary'])
+            self.assertIn(row['draft']['buyer_objections'][0], row['draft']['participants'][0]['concerns'])
+            self.assertTrue(row['draft']['goal']['minimum'])
+        self.assertEqual(len(self.client.get('/api/omega/templates').json()), 8)
+
+    def test_scenario_card_starts_editable_personal_practice(self):
+        card = self.client.get('/api/omega/templates').json()[3]
+        response = self.client.post('/api/omega/template-starts', json=self.start_body(card,
+            request_key='scenario-card-start-001', overrides={'stage_summary': '销售刚提出小批量试单，代理仍担心库存。'}))
+        self.assertEqual(response.status_code, 201, response.text)
+        game = self.client.get(f"/api/omega/sessions/{response.json()['session_id']}").json()
+        self.assertEqual(game['case_snapshot']['stage_summary'], '销售刚提出小批量试单，代理仍担心库存。')
+        self.assertEqual(game['case_snapshot']['buyer_objections'], card['draft']['buyer_objections'])
+        self.assertEqual(game['case_snapshot']['participants'], card['draft']['participants'])
+        self.assertEqual(self.client.get(f"/api/omega/cases/{card['id']}").json()['draft'], card['draft'])
 
     def test_template_start_is_idempotent_and_freezes_copy(self):
         template = self.template()

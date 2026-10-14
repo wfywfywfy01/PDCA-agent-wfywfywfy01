@@ -12,7 +12,7 @@ from app.omega.models import OmegaCase, OmegaCaseVersion
 from app.omega.policy import require_case, require_team_user
 from app.omega.router import case_view, enabled
 from app.omega.schemas import TemplateStart
-from app.omega.templates import seed_templates, setup_summary, start_template
+from app.omega.templates import PRESETS, seed_templates, setup_summary, start_template
 
 router = APIRouter(prefix="/api/omega", tags=["omega"], dependencies=[Depends(enabled)])
 
@@ -38,6 +38,9 @@ def list_templates(user: Annotated[User, Depends(get_current_user)],
         result.append({**case_view(row), **setup_summary(snapshot, editable=editable), "case_version_id": version.id,
                        "available_usages": ["training", "rehearsal", "real_review"] if row.owner_id == 0
                        else [snapshot.get("usage", "rehearsal")]})
+    preset_order = {preset["title"]: index for index, preset in enumerate(PRESETS)}
+    result.sort(key=lambda item: preset_order.get(item["title"], len(PRESETS)) if item["owner_id"] == 0
+                else len(PRESETS))
     return result
 
 
