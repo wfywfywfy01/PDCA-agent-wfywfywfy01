@@ -47,7 +47,7 @@ FUNNEL_FIELDS = ("touch_count", "use_count", "wechat_add_count", "deal_count")
 def _service_keys() -> dict[str, dict]:
     """服务密钥：PDCA_MCP_API_KEYS=key:role:owner_key,key2:role2:owner2。
 
-    role ∈ admin/manager（全量）/ sales/dealer（仅 owner_key 名下门店）。
+    role=admin 全量；manager/sales/dealer 仅 owner_key 名下门店，未绑定则无数据。
     给机器/Agent 用的长期凭证，与用户 JWT 并存。
     """
     keys: dict[str, dict] = {}
@@ -56,10 +56,10 @@ def _service_keys() -> dict[str, dict]:
         if not item:
             continue
         parts = [p.strip() for p in item.split(":")]
-        if not parts[0]:
+        if len(parts) < 2 or not parts[0] or parts[1] not in {"admin", "manager", "sales", "dealer"}:
             continue
         keys[parts[0]] = {
-            "role": parts[1] if len(parts) > 1 and parts[1] else "admin",
+            "role": parts[1],
             "owner_key": parts[2] if len(parts) > 2 else "",
         }
     return keys
@@ -202,7 +202,7 @@ def _allowed_store_ids(identity: _Identity, session: Session) -> set[str] | None
     if identity.kind == "user" and identity.user is not None:
         scope = resolve_data_scope(identity.user, session)
         return None if scope.unrestricted else set(scope.store_ids)
-    if identity.role in ("admin", "manager"):
+    if identity.role == "admin":
         return None
     owner = (identity.owner_key or "").strip()
     if not owner:
@@ -344,7 +344,7 @@ def five_kit_missing(report_date: str) -> dict:
 
     with _authorized_user() as (user, session):
         allowed = _allowed_store_ids(user, session)
-        if allowed is not None:
+        if user.role != "admin" or allowed is not None:
             raise PermissionError("应报未报名单仅管理员可见")
         stores = {
             store.store_id: store

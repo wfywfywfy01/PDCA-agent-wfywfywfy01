@@ -48,13 +48,24 @@ class OnboardingValidationTests(unittest.TestCase):
             session.commit()
         self.assertEqual(service.build_progress("sales", "sales")["completed_modules"], 0)
         self.assertFalse(service.build_progress("sales", "sales")["graduated"])
-        self.assertTrue(service.complete_module("sales", "real-one", 1)["ok"])
-        self.assertTrue(service.complete_module("sales", "real-one", 1)["ok"])
+        self.assertTrue(service.complete_module("sales", "real-one", 1, score=30)["ok"])
+        with Session(self.engine) as session:
+            first = session.exec(select(OnboardingProgress).where(OnboardingProgress.module_id == "real-one")).one()
+            original = (first.score, first.completed_at)
+        self.assertTrue(service.complete_module("sales", "real-one", 1, score=99)["ok"])
         progress = service.build_progress("sales", "sales")
         self.assertEqual(progress["completed_modules"], 1)
         self.assertEqual(progress["progress_pct"], 50)
         with Session(self.engine) as session:
             self.assertEqual(len(session.exec(select(OnboardingProgress)).all()), 2)
+            repeated = session.exec(select(OnboardingProgress).where(OnboardingProgress.module_id == "real-one")).one()
+            self.assertEqual((repeated.score, repeated.completed_at), original)
+
+    def test_missing_curriculum_never_graduates(self):
+        with patch.object(service, "load_curriculum", return_value={"tracks": []}):
+            progress = service.build_progress("sales", "sales")
+        self.assertEqual(progress["total_modules"], 0)
+        self.assertFalse(progress["graduated"])
 
 
 if __name__ == "__main__":

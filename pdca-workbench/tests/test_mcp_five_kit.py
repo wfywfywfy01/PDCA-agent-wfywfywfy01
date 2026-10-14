@@ -56,7 +56,7 @@ class ScopeUnitTests(unittest.TestCase):
                 self.assertEqual(_allowed_store_ids(_identity("dealer"), session), set())
 
     def test_service_key_identity_scoping(self):
-        """服务密钥：admin/manager 全量；sales/dealer 按 owner_key 绑定门店；未绑定 fail-closed。"""
+        """服务密钥仅 admin 全量；manager/sales/dealer 均须绑定 owner_key。"""
         with Session(self.engine) as session:
             session.add(DealerStore(store_id="sea01a", name="新加坡店", sales_owner="April",
                                     is_active=True))
@@ -74,6 +74,20 @@ class ScopeUnitTests(unittest.TestCase):
                 _allowed_store_ids(_Identity(kind="service", role="dealer"), session),
                 set(),
             )
+            self.assertEqual(
+                _allowed_store_ids(_Identity(kind="service", role="manager"), session),
+                set(),
+            )
+            self.assertEqual(
+                _allowed_store_ids(_Identity(kind="service", role="manager", owner_key="April"), session),
+                {"sea01a"},
+            )
+
+    def test_service_key_must_declare_a_valid_role(self):
+        from app.mcp_five_kit import _service_keys
+
+        with patch.dict("os.environ", {"PDCA_MCP_API_KEYS": "bare,valid:admin,unknown:superuser"}):
+            self.assertEqual(list(_service_keys()), ["valid"])
 
     def test_user_subject_with_service_prefix_stays_user(self):
         from app.mcp_five_kit import _authorized_user

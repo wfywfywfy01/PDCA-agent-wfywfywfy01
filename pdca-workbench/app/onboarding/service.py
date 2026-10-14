@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
 from loguru import logger
 from sqlmodel import Session, select
@@ -69,7 +68,7 @@ def build_progress(username: str, role: str) -> dict:
     # 之前对非 sales 角色（viewer/dealer/manager/admin）无条件判定 graduated=True，
     # 结果比如 manager 账号进度 1/20（5%）也显示"已完成上岗课表"，具有误导性——
     # 毕业与否统一按实际完成数判断，不再按角色开后门
-    graduated = completed >= min_modules if min_modules else True
+    graduated = bool(min_modules) and completed >= min_modules
 
     return {
         "username": username,
@@ -105,11 +104,7 @@ def complete_module(username: str, module_id: str, day: int = 1, score: int = 0,
                     OnboardingProgress.module_id == module_id,
                 ),
             ).first()
-            if exists:
-                exists.score = score
-                exists.completed_at = datetime.utcnow()
-                session.add(exists)
-            else:
+            if not exists:
                 session.add(
                     OnboardingProgress(
                         username=username,
@@ -118,7 +113,7 @@ def complete_module(username: str, module_id: str, day: int = 1, score: int = 0,
                         score=score,
                     ),
                 )
-            session.commit()
+                session.commit()
         return {"ok": True, **build_progress(username, role)}
     except Exception as exc:
         logger.warning("写入 onboarding_progress 失败: {}", exc)

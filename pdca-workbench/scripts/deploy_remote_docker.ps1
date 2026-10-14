@@ -294,6 +294,29 @@ function Read-OptionalDotEnvValue {
     return $value
 }
 
+function Resolve-LogisticsAdminUpstream {
+    $value = Read-OptionalDotEnvValue "PDCA_LOGISTICS_ADMIN_UPSTREAM"
+    if ([string]::IsNullOrWhiteSpace($value) -or $value.TrimEnd('/') -eq "http://logistics-track:8080") {
+        # Legacy service DNS is not on PDCA's Docker network.
+        return "http://10.100.0.176:18080"
+    }
+    $uri = $null
+    if (-not [Uri]::TryCreate($value, [UriKind]::Absolute, [ref]$uri) -or
+        $uri.Scheme -notin @("http", "https") -or -not $uri.Host) {
+        throw "Invalid PDCA_LOGISTICS_ADMIN_UPSTREAM"
+    }
+    return $value.TrimEnd('/')
+}
+
+function Assert-LogisticsAdminReachable {
+    param([string]$Image, [string]$Upstream)
+    $probe = "import sys, urllib.request; response = urllib.request.urlopen(sys.argv[1].rstrip('/') + '/orders', timeout=10); assert response.status == 200"
+    Invoke-Docker -DockerArgs @(
+        "run", "--rm", "--network", $KnowledgeNetwork,
+        $Image, "python", "-c", $probe, $Upstream
+    ) -TimeoutSeconds 45 | Out-Null
+}
+
 function Get-AgentCredential {
     # 更新已有容器时保留生产身份，避免开发机默认 Agent 改变数据权限。
     if ($currentObject) {
@@ -495,17 +518,11 @@ function Start-PdcaContainer {
         [string]$ReleasePath,
         [string]$Revision,
         [hashtable]$Secrets,
-        [hashtable]$Agent
+        [hashtable]$Agent,
+        [string]$LogisticsAdminUpstream
     )
     $secretEnvFile = New-SecretEnvFile -Secrets $Secrets -Agent $Agent
     try {
-
-    $logisticsAdminUpstream = Read-OptionalDotEnvValue "PDCA_LOGISTICS_ADMIN_UPSTREAM"
-    if ([string]::IsNullOrWhiteSpace($logisticsAdminUpstream)) {
-        # logistics-track runs on Docker bridge; PDCA runs on dealer-knowledge.
-        # Its host-published private port is reachable from the PDCA container.
-        $logisticsAdminUpstream = "http://10.100.0.176:18080"
-    }
 
     $dockerArgs = @(
         "run", "-d", "--name", "pdca-workbench",
@@ -549,7 +566,7 @@ function Start-PdcaContainer {
         "-e", "PDCA_KNOWLEDGE_HUB_URL=http://dealer-knowledge-api:8080",
         "-e", "PDCA_KNOWLEDGE_HUB_TOKEN_KEY_FILE=/run/secrets/dealer-knowledge-jwt.key",
         "-e", 'PDCA_KNOWLEDGE_HUB_TEAM_MAP={"overseas":"overseas-sales"}',
-        "-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$logisticsAdminUpstream",
+        "-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$LogisticsAdminUpstream",
         "-e", "VERTU_COMMAND=vps-work",
         "-e", "VERTU_LEGACY_COMMAND=vertu",
         "-e", "VERTU_VPS_SERVICE_URL=https://vps-service.vertu.cn",
@@ -559,6 +576,7 @@ function Start-PdcaContainer {
     # 老白名单的坑：新增开关忘了登记就静默丢失（MTO 清理阈值 / OCR 并发与预算 / CTOB_COMPACT / VEMORY_* 都吃过亏）。
     $envExcluded = @(
         "PDCA_DATABASE_URL",        # 容器库地址由 compose 注入，透传会把容器指向生产库
+        "PDCA_LOGISTICS_ADMIN_UPSTREAM", # 已迁移、探测并显式注入，不能被旧 .env 覆盖
         "PDCA_SECRET_KEY",          # 由 compose/密钥文件管理
         "PDCA_SUPERVISOR_API_KEY", "PDCA_QWEN_REALTIME_API_KEY", "PDCA_DOUBAO_REALTIME_API_KEY", # 通过临时密钥文件传入
         "PDCA_CUSTOMER_MGMT_ROOT",  # 以下都是本机路径/命令，容器里不存在
@@ -792,6 +810,9 @@ if ($sourceRevision -ne $Sha) { throw "Image source revision mismatch: expected 
 
 Write-Output "Ensuring private dealer knowledge network and shared signing key"
 Initialize-KnowledgeRuntime -Image $image
+$logisticsAdminUpstream = Resolve-LogisticsAdminUpstream
+Write-Output "Probing logistics upstream from the PDCA Docker network"
+Assert-LogisticsAdminReachable -Image $image -Upstream $logisticsAdminUpstream
 
 Write-Output "Preparing immutable release directory for $Sha"
 # git 的进度信息写在 stderr，在 $ErrorActionPreference=Stop 下会被 PS 5.1
@@ -953,7 +974,7 @@ try {
         Invoke-Docker -DockerArgs @("rename", $oldObject.Id, $rollbackName) | Out-Null
     }
     Write-Output "Starting PDCA container for $Sha"
-    Start-PdcaContainer $image $releasePath $Sha $secrets $agent
+    Start-PdcaContainer $image $releasePath $Sha $secrets $agent $logisticsAdminUpstream
     Write-Output "Waiting for container health"
     Wait-ContainerHealthy
     Write-Output "Validating activation source through the legacy fallback"

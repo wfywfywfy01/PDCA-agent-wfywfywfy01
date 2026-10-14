@@ -199,11 +199,14 @@
       </div>
       <div style="padding:1.25rem;border:1px solid var(--s200);border-radius:10px;background:var(--s50)">
         <div style="font-size:.82rem;font-weight:700;margin-bottom:.5rem">经销商业绩（Sell-in/out）</div>
-        <div style="font-size:.72rem;color:#94a3b8;margin-bottom:.85rem">按月导出系统同步的经销商进货与出货数据</div>
+        <div style="font-size:.72rem;color:#64748b;margin-bottom:.85rem">选择月累计快照日期下载；历史批次不可直接相加。</div>
         <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
           <input type="month" id="exportSalesMonth" style="padding:.4rem .7rem;border:1.5px solid var(--s200);border-radius:7px;font-size:.8rem" />
-          <a id="dlSales" class="btn btn-primary" style="text-decoration:none">下载</a>
+          <input type="date" id="exportSalesBatch" aria-label="业绩快照日期" style="padding:.4rem .7rem;border:1.5px solid var(--s200);border-radius:7px;font-size:.8rem" />
+          <a id="dlSales" class="btn btn-primary" style="text-decoration:none">下载所选批次</a>
+          <a id="dlSalesHistory" class="btn btn-ghost" style="text-decoration:none">历史批次</a>
         </div>
+        <div id="salesBatchHint" aria-live="polite" style="font-size:.72rem;color:#64748b;margin-top:.55rem">查询最近成功批次中…</div>
       </div>
     </div>
   </div>
@@ -639,19 +642,51 @@ function loadAudit(){
 function initExport(){
   var now=new Date();
   var ym=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
-  document.getElementById('exportFiveKitMonth').value=ym;
-  document.getElementById('exportSalesMonth').value=ym;
+  if(!document.getElementById('exportFiveKitMonth').value) document.getElementById('exportFiveKitMonth').value=ym;
+  if(!document.getElementById('exportSalesMonth').value) document.getElementById('exportSalesMonth').value=ym;
   updateExportLinks();
+  loadSalesBatch();
 }
 function updateExportLinks(){
   var fkm=document.getElementById('exportFiveKitMonth').value;
   var sm=document.getElementById('exportSalesMonth').value;
+  var batch=document.getElementById('exportSalesBatch').value;
   document.getElementById('dlFiveKit').href=API+'/api/export/walkin-metrics?month='+(fkm||'');
-  document.getElementById('dlSales').href=API+'/api/export/dealer-sales?month='+(sm||'');
+  document.getElementById('dlSalesHistory').href=API+'/api/export/dealer-sales?month='+encodeURIComponent(sm||'');
+  var valid=sm&&batch&&batch.slice(0,7)===sm;
+  document.getElementById('dlSales').href=valid?API+'/api/export/dealer-sales?month='+encodeURIComponent(sm)+'&batch_date='+encodeURIComponent(batch):'#';
+  document.getElementById('dlSales').setAttribute('aria-disabled',valid?'false':'true');
+}
+var salesBatchRequest=0;
+function loadSalesBatch(){
+  var sm=document.getElementById('exportSalesMonth').value;
+  var batchInput=document.getElementById('exportSalesBatch');
+  var hint=document.getElementById('salesBatchHint');
+  var request=++salesBatchRequest;
+  batchInput.value='';
+  hint.textContent='查询最近成功批次中…';
+  updateExportLinks();
+  if(!sm){hint.textContent='请先选月份';return;}
+  fetch(API+'/api/dealer/sellin-summary?month='+encodeURIComponent(sm),{credentials:'include'})
+    .then(function(r){if(!r.ok)throw new Error('批次查询失败');return r.json();})
+    .then(function(data){
+      if(request!==salesBatchRequest)return;
+      var day=data.snapshot_date||'';
+      if(day.slice(0,7)!==sm){hint.textContent='本月无可用快照；可下载历史批次核查。';return;}
+      batchInput.value=day;
+      var amount=typeof data.total_wan==='number'?data.total_wan.toFixed(2)+' 万':'金额待核查';
+      hint.textContent='最近成功批次 '+day+' · Sell-in '+amount+(data.amount_state==='stale'?' · 较新同步失败，当前为旧快照':'');
+      updateExportLinks();
+    })
+    .catch(function(){if(request===salesBatchRequest)hint.textContent='批次查询失败，请重试或手动选择日期。';});
 }
 document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('exportFiveKitMonth') && document.getElementById('exportFiveKitMonth').addEventListener('input',updateExportLinks);
-  document.getElementById('exportSalesMonth') && document.getElementById('exportSalesMonth').addEventListener('input',updateExportLinks);
+  document.getElementById('exportSalesMonth') && document.getElementById('exportSalesMonth').addEventListener('input',loadSalesBatch);
+  document.getElementById('exportSalesBatch') && document.getElementById('exportSalesBatch').addEventListener('input',updateExportLinks);
+  document.getElementById('dlSales') && document.getElementById('dlSales').addEventListener('click',function(event){
+    if(this.getAttribute('aria-disabled')==='true')event.preventDefault();
+  });
 });
 
 

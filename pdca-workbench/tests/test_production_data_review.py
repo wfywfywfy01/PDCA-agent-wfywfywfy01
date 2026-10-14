@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+import openpyxl
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -338,6 +341,52 @@ class ProductionDataReviewTests(unittest.TestCase):
         sales_rows = list(captured[1].active.iter_rows(values_only=True))
         self.assertTrue(any(row[1] == "Masked Source 123" and row[-2] == "未映射门店" for row in admin_rows))
         self.assertEqual(len(sales_rows), 1)
+
+    def test_export_batch_is_explicit_and_external_names_remain_excel_text(self):
+        from app.export.router import export_dealer_sales
+        captured = []
+        with Session(self.engine) as session:
+            session.add(DealerSales(
+                check_date="2026-08-19", dealer_name='=HYPERLINK("https://invalid.test","click")',
+                sell_in_wan=4, units=1,
+            ))
+            session.add(DealerSales(
+                check_date="2026-08-20", dealer_name="", sell_in_wan=0, units=0,
+                source_file="vertu-cli:sales-orders:failed",
+            ))
+            session.commit()
+            with patch("app.export.router._wb_response", side_effect=lambda wb, name: captured.append(wb)):
+                asyncio.run(export_dealer_sales(self.admin, session, month="2026-08", batch_date="2026-08-19"))
+                asyncio.run(export_dealer_sales(self.admin, session, month="2026-08"))
+                sales_user = User(username="sales", role="sales", hashed_password="unused", data_scope="self")
+                asyncio.run(export_dealer_sales(sales_user, session, month="2026-08"))
+                with patch("app.export.router.resolve_data_scope", return_value=SimpleNamespace(unrestricted=False)), patch(
+                    "app.export.router.scoped_active_dealer_names", return_value=["Real Store"]
+                ):
+                    asyncio.run(export_dealer_sales(sales_user, session, month="2026-08"))
+        selected = captured[0]
+        names = [cell for row in selected.active.iter_rows(min_row=2) for cell in row if cell.value and str(cell.value).startswith("=HYPERLINK")]
+        self.assertEqual(len(names), 1)
+        self.assertEqual(names[0].data_type, "s")
+        buf = io.BytesIO()
+        selected.save(buf)
+        buf.seek(0)
+        reopened = openpyxl.load_workbook(buf)
+        self.assertEqual(reopened.active.cell(names[0].row, names[0].column).data_type, "s")
+        self.assertEqual({r[0] for r in selected.active.iter_rows(min_row=2, values_only=True)}, {"2026-08-19"})
+        self.assertIn("旧快照，较新同步失败，不可作当前对账", str(list(selected["口径与限制"].values)))
+        self.assertNotIn("", {r[1] for r in captured[1].active.iter_rows(min_row=2, values_only=True)})
+        admin_notes = str(list(captured[1]["口径与限制"].values))
+        self.assertIn("同步失败，不代表零业绩", admin_notes)
+        sales_notes = str(list(captured[2]["口径与限制"].values))
+        self.assertNotIn("2026-08-20", sales_notes)
+        self.assertIn("仅管理员可查看", sales_notes)
+        scoped_rows = list(captured[3].active.iter_rows(min_row=2, values_only=True))
+        self.assertTrue(any(row[1] == "Real Store" and row[-1] == "旧快照（较新同步失败）" for row in scoped_rows))
+        self.assertNotIn("同步失败，不代表零业绩", str(list(captured[3]["口径与限制"].values)))
+        with Session(self.engine) as session, self.assertRaises(HTTPException) as exc:
+            asyncio.run(export_dealer_sales(self.admin, session, month="2026-08", batch_date="2026-08-30"))
+        self.assertEqual(exc.exception.status_code, 409)
 
     def test_verified_zero_amount_remains_real_zero_with_units(self):
         from app.models.dealer_sales import snapshot_amount_state

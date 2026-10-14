@@ -107,8 +107,14 @@ class LogisticsAdminProxyTests(unittest.TestCase):
             compose,
         )
         self.assertIn("name: dealer-knowledge", compose)
-        self.assertIn('$logisticsAdminUpstream = "http://10.100.0.176:18080"', deploy)
-        self.assertIn('"-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$logisticsAdminUpstream"', deploy)
+        self.assertIn('return "http://10.100.0.176:18080"', deploy)
+        self.assertIn('Assert-LogisticsAdminReachable -Image $image -Upstream $logisticsAdminUpstream', deploy)
+        self.assertIn('"PDCA_LOGISTICS_ADMIN_UPSTREAM", # 已迁移、探测并显式注入', deploy)
+        self.assertIn('"-e", "PDCA_LOGISTICS_ADMIN_UPSTREAM=$LogisticsAdminUpstream"', deploy)
+        self.assertIn(
+            "PDCA_LOGISTICS_ADMIN_UPSTREAM=http://10.100.0.176:18080",
+            (root / "env.docker").read_text(encoding="utf-8"),
+        )
 
     def test_proxy_forwards_html_with_same_origin_rewrites(self):
         from app.logistics import admin_proxy
