@@ -134,6 +134,7 @@ class TemplateStart(BaseModel):
     usage: Literal["training", "rehearsal", "real_review"] = "training"
     dealer_id: str = Field(default="", max_length=36)
     opportunity_id: str | None = Field(default=None, max_length=36)
+    save_only: bool = False
     overrides: dict = Field(default_factory=dict)
 
     @field_validator("overrides")

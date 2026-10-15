@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-10-15: Add return navigation and save scenario-card settings
+
+- Omega record, assignment, and task detail views now expose a visible `返回场景卡` control. Returning from an accidentally opened record preserves the unsubmitted meeting topic and selected materials; `新练习` starts a fresh setup. Live voice disables navigation until the call ends.
+- `保存本次设置` stores the selected scenario, edits, meeting topic, and extracted materials as an unconfirmed task draft. The task list can reopen it for review, confirmation, and later practice. Saving alone creates no session or report. Starting practice still persists the setup automatically.
+- Test-first: the new backend draft regression failed with HTTP 422 before the `save_only` contract was added; the exact-image deployment test first failed on the missing `target_revision` argument. The combined Omega/deployment tests then passed 38/38. Final full backend discovery passed **1,218 tests in 365.487 seconds (11 skipped)**. Frontend tests passed **34/34**; typecheck, production build, Compose configuration with dummy non-secret values, and `git diff --check` passed.
+- Headless Chromium exercised the real Vue UI with isolated demo APIs: desktop record → return retained the typed topic and uploaded file; save showed confirmation. At 360 px, return/save controls were visible, saved topic appeared in task detail, document width equaled viewport width, and the browser console had no errors. This browser check does not establish production deployment or physical-phone behavior.
+- The independent Omega deployer can now select a tested exact main commit image, validate its revision, and keep the older main/worker containers running. Its existing active-call check, health smoke, and rollback still apply. Read-only production checks before release found main `fa5c9fa`, Omega web `1154bffd`, both healthy, and zero active realtime calls. PR review, merged-main CI image, and live verification remain release gates.
+
 ## 2026-10-13: Polish the public 督战官 editor after live asset verification
 
 - The first release, commit `2404704696fc66d279bdb79d017006fcec83b389`, is healthy in both `pdca-workbench` and `pdca-omega-web`. Public `/app/admin/duzhan-agents` serves the new JS/CSS assets and the protected admin API returns HTTP 401 without a session. An isolated Chromium render of those public assets found a raw `has_data = 是` card subtitle and an oversized preview gap on tall viewports.

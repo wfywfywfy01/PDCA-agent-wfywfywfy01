@@ -39,7 +39,8 @@ async function upload(event: Event) {
 <template>
   <section class="materials" aria-label="本次会议资料">
     <h3>本次会议资料 <small>可选</small></h3>
-    <p>{{ hint || '上传本次会议要用的资料、培训内容或命题。' }}资料只随本场练习保存，不进入团队预设或长期档案；组内有权限的人可查看。</p>
+    <p>{{ hint || '上传本次会议要用的资料、培训内容或命题。' }}</p>
+    <p>资料随本次设置草稿或练习保存，不进入团队预设或长期档案；组内有权限的人可查看。</p>
     <label class="file-choice">添加文件<input type="file" multiple accept=".txt,.md,.csv,.pdf,.docx,.pptx,.xlsx" :disabled="disabled || busy || modelValue.length >= 3" @change="upload"></label>
     <small>TXT、MD、CSV、PDF、DOCX、PPTX、XLSX；每份不超过 5 MB，最多 3 份。仅提取文字，长文取前 1800 字。</small>
     <p v-if="busy" role="status">正在读取资料…</p><p v-if="error" role="alert" class="error">{{ error }}</p>

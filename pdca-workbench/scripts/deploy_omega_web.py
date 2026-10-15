@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -13,6 +14,7 @@ from pathlib import Path
 
 NAME = "pdca-omega-web"
 SOURCE = "pdca-workbench"
+REGISTRY = "ghcr.io/wfywfywfy01/pdca-workbench"
 PORT = 8771
 MOUNTS = {"/app/data", "/root/.vertu", "/root/.vertu/vps-service.json"}
 ENV_NAMES = {
@@ -25,12 +27,12 @@ ENV_NAMES = {
 }
 
 
-def run_docker(host: str, *args: str) -> str:
+def run_docker(host: str, *args: str, timeout: int = 180) -> str:
     if not host.startswith("ssh://"):
         raise ValueError("Omega deployment requires SSH Docker transport")
     result = subprocess.run(
         ["docker", "-H", host, *args], capture_output=True, text=True, encoding="utf-8",
-        timeout=180, check=False,
+        timeout=timeout, check=False,
     )
     if result.returncode:
         # Docker stderr may contain environment values. Never echo it.
@@ -94,14 +96,15 @@ def same_environment(current: dict, image: dict, desired: dict[str, str]) -> boo
     return actual == {**image_env, **desired}
 
 
-def build_run_args(source: dict, env_path: str, name: str = NAME) -> list[str]:
+def build_run_args(source: dict, env_path: str, name: str = NAME, *,
+                   image_name: str | None = None, revision: str | None = None) -> list[str]:
     networks = source.get("NetworkSettings", {}).get("Networks") or {}
     if "dealer-knowledge" not in networks:
         raise ValueError("PDCA source is not attached to dealer-knowledge")
     mounts = {mount["Destination"]: mount for mount in source.get("Mounts", [])}
     if not MOUNTS.issubset(mounts):
         raise ValueError("PDCA source is missing an Omega shared mount")
-    revision = (source["Config"].get("Labels") or {}).get("com.vertu.pdca.revision")
+    revision = revision or (source["Config"].get("Labels") or {}).get("com.vertu.pdca.revision")
     if not revision:
         raise ValueError("PDCA source revision is missing")
     args = ["run", "-d", "--name", name, "--restart", "unless-stopped",
@@ -120,7 +123,7 @@ def build_run_args(source: dict, env_path: str, name: str = NAME) -> list[str]:
         if not mount["RW"]:
             specification += ",readonly"
         args.extend(("--mount", specification))
-    args.extend(("--env-file", env_path, source["Config"]["Image"]))
+    args.extend(("--env-file", env_path, image_name or source["Config"]["Image"]))
     return args
 
 
@@ -189,14 +192,25 @@ print('ok')"""
         raise RuntimeError("Omega web smoke check failed")
 
 
-def deploy(host: str) -> str:
+def deploy(host: str, *, target_revision: str | None = None) -> str:
+    if target_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", target_revision):
+        raise ValueError("Omega target revision must be an exact 40-character Git SHA")
     source = inspect(host, SOURCE)
     if source is None:
         raise RuntimeError("PDCA source container is missing")
-    image = inspect(host, source["Config"]["Image"])
+    image_name = f"{REGISTRY}:{target_revision}" if target_revision else source["Config"]["Image"]
+    image = inspect(host, image_name)
+    if image is None and target_revision:
+        run_docker(host, "pull", image_name, timeout=900)
+        image = inspect(host, image_name)
     if image is None:
         raise RuntimeError("PDCA source image is missing")
-    revision = require_revision(source, image)
+    revision = (image.get("Config", {}).get("Labels") or {}).get("com.vertu.pdca.source_revision")
+    if target_revision:
+        if revision != target_revision:
+            raise ValueError("Omega image revision mismatch")
+    else:
+        revision = require_revision(source, image)
     env = copy_environment(source)
     current = inspect(host, NAME)
     if current and (current.get("Config", {}).get("Labels") or {}).get("com.vertu.pdca.omega_web") != "1":
@@ -211,7 +225,7 @@ def deploy(host: str) -> str:
     old_name = f"{NAME}-rollback-{datetime.now(timezone.utc):%Y%m%d%H%M%S}"
     renamed = False
     try:
-        args = build_run_args(source, env_path)
+        args = build_run_args(source, env_path, image_name=image_name, revision=revision)
         if current:
             try:
                 run_docker(host, "stop", "--time", "30", NAME)
@@ -247,8 +261,9 @@ def deploy(host: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker-host", default="ssh://pdca-docker-176")
+    parser.add_argument("--revision", help="deploy this tested, exact Git SHA to Omega only")
     args = parser.parse_args()
-    revision = deploy(args.docker_host)
+    revision = deploy(args.docker_host, target_revision=args.revision)
     print(f"Omega web healthy: {revision}")
 
 

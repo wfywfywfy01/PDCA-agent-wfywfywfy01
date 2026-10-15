@@ -61,6 +61,62 @@ class DeployOmegaWebTests(unittest.TestCase):
             require_revision(self.source, {"Config": {"Labels": {"com.vertu.pdca.source_revision": "other"}}})
         require_revision(self.source, {"Config": {"Labels": {"com.vertu.pdca.source_revision": "abcdef0"}}})
 
+    def test_exact_target_image_can_update_only_omega_web(self):
+        revision = "b" * 40
+        target = f"ghcr.io/wfywfywfy01/pdca-workbench:{revision}"
+        image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": revision}, "Env": []}}
+        current = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1",
+                                          "com.vertu.pdca.revision": revision},
+                              "Env": [*(f"{k}={v}" for k, v in copy_environment(self.source).items())]},
+                   "State": {"Health": {"Status": "healthy"}}}
+
+        def fake_inspect(_host, name):
+            return {"pdca-workbench": self.source, target: image, "pdca-omega-web": current}.get(name)
+
+        with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
+              patch("scripts.deploy_omega_web.run_docker") as docker):
+            self.assertEqual(deploy("ssh://test", target_revision=revision), revision)
+            docker.assert_not_called()
+        args = build_run_args(self.source, "C:/Temp/omega-secret.env", image_name=target, revision=revision)
+        self.assertEqual(args[-1], target)
+        self.assertIn(f"com.vertu.pdca.revision={revision}", args)
+
+        image["Config"]["Labels"]["com.vertu.pdca.source_revision"] = "a" * 40
+        with patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect):
+            with self.assertRaisesRegex(ValueError, "revision mismatch"):
+                deploy("ssh://test", target_revision=revision)
+        with patch("scripts.deploy_omega_web.inspect") as inspect_image:
+            with self.assertRaisesRegex(ValueError, "40-character"):
+                deploy("ssh://test", target_revision="latest")
+            inspect_image.assert_not_called()
+
+    def test_exact_target_image_is_pulled_when_missing(self):
+        revision = "b" * 40
+        target = f"ghcr.io/wfywfywfy01/pdca-workbench:{revision}"
+        image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": revision}, "Env": []}}
+        current = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1",
+                                          "com.vertu.pdca.revision": revision},
+                              "Env": [*(f"{k}={v}" for k, v in copy_environment(self.source).items())]},
+                   "State": {"Health": {"Status": "healthy"}}}
+        pulled = False
+
+        def fake_inspect(_host, name):
+            if name == target:
+                return image if pulled else None
+            return {"pdca-workbench": self.source, "pdca-omega-web": current}.get(name)
+
+        def fake_docker(_host, *args, **kwargs):
+            nonlocal pulled
+            self.assertEqual(args, ("pull", target))
+            self.assertEqual(kwargs, {"timeout": 900})
+            pulled = True
+            return ""
+
+        with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
+              patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker)):
+            self.assertEqual(deploy("ssh://test", target_revision=revision), revision)
+        self.assertTrue(pulled)
+
     def test_plaintext_docker_transport_is_refused_before_execution(self):
         with patch("scripts.deploy_omega_web.subprocess.run") as call:
             with self.assertRaisesRegex(ValueError, "SSH"):

@@ -6,12 +6,14 @@
 
 ## 部署
 
-1. 主工作台先部署已通过 CI 的明确 commit，并确认数据库迁移、`/health`、Omega worker 就绪。不要用未提交目录构建生产镜像。
+1. 涉及数据库迁移、主工作台或 Omega worker 的提交，先部署已通过 CI 的明确 commit，并确认迁移、`/health`、worker 就绪。只改独立 Omega Web 的提交，可在 main CI 发布镜像后按第 2 步指定精确提交单独更新。不要用未提交目录构建生产镜像。
 2. 在装有 Docker CLI、且 `ssh://pdca-docker-176` 可访问的工作机运行：
 
    ```powershell
    python pdca-workbench/scripts/deploy_omega_web.py --docker-host ssh://pdca-docker-176
    ```
+
+   只更新 Omega Web 时运行 `python pdca-workbench/scripts/deploy_omega_web.py --docker-host ssh://pdca-docker-176 --revision <40位main提交SHA>`。脚本从主容器读取原有配置和挂载，只拉取该提交镜像并核对镜像内的 revision；主工作台及 worker 不随之重启。
 
    脚本读取主容器的镜像、非扩权的配置子集和共享挂载；验证镜像 revision；拒绝明文 Docker TCP；检查正在进行的语音通话；等待健康检查并验证页面、账号接口和未登录拒绝。失败时恢复上一容器，临时环境文件会删除。主容器和独立容器升级彼此独立；每次主镜像升级后单独运行此步骤。
 3. 首次切流时，将 [`deploy/omega-caddy.caddy`](../deploy/omega-caddy.caddy) 的站点块替换 `/etc/caddy/Caddyfile` 内 `pdca-workbench-teams.vertu.cn` 的原站点块。先备份原文件，运行 `caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`，再运行 `caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`。2026-10-13 的服务器备份名为 `/etc/caddy/Caddyfile.before-omega-independent-20261013`。
