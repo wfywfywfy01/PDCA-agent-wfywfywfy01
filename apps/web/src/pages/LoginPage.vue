@@ -5,7 +5,7 @@ import { apiGet, apiPost, HttpError } from '@/api/client'
 
 interface AuthConfig {
   auth_mode: 'local' | 'vps' | 'hybrid'
-  vps_login_url?: string
+  vps_sso_ready?: boolean
 }
 
 const route = useRoute()
@@ -28,6 +28,7 @@ onMounted(async () => {
   try {
     config.value = await apiGet<AuthConfig>('/api/auth/config')
     if (route.query.change_password === '1') mustChange.value = true
+    if (route.query.sso_error === '1') error.value = 'VPS 登录未完成，请重试或使用账号密码登录。'
   } catch {
     error.value = '无法连接工作台服务，请稍后重试或联系管理员。'
   }
@@ -71,8 +72,9 @@ async function doChangePassword() {
 }
 
 function goVps() {
-  if (config.value?.vps_login_url) {
-    location.href = config.value.vps_login_url
+  if (config.value?.vps_sso_ready) {
+    const next = router.resolve(nextPath).href
+    location.assign(`/api/auth/vps-login?${new URLSearchParams({ next })}`)
   }
 }
 </script>
@@ -148,8 +150,8 @@ function goVps() {
 
       <div v-if="config && config.auth_mode !== 'local' && !mustChange" class="vps-row">
         <span v-if="config.auth_mode === 'hybrid'" class="divider">或</span>
-        <button v-if="config.vps_login_url" class="btn btn-block" type="button" @click="goVps">使用 VPS / Odoo 账号登录</button>
-        <p v-else class="hint">请从 VPS / Odoo 的 PDCA 入口进入；单点登录入口尚未配置。</p>
+        <button v-if="config.vps_sso_ready" class="btn btn-block" type="button" @click="goVps">使用 VPS 账号登录</button>
+        <p v-else class="hint">{{ config.auth_mode === 'vps' ? 'VPS 单点登录尚未开通，请联系管理员。' : 'VPS 单点登录尚未开通，请先使用工作台账号登录。' }}</p>
       </div>
 
       <p v-if="!config && !error" class="hint">正在读取认证配置…</p>

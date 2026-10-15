@@ -1,7 +1,8 @@
 # Odoo 嵌 PDCA 免登对接说明（给 ERP 同事）
 
 > 适用环境：`https://admin.vertu.cn`（Odoo 17）嵌套 `https://pdca-workbench-teams.vertu.cn`
-> PDCA 侧接口已上线，**缺的是 Odoo 侧 3 件事：装模块、配密钥、改 iframe 地址**。  
+> 2026-10-15 核对：`admin.vertu.cn/pdca/embed` 返回 404，PDCA 共享卷也没有 `odoo_sso_secret`。因此线上免登尚未开通。
+> 需完成 Odoo 模块安装、两端密钥配置、PDCA 登录入口配置；桌面 VPS 客户端的独立登录态还需客户端授权接口支持。
 > 需要：Odoo 后台 **设置管理员**（能装应用、能写系统参数、能改 `dealer_sale` 前端）。
 
 ---
@@ -29,22 +30,23 @@ Odoo 的 `session_id` **不会**带到 PDCA。用户在 Odoo 已登录，iframe 
 
 ## 2. 方案（不要改成跨域读 Cookie）
 
-Odoo 已登录用户打开一个 **Odoo 同源入口**，由 Odoo 签发 2 分钟 HMAC 票据，302 跳到 PDCA；PDCA 验票后写自己的登录 Cookie。
+浏览器先访问 PDCA 的 `/api/auth/vps-login`，取得 10 分钟的 HttpOnly 状态 Cookie，再转到 **Odoo 同源入口**。Odoo 已登录用户签发绑定该状态的 2 分钟 HMAC 票据；PDCA 校验签名、状态 Cookie 和有效期后写自己的登录 Cookie。
 
 ```
 用户已登录 Odoo
     ↓
-iframe src = https://admin.vertu.cn/pdca/embed
-    ↓  （同源，Odoo 知道当前 user）
-签发 ticket（120 秒有效，一次性跳转）
+点击 VPS 登录 → https://pdca-workbench-teams.vertu.cn/api/auth/vps-login?next=/app/omega
+    ↓  状态 Cookie；302 到 https://admin.vertu.cn/pdca/embed?next=/app/omega&state=...
+Odoo 校验当前用户，签发含 state 的 ticket（120 秒有效）
     ↓
-https://pdca-workbench-teams.vertu.cn/api/auth/odoo-sso?ticket=...&next=/
+https://pdca-workbench-teams.vertu.cn/api/auth/odoo-sso?ticket=...&state=...&next=/app/omega
     ↓
-PDCA 校验 HMAC → 按 Odoo login 映射/创建本地账号 → 种 pdca_token → 进入页面
+PDCA 校验 HMAC + 状态 Cookie → 按 Odoo login 映射/创建本地账号 → 种 pdca_token → 进入页面
 ```
 
-**iframe 必须改成 Odoo 地址，不能继续直链 `pdca-workbench-teams.vertu.cn`。**
-直链 PDCA 时，PDCA 拿不到 Odoo 登录态。
+iframe 可以继续使用 `https://admin.vertu.cn/pdca/embed`；控制器会先补齐浏览器状态，再签发票据。直链 PDCA 业务页时，PDCA 拿不到 Odoo 登录态。
+
+**VPS 桌面客户端与系统浏览器不共享登录 Cookie。**当前桌面版没有 Omega 登录授权回调，因此“仅桌面 VPS 已登录，浏览器点一下就免登”仍需 VPS 客户端增加一次性授权票据能力；现有流程可复用浏览器里的 Odoo 登录态。
 
 ---
 
@@ -94,11 +96,13 @@ Odoo 和 PDCA **必须用同一串密钥**。
    | 字段 | 值 |
    |---|---|
    | Key | `pdca.sso_secret` |
-   | Value | 向 PDCA 负责人要（已写在 PDCA 容器 `/app/data/odoo_sso_secret`） |
+   | Value | 与 PDCA 运维共同生成并配置的强随机密钥（目前尚未生成；PDCA 侧保存于 `/app/data/odoo_sso_secret`） |
 
 3. 保存。不要把密钥提交到 Git、不要发到公开群。
 
-密钥为空或两边不一致时：`/pdca/embed` 会把用户送到 PDCA **登录页**（免登失败，看起来像「没生效」）。
+密钥为空或两边不一致时：`/pdca/embed` 会把用户送到 PDCA 登录页。PDCA 的登录按钮只有在本地有密钥且入口 URL 指向同一 Odoo 主机的 `/pdca/embed` 时才显示。
+
+PDCA 生产环境还须设置 `PDCA_VPS_LOGIN_URL=https://admin.vertu.cn/pdca/embed`。Omega 独立 Web 从主 PDCA 容器复制此配置，并共用 `/app/data/odoo_sso_secret`；设置后重建/重启 Omega Web。
 
 若要自己轮换密钥：两边同时改，先改 PDCA（环境变量 `PDCA_ODOO_SSO_SECRET` 或上述文件），再改 Odoo 系统参数。
 
@@ -157,12 +161,15 @@ pdca-workbench-teams.vertu.cn
 用 **已经登录 Odoo** 的员工号（不要用 Public）：
 
 1. 新开标签访问 `https://admin.vertu.cn/pdca/embed`  
-   - 应很快跳进 PDCA，**不再出现 PDCA 登录页**。
+   - 应经 PDCA `/api/auth/vps-login` 跳进 PDCA，**不再出现 PDCA 登录页**。
+   - 也可从 Omega 登录页点击“使用 VPS 账号登录”，应返回 `/app/omega`。
 2. 打开海外渠道中台里原来嵌 PDCA 的菜单（数据看板 / 销售订单，以实际改过的为准）。  
    - iframe 内应直接是 PDCA 业务页。  
    - 控制台不应再有 `frame-ancestors` / `拒绝连接`。
 3. 隐身窗口、未登录 Odoo 打开中台：应先 Odoo 登录，登录后再免登进 PDCA。
 4. PDCA 本地用户：按 Odoo 的 `login` 映射；没有则自动创建。职位含「中台 / 主管 / 销售」会影响默认角色（可在 PDCA 后台再改，不会被日常免登覆盖）。
+5. 复制回调 URL 再打开、改动 `state`、过期 120 秒后打开：不得登录；原本已停用的账号仍不得登录。
+6. 只登录 VPS 桌面版、未登录系统浏览器的 Odoo：目前会出现 Odoo 登录页；待桌面版授权接口发布后再验收真正的桌面免登。
 
 ---
 
@@ -183,7 +190,7 @@ pdca-workbench-teams.vertu.cn
 
 ## 6. 安全约束（给评审）
 
-- 票据含 `login / uid / name / job_title / department_name / exp`，120 秒失效。
+- 票据含 `login / uid / name / job_title / department_name / state / exp`，120 秒失效；`state` 与浏览器 HttpOnly Cookie 绑定，成功后删除 Cookie，防重放和登录 CSRF。
 - 密钥只放 Odoo 系统参数和 PDCA 服务器，不进前端 JS。
 - iframe 仍指向 Odoo 同源 `/pdca/embed`，避免把 `session_id` 拼进 PDCA URL。
 - PDCA 只接受 `admin.vertu.cn` 嵌套（CSP `frame-ancestors`）。

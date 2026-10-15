@@ -101,10 +101,17 @@ class AuthHardeningTests(unittest.TestCase):
                 asyncio.run(_user_from_proxy_headers(session, request))
             with patch("app.auth.deps.fetch_vps_me_payload", return_value=identity), self.assertRaises(HTTPException):
                 asyncio.run(_user_from_vps(session, request))
-            with patch("app.auth.router.resolve_odoo_sso_secret", return_value="test-only"), patch(
-                "app.auth.router.parse_odoo_ticket", return_value=identity
-            ):
-                self.assertEqual(self.client.get("/api/auth/odoo-sso?ticket=test").status_code, 403)
+            with patch.object(self.settings, "auth_mode", "hybrid"), patch.object(
+                self.settings, "odoo_base_url", "https://admin.example", create=True
+            ), patch.object(
+                self.settings, "vps_login_url", "https://admin.example/pdca/embed", create=True
+            ), patch("app.auth.router.resolve_odoo_sso_secret", return_value="test-only"):
+                self.assertEqual(self.client.get("/api/auth/vps-login").status_code, 302)
+                state = self.client.cookies["__Host-pdca_sso_state"]
+                with patch("app.auth.router.parse_odoo_ticket", return_value={**identity, "state": state}):
+                    self.assertEqual(self.client.get(
+                        "/api/auth/odoo-sso", params={"ticket": "test", "state": state}
+                    ).status_code, 403)
             with patch("app.auth.router.identity_from_odoo_session", return_value=identity):
                 self.assertEqual(self.client.get("/walkin-submit?session_id=test").status_code, 403)
             session.refresh(user)
