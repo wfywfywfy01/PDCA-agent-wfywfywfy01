@@ -5,7 +5,7 @@ import OmegaMeetingMaterials from './OmegaMeetingMaterials.vue'
 import { meetingNames, usageNames, type MeetingMaterial, type TemplateDraft, type TemplateRow, type TemplateStart, type Usage } from './omega-types'
 
 const props = defineProps<{ manager: boolean; multiVoiceReady: boolean; realtimeReady: boolean }>()
-const emit = defineEmits<{ started: [result: TemplateStart, autoVoice: boolean]; custom: []; prepareVoice: []; cancelVoicePreparation: [] }>()
+const emit = defineEmits<{ started: [result: TemplateStart, autoVoice: boolean]; saved: [caseId: string]; custom: []; prepareVoice: []; cancelVoicePreparation: [] }>()
 const templates = ref<TemplateRow[]>([])
 const selected = ref<TemplateRow | null>(null)
 const draft = ref<TemplateDraft | null>(null)
@@ -85,7 +85,7 @@ function addParticipant() {
   if (!draft.value.participants?.length) draft.value.participants = [{ id: 'lead', name: draft.value.buyer_name || '主谈对手', role: draft.value.buyer_role || '负责人', is_primary: true, concerns: [], known_facts: [], decision_authority: '未明确，需在沟通中澄清' }]
   draft.value.participants.push({ id: crypto.randomUUID(), name: '参会人', role: '采购', is_primary: false, concerns: [], known_facts: [], decision_authority: '未明确，需在沟通中澄清' })
 }
-async function start(autoVoice = false) {
+async function start(autoVoice = false, saveOnly = false) {
   if (!draft.value || !selected.value || busy.value || materialsBusy.value) return
   if (draft.value.meeting_type === 'custom' && !meetingTopic.value.trim()) { error.value = '临时会议请先写本次命题'; return }
   if (materials.value.some(item => !item.text.trim())) { error.value = '资料提取文字不能为空'; return }
@@ -98,13 +98,15 @@ async function start(autoVoice = false) {
   overrides.meeting_topic = meetingTopic.value.trim()
   overrides.meeting_materials = materials.value
   const payload = { template_id: selected.value.id, template_version: selected.value.current_version,
-    usage: usage.value, dealer_id: dealerId.value, opportunity_id: opportunityId.value || null, overrides }
+    usage: usage.value, dealer_id: dealerId.value, opportunity_id: opportunityId.value || null,
+    ...(saveOnly ? { save_only: true } : {}), overrides }
   const fingerprint = JSON.stringify(payload)
   if (pendingLaunch?.body !== fingerprint) pendingLaunch = { body: fingerprint, key: crypto.randomUUID() }
   try {
     const result = await apiPost<TemplateStart>('/api/omega/template-starts', { ...payload, request_key: pendingLaunch.key })
     pendingLaunch = undefined
-    emit('started', result, autoVoice)
+    if (saveOnly) emit('saved', result.case_id)
+    else emit('started', result, autoVoice)
   } catch (err) { error.value = message(err); if (autoVoice) emit('cancelVoicePreparation') }
   finally { busy.value = false }
 }
@@ -152,6 +154,7 @@ onMounted(async () => {
             <div v-if="row.suggested_topics?.length" class="topic-chips" role="group" aria-label="推荐命题"><button v-for="topic in row.suggested_topics" :key="topic" type="button" :aria-pressed="meetingTopic === topic" @click="meetingTopic = topic">{{ topic }}</button></div>
             <label>本次会议命题<textarea v-model.trim="meetingTopic" rows="2" maxlength="500" :placeholder="row.draft.meeting_type === 'custom' ? '必填：这场会要解决什么问题？' : '选一个重点，或写下本场要解决的问题'"></textarea></label>
             <OmegaMeetingMaterials v-model="materials" :hint="row.material_hint" :disabled="busy" @busy="materialsBusy = $event" />
+            <div class="draft-actions"><button class="btn" type="button" :disabled="busy || materialsBusy" @click="start(false, true)">保存本次设置</button><span class="muted">保存后可在任务列表继续；直接开练也会自动保存。</span></div>
           </details>
         </div>
       </div>
@@ -189,6 +192,9 @@ onMounted(async () => {
 .card-groups button[aria-pressed=true],.topic-chips button[aria-pressed=true] { border-color: var(--blue); background: var(--blue-soft); }
 .meeting-sources { margin-top: 12px; } .meeting-sources summary { cursor: pointer; min-height: 44px; padding-top: 10px; color: var(--blue); }
 .meeting-sources label { margin-top: 8px; } .topic-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.draft-actions .btn { min-height: 44px; border: 1px solid var(--blue); background: var(--blue-soft); color: var(--text); padding: 0 14px; }
 @media (max-width: 600px) { .setup header .muted { margin: 4px 0 0; line-height: 1.4; } .usages { margin: 12px 0; } .scenario-card { padding: 12px; } .scenario-choice strong { margin: 4px 0; } .scenario-actions { margin-top: 8px; padding-top: 8px; } .scenario-actions p { display: none; } .start-actions .btn { flex: 1; } }
 @media (max-width: 600px) { .card-groups { flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; margin: 8px 0; } .card-groups button { flex: none; } }
+@media (max-width: 600px) { .draft-actions .btn { width: 100%; } }
 </style>

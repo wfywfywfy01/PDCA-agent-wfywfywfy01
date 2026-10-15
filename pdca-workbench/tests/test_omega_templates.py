@@ -66,6 +66,33 @@ class OmegaTemplateTests(unittest.TestCase):
         self.assertEqual(game['case_snapshot']['participants'], card['draft']['participants'])
         self.assertEqual(self.client.get(f"/api/omega/cases/{card['id']}").json()['draft'], card['draft'])
 
+    def test_scenario_card_can_save_session_material_as_draft(self):
+        card = self.template()
+        material = {'name': 'meeting.txt', 'purpose': 'reference', 'visibility': 'shared',
+                    'text': 'Only for this practice.', 'truncated': False}
+        payload = self.start_body(card, request_key='template-save-001', save_only=True,
+            overrides={'meeting_topic': 'Discuss the first order', 'meeting_materials': [material]})
+        first = self.client.post('/api/omega/template-starts', json=payload)
+        self.assertEqual(first.status_code, 201, first.text)
+        saved = first.json()
+        self.assertEqual(saved['next_action'], 'review_case')
+        self.assertIsNone(saved['session_id'])
+        self.assertIsNone(saved['case_version_id'])
+        again = self.client.post('/api/omega/template-starts', json=payload)
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json(), saved)
+        case = self.client.get(f"/api/omega/cases/{saved['case_id']}").json()
+        self.assertFalse(case['draft_confirmed'])
+        self.assertEqual(case['draft']['meeting_topic'], 'Discuss the first order')
+        self.assertEqual(case['draft']['meeting_materials'], [material])
+        with Session(self.engine) as db:
+            self.assertFalse(db.exec(select(OmegaCaseVersion).where(OmegaCaseVersion.case_id == case['id'])).all())
+            self.assertFalse(db.exec(select(OmegaSession).where(OmegaSession.case_id == case['id'])).all())
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        game = self.client.post('/api/omega/sessions', json={'case_id': case['id']})
+        self.assertEqual(game.status_code, 201, game.text)
+        self.assertEqual(game.json()['case_snapshot']['meeting_materials'], [material])
+
     def test_template_start_is_idempotent_and_freezes_copy(self):
         template = self.template()
         payload = self.start_body(template)

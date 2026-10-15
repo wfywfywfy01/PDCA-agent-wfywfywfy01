@@ -169,11 +169,12 @@ export function installOmegaDemo() {
       const snapshot = { ...clone(template.draft), ...body.overrides, kind: 'case', usage: body.usage,
         simulation: body.usage !== 'real_review', dealer_id: body.dealer_id, opportunity_id: body.opportunity_id }
       const scenario = { id: nextId(), title: snapshot.title, kind: 'case', owner_id: 1, revision: 1,
-        current_version: 1, case_version_id: nextId(), draft_confirmed: true, draft: snapshot }
+        current_version: body.save_only ? 0 : 1, case_version_id: body.save_only ? null : nextId(),
+        draft_confirmed: !body.save_only, draft: snapshot }
       cases.push(scenario)
-      const game = body.usage === 'real_review' ? null : createSession(scenario, body.usage)
+      const game = body.save_only || body.usage === 'real_review' ? null : createSession(scenario, body.usage)
       const result = { case_id: scenario.id, case_version_id: scenario.case_version_id, session_id: game?.id || null,
-        next_action: game ? 'practice' : 'import_meeting' }
+        next_action: body.save_only ? 'review_case' : game ? 'practice' : 'import_meeting' }
       launches.set(body.request_key, { body: JSON.stringify(body), result })
       return json(result, 201)
     }

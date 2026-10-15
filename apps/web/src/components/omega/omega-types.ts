@@ -17,7 +17,7 @@ export type TemplateDraft = {
 }
 export type TemplateRow = { id: string; title: string; current_version: number; owner_id: number; case_version_id?: string; available_usages?: Usage[];
   card_group?: string; material_hint?: string; suggested_topics?: string[]; draft: TemplateDraft }
-export type TemplateStart = { case_id: string; case_version_id: string; session_id: string | null; next_action: 'practice' | 'import_meeting' }
+export type TemplateStart = { case_id: string; case_version_id: string | null; session_id: string | null; next_action: 'practice' | 'import_meeting' | 'review_case' }
 export const usageNames: Record<Usage, string> = { training: '模拟练习', rehearsal: '会前演练', real_review: '会后复盘' }
 export const meetingNames: Record<string, string> = {
   introduction: '破冰了解', discovery: '需求沟通', proposal: '方案推进', negotiation: '条件博弈', order: '试单推进',

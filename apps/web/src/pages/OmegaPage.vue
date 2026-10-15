@@ -112,6 +112,7 @@ const realtimeReady = ref(false)
 const textReady = ref(false)
 const multiVoiceReady = ref(false)
 const setupOpen = ref(true)
+const setupKey = ref(0)
 const profilesOpen = ref(false)
 const voicePhase = ref<'live' | 'pausing' | 'coaching' | 'resuming' | 'error'>('live')
 const voiceRecoveryBlocked = ref(false)
@@ -390,6 +391,7 @@ async function startedTemplate(result: TemplateStart, autoVoice = false) {
   await run(async () => {
     await loadLists()
     setupOpen.value = false
+    setupKey.value++
     if (result.session_id) await openSession(result.session_id)
     else {
       const row = cases.value.find(item => item.id === result.case_id)
@@ -400,6 +402,16 @@ async function startedTemplate(result: TemplateStart, autoVoice = false) {
   })
   if (autoVoice && result.session_id && chosenSession.value?.id === result.session_id) await startVoice()
   else cancelTemplateVoice()
+}
+async function savedTemplate(caseId: string) {
+  await run(async () => {
+    await loadLists()
+    const row = cases.value.find(item => item.id === caseId)
+      || await apiGet<CaseRow>(`/api/omega/cases/${caseId}`)
+    showCase(row)
+    setupKey.value++
+    notice.value = '本次设置已保存到任务列表。确认目标后可继续开练。'
+  })
 }
 async function refreshSession() {
   const id = chosenSession.value?.id
@@ -724,8 +736,10 @@ function showCase(row: CaseRow) {
   report.value = null
   editing.value = false
 }
-function newCase() {
+function newCase(resetSetup = true) {
+  if (callOpen.value) return
   cancelTemplateVoice()
+  if (resetSetup) setupKey.value++
   profilesOpen.value = false
   setupOpen.value = true
   sidebarTab.value = 'cases'
@@ -1212,7 +1226,7 @@ onBeforeUnmount(() => {
     <p v-if="loading">正在读取演练…</p>
     <div v-else class="omega-grid">
       <aside class="card omega-side" :class="{ 'is-collapsed': !mobileNavOpen }" aria-label="演练导航">
-        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>{{ me?.role === 'admin' ? '团队训练' : '我的练习' }}</h2></div><div class="omega-side-actions"><button class="btn btn-sm btn-ghost omega-side-toggle" type="button" :aria-expanded="mobileNavOpen" aria-controls="omega-side-tabs omega-side-body" @click="mobileNavOpen = !mobileNavOpen">{{ mobileNavOpen ? '收起列表' : '展开列表' }}</button><button class="btn btn-sm btn-primary" type="button" @click="newCase">新练习</button></div></div>
+        <div class="omega-side-head"><div><p class="omega-kicker">你的工作区</p><h2>{{ me?.role === 'admin' ? '团队训练' : '我的练习' }}</h2></div><div class="omega-side-actions"><button class="btn btn-sm btn-ghost omega-side-toggle" type="button" :aria-expanded="mobileNavOpen" aria-controls="omega-side-tabs omega-side-body" @click="mobileNavOpen = !mobileNavOpen">{{ mobileNavOpen ? '收起列表' : '展开列表' }}</button><button class="btn btn-sm btn-primary" type="button" :disabled="callOpen || busy" @click="newCase()">新练习</button></div></div>
         <div id="omega-side-tabs" class="omega-side-tabs" role="group" aria-label="列表类型">
           <button type="button" :class="{ active: sidebarTab === 'cases' }" :aria-pressed="sidebarTab === 'cases'" @click="sidebarTab = 'cases'">任务 <span>{{ cases.length }}</span></button>
           <button type="button" :class="{ active: sidebarTab === 'assignments' }" :aria-pressed="sidebarTab === 'assignments'" @click="sidebarTab = 'assignments'">指派 <span>{{ assignments.length }}</span></button>
@@ -1246,9 +1260,10 @@ onBeforeUnmount(() => {
         </div>
       </aside>
       <section class="omega-main">
+        <div v-if="!setupOpen && !profilesOpen" class="omega-return"><button class="btn btn-sm" type="button" :disabled="callOpen || busy" @click="editing ? editing = false : newCase(false)">{{ editing ? '取消编辑' : '← 返回场景卡' }}</button></div>
+        <OmegaSetup :key="setupKey" v-show="setupOpen && !profilesOpen" :manager="['manager', 'admin'].includes(me?.role || '')" :multi-voice-ready="multiVoiceReady" :realtime-ready="realtimeReady" @prepare-voice="prepareTemplateVoice" @cancel-voice-preparation="cancelTemplateVoice" @started="startedTemplate" @saved="savedTemplate" @custom="customCase" />
         <OmegaProfiles v-if="profilesOpen && me" :sales-id="me.id" @open-session="openSession($event).catch((err) => error = detail(err))" />
-        <OmegaSetup v-else-if="setupOpen" :manager="['manager', 'admin'].includes(me?.role || '')" :multi-voice-ready="multiVoiceReady" :realtime-ready="realtimeReady" @prepare-voice="prepareTemplateVoice" @cancel-voice-preparation="cancelTemplateVoice" @started="startedTemplate" @custom="customCase" />
-        <div v-else-if="editing" class="card pad omega-intake">
+        <div v-else-if="!setupOpen && editing" class="card pad omega-intake">
           <template v-if="!chosenCase">
             <p class="omega-kicker">开始一场练习</p><h2>今天想练哪个客户卡点？</h2>
             <p class="sub">直接选一个常见场景，或用一句话描述手头客户。AI 会整理目标，你核对后就能开练。</p>
@@ -1298,7 +1313,7 @@ onBeforeUnmount(() => {
           </form>
           </div>
         </div>
-        <div v-else-if="chosenAssignment" class="card pad">
+        <div v-else-if="!setupOpen && chosenAssignment" class="card pad">
           <h2>{{ caseName(chosenAssignment.case_id) }} · {{ dimensionNames[chosenAssignment.target_dimension] }}</h2>
           <p>达标条件：该项评分达到 {{ chosenAssignment.pass_percent }}% 且有销售原话证据。</p>
           <p v-if="chosenAssignment.instructions">练习要求：{{ chosenAssignment.instructions }}</p>
@@ -1313,7 +1328,7 @@ onBeforeUnmount(() => {
           </li></ul>
           <button v-if="me?.id === chosenAssignment.assignee_id" class="btn" type="button" :disabled="busy" @click="startAssignment(chosenAssignment)">开始本次练习</button>
         </div>
-        <div v-else-if="chosenSession" class="omega-workspace">
+        <div v-else-if="!setupOpen && chosenSession" class="omega-workspace">
           <header class="card omega-session-summary">
             <div class="omega-session-heading"><div><p class="omega-kicker">{{ chosenSession.mode === 'real_review' ? (demoMode ? '模拟会议复盘样本' : '真实会议复盘') : '模拟对手演练' }} <span v-if="chosenSession.mode === 'real_review'">· {{ chosenSession.goal_timing === 'pre' ? '会前目标' : '目标时点未获会前确认' }}</span></p><h2>{{ caseName(chosenSession.case_id) }}</h2></div><span :class="['pill', chosenSession.status === 'active' ? 'pill-green' : 'pill-muted']">{{ chosenSession.status === 'active' ? '演练中' : '已结束' }}</span></div>
             <div v-if="chosenSession.case_snapshot" class="omega-goal"><span>本场目标 · 版本 {{ chosenSession.case_version }}</span><p>{{ chosenSession.case_snapshot.goal.success_condition }}</p></div>
@@ -1383,11 +1398,13 @@ onBeforeUnmount(() => {
             </details>
           </section>
         </div>
-        <div v-else-if="chosenCase" class="card pad omega-case-detail">
+        <div v-else-if="!setupOpen && chosenCase" class="card pad omega-case-detail">
           <p class="omega-kicker">谈判任务 · {{ chosenCase.draft_confirmed ? `目标版本 ${chosenCase.current_version}` : '待确认目标' }}</p>
           <h2>{{ chosenCase.title }}</h2>
           <div class="omega-case-brief"><span>双方背景</span><p>{{ chosenCase.draft.public_brief }}</p></div>
           <div class="omega-goal"><span>成功判定条件</span><p>{{ chosenCase.draft.goal.success_condition }}</p></div>
+          <p v-if="chosenCase.draft.meeting_topic" class="sub">本次命题：{{ chosenCase.draft.meeting_topic }}</p>
+          <p v-if="chosenCase.draft.meeting_materials?.length" class="sub">本次资料：{{ chosenCase.draft.meeting_materials.map(item => item.name).join('、') }}</p>
           <p v-if="!chosenCase.draft_confirmed" role="status">当前草稿尚未确认，确认后才可开始新演练或导入会议。</p>
           <div class="omega-actions"><button v-if="chosenCase.draft_confirmed" class="btn btn-primary" type="button" :disabled="busy" @click="startSession">开始新演练</button><button v-if="canWrite(chosenCase.owner_id) && !chosenCase.draft_confirmed" class="btn btn-primary" type="button" :disabled="busy" @click="confirmCase">确认目标版本</button><button v-if="canWrite(chosenCase.owner_id)" class="btn btn-ghost" type="button" @click="editCase(chosenCase)">编辑草稿</button></div>
           <details v-if="chosenCase.draft_confirmed && ['manager', 'admin'].includes(me?.role || '')" class="omega-import"><summary>指派练习</summary>
@@ -1414,7 +1431,7 @@ onBeforeUnmount(() => {
             </div>
           </details>
         </div>
-        <div v-else class="card pad omega-welcome"><p class="omega-kicker">开始训练</p><h2>选个客户卡点，马上开练</h2><p>可以用常见场景，也可以写下手头客户的情况。</p><button class="btn btn-primary" type="button" @click="newCase">开始练习</button></div>
+        <div v-else-if="!setupOpen" class="card pad omega-welcome"><p class="omega-kicker">开始训练</p><h2>选个客户卡点，马上开练</h2><p>可以用常见场景，也可以写下手头客户的情况。</p><button class="btn btn-primary" type="button" @click="newCase()">开始练习</button></div>
       </section>
     </div>
   </main>
@@ -1470,6 +1487,8 @@ onBeforeUnmount(() => {
 .omega-side-empty { margin: 18px 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .omega-more { display: block; width: 100%; min-height: 36px; margin-top: 8px; border: 0; background: transparent; color: var(--blue); font-size: 12px; cursor: pointer; }
 .omega-main { min-width: 0; }
+.omega-return { margin-bottom: 12px; }
+.omega-return .btn { min-height: 44px; border: 1px solid var(--blue); background: var(--blue-soft); color: var(--text); padding: 0 14px; }
 .omega-main > .card.pad { padding: 24px; }
 .omega-main h2 { margin: 0 0 12px; font-size: 20px; }
 .omega-intake h2 { font-size: 24px; }

@@ -67,6 +67,19 @@ test('history navigation keeps empty states separate from older-page controls', 
   assert.match(await html(), /加载更早记录/)
 })
 
+test('record view returns to the same card setup, while a new practice resets it', async () => {
+  const { page, html } = mountReview()
+  page.chosenSession.value = { id: 'session-1', status: 'ended', case_snapshot: page.blankDraft(), segments: [] }
+  assert.match(await html(), /返回场景卡/)
+  const setupKey = page.setupKey.value
+  page.newCase(false)
+  assert.equal(page.setupOpen.value, true)
+  assert.equal(page.chosenSession.value, null)
+  assert.equal(page.setupKey.value, setupKey)
+  page.newCase()
+  assert.equal(page.setupKey.value, setupKey + 1)
+})
+
 test('equal rubric ratios select the same first skill regardless of report array order', () => {
   const { page } = mountReview()
   page.chosenSession.value = { case_snapshot: { score_weights: { concessions: 12, value: 12, information: 12 } } }

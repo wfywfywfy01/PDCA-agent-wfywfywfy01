@@ -243,6 +243,9 @@ def setup_summary(snapshot: dict, *, editable: bool = True) -> dict:
 
 
 def launch_view(db: Session, row: OmegaCase) -> dict:
+    if not row.current_version:
+        return {"case_id": row.id, "case_version_id": None, "session_id": None,
+                "next_action": "review_case", "summary": setup_summary(json.loads(row.draft_json))}
     version = db.exec(select(OmegaCaseVersion).where(
         OmegaCaseVersion.case_id == row.id, OmegaCaseVersion.version == 1,
     )).one()
@@ -254,7 +257,7 @@ def launch_view(db: Session, row: OmegaCase) -> dict:
 
 def start_template(db: Session, user: User, body: TemplateStart) -> tuple[dict, bool]:
     team = require_team_user(user)
-    request_hash = digest(body.model_dump(mode="json"))
+    request_hash = digest(body.model_dump(mode="json", exclude={"save_only"} if not body.save_only else set()))
 
     def replay() -> dict | None:
         row = db.exec(select(OmegaCase).where(OmegaCase.team_key == team,
@@ -298,23 +301,25 @@ def start_template(db: Session, user: User, body: TemplateStart) -> tuple[dict, 
     row = OmegaCase(team_key=team, owner_id=user.id, title=validated.title, dealer_id=validated.dealer_id,
                     kind="case", opportunity_id=validated.opportunity_id,
                     source_template_version_id=source.id, launch_key=body.request_key, launch_hash=request_hash,
-                    draft_json=canonical(snapshot), current_version=1, confirmed_revision=1)
+                    draft_json=canonical(snapshot), current_version=0 if body.save_only else 1,
+                    confirmed_revision=0 if body.save_only else 1)
     require_case(user, db, row)
-    version = OmegaCaseVersion(case_id=row.id, version=1, snapshot_json=canonical(snapshot),
-                               content_hash=digest(snapshot), confirmed_by=user.id)
     try:
         db.add(row)
         db.flush()
-        db.add(version)
-        db.flush()
-        if body.usage != "real_review":
-            from app.omega.memory import create_context_snapshot
-            context_json, source_ids_json = create_context_snapshot(db, user, row, snapshot)
-            game = OmegaSession(case_id=row.id, case_version_id=version.id, team_key=team,
-                                owner_id=user.id, mode=body.usage, context_snapshot_json=context_json,
-                                context_source_session_ids_json=source_ids_json)
-            db.add(game)
-            row.initial_session_id = game.id
+        if not body.save_only:
+            version = OmegaCaseVersion(case_id=row.id, version=1, snapshot_json=canonical(snapshot),
+                                       content_hash=digest(snapshot), confirmed_by=user.id)
+            db.add(version)
+            db.flush()
+            if body.usage != "real_review":
+                from app.omega.memory import create_context_snapshot
+                context_json, source_ids_json = create_context_snapshot(db, user, row, snapshot)
+                game = OmegaSession(case_id=row.id, case_version_id=version.id, team_key=team,
+                                    owner_id=user.id, mode=body.usage, context_snapshot_json=context_json,
+                                    context_source_session_ids_json=source_ids_json)
+                db.add(game)
+                row.initial_session_id = game.id
         db.commit()
     except IntegrityError:
         db.rollback()
