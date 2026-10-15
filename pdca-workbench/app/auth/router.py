@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import time
 from collections import defaultdict
 from datetime import timedelta
 from typing import Annotated
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
@@ -32,6 +34,9 @@ from app.config import get_settings
 from app.database import get_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+_SSO_STATE_COOKIE = "pdca_sso_state"
+_SSO_STATE_COOKIE_SECURE = "__Host-pdca_sso_state"
+_SSO_STATE_TTL_SECONDS = 600
 
 # ── 登录限速（内存热路径 + 数据库共享，5 次失败锁 15 分钟）─────────────────
 # 内存 dict 保证单进程内零延迟；login_fail_records 表保证多 worker / 重启后
@@ -192,11 +197,49 @@ async def auth_config():
     return {
         "auth_mode": settings.auth_mode,
         "vps_login_url": settings.vps_login_url,
+        "vps_sso_ready": bool(_vps_sso_provider_url(settings) and resolve_odoo_sso_secret()),
         "trust_proxy_headers": settings.trust_proxy_headers,
         "default_next": "/",
         # walkin 门户前端据此隐藏依赖 vertu-cli 的 VPS 数据面板。
         "portal_mode": settings.portal_mode,
     }
+
+
+def _vps_sso_provider_url(settings) -> str:
+    """Only redirect to the configured Odoo ticket issuer, never a generic VPS homepage."""
+    target = urlsplit(getattr(settings, "vps_login_url", "") or "")
+    base = urlsplit(getattr(settings, "odoo_base_url", "") or "")
+    if (target.scheme != "https" or target.netloc != base.netloc or target.path != "/pdca/embed"
+            or target.query or target.fragment or target.username or target.password):
+        return ""
+    return target.geturl()
+
+
+def _sso_cookie_name(settings) -> str:
+    return _SSO_STATE_COOKIE_SECURE if settings.secure_cookies else _SSO_STATE_COOKIE
+
+
+@router.get("/vps-login")
+async def start_vps_login(next: str = "/app/"):
+    """Bind Odoo's signed ticket to this browser before redirecting to Odoo."""
+    settings = get_settings()
+    provider = _vps_sso_provider_url(settings)
+    if settings.auth_mode not in ("vps", "hybrid") or not provider or not resolve_odoo_sso_secret():
+        raise HTTPException(status_code=503, detail="VPS 单点登录尚未配置完成")
+    state = secrets.token_urlsafe(32)
+    redirect = RedirectResponse(
+        f"{provider}?{urlencode({'next': _safe_next_path(next), 'state': state})}",
+        status_code=302,
+    )
+    redirect.set_cookie(
+        _sso_cookie_name(settings), state, httponly=True,
+        secure=settings.secure_cookies,
+        samesite="none" if settings.secure_cookies else "lax",
+        max_age=_SSO_STATE_TTL_SECONDS, path="/",
+    )
+    redirect.headers["Cache-Control"] = "no-store"
+    redirect.headers["Referrer-Policy"] = "no-referrer"
+    return redirect
 
 
 @router.get("/vps-check")
@@ -247,6 +290,20 @@ def _safe_next_path(raw: str | None) -> str:
             or "\\" in value or any(ord(char) < 32 for char in value)):
         return "/"
     return value
+
+
+def _sso_failure(next_path: str, settings) -> RedirectResponse:
+    if next_path.startswith("/app/"):
+        login = "/app/login"
+        next_path = next_path[4:]
+    else:
+        login = "/login"
+    redirect = RedirectResponse(
+        f"{login}?{urlencode({'next': next_path, 'sso_error': '1'})}", status_code=302,
+    )
+    redirect.delete_cookie(_sso_cookie_name(settings), path="/", secure=settings.secure_cookies)
+    redirect.headers["Cache-Control"] = "no-store"
+    return redirect
 
 
 def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False) -> None:
@@ -316,17 +373,19 @@ async def redirect_from_odoo_query_session(request: Request, session: Session) -
 @router.get("/odoo-sso")
 async def odoo_sso(
     request: Request,
-    response: Response,
     session: Annotated[Session, Depends(get_session)],
     ticket: str = "",
-    next: str = "/",
+    next: str = "/app/",
+    state: str = "",
 ):
-    """消费 Odoo 短时票据，签发 pdca_token 后跳回业务页（供 iframe 免登）。"""
+    """Consume a signed, browser-bound Odoo ticket and issue a PDCA session."""
     secret = resolve_odoo_sso_secret()
     payload = parse_odoo_ticket(ticket, secret) if secret else None
     next_path = _safe_next_path(next)
-    if not payload:
-        return RedirectResponse(f"/login?next={next_path}", status_code=302)
+    settings = get_settings()
+    cookie_state = request.cookies.get(_sso_cookie_name(settings), "")
+    if not payload or not state or not secrets.compare_digest(state, cookie_state) or payload["state"] != state:
+        return _sso_failure(next_path, settings)
     identity = {
         "login": payload["login"],
         "name": payload["name"],
@@ -337,7 +396,11 @@ async def odoo_sso(
         "user_id": payload["uid"],
         "_source": "odoo-sso",
     }
-    return await finish_odoo_sso_login(request, session, identity, next_path)
+    redirect = await finish_odoo_sso_login(request, session, identity, next_path)
+    redirect.delete_cookie(_sso_cookie_name(settings), path="/", secure=settings.secure_cookies)
+    redirect.headers["Cache-Control"] = "no-store"
+    redirect.headers["Referrer-Policy"] = "no-referrer"
+    return redirect
 
 
 @router.post("/vps-bootstrap")

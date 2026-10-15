@@ -19,6 +19,7 @@ _SESSION_ID_RE = re.compile(r"^[0-9a-f]{20,64}$")
 
 _TICKET_TTL_SECONDS = 120
 _BLOCKED_LOGINS = {"public", "__system__", "portaltemplateuser"}
+_STATE_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 
 
 def resolve_odoo_sso_secret() -> str:
@@ -44,6 +45,7 @@ def issue_odoo_ticket(
     name: str,
     job_title: str = "",
     department_name: str = "",
+    state: str,
     secret: str,
     ttl: int = _TICKET_TTL_SECONDS,
 ) -> str:
@@ -54,6 +56,7 @@ def issue_odoo_ticket(
         "name": str(name or "").strip(),
         "job_title": str(job_title or "").strip(),
         "department_name": str(department_name or "").strip(),
+        "state": state,
         "exp": int(time.time()) + int(ttl),
     }
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -86,7 +89,8 @@ def parse_odoo_ticket(ticket: str, secret: str) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         return None
     login = str(payload.get("login") or "").strip()
-    if exp < int(time.time()) or uid <= 0 or not login:
+    state = payload.get("state")
+    if exp < int(time.time()) or uid <= 0 or not login or not isinstance(state, str) or not _STATE_RE.fullmatch(state):
         return None
     if login.lower() in _BLOCKED_LOGINS:
         return None

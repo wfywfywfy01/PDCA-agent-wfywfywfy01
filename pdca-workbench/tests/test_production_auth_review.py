@@ -5,6 +5,7 @@ import asyncio
 import unittest
 from contextlib import ExitStack
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from fastapi import FastAPI, HTTPException
@@ -30,9 +31,10 @@ class ProductionAuthReviewTests(unittest.TestCase):
         )
         SQLModel.metadata.create_all(self.engine)
         self.settings = SimpleNamespace(
-            auth_mode="local", portal_mode="workbench", trust_proxy_headers=False,
+            auth_mode="hybrid", portal_mode="workbench", trust_proxy_headers=False,
             trusted_proxy_ips=set(), secure_cookies=False, access_token_expire_minutes=60,
             secret_key="test-only-auth-review-secret-32-characters", algorithm="HS256",
+            odoo_base_url="https://admin.example", vps_login_url="https://admin.example/pdca/embed",
         )
         self.patches = ExitStack()
         for module in ("deps", "router", "security"):
@@ -65,14 +67,58 @@ class ProductionAuthReviewTests(unittest.TestCase):
         auth_router._fail_log.clear()
         self.engine.dispose()
 
+    def _start_sso(self, next_path="/app/omega"):
+        response = self.client.get("/api/auth/vps-login", params={"next": next_path}, follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        query = parse_qs(urlsplit(response.headers["location"]).query)
+        self.assertEqual(query["next"], [next_path])
+        self.assertEqual(len(query["state"][0]), 43)
+        return query["state"][0]
+
+    def test_vps_login_requires_configured_provider(self):
+        self.settings.vps_login_url = "https://vps.vertu.cn"
+        self.assertFalse(self.client.get("/api/auth/config").json()["vps_sso_ready"])
+        self.assertEqual(self.client.get("/api/auth/vps-login").status_code, 503)
+
+    def test_odoo_sso_rejects_missing_state_and_replay(self):
+        state = self._start_sso()
+        ticket = issue_odoo_ticket(login="employee", uid=123, name="Employee", secret="test-sso-secret", state=state)
+        missing = self.client.get("/api/auth/odoo-sso", params={"ticket": ticket}, follow_redirects=False)
+        self.assertEqual(missing.status_code, 302)
+        self.assertNotIn("pdca_token", missing.cookies)
+
+        state = self._start_sso()
+        ticket = issue_odoo_ticket(login="employee", uid=123, name="Employee", secret="test-sso-secret", state=state)
+        accepted = self.client.get("/api/auth/odoo-sso", params={"ticket": ticket, "state": state}, follow_redirects=False)
+        self.assertEqual(accepted.status_code, 302)
+        replay = self.client.get("/api/auth/odoo-sso", params={"ticket": ticket, "state": state}, follow_redirects=False)
+        self.assertNotIn("pdca_token", replay.cookies)
+        self.assertIn("sso_error=1", replay.headers["location"])
+
+    def test_odoo_sso_rejects_ticket_from_another_browser(self):
+        first_state = self._start_sso()
+        ticket = issue_odoo_ticket(
+            login="employee", uid=123, name="Employee", secret="test-sso-secret", state=first_state,
+        )
+        second_state = self._start_sso()
+        response = self.client.get(
+            "/api/auth/odoo-sso",
+            params={"ticket": ticket, "state": second_state, "next": "//evil.example"},
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["location"], "/login?next=%2F&sso_error=1")
+        self.assertNotIn("pdca_token", response.cookies)
+
     def test_odoo_sso_cannot_reactivate_disabled_account(self):
         with Session(self.engine) as session:
             user = session.exec(select(User).where(User.username == "employee")).one()
             user.is_active = False
             session.add(user)
             session.commit()
-        ticket = issue_odoo_ticket(login="employee", uid=123, name="Employee", secret="test-sso-secret")
-        response = self.client.get("/api/auth/odoo-sso", params={"ticket": ticket}, follow_redirects=False)
+        state = self._start_sso()
+        ticket = issue_odoo_ticket(login="employee", uid=123, name="Employee", secret="test-sso-secret", state=state)
+        response = self.client.get("/api/auth/odoo-sso", params={"ticket": ticket, "state": state, "next": "/app/omega"}, follow_redirects=False)
         self.assertEqual(response.status_code, 403)
         self.assertNotIn("pdca_token", response.cookies)
         with Session(self.engine) as session:
@@ -80,9 +126,11 @@ class ProductionAuthReviewTests(unittest.TestCase):
 
     def test_odoo_login_cookie_authenticates_followup_in_vps_mode(self):
         self.settings.auth_mode = "vps"
-        ticket = issue_odoo_ticket(login="employee", uid=123, name="Employee", secret="test-sso-secret")
-        response = self.client.get("/api/auth/odoo-sso", params={"ticket": ticket}, follow_redirects=False)
+        state = self._start_sso()
+        ticket = issue_odoo_ticket(login="employee", uid=123, name="Employee", secret="test-sso-secret", state=state)
+        response = self.client.get("/api/auth/odoo-sso", params={"ticket": ticket, "state": state, "next": "/app/omega"}, follow_redirects=False)
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["location"], "/app/omega")
         token = response.cookies["pdca_token"]
         # Secure iframe cookies are sent by HTTPS clients; bearer exercises the same JWT path.
         following = self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -102,12 +150,13 @@ class ProductionAuthReviewTests(unittest.TestCase):
             ))
             session.commit()
 
+        state = self._start_sso()
         ticket = issue_odoo_ticket(
             login="initial-user", uid=456, name="Initial User",
-            secret="test-sso-secret",
+            secret="test-sso-secret", state=state,
         )
         response = self.client.get(
-            "/api/auth/odoo-sso", params={"ticket": ticket}, follow_redirects=False,
+            "/api/auth/odoo-sso", params={"ticket": ticket, "state": state}, follow_redirects=False,
         )
         self.assertEqual(response.status_code, 302)
         token = response.cookies["pdca_token"]
