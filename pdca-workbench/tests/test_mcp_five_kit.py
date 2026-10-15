@@ -239,5 +239,29 @@ class ToolScopeTests(unittest.TestCase):
                 self.assertEqual(trend["months"][0]["deal_amount_usd"], expected)
 
 
+    def test_reports_include_notes(self):
+        from app.mcp_five_kit import five_kit_reports
+
+        self.session.add(WalkinDailyReport(
+            report_date="2026-09-19", dealer_id="sea01a", dealer_name="新加坡店",
+            walkin_visits=1, deal_count=1, deal_amount_yuan=10_660,
+            notes="VERTU ALPHAFOLD BLACK ADVANCED SET AMBER BROWN 1TB HW",
+        ))
+        self.session.add(WalkinDailyReport(
+            report_date="2026-09-20", dealer_id="sea01a", dealer_name="新加坡店",
+            walkin_visits=1,
+        ))
+        self.session.commit()
+        with patch("app.mcp_five_kit._authorized_user", lambda: self._auth("admin", ())):
+            result = five_kit_reports("2026-09-19", "2026-09-20", "sea01a")
+        self.assertEqual(result["count"], 2)
+        by_date = {item["report_date"]: item for item in result["items"]}
+        self.assertEqual(
+            by_date["2026-09-19"]["notes"],
+            "VERTU ALPHAFOLD BLACK ADVANCED SET AMBER BROWN 1TB HW",
+        )
+        self.assertEqual(by_date["2026-09-20"]["notes"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

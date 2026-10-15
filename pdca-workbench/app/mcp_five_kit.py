@@ -238,6 +238,8 @@ def _row(row: WalkinDailyReport) -> dict:
         payload[field] = int(getattr(row, field, 0) or 0)
     payload["deal_amount_usd"] = float(getattr(row, "deal_amount_yuan", 0) or 0)
     payload["amount_requires_review"] = revenue_requires_review(row.deal_amount_yuan)
+    # 备注是自由文本（产品型号常记在此），必须透出，否则下游会误判「无产品数据」。
+    payload["notes"] = getattr(row, "notes", "") or ""
     return payload
 
 
@@ -287,7 +289,7 @@ def list_stores(region: str = "") -> dict:
 
 @five_kit_mcp.tool(
     name="five_kit_reports",
-    description="查询某日期区间的五件套日报明细（客流来源 + 成交漏斗）。",
+    description="查询某日期区间的五件套日报明细（客流来源 + 成交漏斗 + 备注文本；产品型号常记在备注里）。",
 )
 def five_kit_reports(start_date: str, end_date: str = "", dealer_id: str = "") -> dict:
     start = _iso(start_date, "start_date")
