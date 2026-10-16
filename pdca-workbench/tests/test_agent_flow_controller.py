@@ -81,6 +81,72 @@ class FlowControllerTests(unittest.TestCase):
             )
         self.assertEqual(second.get("skipped"), "already_claimed")
 
+    def test_custom_minutes_have_distinct_runs_and_reach_renderer(self):
+        payload = {"day": "2026-09-17", "messages": {"g1": "m1"}}
+        with patch(
+            "app.agents.flow_controller.prepare_duzhan", return_value=payload,
+        ) as prepare:
+            first = flow_controller.prepare_performance_slot(
+                "Asia/Shanghai", 9, minute=35,
+                now=datetime(2026, 9, 17, 9, 20, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+            second = flow_controller.prepare_performance_slot(
+                "Asia/Shanghai", 9, minute=40,
+                now=datetime(2026, 9, 17, 9, 25, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+        self.assertEqual(first["status"], "ok")
+        self.assertEqual(second["status"], "ok")
+        self.assertEqual(prepare.call_count, 2)
+        self.assertEqual(prepare.call_args_list[0].kwargs["minute"], 35)
+        self.assertEqual(prepare.call_args_list[1].kwargs["minute"], 40)
+
+    def test_cross_midnight_collect_uses_target_day(self):
+        payload = {"day": "2026-09-17", "messages": {"g1": "m1"}}
+        with patch(
+            "app.agents.flow_controller.prepare_duzhan", return_value=payload,
+        ) as prepare:
+            result = flow_controller.prepare_performance_slot(
+                "Asia/Shanghai", 0, minute=5, day_offset=1,
+                now=datetime(2026, 9, 16, 23, 50, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(prepare.call_args.kwargs["day"], "2026-09-17")
+
+    def test_cross_midnight_backup_uses_original_target_day(self):
+        with patch(
+            "app.agents.flow_controller.run_duzhan",
+            return_value={"sent": ["g1"], "failed": []},
+        ) as push:
+            result = flow_controller.push_performance_slot(
+                "Asia/Shanghai", 23, minute=50, day_offset=-1,
+                now=datetime(2026, 9, 18, 0, 20, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(push.call_args.kwargs["day"], "2026-09-17")
+
+    def test_misfired_cross_midnight_jobs_use_scheduled_target_day(self):
+        payload = {"day": "2026-09-17", "messages": {"g1": "m1"}}
+        with patch(
+            "app.agents.flow_controller.prepare_duzhan", return_value=payload,
+        ) as prepare:
+            collected = flow_controller.prepare_performance_slot(
+                "Asia/Shanghai", 0, minute=5, trigger_offset_minutes=-15,
+                now=datetime(2026, 9, 17, 0, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+        self.assertEqual(collected["status"], "ok")
+        self.assertEqual(prepare.call_args.kwargs["day"], "2026-09-17")
+
+        with patch(
+            "app.agents.flow_controller.run_duzhan",
+            return_value={"sent": ["g1"], "failed": []},
+        ) as push:
+            sent = flow_controller.push_performance_slot(
+                "Asia/Shanghai", 23, minute=50, trigger_offset_minutes=0,
+                now=datetime(2026, 9, 18, 0, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+            )
+        self.assertEqual(sent["status"], "ok")
+        self.assertEqual(push.call_args.kwargs["day"], "2026-09-17")
+
     def test_push_slot_partial_failure_notifies(self):
         with patch(
             "app.agents.flow_controller.run_duzhan",

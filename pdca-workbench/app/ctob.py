@@ -14,7 +14,8 @@ from zoneinfo import ZoneInfo
 from loguru import logger
 
 from app.config import get_settings
-from app.duzhan import is_duzhan_workday
+from app.duzhan import is_duzhan_workday, slot_stage_hour
+from app.duzhan_blocks import normalize_time_slot, split_time_slot
 from app.duzhan_ledger import mcp_call
 from app.vps_im_push import push_duzhan_message
 
@@ -30,17 +31,14 @@ _CTOB_REPLY_FORMAT = "回复格式：客户名 / 汽车或转B / 几轮 / 进度
 _CTOB_REPLY_FORMAT_MORNING = "回复格式：客户名 / 汽车或转B / 品类 / 第一动作 / 截止时间。没聊写「无」。"
 
 
-def slot_title(hour: int) -> str:
-    """档位标题；20:00 保持历史文案不变。"""
-    return {
-        10: "10:00 C转B早追",
-        15: "15:00 C转B中追",
-        20: "20:00 C转B晚追",
-    }.get(hour, f"{hour:02d}:00 C转B")
+def slot_title(hour: int, minute: int = 0) -> str:
+    """档位标题；标准三档保持历史文案，自定义时刻显示真实时间。"""
+    stage = {10: "早追", 15: "中追", 20: "晚追"}[slot_stage_hour(hour, minute)]
+    return f"{hour:02d}:{minute:02d} C转B{stage}"
 
 
-def _slot_head(day: str, hour: int) -> str:
-    return f"【海外渠道督战官｜{slot_title(hour)}｜{day}】"
+def _slot_head(day: str, hour: int, minute: int = 0) -> str:
+    return f"【海外渠道督战官｜{slot_title(hour, minute)}｜{day}】"
 
 
 def _chat_line(item: dict) -> str:
@@ -63,44 +61,57 @@ def _signed(value: float) -> str:
     return f"+{value:g}" if value >= 0 else f"{value:g}"
 
 
-def _slot_path(day: str, hour: int) -> Path:
+def _slot_path(day: str, hour: int, minute: int = 0) -> Path:
     folder = get_settings().data_dir / "runtime" / "ctob_slots"
     folder.mkdir(parents=True, exist_ok=True)
-    return folder / f"{day}_{hour:02d}.json"
+    clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
+    return folder / f"{day}_{clock}.json"
 
 
-def save_snapshot(day: str, hour: int, collected: dict[str, dict]) -> None:
+def save_snapshot(day: str, hour: int, collected: dict[str, dict], minute: int = 0) -> None:
     """落本档采集快照：15:00 用 10:00 档做“本次新增”对照；失败不影响推送。"""
     try:
-        _slot_path(day, hour).write_text(
-            json.dumps({"day": day, "hour": hour, "owners": collected}, ensure_ascii=False),
+        _slot_path(day, hour, minute).write_text(
+            json.dumps(
+                {"day": day, "hour": hour, "minute": minute, "owners": collected},
+                ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
     except OSError as exc:  # noqa: BLE001 — 快照只影响对照，不阻断推送
         logger.warning("C转B 快照写入失败 {} {}: {}", day, hour, exc)
 
 
-def load_snapshot(day: str, hour: int) -> dict[str, dict]:
+def load_snapshot(day: str, hour: int, minute: int = 0) -> dict[str, dict]:
     """读某档快照；缺失返回空字典（渲染侧写待确认）。"""
     try:
-        payload = json.loads(_slot_path(day, hour).read_text(encoding="utf-8"))
+        payload = json.loads(_slot_path(day, hour, minute).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return {}
     owners = payload.get("owners") if isinstance(payload, dict) else None
     return owners if isinstance(owners, dict) else {}
 
 
-def _delta_line(summary: dict, prev_summary: dict) -> str:
+def _delta_line(
+    summary: dict, prev_summary: dict, previous_slot: str | None = None,
+) -> str:
     """15:00 对照 10:00 的新增；缺上一档口径写待确认，不写 0。"""
+    if previous_slot == "":
+        return (
+            f"当前状态：触达 {summary.get('reached') if summary.get('reached') is not None else '待确认'} 户"
+            f" / 回复 {summary.get('replied') if summary.get('replied') is not None else '待确认'} 户"
+        )
+    baseline = previous_slot if previous_slot is not None else "10:00"
+    baseline = baseline or "上一档"
     reached = summary.get("reached")
     prev_reached = prev_summary.get("reached")
     if reached is None or prev_reached is None:
-        return "本次新增：待确认（缺 10:00 档口径）"
+        return f"本次新增：待确认（缺 {baseline} 档口径）"
     replied = float(summary.get("replied") or 0)
     prev_replied = float(prev_summary.get("replied") or 0)
     return (
         f"本次新增：触达 {_signed(float(reached) - float(prev_reached))} 户 / "
-        f"回复 {_signed(replied - prev_replied)} 户（对照 10:00 档）"
+        f"回复 {_signed(replied - prev_replied)} 户（对照 {baseline} 档）"
     )
 FOCUS_KINDS = frozenset({"汽车", "转B"})
 _CAR_RE = re.compile(
@@ -339,18 +350,35 @@ def render_brief(
     hour: int = 20,
     prev: dict | None = None,
     *,
+    minute: int = 0,
+    previous_slot: str | None = None,
     focus_override: str | None = None,
 ) -> str:
     """一群一条；10:00 定任务 / 15:00 追变化 / 20:00 验兑现（老文案不变）。"""
-    head = _slot_head(day, hour)
-    focus = focus_override or _CTOB_SLOT_FOCUS.get(hour, _CTOB_SLOT_FOCUS[20])
+    stage_hour = slot_stage_hour(hour, minute)
+    head = _slot_head(day, hour, minute)
+    focus = focus_override or _CTOB_SLOT_FOCUS[stage_hour]
+    if focus_override is None and stage_hour == 15:
+        if previous_slot == "":
+            focus = "检查当前进度、未闭环事项和卡点；补负责人、下一步和截止时间。"
+        elif previous_slot is not None:
+            focus = focus.replace("10:00", previous_slot)
     if getattr(get_settings(), "ctob_compact", True):
         # 老板 2026-09-19：C转B 三档同样只出总结性内容（明细走 08:00 证据 HTML）。
-        return head + "\n" + _compact_body(hour, focus, summary, chats, cohort, prev)
-    if hour == 10:
-        return _render_morning(owner, day, head, focus, summary, chats, cohort, prev)
-    if hour == 15:
-        return _render_midday(owner, day, head, focus, summary, chats, cohort, prev)
+        return head + "\n" + _compact_body(
+            stage_hour, focus, summary, chats, cohort, prev,
+            previous_slot=previous_slot,
+        )
+    if stage_hour == 10:
+        return _render_morning(
+            owner, day, head, focus, summary, chats, cohort, prev,
+            previous_slot=previous_slot,
+        )
+    if stage_hour == 15:
+        return _render_midday(
+            owner, day, head, focus, summary, chats, cohort, prev,
+            previous_slot=previous_slot,
+        )
     reached = summary.get("reached")
     replied = summary.get("replied")
     outbound = summary.get("outbound")
@@ -404,28 +432,45 @@ def _compact_body(
     chats: list[dict],
     cohort: dict,
     prev: dict | None,
+    *,
+    previous_slot: str | None = None,
 ) -> str:
     """C转B 三档总结版：重点客户 + 变化 + 要回什么，5 行以内。"""
     prev = prev or {}
-    prev_summary = prev.get("summary") or {}
+    no_baseline = previous_slot == ""
+    baseline_data = {"summary": summary, "chats": chats} if no_baseline else prev
+    prev_summary = baseline_data.get("summary") or {}
     prev_unreplied = {
-        item.get("name") for item in (prev.get("chats") or []) if not item.get("replied")
+        item.get("name") for item in (baseline_data.get("chats") or []) if not item.get("replied")
     }
     lines = [f"- 本档动作：{focus}"]
     reached = summary.get("reached")
     replied = summary.get("replied")
     if hour == 10:
+        baseline_label = (
+            "当前状态" if no_baseline
+            else (previous_slot if previous_slot is not None else "昨日全天")
+        )
         if prev_summary.get("reached") is None:
-            lines.append("昨日全天：待确认（缺昨日 20:00 档快照）")
+            missing = "待确认（缺昨日 20:00 档快照）" if previous_slot is None else "待确认（缺基线快照）"
+            lines.append(f"{baseline_label}：{missing}")
         else:
             lines.append(
-                f"昨日全天：WA 触达 {prev_summary.get('reached')} / 回复 {prev_summary.get('replied')}"
+                f"{baseline_label}：WA 触达 {prev_summary.get('reached')} / 回复 {prev_summary.get('replied')}"
                 f" / 汽车 {prev_summary.get('car') if prev_summary.get('car') is not None else '待确认'}"
                 f" / 转B {prev_summary.get('ctob') if prev_summary.get('ctob') is not None else '待确认'}"
             )
-        unreplied = [item for item in (prev.get("chats") or []) if not item.get("replied")]
+        unreplied = [item for item in (baseline_data.get("chats") or []) if not item.get("replied")]
+        carry_label = (
+            "当前未回：" if no_baseline
+            else (
+                f"{baseline_label} 未回 → 当前第一动作："
+                if previous_slot is not None
+                else "昨日未回 → 今日第一动作："
+            )
+        )
         lines.append(
-            "昨日未回 → 今日第一动作："
+            carry_label
             + (_name_list(unreplied, 3) if unreplied else "未见未回客户（或昨日档未出数）")
         )
         new_n = cohort.get("new")
@@ -437,13 +482,26 @@ def _compact_body(
         lines.append("请回：今日汽车/转B 3–5 项（客户 / 品类 / 第一动作 / 截止）")
         return chr(10).join(lines)
     if hour == 15:
+        if no_baseline:
+            lines.append(
+                f"当前状态：触达 {reached if reached is not None else '待确认'} 户"
+                f" / 回复 {replied if replied is not None else '待确认'} 户"
+            )
+            current_replied = [item for item in chats if item.get("replied")]
+            lines.append("当前已回：" + (_name_list(current_replied, 3) if current_replied else "无（或未同步）"))
+            blockers = infer_blockers(chats, cohort)
+            lines.append("卡点：" + ("；".join(blockers[:2]) if blockers else "MCP 未见汽车/转B卡点，待群内确认"))
+            lines.append("请回：当前事项状态（已完成 / 推进中 / 停滞 / 未回）+ 卡点")
+            return chr(10).join(lines)
+        baseline = previous_slot if previous_slot is not None else "10:00"
         if reached is None or prev_summary.get("reached") is None:
-            lines.append("本档新增：待确认（缺 10:00 档口径）")
+            lines.append(f"本档新增：待确认（缺 {baseline} 档口径）")
         else:
             d_reached = float(reached) - float(prev_summary.get("reached") or 0)
             d_replied = float(replied or 0) - float(prev_summary.get("replied") or 0)
             lines.append(
-                f"本档新增：触达 {_signed(d_reached)} 户 / 回复 {_signed(d_replied)} 户（对照 10:00 档）"
+                f"本档新增：触达 {_signed(d_reached)} 户 / 回复 {_signed(d_replied)} 户"
+                f"（对照 {baseline} 档）"
             )
         newly = [
             item for item in chats
@@ -453,7 +511,7 @@ def _compact_body(
         lines.append("本档新回：" + (_name_list(newly, 3) if newly else "无（或未同步）"))
         blockers = infer_blockers(chats or (prev.get("chats") or []), cohort)
         lines.append("卡点：" + ("；".join(blockers[:2]) if blockers else "MCP 未见汽车/转B卡点，待群内确认"))
-        lines.append("请回：相对 10:00 的变化（新回 / 推进 / 停滞）+ 卡点")
+        lines.append(f"请回：相对 {baseline} 的变化（新回 / 推进 / 停滞）+ 卡点")
         return chr(10).join(lines)
     other = summary.get("other")
     lines.append(
@@ -484,25 +542,42 @@ def _render_morning(
     chats: list[dict],
     cohort: dict,
     prev: dict | None,
+    *,
+    previous_slot: str | None = None,
 ) -> str:
     """10:00 早追：昨日未回结转今日第一动作 + 今日新客队列 + 待跟进。"""
     prev = prev or {}
-    prev_summary = prev.get("summary") or {}
-    prev_unreplied = [item for item in (prev.get("chats") or []) if not item.get("replied")]
+    no_baseline = previous_slot == ""
+    baseline_data = {"summary": summary, "chats": chats} if no_baseline else prev
+    baseline_label = (
+        "当前状态" if no_baseline
+        else (previous_slot if previous_slot is not None else "昨日全天")
+    )
+    prev_summary = baseline_data.get("summary") or {}
+    prev_unreplied = [item for item in (baseline_data.get("chats") or []) if not item.get("replied")]
     lines = [head, f"@{owner.display} 重点：汽车 + 转B线索（C端耳机/手表等不追）"]
     lines.append(f"- 本档动作：{focus}")
     if prev_summary.get("reached") is None:
-        lines.append("昨日全天：待确认（缺昨日 20:00 档快照）")
+        missing = "待确认（缺昨日 20:00 档快照）" if previous_slot is None else "待确认（缺基线快照）"
+        lines.append(f"{baseline_label}：{missing}")
     else:
         car = prev_summary.get("car")
         ctob = prev_summary.get("ctob")
         lines.append(
-            f"昨日全天：WA总触达 {prev_summary.get('reached')} / 回复 {prev_summary.get('replied')}"
+            f"{baseline_label}：WA总触达 {prev_summary.get('reached')} / 回复 {prev_summary.get('replied')}"
             f" / 汽车 {car if car is not None else '待确认'}"
             f" / 转B {ctob if ctob is not None else '待确认'}"
         )
+    carry_label = (
+        "当前未回：" if no_baseline
+        else (
+            f"{baseline_label} 未回结转（当前第一动作）："
+            if previous_slot is not None
+            else "昨日未回结转（今日第一动作）："
+        )
+    )
     lines.append(
-        "昨日未回结转（今日第一动作）："
+        carry_label
         + (_name_list(prev_unreplied) if prev_unreplied else "未见未回客户（或昨日档未出数）")
     )
     new_n = cohort.get("new")
@@ -528,6 +603,8 @@ def _render_midday(
     chats: list[dict],
     cohort: dict,
     prev: dict | None,
+    *,
+    previous_slot: str | None = None,
 ) -> str:
     """15:00 中追：只报相对 10:00 的变化（新回/未回/新增触达回复）。"""
     prev = prev or {}
@@ -535,20 +612,22 @@ def _render_midday(
     prev_unreplied = {item.get("name") for item in prev_chats if not item.get("replied")}
     lines = [head, f"@{owner.display} 重点：汽车 + 转B线索（C端耳机/手表等不追）"]
     lines.append(f"- 本档动作：{focus}")
-    lines.append(_delta_line(summary, prev.get("summary") or {}))
+    lines.append(_delta_line(summary, prev.get("summary") or {}, previous_slot))
     reached = summary.get("reached")
     replied = summary.get("replied")
     lines.append(
         f"本档口径：WA总触达 {reached if reached is not None else '待确认'}"
         f" / 回复 {replied if replied is not None else '待确认'}"
     )
+    current_only = previous_slot == ""
     newly = [
         item
         for item in chats
-        if item.get("replied") and item.get("name") not in prev_unreplied
+        if item.get("replied") and (current_only or item.get("name") not in prev_unreplied)
     ]
     still = [item for item in chats if not item.get("replied")]
-    lines.append("本档新回：" + (_name_list(newly) if newly else "无（或未同步）"))
+    reply_label = "当前已回：" if current_only else "本档新回："
+    lines.append(reply_label + (_name_list(newly) if newly else "无（或未同步）"))
     lines.append("仍未回：" + (_name_list(still) if still else "无"))
     blockers = infer_blockers(chats or prev_chats, cohort)
     support = infer_support(blockers, chats, int(summary.get("other") or 0))
@@ -600,10 +679,87 @@ def _prev_slot(day: str, hour: int) -> tuple[str, int] | None:
     return None
 
 
+def _code_time_slots() -> list[str]:
+    slots: list[str] = []
+    for raw in getattr(get_settings(), "ctob_times", []):
+        slot = normalize_time_slot(raw)
+        if slot is not None and slot not in slots:
+            slots.append(slot)
+    return slots or ["10:00", "15:00", "20:00"]
+
+
+def _previous_snapshot_for_owner(
+    day: str,
+    hour: int,
+    minute: int,
+    channel_id: str,
+    active_follow: list[tuple[object, object]] | None = None,
+) -> dict | None:
+    """读取该跟进群真实上一配置时刻的数据。"""
+    if active_follow is not None:
+        from app.duzhan_admin import runtime
+
+        current = f"{hour:02d}:{minute:02d}"
+        agent = next((row for row, owner in active_follow if owner.channel_id == channel_id), None)
+        previous = runtime.previous_slot_of(agent, current) if agent is not None else None
+        if previous is None:
+            return None
+        day_offset, previous_slot = previous
+        clock = split_time_slot(previous_slot)
+        if clock is None:
+            return None
+        previous_day = (
+            datetime.strptime(day, "%Y-%m-%d") + timedelta(days=day_offset)
+        ).strftime("%Y-%m-%d")
+        snapshot = load_snapshot(previous_day, clock[0], clock[1]).get(channel_id)
+        metadata = {
+            "_previous_slot": previous_slot,
+            "_previous_day_offset": day_offset,
+        }
+        return {**snapshot, **metadata} if isinstance(snapshot, dict) else metadata
+
+    code_slots = _code_time_slots()
+    if code_slots != ["10:00", "15:00", "20:00"]:
+        from app.duzhan_admin import runtime
+
+        previous = runtime.previous_slot_in(code_slots, f"{hour:02d}:{minute:02d}")
+        if previous is None:
+            return None
+        day_offset, previous_slot = previous
+        clock = split_time_slot(previous_slot)
+        if clock is None:
+            return None
+        previous_day = (
+            datetime.strptime(day, "%Y-%m-%d") + timedelta(days=day_offset)
+        ).strftime("%Y-%m-%d")
+        snapshot = load_snapshot(previous_day, clock[0], clock[1]).get(channel_id)
+        metadata = {
+            "_previous_slot": previous_slot,
+            "_previous_day_offset": day_offset,
+        }
+        return {**snapshot, **metadata} if isinstance(snapshot, dict) else metadata
+
+    previous = _prev_slot(day, slot_stage_hour(hour, minute))
+    return load_snapshot(previous[0], previous[1]).get(channel_id) if previous else None
+
+
+def _previous_slot_label(snapshot: dict | None, *, configured: bool) -> str | None:
+    """配置模式返回真实上一档；空串表示该 Agent 没有上一档。"""
+    if not configured:
+        return None
+    if not isinstance(snapshot, dict):
+        return ""
+    slot = str(snapshot.get("_previous_slot") or "")
+    if slot and int(snapshot.get("_previous_day_offset") or 0) < 0:
+        return f"昨日 {slot}"
+    return slot
+
+
 def run_ctob(
     day: str | None = None,
     now: datetime | None = None,
     hour: int = 20,
+    minute: int = 0,
     owners: tuple[CtobOwner, ...] | None = None,
 ) -> dict:
     """工作日按档向已配置的 C转B 群各推一条（10:00 / 15:00 / 20:00）。
@@ -611,10 +767,13 @@ def run_ctob(
     `owners` 有值时只处理这些群（db 源下同档群合并执行）；默认全部。
     """
     clock = now or datetime.now(ZoneInfo(TZ_SHANGHAI))
-    if not is_duzhan_workday(TZ_SHANGHAI, clock):
-        logger.info("周末不推 C转B {}", slot_title(hour))
-        return {"sent": [], "failed": [], "skipped": "weekend"}
     day = day or clock.strftime("%Y-%m-%d")
+    target_clock = datetime.strptime(
+        f"{day}T{hour:02d}:{minute:02d}:00", "%Y-%m-%dT%H:%M:%S",
+    ).replace(tzinfo=ZoneInfo(TZ_SHANGHAI))
+    if not is_duzhan_workday(TZ_SHANGHAI, target_clock):
+        logger.info("周末不推 C转B {}", slot_title(hour, minute))
+        return {"sent": [], "failed": [], "skipped": "weekend"}
     targets: tuple[CtobOwner, ...] = tuple(owners) if owners is not None else OWNERS
     collected: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -627,21 +786,26 @@ def run_ctob(
                 logger.warning("C转B 采集失败 {}: {}", owner.display, exc)
                 collected[owner.channel_id] = {"summary": {}, "chats": [], "cohort": {}}
     # 先落快照再推送：15:00 要用 10:00 档做对照，推送失败也要保住基线。
-    save_snapshot(day, hour, collected)
-    prev_owner: dict[str, dict] = {}
-    prev_slot = _prev_slot(day, hour)
-    if prev_slot:
-        prev_owner = load_snapshot(prev_slot[0], prev_slot[1])
+    save_snapshot(day, hour, collected, minute)
     sent: list[str] = []
     failed: list[str] = []
     from app.duzhan_admin import ai_rules, runtime
+
+    active_follow = runtime.follow_agents() if runtime.using_db() else None
 
     for owner in targets:
         data = collected.get(owner.channel_id) or {"summary": {}, "chats": [], "cohort": {}}
         if runtime.using_db() and not runtime.conditions_allow_channel(owner.channel_id, day, data):
             logger.info("C转B 发送条件未满足，跳过 {} {} {}", owner.display, day, hour)
             continue
-        override = ai_rules.focus_for_channel(owner.channel_id, hour, day, data)
+        previous = _previous_snapshot_for_owner(
+            day, hour, minute, owner.channel_id, active_follow,
+        )
+        previous_slot = _previous_slot_label(
+            previous,
+            configured=active_follow is not None or _code_time_slots() != ["10:00", "15:00", "20:00"],
+        )
+        override = ai_rules.focus_for_channel(owner.channel_id, hour, day, data, minute=minute)
         body = render_brief(
             owner,
             day,
@@ -649,19 +813,21 @@ def run_ctob(
             data["chats"],
             data["cohort"],
             hour=hour,
-            prev=prev_owner.get(owner.channel_id),
+            prev=previous,
+            minute=minute,
+            previous_slot=previous_slot,
             focus_override=override,
         )
         ok = push_duzhan_message(
             body,
             owner.channel_id,
             idempotency_key=(
-                f"ctob-{day.replace('-', '')}-{hour:02d}00-{owner.channel_id[:8]}"
+                f"ctob-{day.replace('-', '')}-{hour:02d}{minute:02d}-{owner.channel_id[:8]}"
             ),
         )
         if ok:
             sent.append(owner.display)
         else:
             failed.append(owner.display)
-            logger.warning("C转B {}推送失败 {}", slot_title(hour), owner.display)
-    return {"day": day, "hour": hour, "sent": sent, "failed": failed}
+            logger.warning("C转B {}推送失败 {}", slot_title(hour, minute), owner.display)
+    return {"day": day, "hour": hour, "minute": minute, "sent": sent, "failed": failed}

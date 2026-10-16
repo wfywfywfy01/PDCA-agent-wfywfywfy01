@@ -2,7 +2,7 @@
 """配置 → 运行时（db 源）：翻译、过滤、台账分档、调度注册。"""
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -64,22 +64,39 @@ class RuntimeTranslationTests(unittest.TestCase):
         self.assertEqual(group.lang, NEW_GROUP.lang)
         self.assertEqual(group.tz, NEW_GROUP.tz)
 
+    def test_group_of_binds_business_group_by_channel_id(self):
+        other = GROUPS[1]
+        agent = self.add("错配群名", _blocks(label=other.name))
+        group = runtime.group_of(agent)
+        self.assertEqual(group.channel_id, NEW_GROUP.channel_id)
+        self.assertEqual(group.name, NEW_GROUP.name)
+
     def test_group_of_uses_agent_name_and_default_tz(self):
         agent = self.add("没名字的群", {"blocks": [
             {"type": "group", "channel_id": NEW_GROUP.channel_id},
             {"type": "times", "slots": ["10:00"]},
         ]}, timezone="")
         group = runtime.group_of(agent)
-        self.assertEqual(group.name, "没名字的群")
+        self.assertEqual(group.name, NEW_GROUP.name)
         self.assertEqual(group.tz, "Asia/Shanghai")
         self.assertEqual(group.lang, "zh")
 
-    def test_slots_only_accept_supported_hours(self):
+    def test_slots_accept_custom_clock_times(self):
         agent = self.add("档位官", {"blocks": [
             {"type": "group", "channel_id": NEW_GROUP.channel_id},
-            {"type": "times", "slots": ["10:00", "12:00", "20:00"]},
+            {"type": "times", "slots": ["09:35", "14:05", "20:00"]},
         ]})
-        self.assertEqual(runtime.slots_of(agent), [10, 20])
+        self.assertEqual(runtime.slot_times_of(agent), ["09:35", "14:05", "20:00"])
+        self.assertEqual(runtime.slots_of(agent), [9, 14, 20])
+        self.assertEqual(runtime.previous_slot_of(agent, "14:05"), (0, "09:35"))
+        self.assertEqual(runtime.previous_slot_of(agent, "09:35"), (-1, "20:00"))
+        self.assertIsNone(runtime.previous_slot_of(agent, "10:00"))
+
+        single = self.add("单档官", {"blocks": [
+            {"type": "group", "channel_id": NEW_GROUP.channel_id},
+            {"type": "times", "slots": ["14:10"]},
+        ]})
+        self.assertIsNone(runtime.previous_slot_of(single, "14:10"))
 
     def test_duzhan_agents_skips_follow_and_invalid(self):
         self.add("跟进群官", _blocks(channel_id=FOLLOW_GROUP, label="跟进群"))
@@ -129,6 +146,18 @@ class RuntimeTranslationTests(unittest.TestCase):
             "summary": {}, "chats": [], "cohort": {"rows": [{"name": "某客户"}]},
         }))
 
+    def test_ctob_timezone_is_fixed_to_shanghai(self):
+        from app.duzhan_admin import service
+
+        agent = self.add(
+            "巴黎跟进群官",
+            _blocks(channel_id=FOLLOW_GROUP, label="跟进群"),
+            timezone="Europe/Paris",
+        )
+
+        self.assertEqual(runtime.group_of(agent).tz, "Asia/Shanghai")
+        self.assertIn("C转B 跟进群仅支持 Asia/Shanghai 时区", service.validate_agent(agent))
+
 
 class DbGroupsTests(unittest.TestCase):
     def setUp(self):
@@ -150,12 +179,12 @@ class DbGroupsTests(unittest.TestCase):
             session.commit()
 
     def test_groups_for_tz_uses_config_when_db(self):
-        # 群名以 group 块的 label 为准（配置页上写的是什么就发到哪个名字）
+        # 取数归属只认 channel_id；可编辑展示名不能切换到另一组业务数据。
         paris = groups_for_tz("Europe/Paris")
-        self.assertEqual([group.name for group in paris], ["巴黎群"])
+        self.assertEqual([group.name for group in paris], [NEW_GROUP.name])
         self.assertEqual(paris[0].lang, "en")
         shanghai = groups_for_tz("Asia/Shanghai")
-        self.assertEqual([group.name for group in shanghai], ["上海群"])
+        self.assertEqual([group.name for group in shanghai], [NEW_GROUP.name])
 
     def test_channel_filter(self):
         self.assertEqual(len(groups_for_tz("Asia/Shanghai", [NEW_GROUP.channel_id])), 1)
@@ -178,6 +207,59 @@ class DbGroupsTests(unittest.TestCase):
         push = next(job for job in scheduler.jobs if job["id"] == "duzhan_europe_paris_10")
         self.assertEqual(push["kwargs"]["channel_ids"], [NEW_GROUP.channel_id])
         self.assertEqual(push["kwargs"]["ledger_job"], "duzhan_push:db:Europe/Paris")
+
+    def test_register_agent_jobs_uses_custom_minutes(self):
+        with Session(self.engine) as session:
+            custom = DuzhanAgent(
+                name="自定义时间官",
+                enabled=True,
+                timezone="Asia/Shanghai",
+                blocks_json=dump_blocks(parse_blocks(_blocks(
+                    channel_id="11111111-1111-4111-8111-111111111111",
+                    label="自定义时间群",
+                    slots=["09:35"],
+                ))),
+            )
+            session.add(custom)
+            session.commit()
+            session.refresh(custom)
+            custom_id = custom.id
+        scheduler = FakeScheduler()
+        registered = runtime.register_agent_jobs(scheduler)
+
+        row = next(item for item in registered if item["agent_id"] == custom_id)
+        self.assertEqual(row["slots"], ["09:35"])
+        push = next(job for job in scheduler.jobs if job["id"] == "duzhan_asia_shanghai_0935")
+        collect = next(job for job in scheduler.jobs if job["id"] == "duzhan_collect_asia_shanghai_0935")
+        backup = next(job for job in scheduler.jobs if job["id"] == "duzhan_backup_asia_shanghai_0935")
+        self.assertEqual((push["hour"], push["minute"]), (9, 35))
+        self.assertEqual((collect["hour"], collect["minute"]), (9, 20))
+        self.assertEqual((backup["hour"], backup["minute"]), (10, 5))
+
+    def test_register_agent_jobs_keeps_target_day_across_midnight(self):
+        with Session(self.engine) as session:
+            session.add(DuzhanAgent(
+                name="跨天时间官",
+                enabled=True,
+                timezone="Asia/Shanghai",
+                blocks_json=dump_blocks(parse_blocks(_blocks(
+                    channel_id="22222222-2222-4222-8222-222222222222",
+                    label="跨天时间群",
+                    slots=["00:05", "23:50"],
+                ))),
+            ))
+            session.commit()
+        scheduler = FakeScheduler()
+        runtime.register_agent_jobs(scheduler)
+
+        collect = next(job for job in scheduler.jobs if job["id"] == "duzhan_collect_asia_shanghai_0005")
+        early_backup = next(job for job in scheduler.jobs if job["id"] == "duzhan_backup_asia_shanghai_0005")
+        late_backup = next(job for job in scheduler.jobs if job["id"] == "duzhan_backup_asia_shanghai_2350")
+        self.assertEqual((collect["hour"], collect["minute"]), (23, 50))
+        self.assertEqual(collect["kwargs"]["trigger_offset_minutes"], -15)
+        self.assertEqual(early_backup["kwargs"]["trigger_offset_minutes"], 30)
+        self.assertEqual((late_backup["hour"], late_backup["minute"]), (0, 20))
+        self.assertEqual(late_backup["kwargs"]["trigger_offset_minutes"], 30)
 
     def test_same_slot_batches_groups_and_follow_owners(self):
         other_channel = "11111111-1111-4111-8111-111111111111"
@@ -204,6 +286,36 @@ class DbGroupsTests(unittest.TestCase):
         backup = next(job for job in scheduler.jobs if job["id"] == "ctob_db_backup_15")
         self.assertEqual((backup["hour"], backup["minute"]), (15, 30))
 
+    def test_register_agent_jobs_respects_independent_feature_switches(self):
+        with Session(self.engine) as session:
+            session.add(DuzhanAgent(
+                name="跟进开关官",
+                enabled=True,
+                timezone="Asia/Shanghai",
+                blocks_json=dump_blocks(parse_blocks(_blocks(
+                    channel_id=OWNERS[0].channel_id,
+                    label="跟进开关群",
+                    slots=["09:35"],
+                ))),
+            ))
+            session.commit()
+
+        follow_only = FakeScheduler()
+        registered = runtime.register_agent_jobs(
+            follow_only, duzhan_enabled=False, ctob_enabled=True,
+        )
+        self.assertTrue(registered)
+        self.assertTrue(all(row["kind"] == "follow" for row in registered))
+        self.assertTrue(all(job_id.startswith("ctob_db_") for job_id in follow_only.ids()))
+
+        duzhan_only = FakeScheduler()
+        registered = runtime.register_agent_jobs(
+            duzhan_only, duzhan_enabled=True, ctob_enabled=False,
+        )
+        self.assertTrue(registered)
+        self.assertTrue(all(row["kind"] == "duzhan" for row in registered))
+        self.assertFalse(any(job_id.startswith("ctob_db_") for job_id in duzhan_only.ids()))
+
     def test_register_agent_jobs_warns_when_nothing_enabled(self):
         with Session(self.engine) as session:
             for row in session.exec(__import__("sqlmodel").select(DuzhanAgent)).all():
@@ -212,6 +324,122 @@ class DbGroupsTests(unittest.TestCase):
         scheduler = FakeScheduler()
         self.assertEqual(runtime.register_agent_jobs(scheduler), [])
         self.assertEqual(scheduler.jobs, [])
+
+
+class DbSchedulerSwitchTests(unittest.TestCase):
+    class RecordingScheduler:
+        def __init__(self, **_kwargs):
+            self.jobs = []
+
+        def add_job(self, func, *args, **kwargs):
+            self.jobs.append((func, args, kwargs))
+
+        def start(self):
+            return None
+
+    @staticmethod
+    def settings(
+        *,
+        duzhan_enabled: bool,
+        ctob_enabled: bool,
+        reply_enabled: bool = False,
+        healthcheck_enabled: bool = False,
+    ):
+        return SimpleNamespace(
+            scheduler_enabled=True,
+            sync_cron="0 6 * * *",
+            daily_report_enabled=False,
+            todo_remind_enabled=False,
+            todo_remind_times=[],
+            todo_group_notice_enabled=False,
+            todo_group_channel_id="",
+            todo_scoring_enabled=False,
+            todo_ledger_sync_enabled=False,
+            todo_brief_enabled=False,
+            todo_okr_link_enabled=False,
+            duzhan_enabled=duzhan_enabled,
+            duzhan_times=["10:00", "15:00", "20:00"],
+            duzhan_lead_minutes=15,
+            duzhan_reply_enabled=reply_enabled,
+            ctob_enabled=ctob_enabled,
+            agent_healthcheck_enabled=healthcheck_enabled,
+        )
+
+    def start(self, settings, *, using_db: bool = True):
+        from app.scheduler import jobs as scheduler_jobs
+
+        original = scheduler_jobs._scheduler
+        scheduler_jobs._scheduler = None
+        register = MagicMock(return_value=[])
+        try:
+            with patch.object(scheduler_jobs, "get_settings", return_value=settings), patch.object(
+                scheduler_jobs, "BackgroundScheduler", self.RecordingScheduler,
+            ), patch("app.duzhan_admin.runtime.using_db", return_value=using_db), patch(
+                "app.duzhan_admin.runtime.register_agent_jobs", register,
+            ):
+                scheduler = scheduler_jobs.start_scheduler()
+        finally:
+            scheduler_jobs._scheduler = original
+        return scheduler, register
+
+    def test_db_registration_passes_independent_switches(self):
+        for duzhan_enabled, ctob_enabled in ((True, False), (False, True)):
+            with self.subTest(duzhan_enabled=duzhan_enabled, ctob_enabled=ctob_enabled):
+                scheduler, register = self.start(self.settings(
+                    duzhan_enabled=duzhan_enabled,
+                    ctob_enabled=ctob_enabled,
+                ))
+                register.assert_called_once_with(
+                    scheduler,
+                    duzhan_enabled=duzhan_enabled,
+                    ctob_enabled=ctob_enabled,
+                )
+
+    def test_db_mode_registers_duzhan_at_poll(self):
+        scheduler, _register = self.start(self.settings(
+            duzhan_enabled=True,
+            ctob_enabled=False,
+            reply_enabled=True,
+        ))
+        self.assertIn("duzhan_at_poll", [kwargs["id"] for _, _, kwargs in scheduler.jobs])
+
+    def test_ctob_only_mode_registers_and_runs_slot_health(self):
+        settings = self.settings(
+            duzhan_enabled=False,
+            ctob_enabled=True,
+            healthcheck_enabled=True,
+        )
+        scheduler, _register = self.start(settings)
+        self.assertIn("agent_slot_health", [kwargs["id"] for _, _, kwargs in scheduler.jobs])
+
+        from app.scheduler import jobs as scheduler_jobs
+
+        with patch.object(scheduler_jobs, "get_settings", return_value=settings), patch(
+            "app.duzhan_admin.runtime.using_db", return_value=True,
+        ), patch(
+            "app.agents.flow_controller.run_health_checks_for", return_value=[],
+        ) as run_health:
+            scheduler_jobs.agent_slot_health_job()
+        run_health.assert_called_once_with()
+
+    def test_code_ctob_only_mode_does_not_start_db_health_scan(self):
+        settings = self.settings(
+            duzhan_enabled=False,
+            ctob_enabled=True,
+            healthcheck_enabled=True,
+        )
+        scheduler, _register = self.start(settings, using_db=False)
+        self.assertNotIn("agent_slot_health", [kwargs["id"] for _, _, kwargs in scheduler.jobs])
+
+        from app.scheduler import jobs as scheduler_jobs
+
+        with patch.object(scheduler_jobs, "get_settings", return_value=settings), patch(
+            "app.duzhan_admin.runtime.using_db", return_value=False,
+        ), patch(
+            "app.agents.flow_controller.run_health_checks_for", return_value=[],
+        ) as run_health:
+            scheduler_jobs.agent_slot_health_job()
+        run_health.assert_not_called()
 
 
 if __name__ == "__main__":

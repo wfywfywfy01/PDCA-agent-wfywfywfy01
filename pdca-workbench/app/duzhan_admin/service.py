@@ -18,7 +18,9 @@ from app.duzhan_blocks import (
     as_str_list,
     blocks_dict,
     dump_blocks,
+    normalize_time_slot,
     parse_blocks,
+    split_time_slot,
     validate_blocks,
 )
 from app.models.duzhan_agent import DuzhanAgent
@@ -59,6 +61,24 @@ def roster_names() -> list[str]:
     return names
 
 
+def supported_channel_labels() -> dict[str, str]:
+    """channel_id → 固定业务群名；展示名不能改变取数归属。"""
+    from app.ctob import OWNERS as CTOB_OWNERS
+    from app.duzhan import GROUPS
+
+    labels = {group.channel_id: group.name for group in GROUPS}
+    labels.update({
+        owner.channel_id: f"{owner.display}C转B跟进群"
+        for owner in CTOB_OWNERS
+    })
+    return labels
+
+
+def supported_channel_ids() -> list[str]:
+    """当前已接入取数和闭环判断的达标群、C 转 B 群。"""
+    return list(supported_channel_labels())
+
+
 def strategy_ids() -> list[str]:
     """当前在查的策略 id（运行时文件优先）。"""
     try:
@@ -71,13 +91,16 @@ def strategy_ids() -> list[str]:
 
 
 def owners_for(blocks: list[Block]) -> Optional[list[str]]:
-    """按 group 块的群名取该群名单；认不出群名就用全量名单。"""
+    """按 channel_id 固定的业务群取名单；展示名不参与数据归属。"""
     table = roster_by_group()
+    labels = supported_channel_labels()
     picked: list[str] = []
     for block in blocks:
         if block.type != "group":
             continue
-        picked.extend(table.get(str(block.get("label") or ""), []))
+        channel_id = str(block.get("channel_id") or "")
+        label = labels.get(channel_id, str(block.get("label") or ""))
+        picked.extend(table.get(label, []))
     picked = picked or roster_names()
     return picked or None
 
@@ -98,9 +121,17 @@ def validate_agent(
     from app.ctob import OWNERS as CTOB_OWNERS
 
     ctob_channels = {owner.channel_id for owner in CTOB_OWNERS}
-    if any(block.type == "group" and block.get("channel_id") in ctob_channels for block in blocks):
+    is_ctob = any(block.type == "group" and block.get("channel_id") in ctob_channels for block in blocks)
+    if is_ctob:
         if any(block.type == "rule" and block.get("when") == "missing_report" for block in blocks):
             errors.append("C转B 跟进群没有日报字段，不能使用「未交日报」动作条件")
+        if (agent.timezone or "Asia/Shanghai").strip() != "Asia/Shanghai":
+            errors.append("C转B 跟进群仅支持 Asia/Shanghai 时区")
+    supported = set(supported_channel_ids())
+    for block in blocks:
+        channel_id = str(block.get("channel_id") or "") if block.type == "group" else ""
+        if channel_id and channel_id not in supported:
+            errors.append("目标群尚未接入闭环采集，请选择系统已接入的督战群")
     return errors
 
 
@@ -151,11 +182,13 @@ def resolve_spec(agent: DuzhanAgent) -> dict:
                 "prompt": str(block.get("prompt") or "") if mode == "ai" else "",
             }
         )
+    renderer = renderer_for(blocks)
+    timezone_name = "Asia/Shanghai" if renderer == RENDERER_CTOB else (agent.timezone or "Asia/Shanghai")
     return {
         "id": agent.id,
         "name": agent.name,
         "enabled": bool(agent.enabled),
-        "timezone": agent.timezone or "Asia/Shanghai",
+        "timezone": timezone_name,
         "groups": [
             {"channel_id": str(block.get("channel_id") or ""), "label": str(block.get("label") or "")}
             for block in blocks
@@ -183,18 +216,23 @@ def resolve_spec(agent: DuzhanAgent) -> dict:
         "lang": style["lang"],
         "title": style["title"],
         "footer": style["footer"],
-        "renderer": renderer_for(blocks),
+        "renderer": renderer,
     }
 
 
-def _summary_lines(spec: dict, day: Optional[str], hour: Optional[int]) -> list[str]:
+def _summary_lines(
+    spec: dict, day: Optional[str], hour: Optional[int], slot: Optional[str] = None,
+) -> list[str]:
     """把结构翻成给人看的一行行说明（配置页「试跑」直接展示这些）。"""
     lines: list[str] = []
     for group in spec["groups"]:
         label = group["label"] or "(未命名群)"
         lines.append(f"发送到：{label}（{group['channel_id'] or '缺 channel_id'}）")
     slots = list(spec["slots"])
-    if hour is not None:
+    if slot is not None:
+        picked = [item for item in slots if item == slot]
+        slots = picked or slots
+    elif hour is not None:
         picked = [slot for slot in slots if slot.split(":")[0].lstrip("0") == str(hour)]
         slots = picked or slots
     lines.append(f"档位：{'、'.join(slots) or '未配置'}（{spec['timezone']}）")
@@ -220,7 +258,10 @@ def _summary_lines(spec: dict, day: Optional[str], hour: Optional[int]) -> list[
     return lines
 
 
-def preview_agent(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optional[int] = None) -> dict:
+def preview_agent(
+    agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optional[int] = None,
+    slot: Optional[str] = None,
+) -> dict:
     """结构试跑：配置能解析成什么、有没有错、到点会怎么发。"""
     spec = resolve_spec(agent)
     errors = validate_agent(agent)
@@ -228,25 +269,47 @@ def preview_agent(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Option
         "agent": {"id": agent.id, "name": agent.name, "enabled": bool(agent.enabled)},
         "day": day,
         "hour": hour,
+        "slot": slot,
         "errors": errors,
         "spec": spec,
-        "summary": _summary_lines(spec, day, hour),
+        "summary": _summary_lines(spec, day, hour, slot),
         "note": PREVIEW_NOTE,
     }
 
 
-def _pick_hour(agent: DuzhanAgent, hour: Optional[int], now) -> int:
-    """没指定档位时，选"最近一个已经到点的档"，都没有就取第一档。"""
+def _pick_slot(
+    agent: DuzhanAgent, slot: Optional[str], hour: Optional[int], now,
+) -> tuple[str, int, int]:
+    """选指定时刻；未指定时取最近已到点时刻，否则取第一档。"""
     from app.duzhan_admin import runtime
 
-    slots = runtime.slots_of(agent) or [10, 15, 20]
-    if hour in slots:
-        return int(hour)
-    passed = [item for item in slots if item <= now.hour]
-    return passed[-1] if passed else slots[0]
+    slots = runtime.slot_times_of(agent) or ["10:00", "15:00", "20:00"]
+    requested = normalize_time_slot(slot) if slot else None
+    if requested not in slots:
+        requested = next((item for item in slots if hour is not None and int(item[:2]) == hour), None)
+    if requested is None:
+        current = now.strftime("%H:%M")
+        passed = [item for item in slots if item <= current]
+        requested = passed[-1] if passed else slots[0]
+    clock = split_time_slot(requested)
+    if clock is None:
+        return "10:00", 10, 0
+    return requested, clock[0], clock[1]
 
 
-def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optional[int] = None) -> dict:
+def _with_preview_agent(rows: list[tuple], agent: DuzhanAgent, target: object) -> list[tuple]:
+    """试跑始终按当前卡片解析，即使它尚未启用。"""
+    channel_id = getattr(target, "channel_id", "")
+    return [
+        (row, item) for row, item in rows
+        if getattr(item, "channel_id", "") != channel_id
+    ] + [(agent, target)]
+
+
+def render_preview(
+    agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optional[int] = None,
+    slot: Optional[str] = None,
+) -> dict:
     """用已保存卡片和已有快照台账试跑；不取数、不发送。"""
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -257,30 +320,43 @@ def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optio
     from app.duzhan_ledger import empty_ledger
     from app.workday_calendar import is_workday
 
-    tz_name = (agent.timezone or "Asia/Shanghai").strip() or "Asia/Shanghai"
-    now = datetime.now(ZoneInfo(tz_name))
-    day = day or now.strftime("%Y-%m-%d")
-    hour = _pick_hour(agent, hour, now)
-    render_time = datetime.strptime(day, "%Y-%m-%d").replace(hour=hour, tzinfo=ZoneInfo(tz_name))
-
     group = runtime.group_of(agent)
     if group is None:
-        return {"mode": "render", "ok": False, "error": "配置里没有可用的 group 块", "day": day, "hour": hour}
+        return {
+            "mode": "render", "ok": False, "error": "配置里没有可用的 group 块",
+            "day": day, "hour": hour, "slot": slot,
+        }
+
+    tz_name = group.tz
+    now = datetime.now(ZoneInfo(tz_name))
+    day = day or now.strftime("%Y-%m-%d")
+    slot, hour, minute = _pick_slot(agent, slot, hour, now)
+    render_time = datetime.strptime(day, "%Y-%m-%d").replace(
+        hour=hour, minute=minute, tzinfo=ZoneInfo(tz_name),
+    )
 
     owner = next((item for item in ctob_module.OWNERS if item.channel_id == group.channel_id), None)
 
     if owner is not None:
         # 跟进群：快照在 app.ctob 那边，按群存
-        collected = ctob_module.load_snapshot(day, hour) or {}
+        collected = ctob_module.load_snapshot(day, hour, minute) or {}
         data = collected.get(group.channel_id) or {"summary": {}, "chats": [], "cohort": {}}
-        prev_slot = ctob_module._prev_slot(day, hour)  # noqa: SLF001 — 同包内复用既有档位计算
-        prev_data = None
-        if prev_slot:
-            prev_data = (ctob_module.load_snapshot(prev_slot[0], prev_slot[1]) or {}).get(group.channel_id)
-        override = ai_rules.focus_for_agent(agent, group, hour, day, data, preview=True)
+        active_follow = _with_preview_agent(
+            runtime.follow_agents() if runtime.using_db() else [], agent, owner,
+        )
+        prev_data = ctob_module._previous_snapshot_for_owner(  # noqa: SLF001
+            day, hour, minute, group.channel_id, active_follow,
+        )
+        previous_slot = ctob_module._previous_slot_label(  # noqa: SLF001
+            prev_data, configured=True,
+        )
+        override = ai_rules.focus_for_agent(
+            agent, group, hour, day, data, minute=minute, preview=True,
+        )
         body = ctob_module.render_brief(
             owner, day, data["summary"], data["chats"], data["cohort"],
-            hour=hour, prev=prev_data, focus_override=override,
+            hour=hour, prev=prev_data, minute=minute,
+            previous_slot=previous_slot, focus_override=override,
         )
         source = "snapshot" if group.channel_id in collected else "empty_ledger"
         renderer = "ctob.render_brief"
@@ -288,28 +364,40 @@ def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optio
         condition_data = data
     else:
         # 达标群：只复用台账，始终用当前卡片重渲染，避免展示旧快照里的旧规则。
-        active = runtime.duzhan_agents() if runtime.using_db() else []
+        active = _with_preview_agent(
+            runtime.duzhan_agents() if runtime.using_db() else [], agent, group,
+        )
 
-        def slot_key_for(slot_hour: int) -> str:
+        def slot_key_for(slot_value: str) -> str:
             channels = [item.channel_id for row, item in active
-                        if item.tz == tz_name and slot_hour in runtime.slots_of(row)]
+                        if item.tz == tz_name and slot_value in runtime.slot_times_of(row)]
             return (duzhan_module._slot_key(channels) if group.channel_id in channels
                     else group.channel_id[:8])
 
-        slot_key = slot_key_for(hour)
-        snapshot = duzhan_module.load_prepared(tz_name, hour, day, slot_key) or duzhan_module.load_prepared(
-            tz_name, hour, day
-        )
+        slot_key = slot_key_for(slot)
+        if minute:
+            snapshot = duzhan_module.load_prepared(
+                tz_name, hour, day, slot_key, minute,
+            ) or duzhan_module.load_prepared(tz_name, hour, day, minute=minute)
+        else:
+            snapshot = duzhan_module.load_prepared(
+                tz_name, hour, day, slot_key,
+            ) or duzhan_module.load_prepared(tz_name, hour, day)
         ledger = snapshot.get("ledger") if isinstance(snapshot, dict) else None
-        prev_hour = duzhan_module.prev_slot_hour(hour)
-        prev = duzhan_module.load_prepared(tz_name, prev_hour, day, slot_key_for(prev_hour)) if prev_hour else None
-        if prev is None and prev_hour:
-            prev = duzhan_module.load_prepared(tz_name, prev_hour, day)
+        prev = duzhan_module._previous_prepared_for_group(  # noqa: SLF001
+            tz_name, day, hour, minute, group.channel_id, active,
+        )
         prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+        previous_slot = duzhan_module._previous_slot_label(  # noqa: SLF001
+            prev, configured=True,
+        )
         use_ledger, source = (ledger, "snapshot_ledger") if isinstance(ledger, dict) else (empty_ledger(day), "empty_ledger")
-        override = ai_rules.focus_for_agent(agent, group, hour, day, use_ledger, preview=True)
+        override = ai_rules.focus_for_agent(
+            agent, group, hour, day, use_ledger, minute=minute, preview=True,
+        )
         parts = duzhan_module.render_person_briefs(
-            group, hour, render_time, use_ledger, prev_ledger, focus_override=override,
+            group, hour, render_time, use_ledger, prev_ledger,
+            minute=minute, previous_slot=previous_slot, focus_override=override,
         )
         body = "\n\n────────\n\n".join(str(part.get("text") or "") for part in parts)
         message_count = len(parts)
@@ -328,6 +416,7 @@ def render_preview(agent: DuzhanAgent, *, day: Optional[str] = None, hour: Optio
         "agent": {"id": agent.id, "name": agent.name, "enabled": bool(agent.enabled)},
         "day": day,
         "hour": hour,
+        "slot": slot,
         "timezone": tz_name,
         "channel_id": group.channel_id,
         "group": group.name,

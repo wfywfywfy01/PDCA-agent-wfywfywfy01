@@ -67,10 +67,10 @@ def _agent_for_channel(channel_id: str) -> Optional[DuzhanAgent]:
     return None
 
 
-def _digest(group, hour: int, day: str, ledger: dict | None) -> str:
+def _digest(group, hour: int, day: str, ledger: dict | None, minute: int = 0) -> str:
     """给模型的事实清单（用的都是现有渲染器已经在用的字段，缺数据会写"待确认"）。"""
     from app.ctob import OWNERS as CTOB_OWNERS
-    from app.duzhan import _daily_report_text, _perf_text
+    from app.duzhan import _daily_report_text, _perf_text, slot_stage_hour
     from app.duzhan_ledger import people_for
 
     if any(owner.channel_id == group.channel_id for owner in CTOB_OWNERS):
@@ -83,17 +83,18 @@ def _digest(group, hour: int, day: str, ledger: dict | None) -> str:
 
         return "\n".join([
             f"群：{group.name}", f"日期：{day}",
-            f"档位：{hour:02d}:00（C转B跟进）",
+            f"档位：{hour:02d}:{minute:02d}（C转B跟进）",
             f"WhatsApp 触达：{show(summary.get('reached'))}，回复：{show(summary.get('replied'))}",
             f"新客：{show(cohort.get('new'))}，意向：{show(cohort.get('intent'))}",
             f"汽车/转B对话条数：{len(data.get('chats') or [])}",
         ])
 
     people = people_for(group.name, ledger) or []
+    stage_hour = slot_stage_hour(hour, minute)
     lines = [
         f"群：{group.name}",
         f"日期：{day}",
-        f"档位：{hour:02d}:00（{_SLOT_TITLES.get(hour, '督战')}）",
+        f"档位：{hour:02d}:{minute:02d}（{_SLOT_TITLES[stage_hour]}）",
         f"覆盖人数：{len(people)}",
     ]
     for person in people[:8]:
@@ -106,14 +107,16 @@ def _digest(group, hour: int, day: str, ledger: dict | None) -> str:
     return "\n".join(lines)
 
 
-def _build_messages(group, hour: int, day: str, ledger: dict | None, rule: Block) -> list[dict[str, str]]:
+def _build_messages(
+    group, hour: int, day: str, ledger: dict | None, rule: Block, minute: int = 0,
+) -> list[dict[str, str]]:
     system = (
         "你是跨境电商团队的督战助理。你只写一句话：这一档要求每个人做什么。"
         "要求：中文；一行；不超过 60 字；像主管当面催办；不要称呼、不要 emoji、不要引号、不要换行、不要编号。"
         "直接输出这句话本身，不要推理过程、不要解释、不要复述要求。"
     )
     user = (
-        f"{_digest(group, hour, day, ledger)}\n\n"
+        f"{_digest(group, hour, day, ledger, minute)}\n\n"
         f"这一档的额外要求（由配置页填写）：{str(rule.get('prompt') or '').strip()}"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -138,12 +141,15 @@ def _fixed_focus(text: str) -> str:
     return re.sub(r"^本档动作\s*[：:]\s*", "", line).strip()
 
 
-def _cache_path(agent_id: int, day: str, hour: int, rule: Block | None = None) -> Path:
+def _cache_path(
+    agent_id: int, day: str, hour: int, rule: Block | None = None, minute: int = 0,
+) -> Path:
     suffix = ""
     if rule is not None:
         raw = json.dumps(rule.as_dict(), ensure_ascii=False, sort_keys=True)
         suffix = "_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
-    return _cache_dir() / f"agent{agent_id}_{day}_{hour:02d}{suffix}.txt"
+    clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
+    return _cache_dir() / f"agent{agent_id}_{day}_{clock}{suffix}.txt"
 
 
 def _counter_path(day: str) -> Path:
@@ -219,9 +225,10 @@ def _rule_matches(rule: Block, group, day: str, ledger: dict | None) -> bool:
 
 
 def _ai_focus(
-    agent: DuzhanAgent, group, hour: int, day: str, ledger: dict | None, rule: Block, *, preview: bool = False,
+    agent: DuzhanAgent, group, hour: int, day: str, ledger: dict | None, rule: Block, *,
+    minute: int = 0, preview: bool = False,
 ) -> Optional[str]:
-    cache = _cache_path(agent.id, day, hour, rule)
+    cache = _cache_path(agent.id, day, hour, rule, minute)
     budget_day = today_in_shanghai() if preview else day
     if not preview and cache.is_file():
         try:
@@ -239,7 +246,7 @@ def _ai_focus(
 
     try:
         _bump_daily_calls(budget_day)
-        raw = _generate(_build_messages(group, hour, day, ledger, rule))
+        raw = _generate(_build_messages(group, hour, day, ledger, rule, minute))
     except Exception as exc:
         logger.warning("AI 规则生成失败（改用固定文案）{} {}: {}", group.name, hour, exc)
         return None
@@ -253,19 +260,20 @@ def _ai_focus(
             cache.write_text(text, encoding="utf-8")
         except OSError as exc:
             logger.warning("AI 规则缓存写入失败: {}", exc)
-    logger.info("AI 规则已生成 {} {} → {}", group.name, f"{hour:02d}:00", text[:60])
+    logger.info("AI 规则已生成 {} {} → {}", group.name, f"{hour:02d}:{minute:02d}", text[:60])
     return text
 
 
 def focus_for_agent(
-    agent: DuzhanAgent, group, hour: int, day: str, ledger: dict | None = None, *, preview: bool = False,
+    agent: DuzhanAgent, group, hour: int, day: str, ledger: dict | None = None, *,
+    minute: int = 0, preview: bool = False,
 ) -> Optional[str]:
     """按卡片顺序取首条命中的动作；AI 失败时继续找后续固定文案。"""
     for rule in parse_blocks(agent.blocks_json):
         if rule.type != "rule" or not _rule_matches(rule, group, day, ledger):
             continue
         if str(rule.get("mode") or "text") == "ai":
-            text = _ai_focus(agent, group, hour, day, ledger, rule, preview=preview)
+            text = _ai_focus(agent, group, hour, day, ledger, rule, minute=minute, preview=preview)
         else:
             text = _fixed_focus(str(rule.get("text") or ""))
         if text:
@@ -273,17 +281,21 @@ def focus_for_agent(
     return None
 
 
-def focus_for(group, hour: int, day: str, ledger: dict | None = None) -> Optional[str]:
+def focus_for(
+    group, hour: int, day: str, ledger: dict | None = None, *, minute: int = 0,
+) -> Optional[str]:
     """db 模式下读取已启用群卡片的本档动作。"""
     from app.duzhan_admin import runtime
 
     if not runtime.using_db():
         return None
     agent = _agent_for_channel(group.channel_id)
-    return focus_for_agent(agent, group, hour, day, ledger) if agent else None
+    return focus_for_agent(agent, group, hour, day, ledger, minute=minute) if agent else None
 
 
-def focus_for_channel(channel_id: str, hour: int, day: str, data: dict | None = None) -> Optional[str]:
+def focus_for_channel(
+    channel_id: str, hour: int, day: str, data: dict | None = None, *, minute: int = 0,
+) -> Optional[str]:
     """C转B 群按频道查已启用卡片，复用同一套固定/AI 动作规则。"""
     from app.duzhan_admin import runtime
 
@@ -291,7 +303,7 @@ def focus_for_channel(channel_id: str, hour: int, day: str, data: dict | None = 
         return None
     agent = _agent_for_channel(channel_id)
     group = runtime.group_of(agent) if agent else None
-    return focus_for_agent(agent, group, hour, day, data) if agent and group else None
+    return focus_for_agent(agent, group, hour, day, data, minute=minute) if agent and group else None
 
 
 def status() -> dict:

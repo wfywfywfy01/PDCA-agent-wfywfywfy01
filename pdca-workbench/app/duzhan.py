@@ -11,7 +11,7 @@ import operator
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 from zoneinfo import ZoneInfo
@@ -233,6 +233,12 @@ def prev_slot_hour(hour: int) -> int | None:
     return {15: 10, 20: 15}.get(hour)
 
 
+def slot_stage_hour(hour: int, minute: int = 0) -> int:
+    """把自定义时刻映射到最近的早追、中追或晚追业务阶段。"""
+    total = hour * 60 + minute
+    return min((10, 15, 20), key=lambda anchor: (abs(total - anchor * 60), -anchor))
+
+
 def parse_hours(times: list[str]) -> list[int]:
     """把 `10:00,15:00,20:00` 解析成整点小时。"""
     hours: list[int] = []
@@ -292,11 +298,9 @@ def cron_timezones() -> list[str]:
     return seen
 
 
-def collect_clock(hour: int, lead_minutes: int) -> tuple[int, int]:
-    """踩点时刻：整点前 lead 分钟开始全源采集，不发群。10:00 档 = 09:45。"""
-    total = hour * 60 - lead_minutes
-    if total < 0:
-        total += 24 * 60
+def collect_clock(hour: int, lead_minutes: int, minute: int = 0) -> tuple[int, int]:
+    """发送时刻前 lead 分钟；负 lead 表示发送后。"""
+    total = (hour * 60 + minute - lead_minutes) % (24 * 60)
     return divmod(total, 60)
 
 
@@ -307,6 +311,7 @@ def _idempotency_key(
     channel_id: str = "",
     producer: str = "duzhan",
     person: str = "",
+    minute: int = 0,
 ) -> str:
     """催收同款：producer-YYYYMMDD-HHMM-时区，群维度再拼 channel 前 8 位。
 
@@ -316,7 +321,7 @@ def _idempotency_key(
     同一个群里多人各发各的，谁都不能把谁的重复键吃掉。
     """
     slug = tz_name.lower().replace("/", "")
-    base = f"{producer}-{day.replace('-', '')}-{hour:02d}00-{slug}"
+    base = f"{producer}-{day.replace('-', '')}-{hour:02d}{minute:02d}-{slug}"
     if channel_id:
         base = f"{base}-{channel_id[:8]}"
     if person:
@@ -334,12 +339,13 @@ def _slot_key(channel_ids: Iterable[str] | None) -> str:
     return sorted(str(item) for item in channel_ids)[0][:8]
 
 
-def _slot_path(tz_name: str, day: str, hour: int, key: str = "") -> Path:
+def _slot_path(tz_name: str, day: str, hour: int, key: str = "", minute: int = 0) -> Path:
     slug = tz_name.lower().replace("/", "_")
     folder = get_settings().data_dir / "runtime" / "duzhan_slots"
     folder.mkdir(parents=True, exist_ok=True)
     suffix = f"_{key}" if key else ""
-    return folder / f"{slug}_{day}_{hour:02d}{suffix}.json"
+    clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
+    return folder / f"{slug}_{day}_{clock}{suffix}.json"
 
 
 def prepare_duzhan(
@@ -347,6 +353,8 @@ def prepare_duzhan(
     hour: int,
     now: datetime | None = None,
     *,
+    minute: int = 0,
+    day: str | None = None,
     channel_ids: Iterable[str] | None = None,
 ) -> dict:
     """踩点：拉群消息 + WhatsApp MCP + Vemory + VPS + 日报，写快照，不发群。
@@ -354,67 +362,80 @@ def prepare_duzhan(
     `channel_ids` 有值时只组这些群的表（db 源下同档群共用一次采集）。
     """
     now = now or datetime.now(ZoneInfo(tz_name))
-    if not is_duzhan_workday(tz_name, now):
+    day = day or now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    from app.workday_calendar import is_workday
+
+    if not is_workday(day):
         logger.info("周末不组表 {} {}", tz_name, hour)
-        return {"tz": tz_name, "hour": hour, "skipped": "weekend", "messages": {}}
-    day = now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+        return {"tz": tz_name, "hour": hour, "minute": minute, "skipped": "weekend", "messages": {}}
+    render_now = datetime.strptime(
+        f"{day}T{hour:02d}:{minute:02d}:00", "%Y-%m-%dT%H:%M:%S",
+    ).replace(tzinfo=ZoneInfo(tz_name))
     try:
         ledger = collect_ledger(day)
     except Exception as exc:  # noqa: BLE001
         logger.exception("督战官台账采集失败: {}", exc)
         ledger = empty_ledger(day)
     slot_key = _slot_key(channel_ids)
-    prev_hour = prev_slot_hour(hour)
-    prev = load_prepared(tz_name, prev_hour, day, slot_key) if prev_hour else None
-    if prev is None and prev_hour and slot_key:
-        prev = load_prepared(tz_name, prev_hour, day)
-    if hour == 10 and prev is None:
-        # 早追：以昨日 20:00 档为上一档，用于“昨日未闭环结转今日第一动作”
-        from datetime import timedelta
+    from app.duzhan_admin import ai_rules, runtime
 
-        yday = (now.astimezone(ZoneInfo(tz_name)) - timedelta(days=1)).strftime("%Y-%m-%d")
-        prev = load_prepared(tz_name, 20, yday, slot_key)
-        if prev is None and slot_key:
-            prev = load_prepared(tz_name, 20, yday)
-    prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
-    from app.duzhan_admin import ai_rules
+    active_agents = runtime.duzhan_agents() if runtime.using_db() else None
 
     messages = {}
     person_messages: dict[str, list[dict]] = {}
     for group in groups_for_tz(tz_name, channel_ids):
-        override = ai_rules.focus_for(group, hour, day, ledger)
+        prev = _previous_prepared_for_group(
+            tz_name, day, hour, minute, group.channel_id, active_agents,
+        )
+        prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+        previous_slot = _previous_slot_label(prev, configured=active_agents is not None)
+        override = ai_rules.focus_for(group, hour, day, ledger, minute=minute)
         messages[group.channel_id] = render_brief(
-            group, hour, now, ledger, prev_ledger, focus_override=override
+            group, hour, render_now, ledger, prev_ledger, minute=minute,
+            previous_slot=previous_slot, focus_override=override,
         )
         person_messages[group.channel_id] = render_person_briefs(
-            group, hour, now, ledger, prev_ledger, focus_override=override
+            group, hour, render_now, ledger, prev_ledger, minute=minute,
+            previous_slot=previous_slot, focus_override=override,
         )
     payload = {
         "tz": tz_name,
         "hour": hour,
+        "minute": minute,
+        "slot": f"{hour:02d}:{minute:02d}",
         "day": day,
         "prepared_at": now.isoformat(),
-        "idempotency_key": _idempotency_key(tz_name, day, hour),
+        "idempotency_key": _idempotency_key(tz_name, day, hour, minute=minute),
         "ledger": ledger,
         "messages": messages,
         # 老板 2026-10-10：按人拆开发；推送端优先用它，缺失时退回 messages
         "person_messages": person_messages,
     }
-    slot_path = _slot_path(tz_name, day, hour, slot_key) if slot_key else _slot_path(tz_name, day, hour)
+    if minute:
+        slot_path = _slot_path(tz_name, day, hour, slot_key, minute) if slot_key else _slot_path(
+            tz_name, day, hour, minute=minute,
+        )
+    else:
+        slot_path = _slot_path(tz_name, day, hour, slot_key) if slot_key else _slot_path(tz_name, day, hour)
     slot_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    logger.info("督战官已组表 {} {} {}", tz_name, day, f"{hour:02d}:00")
+    logger.info("督战官已组表 {} {} {}", tz_name, day, f"{hour:02d}:{minute:02d}")
     return payload
 
 
-def load_prepared(tz_name: str, hour: int, day: str, key: str = "") -> dict | None:
+def load_prepared(tz_name: str, hour: int, day: str, key: str = "", minute: int = 0) -> dict | None:
     """读取本档组表快照；没有则返回 None。
 
     `key` 为空时沿用原来的调用形状（code 源路径零改动）。
     """
-    path = _slot_path(tz_name, day, hour, key) if key else _slot_path(tz_name, day, hour)
+    if minute:
+        path = _slot_path(tz_name, day, hour, key, minute) if key else _slot_path(
+            tz_name, day, hour, minute=minute,
+        )
+    else:
+        path = _slot_path(tz_name, day, hour, key) if key else _slot_path(tz_name, day, hour)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError):
@@ -424,6 +445,80 @@ def load_prepared(tz_name: str, hour: int, day: str, key: str = "") -> dict | No
     return payload
 
 
+def _previous_prepared_for_group(
+    tz_name: str,
+    day: str,
+    hour: int,
+    minute: int,
+    channel_id: str,
+    active_agents: list[tuple[object, DuzhanGroup]] | None = None,
+) -> dict | None:
+    """读取该群真实上一配置时刻的快照；标准三档保持原路径。"""
+    from app.duzhan_admin import runtime
+    from app.duzhan_blocks import split_time_slot
+
+    if active_agents is not None:
+        current = f"{hour:02d}:{minute:02d}"
+        owner = next((agent for agent, group in active_agents if group.channel_id == channel_id), None)
+        previous = runtime.previous_slot_of(owner, current) if owner is not None else None
+        if previous is None:
+            return None
+        day_offset, previous_slot = previous
+        clock = split_time_slot(previous_slot)
+        if clock is None:
+            return None
+        previous_day = (
+            datetime.strptime(day, "%Y-%m-%d") + timedelta(days=day_offset)
+        ).strftime("%Y-%m-%d")
+        previous_hour, previous_minute = clock
+        metadata = {
+            "_previous_slot": previous_slot,
+            "_previous_day_offset": day_offset,
+        }
+        channels = [
+            group.channel_id for agent, group in active_agents
+            if group.tz == tz_name and previous_slot in runtime.slot_times_of(agent)
+        ]
+        keys = list(dict.fromkeys((channel_id[:8], _slot_key(channels))))
+        for key in keys:
+            if previous_minute:
+                snapshot = load_prepared(
+                    tz_name, previous_hour, previous_day, key, previous_minute,
+                )
+            else:
+                snapshot = load_prepared(tz_name, previous_hour, previous_day, key)
+            if snapshot:
+                return {**snapshot, **metadata}
+        snapshot = (
+            load_prepared(tz_name, previous_hour, previous_day, minute=previous_minute)
+            if previous_minute
+            else load_prepared(tz_name, previous_hour, previous_day)
+        )
+        return {**snapshot, **metadata} if snapshot else metadata
+
+    stage_hour = slot_stage_hour(hour, minute)
+    previous_hour = prev_slot_hour(stage_hour)
+    previous_day = day
+    if stage_hour == 10:
+        previous_hour = 20
+        previous_day = (
+            datetime.strptime(day, "%Y-%m-%d") - timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+    return load_prepared(tz_name, previous_hour, previous_day) if previous_hour else None
+
+
+def _previous_slot_label(snapshot: dict | None, *, configured: bool) -> str | None:
+    """配置模式返回真实上一档；空串表示该 Agent 没有上一档。"""
+    if not configured:
+        return None
+    if not isinstance(snapshot, dict):
+        return ""
+    slot = str(snapshot.get("_previous_slot") or "")
+    if slot and int(snapshot.get("_previous_day_offset") or 0) < 0:
+        return f"昨日 {slot}"
+    return slot
+
+
 def render_brief(
     group: DuzhanGroup,
     hour: int,
@@ -431,6 +526,8 @@ def render_brief(
     ledger: dict | None = None,
     prev_ledger: dict | None = None,
     *,
+    minute: int = 0,
+    previous_slot: str | None = None,
     focus_override: str | None = None,
 ) -> str:
     """按群语言渲染每日三追进度表。15/20 有上一档则只报变化。
@@ -438,32 +535,37 @@ def render_brief(
     `focus_override` 有值时替换「本档动作」那一句（AI 规则块生成），其余一字不动。
     """
     local = now.astimezone(ZoneInfo(group.tz))
+    stage_hour = slot_stage_hour(hour, minute)
     day = local.strftime("%Y-%m-%d")
-    slot = f"{hour:02d}:00"
+    slot = f"{hour:02d}:{minute:02d}"
     people = people_for(group.name, ledger)
     slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
     prev_people = {
         str(item.get("display") or ""): item
         for item in people_for(group.name, prev_ledger)
     }
-    use_diff = hour in (15, 20) and prev_ledger is not None
+    use_diff = stage_hour in (15, 20) and prev_ledger is not None
     if people:
         blocks = [
             _render_person(
                 group,
-                hour,
+                stage_hour,
                 day,
                 slot,
                 slogan,
                 item,
                 prev_people.get(str(item.get("display") or "")),
                 use_diff,
+                previous_slot,
                 focus_override,
             )
             for item in people
         ]
     else:
-        blocks = [_render_person(group, hour, day, slot, slogan, None, None, use_diff, focus_override)]
+        blocks = [_render_person(
+            group, stage_hour, day, slot, slogan, None, None, use_diff,
+            previous_slot, focus_override,
+        )]
     # 老板 2026-10-10：红榜/黑榜/奖励台账/扣罚台账这一块不要了（部门口径的全员可见榜停发）
     return "\n\n".join(blocks)
 
@@ -475,6 +577,8 @@ def render_person_briefs(
     ledger: dict | None = None,
     prev_ledger: dict | None = None,
     *,
+    minute: int = 0,
+    previous_slot: str | None = None,
     focus_override: str | None = None,
 ) -> list[dict]:
     """按人拆分的消息：每人一条，各自 @ 到人（老板 2026-10-10「分开追、对应到人」）。
@@ -483,15 +587,16 @@ def render_person_briefs(
     没有名单时退回一条群级消息（display 为空串），保证任何配置下都发得出去。
     """
     local = now.astimezone(ZoneInfo(group.tz))
+    stage_hour = slot_stage_hour(hour, minute)
     day = local.strftime("%Y-%m-%d")
-    slot = f"{hour:02d}:00"
+    slot = f"{hour:02d}:{minute:02d}"
     people = people_for(group.name, ledger)
     slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
     prev_people = {
         str(item.get("display") or ""): item
         for item in people_for(group.name, prev_ledger)
     }
-    use_diff = hour in (15, 20) and prev_ledger is not None
+    use_diff = stage_hour in (15, 20) and prev_ledger is not None
     if not people:
         people = [None]
     out: list[dict] = []
@@ -503,13 +608,14 @@ def render_person_briefs(
             payload = {**item, "meeting_todos": ""}
         text = _render_person(
             group,
-            hour,
+            stage_hour,
             day,
             slot,
             slogan,
             payload,
             prev_people.get(display),
             use_diff,
+            previous_slot,
             focus_override,
         )
         out.append({"display": display, "text": text.strip()})
@@ -525,11 +631,13 @@ def _render_person(
     person: dict | None,
     prev_person: dict | None = None,
     use_diff: bool = False,
+    previous_slot: str | None = None,
     focus_override: str | None = None,
 ) -> str:
     """单人一条正文 + 本周任务（老板 2026-10-10：按人挂一周任务，命中就每天追）。"""
     text = _render_person_body(
-        group, hour, day, slot, slogan, person, prev_person, use_diff, focus_override
+        group, hour, day, slot, slogan, person, prev_person, use_diff,
+        previous_slot, focus_override,
     )
     from app.weekly_focus import block_for
 
@@ -549,6 +657,7 @@ def _render_person_body(
     person: dict | None,
     prev_person: dict | None = None,
     use_diff: bool = False,
+    previous_slot: str | None = None,
     focus_override: str | None = None,
 ) -> str:
     lang = group.lang
@@ -569,6 +678,11 @@ def _render_person_body(
     )
     if group.lang == "en":
         title, focus = _SLOT_EN.get(hour, ("Brief", ""))
+        if hour == 15 and previous_slot == "":
+            title = "Midday chase · current status"
+            focus = "Review current status, open items and blockers; add owner, next action and deadline."
+        elif previous_slot is not None and hour == 15:
+            focus = focus.replace("10:00", previous_slot)
         focus = focus_override or focus
         head = (
             f"[Overseas Channel Daily Triple Chase] {title} {slot} (Paris time)\n"
@@ -579,6 +693,11 @@ def _render_person_body(
         )
     else:
         title, focus = _SLOT_ZH.get(hour, ("督战", ""))
+        if hour == 15 and previous_slot == "":
+            title = "中追·查现状"
+            focus = "检查当前状态、未闭环事项和卡点；补负责人、下一步和截止时间。"
+        elif previous_slot is not None and hour == 15:
+            focus = focus.replace("10:00", previous_slot)
         # 配了 AI 规则块的子 Agent：这句话由模型按当天数据生成（失败时是 None，回落固定文案）
         focus = focus_override or focus
         tz_label = "北京时间" if group.tz == TZ_SHANGHAI else group.tz
@@ -591,10 +710,14 @@ def _render_person_body(
         )
     if getattr(get_settings(), "duzhan_compact", True):
         # 老板 2026-09-19：三档只出总结性内容，明细放每天 08:00 的证据 HTML。
-        return head + "\n" + _compact_body(hour, person, lang, prev_person)
+        return head + "\n" + _compact_body(
+            hour, person, lang, prev_person, previous_slot=previous_slot,
+        )
     if use_diff:
         body = _changes_text(person, prev_person, lang)
-        extra = _slot_sections(hour, person, lang, prev_person)
+        extra = _slot_sections(
+            hour, person, lang, prev_person, previous_slot=previous_slot,
+        )
         if extra:
             body = body + "\n" + extra
         # 老板 2026-09-30：日报按模板核对，下午/晚上两档也要看得见合规情况
@@ -603,8 +726,12 @@ def _render_person_body(
         return head + "\n" + body
     body = _full_person_body(group, hour, person, lang)
     if hour == 10:
-        body = _morning_target_block(person, prev_person, lang) + "\n" + body
-    extra = _slot_sections(hour, person, lang, prev_person)
+        body = _morning_target_block(
+            person, prev_person, lang, previous_slot=previous_slot,
+        ) + "\n" + body
+    extra = _slot_sections(
+        hour, person, lang, prev_person, previous_slot=previous_slot,
+    )
     if extra:
         body = body + "\n" + extra
     return head + "\n" + body
@@ -837,13 +964,21 @@ def _daily_report_text(person: dict | None, lang: str) -> str:
     return f"{head}；系统证据{evidenced:.2f}h"
 
 
-def _morning_target_block(person: dict | None, prev_person: dict | None, lang: str) -> str:
+def _morning_target_block(
+    person: dict | None,
+    prev_person: dict | None,
+    lang: str,
+    *,
+    previous_slot: str | None = None,
+) -> str:
     """10:00 定今日目标：滚动日目标 + 昨日未闭环结转今日第一动作。"""
     person = person or {}
     daily = person.get("daily_target_wan")
     rolling = person.get("rolling_target_wan")
     gap = person.get("target_gap_wan")
-    carried = _unfinished_titles(prev_person, lang=lang)
+    no_baseline = previous_slot == ""
+    baseline_person = person if no_baseline else prev_person
+    carried = _unfinished_titles(baseline_person, lang=lang)
     group_target = person.get("group_target_wan")
     group_name = person.get("group_target_name") or "小组"
     if lang == "en":
@@ -859,10 +994,17 @@ def _morning_target_block(person: dict | None, prev_person: dict | None, lang: s
         if gap is not None:
             head += f" | {'ahead' if person.get('target_ahead') else 'behind'} {abs(gap)} wan"
         lines = [head]
-        lines.append(
-            "   • Carry-over from yesterday (first action today): "
-            + ("; ".join(carried[:3]) if carried else "no unfinished items found")
+        baseline_label = (
+            "Current open items: " if no_baseline
+            else (
+                f"Open items from {previous_slot} (next action now): "
+                if previous_slot is not None
+                else "Carry-over from yesterday (first action today): "
+            )
         )
+        lines.append("   • " + baseline_label + (
+            "; ".join(carried[:3]) if carried else "no unfinished items found"
+        ))
         return chr(10).join(lines)
     if daily is None and group_target:
         head = (
@@ -881,11 +1023,19 @@ def _morning_target_block(person: dict | None, prev_person: dict | None, lang: s
     if gap is not None:
         head += f"｜{'领先' if person.get('target_ahead') else '落后'} {abs(gap)} 万"
     lines = [head]
+    baseline_label = (
+        "当前未闭环事项：" if no_baseline
+        else (
+            f"{previous_slot} 未闭环结转（当前第一动作）："
+            if previous_slot is not None
+            else "昨日未闭环结转（今日第一动作）："
+        )
+    )
     lines.append(
-        "   • 昨日未闭环结转（今日第一动作）："
+        "   • " + baseline_label
         + ("；".join(carried[:3]) if carried else "未见未闭环事项")
     )
-    ping = _amount_ping(person, lang, source=prev_person)
+    ping = _amount_ping(person, lang, source=baseline_person)
     if ping:
         lines.append(ping)
     return chr(10).join(lines)
@@ -919,6 +1069,8 @@ def _compact_body(
     person: dict | None,
     lang: str,
     prev_person: dict | None = None,
+    *,
+    previous_slot: str | None = None,
 ) -> str:
     """三档总结版（10:00 定任务 / 15:00 追变化 / 20:00 验兑现），每人 5–7 行。
 
@@ -951,12 +1103,24 @@ def _compact_body(
                       if gap is not None else f" | MTD {arrived} wan")
             )
         lines.append(target_line)
-        carried = _unfinished_titles(prev_person, lang=lang)
+        no_baseline = previous_slot == ""
+        baseline_person = person if no_baseline else prev_person
+        carried = _unfinished_titles(baseline_person, lang=lang)
+        baseline_label = (
+            ("当前未闭环事项：" if not english else "Current open items: ")
+            if no_baseline
+            else (
+                (f"{previous_slot} 未闭环 → 当前第一动作：" if not english
+                 else f"Open items from {previous_slot} → next action now: ")
+                if previous_slot is not None
+                else ("昨日未闭环 → 今日第一动作：" if not english else "Carry-over → first action today: ")
+            )
+        )
         lines.append(
-            ("昨日未闭环 → 今日第一动作：" if not english else "Carry-over → first action today: ")
+            baseline_label
             + ("；".join(carried[:3]) if carried else ("未见未闭环事项" if not english else "none found"))
         )
-        ping = _amount_ping(person, lang, source=prev_person)
+        ping = _amount_ping(person, lang, source=baseline_person)
         if ping:
             lines.append(ping.strip())
         lines.append(
@@ -966,10 +1130,14 @@ def _compact_body(
         )
         return chr(10).join(lines)
     if hour == 15:
+        no_baseline = previous_slot == ""
+        baseline = previous_slot if previous_slot is not None else "10:00"
         delta = None
         if arrived is not None and (prev_person or {}).get("perf_arrived_wan") is not None:
             delta = round(float(arrived) - float(prev_person["perf_arrived_wan"]), 1)
-        if delta is None:
+        if no_baseline:
+            delta_text = "当前状态" if not english else "Current status"
+        elif delta is None:
             delta_text = "本档新增：待确认" if not english else "New this slot: pending"
         elif delta == 0:
             delta_text = "本档新增：0（与上一档持平）" if not english else "New this slot: none"
@@ -999,9 +1167,17 @@ def _compact_body(
         if ping:
             lines.append(ping.strip())
         lines.append(
-            "请回：相对 10:00 的变化（完成 / 推进 / 停滞 / 未回）+ 卡点"
+            (
+                "请回：当前事项状态（完成 / 推进 / 停滞 / 未回）+ 卡点"
+                if no_baseline
+                else f"请回：相对 {baseline} 的变化（完成 / 推进 / 停滞 / 未回）+ 卡点"
+            )
             if not english
-            else "Reply with: changes vs 10:00 (done / progressed / stalled / no reply) + blockers"
+            else (
+                "Reply with: current status (done / progressed / stalled / no reply) + blockers"
+                if no_baseline
+                else f"Reply with: changes vs {baseline} (done / progressed / stalled / no reply) + blockers"
+            )
         )
         return chr(10).join(lines)
     slip = person.get("perf_slip") or []
@@ -1072,6 +1248,8 @@ def _slot_sections(
     person: dict | None,
     lang: str,
     prev_person: dict | None = None,
+    *,
+    previous_slot: str | None = None,
 ) -> str:
     """15:00 梳理目标+上午总结；20:00 业绩核对+WhatsApp+工时+明日预告。
 
@@ -1092,7 +1270,9 @@ def _slot_sections(
     ahead = bool(person.get("target_ahead"))
     if hour == 15:
         lines.append("【Target review | Morning summary】" if english else "【目标梳理｜上午总结】")
-        if delta is None:
+        if previous_slot == "":
+            delta_text = "current snapshot" if english else "当前口径"
+        elif delta is None:
             delta_text = (
                 "new this slot pending (no previous slot)"
                 if english
@@ -1485,6 +1665,8 @@ def run_duzhan(
     hour: int,
     now: datetime | None = None,
     *,
+    minute: int = 0,
+    day: str | None = None,
     channel_ids: Iterable[str] | None = None,
 ) -> dict:
     """整点推送：优先用提前组好的快照，没有快照则现场渲染。周末不发。
@@ -1492,33 +1674,50 @@ def run_duzhan(
     `channel_ids` 有值时只推这些群（db 源下同档群共用一次调度）。
     """
     now = now or datetime.now(ZoneInfo(tz_name))
-    if not is_duzhan_workday(tz_name, now):
+    day = day or now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    from app.workday_calendar import is_workday
+
+    if not is_workday(day):
         logger.info("周末不推送 {} {}", tz_name, hour)
-        return {"tz": tz_name, "hour": hour, "sent": [], "failed": [], "skipped": "weekend"}
-    day = now.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+        return {"tz": tz_name, "hour": hour, "minute": minute, "sent": [], "failed": [], "skipped": "weekend"}
+    render_now = datetime.strptime(
+        f"{day}T{hour:02d}:{minute:02d}:00", "%Y-%m-%dT%H:%M:%S",
+    ).replace(tzinfo=ZoneInfo(tz_name))
     slot_key = _slot_key(channel_ids)
-    snapshot = load_prepared(tz_name, hour, day, slot_key)
+    snapshot = load_prepared(tz_name, hour, day, slot_key, minute)
     bodies = snapshot.get("messages") if snapshot else None
     ledger = snapshot.get("ledger") if snapshot else None
-    prev_hour = prev_slot_hour(hour)
-    prev = load_prepared(tz_name, prev_hour, day, slot_key) if prev_hour else None
-    prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+    from app.duzhan_admin import runtime
+
+    groups = groups_for_tz(tz_name, channel_ids)
+    active_agents = runtime.duzhan_agents() if runtime.using_db() else None
+    previous = {
+        group.channel_id: _previous_prepared_for_group(
+            tz_name, day, hour, minute, group.channel_id, active_agents,
+        )
+        for group in groups
+    }
+    fallback_prev_ledger = next((
+        item.get("ledger") for item in previous.values()
+        if isinstance(item, dict) and isinstance(item.get("ledger"), dict)
+    ), None)
     if ledger is None:
         # 快照缺失（如 2026-09-18 容器重启打断 19:45 组表）时，绝不把空台账推给群：
         # 先现场采一次，再退回上一档台账，最后才允许空表（并告警）。
-        ledger = _collect_for_missing_snapshot(tz_name, day, hour) or prev_ledger
+        ledger = _collect_for_missing_snapshot(tz_name, day, hour) or fallback_prev_ledger
         if ledger is None:
             notify(
                 "督战官无快照且兜底采集失败",
-                f"{tz_name} {day} {hour:02d}:00 将按空表推送（全部待确认）",
+                f"{tz_name} {day} {hour:02d}:{minute:02d} 将按空表推送（全部待确认）",
             )
     person_bodies = snapshot.get("person_messages") if snapshot else None
     sent: list[str] = []
     failed: list[str] = []
     pushed = 0
-    from app.duzhan_admin import runtime
-
-    for group in groups_for_tz(tz_name, channel_ids):
+    for group in groups:
+        prev = previous.get(group.channel_id)
+        prev_ledger = prev.get("ledger") if isinstance(prev, dict) else None
+        previous_slot = _previous_slot_label(prev, configured=active_agents is not None)
         if runtime.using_db() and not runtime.conditions_allow_channel(group.channel_id, day, ledger):
             logger.info("督战官发送条件未满足，跳过 {} {} {}", group.name, day, hour)
             continue
@@ -1539,8 +1738,11 @@ def run_duzhan(
             if not body:
                 from app.duzhan_admin import ai_rules
 
-                override = ai_rules.focus_for(group, hour, day, ledger)
-                body = render_brief(group, hour, now, ledger, prev_ledger, focus_override=override)
+                override = ai_rules.focus_for(group, hour, day, ledger, minute=minute)
+                body = render_brief(
+                    group, hour, render_now, ledger, prev_ledger, minute=minute,
+                    previous_slot=previous_slot, focus_override=override,
+                )
             parts = [("", body)]
         group_ok = True
         for display, body in parts:
@@ -1550,7 +1752,7 @@ def run_duzhan(
                 body,
                 group.channel_id,
                 idempotency_key=_idempotency_key(
-                    tz_name, day, hour, group.channel_id, person=display
+                    tz_name, day, hour, group.channel_id, person=display, minute=minute
                 ),
             )
             if ok:
@@ -1565,6 +1767,7 @@ def run_duzhan(
     return {
         "tz": tz_name,
         "hour": hour,
+        "minute": minute,
         "sent": sent,
         "failed": failed,
         "messages": pushed,

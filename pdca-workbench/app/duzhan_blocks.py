@@ -58,9 +58,6 @@ RECIPIENT_KINDS: tuple[str, ...] = ("channel", "user")
 
 LANGS: dict[str, str] = {"zh": "中文", "en": "English"}
 
-#: 当前渲染器只支持这三档（duzhan.parse_hours 同源）
-SLOT_HOURS: tuple[int, ...] = (10, 15, 20)
-
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -135,6 +132,33 @@ def as_str_list(value: Any) -> list[str]:
     return []
 
 
+def normalize_time_slot(value: Any) -> str | None:
+    """返回规范的 HH:MM；非法值返回 None。"""
+    text = _text(value)
+    match = _TIME_RE.fullmatch(text)
+    if not match:
+        return None
+    return f"{int(match.group(1)):02d}:{int(text[-2:]):02d}"
+
+
+def split_time_slot(value: Any) -> tuple[int, int] | None:
+    """把合法 HH:MM 拆成 APScheduler 使用的时、分。"""
+    slot = normalize_time_slot(value)
+    if slot is None:
+        return None
+    hour, minute = slot.split(":", 1)
+    return int(hour), int(minute)
+
+
+def time_slot_stage(value: Any) -> int | None:
+    """把合法时刻映射到最近的 10/15/20 点业务阶段；平局取较晚阶段。"""
+    clock = split_time_slot(value)
+    if clock is None:
+        return None
+    total = clock[0] * 60 + clock[1]
+    return min((10, 15, 20), key=lambda anchor: (abs(total - anchor * 60), -anchor))
+
+
 def _check_one(
     index: int,
     block: Block,
@@ -161,17 +185,25 @@ def _check_one(
         if not slots:
             errors.append(f"{where}：slots 不能为空")
         seen: set[str] = set()
+        seen_stages: dict[int, str] = {}
         for slot in slots:
             if slot in seen:
                 errors.append(f"{where}：档位 {slot} 重复")
+                continue
             seen.add(slot)
-            if not _TIME_RE.match(slot):
+            normalized = normalize_time_slot(slot)
+            if normalized is None:
                 errors.append(f"{where}：时刻格式应为 HH:MM，当前为 {slot}")
                 continue
-            hour = int(slot.split(":")[0])
-            if hour not in SLOT_HOURS:
-                supported = "/".join(f"{item}:00" for item in SLOT_HOURS)
-                errors.append(f"{where}：当前引擎只支持 {supported}，不支持 {slot}")
+            stage = time_slot_stage(normalized)
+            if stage in seen_stages:
+                label = {10: "早追", 15: "中追", 20: "晚追"}[stage]
+                errors.append(
+                    f"{where}：{label}阶段只能配置一个发送时间，"
+                    f"当前为 {seen_stages[stage]}、{normalized}"
+                )
+            elif stage is not None:
+                seen_stages[stage] = normalized
 
     elif block.type == "people":
         # 空名单 = 该群全员；想限定人员才填 names
@@ -287,7 +319,7 @@ def block_schema() -> list[dict]:
         {
             "type": "group",
             "label": "目标群",
-            "hint": "这份报告发到哪个群（只能一块）",
+            "hint": "选择已接入消息采集和闭环判断的督战群（只能一块）",
             "multiple": False,
             "fields": [
                 {"key": "channel_id", "label": "群 ID", "kind": "uuid", "required": True},
@@ -297,7 +329,7 @@ def block_schema() -> list[dict]:
         {
             "type": "times",
             "label": "推送档位",
-            "hint": f"当前引擎支持 {'/'.join(f'{h}:00' for h in SLOT_HOURS)}（只能一块）",
+            "hint": "可自定义早追、中追、晚追各一个时刻；按最近的 10/15/20 点匹配阶段（只能一块）",
             "multiple": False,
             "fields": [
                 {
@@ -305,7 +337,6 @@ def block_schema() -> list[dict]:
                     "label": "档位",
                     "kind": "slots",
                     "required": True,
-                    "options": [f"{hour}:00" for hour in SLOT_HOURS],
                 }
             ],
         },
@@ -334,23 +365,23 @@ def block_schema() -> list[dict]:
         },
         {
             "type": "rule",
-            "label": "规则 / 动作",
+            "label": "提醒重点",
             "multiple": True,
-            "hint": "确定性文案，或交给 AI 按当天数据生成（慢·有费用；生成失败自动回落固定文案）",
+            "hint": "只覆盖消息里的“本档动作”；其余检查提醒仍由系统自动生成",
             "fields": [
                 {
                     "key": "mode",
-                    "label": "生成方式",
+                    "label": "重点来源",
                     "kind": "select",
                     "options": list(RULE_MODES),
-                    "option_labels": {"text": "固定文案", "ai": "AI 生成（慢·有费用，失败回落固定文案）"},
+                    "option_labels": {"text": "固定提醒重点", "ai": "AI 生成重点（慢·有费用，失败回落默认重点）"},
                     "default": "text",
                 },
-                {"key": "text", "label": "文案", "kind": "textarea", "show_when": {"mode": "text"}},
-                {"key": "prompt", "label": "AI 提示词", "kind": "textarea", "show_when": {"mode": "ai"}},
+                {"key": "text", "label": "本档动作", "kind": "textarea", "show_when": {"mode": "text"}},
+                {"key": "prompt", "label": "告诉 AI 本档重点", "kind": "textarea", "show_when": {"mode": "ai"}},
                 {
                     "key": "when",
-                    "label": "生效范围",
+                    "label": "什么时候使用",
                     "kind": "select",
                     "options": list(RULE_WHEN),
                     "option_labels": {
@@ -392,13 +423,13 @@ def block_schema() -> list[dict]:
         },
         {
             "type": "condition",
-            "label": "发送条件",
+            "label": "提醒条件",
             "multiple": True,
-            "hint": "满足才发",
+            "hint": "默认每档都提醒；这里用于筛选是否发送整条检查结果",
             "fields": [
                 {
                     "key": "key",
-                    "label": "条件",
+                    "label": "检查条件",
                     "kind": "select",
                     "required": True,
                     "options": list(CONDITION_KEYS.keys()),

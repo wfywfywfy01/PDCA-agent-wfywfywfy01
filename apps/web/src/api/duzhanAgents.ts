@@ -27,7 +27,9 @@ export interface DuzhanAgentItem {
 export interface DuzhanRuntimeStatus {
   source: 'code' | 'db'
   enabled: boolean
+  ctob_enabled: boolean
   bot_app_id: string
+  supported_channel_ids: string[]
   schedule_updates_require_restart: boolean
 }
 
@@ -35,6 +37,7 @@ export interface PreviewResult {
   agent: { id: number | null; name: string; enabled: boolean }
   day: string | null
   hour: number | null
+  slot?: string | null
   errors: string[]
   spec: Record<string, unknown>
   summary: string[]
@@ -81,6 +84,7 @@ export interface RenderPreviewResult {
   agent?: { id: number | null; name: string; enabled: boolean }
   day?: string | null
   hour?: number | null
+  slot?: string | null
   timezone?: string
   channel_id?: string
   group?: string
@@ -99,10 +103,10 @@ export type PreviewMode = 'structure' | 'render'
 export function previewAgent(
   id: number,
   day?: string,
-  hour?: number,
+  slot?: string,
   mode: PreviewMode = 'structure',
 ): Promise<PreviewResult | RenderPreviewResult> {
-  return apiPost('/api/duzhan-agents/' + id + '/preview', { day, hour, mode })
+  return apiPost('/api/duzhan-agents/' + id + '/preview', { day, slot, mode })
 }
 
 export interface AiStatus {

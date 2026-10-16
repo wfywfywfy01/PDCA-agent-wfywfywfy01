@@ -16,7 +16,7 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.duzhan import TZ_SHANGHAI, DuzhanGroup, parse_hours
-from app.duzhan_blocks import Block, as_str_list, parse_blocks
+from app.duzhan_blocks import Block, as_str_list, normalize_time_slot, parse_blocks, split_time_slot
 from app.models.duzhan_agent import DuzhanAgent
 
 CONFIG_SOURCE_CODE = "code"
@@ -70,17 +70,52 @@ def group_of(agent: DuzhanAgent) -> Optional[DuzhanGroup]:
         return None
     style = _first(blocks, "style")
     lang = str(style.get("lang") or "zh").strip() if style else "zh"
-    label = str(group.get("label") or "").strip() or agent.name
-    tz_name = str(agent.timezone or "").strip() or TZ_SHANGHAI
+    from app.duzhan_admin.service import supported_channel_labels
+
+    label = supported_channel_labels().get(channel_id)
+    label = label or str(group.get("label") or "").strip() or agent.name
+    from app.ctob import OWNERS as CTOB_OWNERS
+
+    is_ctob = any(owner.channel_id == channel_id for owner in CTOB_OWNERS)
+    tz_name = TZ_SHANGHAI if is_ctob else (str(agent.timezone or "").strip() or TZ_SHANGHAI)
     return DuzhanGroup(name=label, channel_id=channel_id, lang=lang, tz=tz_name)
 
 
 def slots_of(agent: DuzhanAgent) -> list[int]:
-    """子 Agent 的推送档位（只认 10/15/20，和引擎一致）。"""
+    """兼容旧调用：返回配置时刻涉及的小时。"""
+    hours: list[int] = []
+    for slot in slot_times_of(agent):
+        hour = int(slot[:2])
+        if hour not in hours:
+            hours.append(hour)
+    return hours
+
+
+def slot_times_of(agent: DuzhanAgent) -> list[str]:
+    """返回去重后的规范 HH:MM 时刻，保留用户顺序。"""
     times = _first(_blocks(agent), "times")
     if times is None:
         return []
-    return parse_hours(as_str_list(times.get("slots")))
+    slots: list[str] = []
+    for raw in as_str_list(times.get("slots")):
+        slot = normalize_time_slot(raw)
+        if slot is not None and slot not in slots:
+            slots.append(slot)
+    return slots
+
+
+def previous_slot_in(slots: list[str], current_slot: str) -> tuple[int, str] | None:
+    """返回一组发送时刻里的上一档；首档回到前一天末档。"""
+    slots = sorted(dict.fromkeys(slots))
+    if current_slot not in slots or len(slots) < 2:
+        return None
+    index = slots.index(current_slot)
+    return (0, slots[index - 1]) if index else (-1, slots[-1])
+
+
+def previous_slot_of(agent: DuzhanAgent, current_slot: str) -> tuple[int, str] | None:
+    """返回同一 Agent 的上一发送时刻；首档回到前一天末档。"""
+    return previous_slot_in(slot_times_of(agent), current_slot)
 
 
 def conditions_allow(agent: DuzhanAgent, day: str, ledger: dict | None) -> bool:
@@ -160,8 +195,8 @@ def duzhan_agents() -> list[tuple[DuzhanAgent, DuzhanGroup]]:
             continue
         if group.channel_id in follow_channels:
             continue
-        if not slots_of(agent):
-            logger.warning("子 Agent #{} {} 没有可用档位（只支持 10:00/15:00/20:00），跳过注册", agent.id, agent.name)
+        if not slot_times_of(agent):
+            logger.warning("子 Agent #{} {} 没有可用发送时间，跳过注册", agent.id, agent.name)
             continue
         picked.append((agent, group))
     return picked
@@ -191,14 +226,16 @@ def follow_agents() -> list[tuple[DuzhanAgent, object]]:
         owner = by_channel.get(group.channel_id)
         if owner is None:
             continue
-        if not slots_of(agent):
+        if not slot_times_of(agent):
             logger.warning("跟进群子 Agent #{} {} 没有可用档位，跳过注册", agent.id, agent.name)
             continue
         picked.append((agent, owner))
     return picked
 
 
-def register_agent_jobs(scheduler) -> list[dict]:
+def register_agent_jobs(
+    scheduler, *, duzhan_enabled: bool = True, ctob_enabled: bool = True,
+) -> list[dict]:
     """db 源：同一时区、同一档位合并采集和推送，返回群注册清单。"""
     from zoneinfo import ZoneInfo
 
@@ -208,51 +245,66 @@ def register_agent_jobs(scheduler) -> list[dict]:
 
     lead = int(getattr(get_settings(), "duzhan_lead_minutes", 15) or 15)
     registered: list[dict] = []
-    duzhan_slots: dict[tuple[str, int], list[str]] = {}
+    duzhan_slots: dict[tuple[str, str], list[str]] = {}
 
-    for agent, group in duzhan_agents():
-        hours = slots_of(agent)
-        for hour in hours:
-            duzhan_slots.setdefault((group.tz, hour), []).append(group.channel_id)
-        registered.append(
-            {
-                "kind": "duzhan",
-                "agent_id": agent.id,
-                "name": agent.name,
-                "channel_id": group.channel_id,
-                "timezone": group.tz,
-                "slots": hours,
-            }
-        )
+    if duzhan_enabled:
+        for agent, group in duzhan_agents():
+            slots = slot_times_of(agent)
+            for slot in slots:
+                duzhan_slots.setdefault((group.tz, slot), []).append(group.channel_id)
+            registered.append(
+                {
+                    "kind": "duzhan",
+                    "agent_id": agent.id,
+                    "name": agent.name,
+                    "channel_id": group.channel_id,
+                    "timezone": group.tz,
+                    "slots": slots,
+                }
+            )
 
-    for (tz_name, hour), channel_ids in duzhan_slots.items():
+    for (tz_name, slot), channel_ids in duzhan_slots.items():
+        clock = split_time_slot(slot)
+        if clock is None:  # 已由 slot_times_of 过滤，防御性保护
+            continue
+        hour, minute = clock
         zone = ZoneInfo(tz_name)
         slug = tz_name.lower().replace("/", "_")
-        collect_hour, collect_minute = collect_clock(hour, lead)
-        backup_hour, backup_minute = collect_clock(hour, -30)
+        slot_slug = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
+        collect_hour, collect_minute = collect_clock(hour, lead, minute)
+        backup_hour, backup_minute = collect_clock(hour, -30, minute)
         scheduler.add_job(
             duzhan_collect_job,
             args=[tz_name, hour],
-            kwargs={"ledger_job": f"duzhan_collect:db:{tz_name}", "channel_ids": channel_ids},
+            kwargs={
+                "minute": minute,
+                "trigger_offset_minutes": -lead,
+                "ledger_job": f"duzhan_collect:db:{tz_name}",
+                "channel_ids": channel_ids,
+            },
             trigger="cron",
             hour=collect_hour,
             minute=collect_minute,
             day_of_week="mon-sun",
             timezone=zone,
-            id=f"duzhan_collect_{slug}_{hour:02d}",
+            id=f"duzhan_collect_{slug}_{slot_slug}",
             max_instances=1,
             coalesce=True,
             misfire_grace_time=3600,
         )
-        push_kwargs = {"ledger_job": f"duzhan_push:db:{tz_name}", "channel_ids": channel_ids}
-        for job_id, job_hour, job_minute in (
-            (f"duzhan_{slug}_{hour:02d}", hour, 0),
-            (f"duzhan_backup_{slug}_{hour:02d}", backup_hour, backup_minute),
+        push_kwargs = {
+            "minute": minute,
+            "ledger_job": f"duzhan_push:db:{tz_name}",
+            "channel_ids": channel_ids,
+        }
+        for job_id, job_hour, job_minute, trigger_offset in (
+            (f"duzhan_{slug}_{slot_slug}", hour, minute, 0),
+            (f"duzhan_backup_{slug}_{slot_slug}", backup_hour, backup_minute, 30),
         ):
             scheduler.add_job(
                 duzhan_job,
                 args=[tz_name, hour],
-                kwargs=push_kwargs,
+                kwargs={**push_kwargs, "trigger_offset_minutes": trigger_offset},
                 trigger="cron",
                 hour=job_hour,
                 minute=job_minute,
@@ -264,32 +316,39 @@ def register_agent_jobs(scheduler) -> list[dict]:
                 misfire_grace_time=3600,
             )
 
-    follow_slots: dict[int, list[object]] = {}
-    for agent, owner in follow_agents():
-        hours = slots_of(agent)
-        for hour in hours:
-            follow_slots.setdefault(hour, []).append(owner)
-        registered.append(
-            {
-                "kind": "follow",
-                "agent_id": agent.id,
-                "name": agent.name,
-                "channel_id": owner.channel_id,
-                "timezone": TZ_SHANGHAI,
-                "slots": hours,
-            }
-        )
+    follow_slots: dict[str, list[object]] = {}
+    if ctob_enabled:
+        for agent, owner in follow_agents():
+            slots = slot_times_of(agent)
+            for slot in slots:
+                follow_slots.setdefault(slot, []).append(owner)
+            registered.append(
+                {
+                    "kind": "follow",
+                    "agent_id": agent.id,
+                    "name": agent.name,
+                    "channel_id": owner.channel_id,
+                    "timezone": TZ_SHANGHAI,
+                    "slots": slots,
+                }
+            )
 
-    for hour, owners in follow_slots.items():
-        kwargs = {"owners": tuple(owners), "ledger_job": "ctob:db"}
-        for job_id, job_hour, job_minute in (
-            (f"ctob_db_{hour:02d}", hour, 0),
-            (f"ctob_db_backup_{hour:02d}", hour, 30),
+    for slot, owners in follow_slots.items():
+        clock = split_time_slot(slot)
+        if clock is None:
+            continue
+        hour, minute = clock
+        slot_slug = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
+        backup_hour, backup_minute = collect_clock(hour, -30, minute)
+        kwargs = {"minute": minute, "owners": tuple(owners), "ledger_job": "ctob:db"}
+        for job_id, job_hour, job_minute, trigger_offset in (
+            (f"ctob_db_{slot_slug}", hour, minute, 0),
+            (f"ctob_db_backup_{slot_slug}", backup_hour, backup_minute, 30),
         ):
             scheduler.add_job(
                 ctob_job,
                 args=[hour],
-                kwargs=kwargs,
+                kwargs={**kwargs, "trigger_offset_minutes": trigger_offset},
                 trigger="cron",
                 hour=job_hour,
                 minute=job_minute,

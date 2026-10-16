@@ -854,6 +854,9 @@ def duzhan_collect_job(
     tz_name: str,
     hour: int,
     *,
+    minute: int = 0,
+    day_offset: int = 0,
+    trigger_offset_minutes: int | None = None,
     ledger_job: str = "duzhan_collect",
     channel_ids: list[str] | None = None,
 ) -> None:
@@ -864,7 +867,11 @@ def duzhan_collect_job(
     """
     from app.agents.flow_controller import prepare_performance_slot
 
-    result = prepare_performance_slot(tz_name, hour, ledger_job=ledger_job, channel_ids=channel_ids)
+    result = prepare_performance_slot(
+        tz_name, hour, minute=minute, day_offset=day_offset,
+        trigger_offset_minutes=trigger_offset_minutes,
+        ledger_job=ledger_job, channel_ids=channel_ids,
+    )
     if result.get("skipped"):
         logger.info("督战官本档跳过组表 {} {} {}", tz_name, hour, result["skipped"])
     elif result.get("status") == "failed":
@@ -877,6 +884,9 @@ def duzhan_job(
     tz_name: str,
     hour: int,
     *,
+    minute: int = 0,
+    day_offset: int = 0,
+    trigger_offset_minutes: int | None = None,
     ledger_job: str = "duzhan",
     channel_ids: list[str] | None = None,
 ) -> None:
@@ -886,7 +896,11 @@ def duzhan_job(
     """
     from app.agents.flow_controller import push_performance_slot
 
-    result = push_performance_slot(tz_name, hour, ledger_job=ledger_job, channel_ids=channel_ids)
+    result = push_performance_slot(
+        tz_name, hour, minute=minute, day_offset=day_offset,
+        trigger_offset_minutes=trigger_offset_minutes,
+        ledger_job=ledger_job, channel_ids=channel_ids,
+    )
     if result.get("skipped"):
         logger.info("督战官本档跳过推送 {} {} {}", tz_name, hour, result["skipped"])
     elif result.get("status") == "failed":
@@ -897,15 +911,23 @@ def duzhan_job(
         logger.info("督战官已推送 {} {}", tz_name, hour)
 
 
-def ctob_job(hour: int = 20, *, owners: tuple | None = None, ledger_job: str = "ctob") -> None:
+def ctob_job(
+    hour: int = 20, *, minute: int = 0, day_offset: int = 0,
+    trigger_offset_minutes: int | None = None,
+    owners: tuple | None = None, ledger_job: str = "ctob",
+) -> None:
     """工作日北京 10:00 / 15:00 / 20:00：C转B 群按档推送（P2 封装）。
 
     db 源下同档位合并注册，`owners` 只带该档启用的群。
     """
     from app.agents.flow_controller import run_ctob_slot
 
-    result = run_ctob_slot(hour, owners=owners, ledger_job=ledger_job)
-    label = f"{hour:02d}:00 C转B"
+    result = run_ctob_slot(
+        hour, minute=minute, day_offset=day_offset,
+        trigger_offset_minutes=trigger_offset_minutes,
+        owners=owners, ledger_job=ledger_job,
+    )
+    label = f"{hour:02d}:{minute:02d} C转B"
     if result.get("skipped"):
         logger.info("{}跳过 {}", label, result["skipped"])
     elif result.get("status") == "failed":
@@ -922,9 +944,17 @@ def agent_slot_health_job() -> None:
     只读检查，绝不补发；缺失/失败时调用现有 notify（10 分钟去重）。
     """
     from app.agents.flow_controller import run_health_checks_for
+    from app.duzhan_admin import runtime as duzhan_runtime
 
     settings = get_settings()
-    if not (getattr(settings, "agent_healthcheck_enabled", False) and getattr(settings, "duzhan_enabled", False)):
+    planes_enabled = bool(
+        getattr(settings, "duzhan_enabled", False)
+        or (
+            duzhan_runtime.using_db()
+            and getattr(settings, "ctob_enabled", False)
+        )
+    )
+    if not (getattr(settings, "agent_healthcheck_enabled", False) and planes_enabled):
         return
     try:
         reports = run_health_checks_for()
@@ -1300,8 +1330,14 @@ def start_scheduler() -> BackgroundScheduler | None:
     if config_from_db:
         logger.info("督战官配置源=db：群清单改由配置页决定（PDCA_DUZHAN_CONFIG_SOURCE）")
 
-    if getattr(settings, "duzhan_enabled", False) and config_from_db:
-        registered = duzhan_runtime.register_agent_jobs(_scheduler)
+    duzhan_enabled = bool(getattr(settings, "duzhan_enabled", False))
+    ctob_enabled = bool(getattr(settings, "ctob_enabled", False))
+    if config_from_db and (duzhan_enabled or ctob_enabled):
+        registered = duzhan_runtime.register_agent_jobs(
+            _scheduler,
+            duzhan_enabled=duzhan_enabled,
+            ctob_enabled=ctob_enabled,
+        )
         logger.info("督战官按库注册完成：{} 个子 Agent", len(registered))
 
     # 小黑屋：开单晒单自动祝贺（默认关；配了机器人凭证才开）
@@ -1316,7 +1352,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         )
         logger.info("小黑屋祝贺机器人已注册：每 {} 分钟扫一轮", getattr(settings, "heiwu_poll_minutes", 5))
 
-    if getattr(settings, "duzhan_enabled", False) and not config_from_db:
+    if duzhan_enabled and not config_from_db:
         from zoneinfo import ZoneInfo
 
         from app.duzhan import collect_clock, cron_timezones, parse_hours
@@ -1370,15 +1406,15 @@ def start_scheduler() -> BackgroundScheduler | None:
                     coalesce=True,
                     misfire_grace_time=3600,
                 )
-        if getattr(settings, "duzhan_reply_enabled", False):
-            _scheduler.add_job(
-                duzhan_at_poll_job,
-                trigger="interval",
-                minutes=1,
-                id="duzhan_at_poll",
-                max_instances=1,
-                coalesce=True,
-            )
+    if duzhan_enabled and getattr(settings, "duzhan_reply_enabled", False):
+        _scheduler.add_job(
+            duzhan_at_poll_job,
+            trigger="interval",
+            minutes=1,
+            id="duzhan_at_poll",
+            max_instances=1,
+            coalesce=True,
+        )
 
     # 08:00 — 策略核查（wa_strategies.json，前 24 小时）。08:30 备份共享 claim，不重复发。
     if getattr(settings, "campaign_wa_check_enabled", False):
@@ -1459,7 +1495,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         except (ValueError, AttributeError):
             logger.warning("忽略非法日报群总结时间: {}", digest_time)
 
-    if getattr(settings, "ctob_enabled", False) and not config_from_db:
+    if ctob_enabled and not config_from_db:
         from zoneinfo import ZoneInfo
 
         # C转B 与达标群同结构：10:00 定任务 / 15:00 追变化 / 20:00 验兑现。
@@ -1474,6 +1510,7 @@ def start_scheduler() -> BackgroundScheduler | None:
             _scheduler.add_job(
                 ctob_job,
                 args=[hour],
+                kwargs={"minute": minute, "trigger_offset_minutes": 0},
                 trigger="cron",
                 hour=hour,
                 minute=minute,
@@ -1489,6 +1526,7 @@ def start_scheduler() -> BackgroundScheduler | None:
             _scheduler.add_job(
                 ctob_job,
                 args=[hour],
+                kwargs={"minute": minute, "trigger_offset_minutes": 30},
                 trigger="cron",
                 hour=(backup // 60) % 24,
                 minute=backup % 60,
@@ -1502,7 +1540,11 @@ def start_scheduler() -> BackgroundScheduler | None:
 
     # ── 多智能体督战运行时调度（全部默认关闭/影子，模型故障不阻断确定性任务）──
     # P0：档位健康检查，每 5 分钟扫窗口（各时区本地整点后 5 分钟内检查）。
-    if getattr(settings, "agent_healthcheck_enabled", False) and getattr(settings, "duzhan_enabled", False):
+    healthcheck_enabled = bool(
+        getattr(settings, "agent_healthcheck_enabled", False)
+        and (duzhan_enabled or (config_from_db and ctob_enabled))
+    )
+    if healthcheck_enabled:
         _scheduler.add_job(
             agent_slot_health_job,
             trigger="cron",
@@ -1640,7 +1682,7 @@ def start_scheduler() -> BackgroundScheduler | None:
         ),
         "开" if getattr(settings, "agent_enabled", False) else "停用",
         "开" if getattr(settings, "agent_shadow_mode", False) else "关",
-        "开" if getattr(settings, "agent_healthcheck_enabled", False) else "停用",
+        "开" if healthcheck_enabled else "停用",
         "开" if getattr(settings, "agent_outbox_enabled", False) else "停用",
     )
     return _scheduler

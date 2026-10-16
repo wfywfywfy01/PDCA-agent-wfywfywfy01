@@ -75,10 +75,14 @@ class ValidateTests(unittest.TestCase):
         errors = validate_blocks(_with(group={"channel_id": "c1"}))
         self.assertTrue(any("channel_id" in item for item in errors))
 
-    def test_times_rejects_unsupported_hour(self):
-        errors = validate_blocks(_with(times={"slots": ["12:00"]}))
-        self.assertTrue(any("不支持" in item for item in errors))
+    def test_times_accept_custom_clock_times(self):
+        self.assertEqual(
+            validate_blocks(_with(times={"slots": ["09:35", "14:10", "23:59"]})),
+            [],
+        )
         errors = validate_blocks(_with(times={"slots": ["9:00"]}))
+        self.assertTrue(any("HH:MM" in item for item in errors))
+        errors = validate_blocks(_with(times={"slots": ["24:00"]}))
         self.assertTrue(any("HH:MM" in item for item in errors))
 
     def test_people_outside_roster(self):
@@ -97,6 +101,10 @@ class ValidateTests(unittest.TestCase):
     def test_duplicate_slots_rejected(self):
         errors = validate_blocks(_with(times={"slots": ["10:00", "10:00"]}))
         self.assertTrue(any("重复" in item for item in errors), errors)
+
+    def test_only_one_time_per_business_stage(self):
+        errors = validate_blocks(_with(times={"slots": ["09:35", "09:40", "14:10"]}))
+        self.assertTrue(any("早追" in item and "只能配置一个" in item for item in errors), errors)
 
     def test_only_one_group_block_allowed(self):
         blocks = parse_blocks({"blocks": [
