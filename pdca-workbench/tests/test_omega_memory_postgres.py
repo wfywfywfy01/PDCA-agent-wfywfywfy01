@@ -15,6 +15,7 @@ from app.auth.models import User
 from app.omega.memory import apply_proposal, propose_report_memory
 from app.omega.memory_models import OmegaMemoryEntry, OmegaMemoryProfile, OmegaMemoryProposal
 from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment, OmegaSession
+from tests.test_migrate_entrypoint import migration_head
 
 
 @unittest.skipUnless(os.environ.get("OMEGA_TEST_DATABASE_URL"), "disposable PostgreSQL URL not configured")
@@ -28,8 +29,8 @@ class OmegaMemoryPostgresTests(unittest.TestCase):
             raise RuntimeError("Memory tests require local development omega_test database")
         cls.engine = create_engine(url, pool_pre_ping=True, pool_size=20, max_overflow=0)
         with cls.engine.connect() as connection:
-            if connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() != "021":
-                raise RuntimeError("Memory tests require migration 021")
+            if connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() != migration_head():
+                raise RuntimeError("Memory tests require the current migration head")
 
     @classmethod
     def tearDownClass(cls):
