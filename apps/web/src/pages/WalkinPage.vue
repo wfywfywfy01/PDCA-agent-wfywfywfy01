@@ -55,7 +55,9 @@ interface ReportItem {
   five_kit: { walkin: number; cross: number; online: number; recruit: number; existing: number; total: number }
   funnel: {
     deal_count: number
-    deal_amount_usd: number
+    deal_amount_usd: number | null
+    revenue_currency?: 'USD' | 'RUB'
+    revenue_amount?: number
     touch_count: number
     wechat_add_count: number
     amount_requires_review: boolean
@@ -423,7 +425,7 @@ onMounted(async () => {
               <td class="num">{{ row.funnel.wechat_add_count }}</td>
               <td class="num">{{ row.funnel.deal_count }}</td>
               <td class="num">
-                $ {{ row.funnel.deal_amount_usd.toLocaleString() }}
+                {{ row.funnel.revenue_currency === 'RUB' ? '₽ ' + row.funnel.revenue_amount?.toLocaleString() : row.funnel.deal_amount_usd == null ? 'N/A' : '$ ' + row.funnel.deal_amount_usd.toLocaleString() }}
                 <span v-if="row.funnel.amount_requires_review" class="review-tag">复核</span>
               </td>
               <td class="notes">{{ row.notes || '—' }}</td>

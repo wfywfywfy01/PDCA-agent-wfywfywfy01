@@ -228,9 +228,14 @@
 
       <!-- Sell-out -->
       <div class="sellout-box">
-        <label for="deal_amount_yuan">Revenue (USD $)</label>
+        <label for="revenue_currency">Revenue currency</label>
+        <select id="revenue_currency" style="color-scheme:dark">
+          <option value="USD">USD — US Dollar ($)</option>
+          <option value="RUB">RUB — Russian Ruble (₽)</option>
+        </select>
+        <label for="deal_amount_yuan" id="revenueLabel" style="margin-top:.6rem">Revenue (USD $)</label>
         <input type="number" id="deal_amount_yuan" min="0" max="5000000" value="" placeholder="0" step="0.01" />
-        <div class="sellout-note">Enter USD only. Do not enter VND, THB, CNY or another local currency.</div>
+        <div class="sellout-note" id="revenueNote">Enter USD only. Do not enter VND, THB, CNY or another local currency.</div>
       </div>
     </div>
 
@@ -308,12 +313,24 @@ function errorHtml(error, fallback){
     ? ' <a href="'+esc(loginUrl())+'">Sign in again</a>' : '');
 }
 
-function fmtAmt(v) {
+function fmtAmt(v, currency) {
   if (!v || v <= 0) return null;
-  if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'm';
-  if (v >= 1000)    return '$' + (v / 1000).toFixed(1) + 'k';
-  return '$' + v.toFixed(0);
+  var symbol = currency === 'RUB' ? '₽' : '$';
+  if (v >= 1000000) return symbol + (v / 1000000).toFixed(1) + 'm';
+  if (v >= 1000)    return symbol + (v / 1000).toFixed(1) + 'k';
+  return symbol + v.toFixed(0);
 }
+
+document.getElementById('revenue_currency').addEventListener('change', function(){
+  var rub = this.value === 'RUB';
+  document.getElementById('revenueLabel').textContent = rub ? 'Revenue (RUB ₽)' : 'Revenue (USD $)';
+  document.getElementById('revenueNote').textContent = rub
+    ? 'Enter RUB. Saved in the original currency and excluded from USD totals.'
+    : 'Enter USD only. Do not enter VND, THB, CNY or another local currency.';
+  var amount = document.getElementById('deal_amount_yuan');
+  if (rub) amount.removeAttribute('max');
+  else amount.max = '5000000';
+});
 
 // Initialize date
 (function(){
@@ -434,6 +451,7 @@ document.getElementById('kitForm').addEventListener('submit', async function(e){
     touch_count:         pInt('touch_count'),
     deal_count:          pInt('deal_count'),
     deal_amount_yuan:    parseFloat(document.getElementById('deal_amount_yuan').value||'0')||0,
+    revenue_currency:    document.getElementById('revenue_currency').value,
     notes:               document.getElementById('notes').value.trim()
   };
   var btn = document.getElementById('submitBtn');
@@ -498,14 +516,16 @@ function loadHistory(){
       document.getElementById('histFooter').textContent='';
       return;
     }
-    var html=''; var totVisit=0,totShown=0,totSold=0,totAmt=0,verifiedAmounts=0,pendingAmounts=0;
+    var html=''; var totVisit=0,totShown=0,totSold=0,totAmt=0,verifiedAmounts=0,pendingAmounts=0,rubRecords=0;
     rows.forEach(function(r){
       var fk = r.five_kit||{}; var fn = r.funnel||{};
       var tv  = fk.total||0;
       var amt = fn.deal_amount_usd != null ? fn.deal_amount_usd : fn.deal_amount_yuan;
       var amountNeedsReview = !!fn.amount_requires_review;
+      var isRub = fn.revenue_currency === 'RUB';
       totVisit+=tv; totShown+=fn.touch_count||0; totSold+=fn.deal_count||0;
-      if (amountNeedsReview || amt == null) pendingAmounts++;
+      if (isRub) rubRecords++;
+      else if (amountNeedsReview || amt == null) pendingAmounts++;
       else { totAmt+=amt; verifiedAmounts++; }
       function n(v){ return (v||0)===0 ? '<span class="num-zero">0</span>' : v; }
       html+='<tr>'
@@ -520,7 +540,7 @@ function loadHistory(){
         +'<td><strong>'+tv+'</strong></td>'
         +'<td>'+n(fn.touch_count)+'</td>'
         +'<td>'+n(fn.deal_count)+'</td>'
-        +'<td>'+(amountNeedsReview
+        +'<td>'+(isRub ? '<span class="tag-green">'+(fmtAmt(fn.revenue_amount,'RUB')||'₽0')+'</span>' : amountNeedsReview
           ? '<span style="color:#b45309;font-weight:700">Check currency</span>'
           : amt == null ? '<span class="num-zero">N/A</span>'
           : '<span class="tag-green">'+(fmtAmt(amt)||'$0')+'</span>')+'</td>'
@@ -533,6 +553,7 @@ function loadHistory(){
       +'  |  Sold: '+totSold+'  |  '+(pendingAmounts ? 'Verified Sell-out: ' : 'Sell-out: ')
       +(verifiedAmounts ? (fmtAmt(totAmt)||'$0') : 'N/A')
       +(pendingAmounts ? '  |  Pending amount review: '+pendingAmounts : '');
+    if (rubRecords) document.getElementById('histFooter').textContent += '  |  RUB records: '+rubRecords+' (excluded from USD totals)';
   })
   .catch(function(error){
     if (requestId!==historyRequestId) return;
