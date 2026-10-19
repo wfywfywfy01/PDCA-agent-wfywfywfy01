@@ -258,28 +258,32 @@ def match_project(title: str) -> Optional[dict]:
     return None
 
 
-def ensure_projects(session) -> tuple[dict, dict]:
-    """按 PROJECT_RULES 种子化 todo_projects；返回 (key→项目, id→项目)。"""
+def ensure_projects(session, *, persist: bool = True) -> tuple[dict, dict]:
+    """按规则加载项目；预览缺少的种子仅保存在内存，不写数据库。"""
     existing = list(session.exec(select(TodoProject)).all())
     by_key = {row.key: row for row in existing}
-    for rule in PROJECT_RULES:
+    for index, rule in enumerate(PROJECT_RULES, 1):
         row = by_key.get(rule["key"])
         if row is None:
             row = TodoProject(
+                id=None if persist else -index,
                 key=rule["key"],
                 name=rule["name"],
                 kind="keyword",
                 executors=json.dumps(rule["executors"], ensure_ascii=False),
                 coordinator=rule.get("coordinator", ""),
             )
-            session.add(row)
+            if persist:
+                session.add(row)
             by_key[rule["key"]] = row
-        else:
+        elif persist:
             row.name = rule["name"]
             row.kind = row.kind or "keyword"
             row.executors = json.dumps(rule["executors"], ensure_ascii=False)
             row.coordinator = rule.get("coordinator", "")
             session.add(row)
+    if not persist:
+        return by_key, {row.id: row for row in by_key.values()}
     session.commit()
     refreshed = list(session.exec(select(TodoProject)).all())
     return (

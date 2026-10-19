@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import threading
+import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
+from sqlalchemy import event
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -239,6 +242,36 @@ class ProjectReminderTests(unittest.TestCase):
         self.assertIn("【PDCA 待办汇总】", by_owner["何海文"]["preview"])
         self.assertIn("印度总代/独代谈判", by_owner["何海文"]["preview"])
 
+    def test_preview_and_project_listing_execute_no_writes(self):
+        from app.todos.router import list_projects
+        from app.todos.service import build_group_notice
+
+        self._seed_vemory("印度独代谈判：整理总代框架")
+        def reject_write(_connection, _cursor, statement, *_args):
+            self.assertNotIn(statement.lstrip().split()[0].upper(), {"INSERT", "UPDATE", "DELETE"})
+        event.listen(self.engine, "before_cursor_execute", reject_write)
+        try:
+            preview = run_todo_reminders(round_label="manual", force=True, dry_run=True)
+            self.assertEqual(len(preview["sent"]), 1)
+            build_group_notice(datetime.now().strftime("%Y-%m-%d"))
+            with patch("app.database.get_engine", return_value=self.engine):
+                asyncio.run(list_projects(User(username="audit", role="admin", data_scope="all")))
+        finally:
+            event.remove(self.engine, "before_cursor_execute", reject_write)
+        self.mock_send.assert_not_called()
+
+    def test_recipient_queries_overlap_but_preview_never_sends(self):
+        self._seed_vemory("核对订单批次 A", owner="test-a")
+        self._seed_vemory("核对订单批次 B", owner="test-b")
+        barrier = threading.Barrier(2)
+        def resolve(owner, _cache):
+            barrier.wait(timeout=1)
+            return {"user_id": 100 if owner == "test-a" else 101, "name": owner}
+        with patch("app.todos.service.resolve_im_user", side_effect=resolve):
+            preview = run_todo_reminders(round_label="manual", force=True, dry_run=True)
+        self.assertEqual(len(preview["sent"]), 2)
+        self.mock_send.assert_not_called()
+
     def test_project_closed_not_reminded(self):
         self._seed_vemory("印度独代谈判：整理总代框架")
         with Session(self.engine) as session:
@@ -345,6 +378,8 @@ class TodoTasksEndpointTests(unittest.TestCase):
             engine = create_engine(f"sqlite:///{Path(tmp) / 'projects.sqlite'}")
             SQLModel.metadata.create_all(engine)
             try:
+                with Session(engine) as session:
+                    ensure_projects(session)
                 with patch("app.database.get_engine", return_value=engine):
                     result = asyncio.run(list_projects(user=None))
                 self.assertEqual(len(result), len(PROJECT_RULES))

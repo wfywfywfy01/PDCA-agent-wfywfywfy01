@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import app.todos.evidence as evidence_mod
 from app.models.pdca_task import PdcaTask
+from app.models.im_replies import ImRemindSend  # noqa: F401 — standalone fixture tables
 from app.todos.evidence import (
     evidence_tokens,
     fetch_department_reports,
@@ -393,6 +395,38 @@ class ReportFetchTests(unittest.TestCase):
         with patch("app.todos.evidence.run_vertu_sync", return_value=(1, "", "err")):
             corpus = fetch_department_reports(["2026-09-08"])
         self.assertEqual(corpus, {})
+
+    def test_failed_fetch_is_not_cached(self):
+        with patch("app.todos.evidence.run_vertu_sync", side_effect=[
+            (1, "", "offline"), (1, "", "offline"), (0, self._payload(), ""),
+        ]) as fetch:
+            self.assertEqual(fetch_department_reports(["2026-09-08"]), {})
+            self.assertTrue(fetch_department_reports(["2026-09-08"]))
+        self.assertEqual(fetch.call_count, 3)
+
+    def test_evidence_cache_expires_and_fetches_updated_report(self):
+        clock = [100.0]
+        with patch("time.monotonic", side_effect=lambda: clock[0]), patch(
+            "app.todos.evidence.run_vertu_sync", side_effect=[
+                (0, self._payload(content="早上版本"), ""),
+                (0, self._payload(content="更新版本"), ""),
+            ],
+        ) as fetch:
+            first = fetch_department_reports(["2026-09-08"])
+            self.assertEqual(fetch_department_reports(["2026-09-08"]), first)
+            clock[0] = 161.0
+            updated = fetch_department_reports(["2026-09-08"])
+        self.assertEqual(fetch.call_count, 2)
+        self.assertIn("更新版本", report_text_for("何海文", updated))
+
+    def test_report_dates_are_fetched_concurrently(self):
+        barrier = threading.Barrier(2)
+        def fetch(_args, timeout):
+            barrier.wait(timeout=1)
+            return (0, self._payload(), "")
+        with patch("app.todos.evidence.run_vertu_sync", side_effect=fetch):
+            corpus = fetch_department_reports(["2026-09-07", "2026-09-08"])
+        self.assertTrue(corpus)
 
     def test_unique_containment_lookup(self):
         corpus = {"冯磊-1": {"user_id": 12545, "texts": ["abc"]}}

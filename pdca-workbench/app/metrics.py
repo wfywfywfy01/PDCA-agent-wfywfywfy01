@@ -47,7 +47,7 @@ def mark_sync(success: bool) -> None:
             _sync_last_success = time.time()
 
 
-def export_prometheus(backup_status_fn=None) -> str:
+def export_prometheus(backup_status_fn=None, runtime_status_fn=None) -> str:
     """渲染 Prometheus 文本。backup_status_fn 由调用方注入避免循环导入。"""
     with _LOCK:
         snapshot = (
@@ -104,4 +104,21 @@ def export_prometheus(backup_status_fn=None) -> str:
             ]
         except Exception:  # noqa: BLE001 — 指标渲染绝不因备份状态异常而失败
             lines.append("pdca_backup_fresh 0")
+    if runtime_status_fn is not None:
+        values = dict.fromkeys(("pdca_job_failures", "pdca_job_stale_runs", "pdca_disk_free_bytes", "pdca_disk_free_percent"))
+        probe_ok = 0
+        try:
+            runtime = runtime_status_fn()
+            values.update({
+                "pdca_job_failures": runtime["jobs"].get("failed_count"),
+                "pdca_job_stale_runs": runtime["jobs"].get("stale_count"),
+                "pdca_disk_free_bytes": runtime["disk"].get("free_bytes"),
+                "pdca_disk_free_percent": runtime["disk"].get("free_percent"),
+            })
+            probe_ok = int(runtime["jobs"].get("state") != "unknown" and runtime["disk"].get("state") != "unknown")
+        except Exception:
+            pass
+        for name, value in values.items():
+            lines += [f"# TYPE {name} gauge", f"{name} {value if value is not None else -1}"]
+        lines += ["# TYPE pdca_runtime_probe_ok gauge", f"pdca_runtime_probe_ok {probe_ok}"]
     return "\n".join(lines) + "\n"

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -106,7 +108,7 @@ def _parse_department_reports(stdout: str) -> dict[str, dict]:
     return corpus
 
 
-_CORPUS_CACHE: dict[tuple[str, ...], dict[str, dict]] = {}
+_CORPUS_CACHE: dict[tuple[str, ...], tuple[float, dict[str, dict]]] = {}
 
 
 def fetch_department_reports(
@@ -114,13 +116,14 @@ def fetch_department_reports(
 ) -> dict[str, dict]:
     """按日拉取部门日报并按姓名聚合；单日失败跳过，返回部分结果。
 
-    进程内按日期集合缓存：morning/afternoon 两轮催办共用同一份拉取。
+    进程内按日期集合缓存 60 秒；并发读取不同日期，不缓存拉取失败。
     """
     key = tuple(sorted(set(dates)))
-    if key in _CORPUS_CACHE:
-        return _CORPUS_CACHE[key]
-    corpus: dict[str, dict] = {}
-    for date in key:
+    cached = _CORPUS_CACHE.get(key)
+    if cached and time.monotonic() - cached[0] < 60:
+        return cached[1]
+
+    def fetch_day(date):
         code, stdout, stderr = run_vertu_sync(
             [
                 "report", "+department", "--date", date,
@@ -139,16 +142,31 @@ def fetch_department_reports(
                 "部门日报拉取失败 date={} code={} stderr={}",
                 date, code, (stderr or "")[:120],
             )
-            continue
+            return None
         parsed = _parse_department_reports(stdout)
         if not parsed:
             logger.warning("部门日报返回为空 date={}", date)
+        return parsed
+
+    corpus: dict[str, dict] = {}
+    complete = True
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        daily = list(pool.map(fetch_day, key))
+    for parsed in daily:
+        if parsed is None:
+            complete = False
+            continue
         for name, entry in parsed.items():
             merged = corpus.setdefault(name, {"user_id": None, "texts": []})
             if entry.get("user_id") is not None:
                 merged["user_id"] = entry["user_id"]
             merged["texts"].extend(entry.get("texts") or [])
-    _CORPUS_CACHE[key] = corpus
+    if complete:
+        if len(_CORPUS_CACHE) >= 32:
+            _CORPUS_CACHE.clear()
+        _CORPUS_CACHE[key] = (time.monotonic(), corpus)
+    else:
+        _CORPUS_CACHE.pop(key, None)
     return corpus
 
 

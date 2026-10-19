@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -46,6 +47,22 @@ class VemoryListTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(error)
         self.assertEqual(len(rows), 120)
         self.assertEqual(rows[0]["date"], "2026-09-01")
+
+    async def test_remaining_pages_are_concurrent_and_keep_order(self):
+        both = asyncio.Event()
+        active = set()
+        async def fetch(args, timeout=45.0):
+            page = int(args[args.index("--page") + 1])
+            if page > 1:
+                active.add(page)
+                if len(active) == 2:
+                    both.set()
+                await asyncio.wait_for(both.wait(), timeout=0.3)
+            return _list_payload([_row(i) for i in range((page-1)*50, page*50)], 150)
+        with patch("app.meeting.vemory.run_vertu_json", new=AsyncMock(side_effect=fetch)):
+            rows, error = await v.list_dealer_meetings("2026-09-01", "2026-09-30")
+        self.assertIsNone(error)
+        self.assertEqual([row["id"] for row in rows], [f"m{i}" for i in range(150)])
 
     async def test_list_stops_on_short_page(self):
         calls = []

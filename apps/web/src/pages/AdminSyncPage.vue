@@ -31,6 +31,20 @@ interface Diagnostics {
   secure_cookies: boolean
   trust_proxy_headers: boolean
   vps_login_url: string
+  vertu_cli_probe?: { ok: boolean; auth_mode?: string; detail?: string | null }
+  runtime?: {
+    jobs: { ok: boolean; state: string; not_required?: boolean; failed_count: number | null; stale_count: number | null; items: JobRun[] }
+    disk: { ok: boolean; state: string; free_percent: number | null; free_bytes: number | null }
+  }
+}
+
+interface JobRun {
+  job_name: string
+  status: string
+  started_at: string
+  last_success_at: string | null
+  failed: boolean
+  stale: boolean
 }
 
 interface DiagRow {
@@ -77,9 +91,9 @@ const diagRows = computed<DiagRow[]>(() => {
     },
     {
       label: 'vertu-cli 凭据',
-      value: data.legacy_bridge_probe?.ok ? '可用' : '不可用',
-      ok: !!data.legacy_bridge_probe?.ok,
-      note: data.legacy_bridge_probe?.ok ? data.legacy_bridge_probe?.today_text || '' : data.legacy_bridge_probe?.error || '未通过自检',
+      value: data.vertu_cli_probe ? (data.vertu_cli_probe.ok ? '可用' : '不可用') : '未知',
+      ok: !!data.vertu_cli_probe?.ok,
+      note: data.vertu_cli_probe?.ok ? '真实认证探测 · ' + (data.vertu_cli_probe.auth_mode || '') : data.vertu_cli_probe?.detail || '未获取真实认证状态',
     },
     {
       label: 'MVP 目录',
@@ -105,9 +119,33 @@ const diagRows = computed<DiagRow[]>(() => {
       ok: true,
       note: '安全 Cookie：' + (data.secure_cookies ? '开启' : '关闭') + ' · 代理头信任：' + (data.trust_proxy_headers ? '开启' : '关闭'),
     },
+    {
+      label: '后台任务',
+      value: !data.runtime || data.runtime.jobs.state === 'unknown' ? '未知' : data.runtime.jobs.not_required ? '本服务未启用' : data.runtime.jobs.ok ? '正常' : '需处理',
+      ok: !!data.runtime?.jobs.ok,
+      note: data.runtime?.jobs.failed_count != null ? `最近失败 ${data.runtime.jobs.failed_count} 项 · 超时未收尾 ${data.runtime.jobs.stale_count} 项` : '任务状态未获取，不按零故障展示',
+    },
+    {
+      label: '应用 / 备份磁盘',
+      value: data.runtime?.disk.free_percent != null ? `可用 ${data.runtime.disk.free_percent}%` : '未知',
+      ok: !!data.runtime?.disk.ok,
+      note: data.runtime?.disk.free_bytes != null ? `剩余 ${(data.runtime.disk.free_bytes / 1024 ** 3).toFixed(2)} GiB；低于 20% 警戒，不自动清理其他项目` : '磁盘余量读取失败',
+    },
   ]
   return rows
 })
+
+function jobStatus(row: JobRun): string {
+  if (row.stale) return '超时未收尾'
+  if (row.status === 'sent') return '完成'
+  if (row.status === 'failed') return row.failed ? '失败' : '历史失败'
+  if (row.status === 'sending') return '执行中'
+  return '未知'
+}
+
+function jobTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '未记录'
+}
 
 const diagSummary = computed(() => {
   const rows = diagRows.value
@@ -219,7 +257,7 @@ onMounted(async () => {
       <div class="card stat">
         <span class="stat-label">自检通过</span>
         <span class="stat-value num">{{ diag ? diagSummary.ok + ' / ' + diagSummary.total : '—' }}</span>
-        <span class="stat-note">数据库、凭据、目录与模块</span>
+        <span class="stat-note">数据库、凭据、任务与磁盘</span>
       </div>
       <div class="card stat">
         <span class="stat-label">数据库</span>
@@ -228,13 +266,35 @@ onMounted(async () => {
       </div>
       <div class="card stat">
         <span class="stat-label">取数 CLI</span>
-        <span class="stat-value num">{{ diag ? (diag.legacy_bridge_probe?.ok ? '可用' : '不可用') : '—' }}</span>
+        <span class="stat-value num">{{ diag?.vertu_cli_probe ? (diag.vertu_cli_probe.ok ? '可用' : '不可用') : '—' }}</span>
         <span class="stat-note">业务数据取数依赖</span>
       </div>
       <div class="card stat">
         <span class="stat-label">最近同步</span>
         <span class="stat-value num">{{ finishedAt || '本次未执行' }}</span>
         <span class="stat-note">{{ result?.date || '点击「立即同步」执行' }}</span>
+      </div>
+    </section>
+
+    <section v-if="diag?.runtime?.jobs.items.length" class="panel card" aria-label="后台任务运行状态">
+      <header class="section-head">
+        <div>
+          <h2>后台任务最近运行</h2>
+          <p>网站在线不代表任务成功。显示历史运行记录，不代表任务当前启用；时间为北京时间。</p>
+        </div>
+      </header>
+      <div class="table-scroll">
+        <table class="grid">
+          <thead><tr><th scope="col">任务</th><th scope="col">状态</th><th scope="col">最近开始</th><th scope="col">最近成功</th></tr></thead>
+          <tbody>
+            <tr v-for="row in diag.runtime.jobs.items" :key="row.job_name">
+              <td class="mono break">{{ row.job_name }}</td>
+              <td><span class="status" :class="row.failed || row.stale ? 'danger' : row.status === 'sent' ? 'ok' : ''">{{ jobStatus(row) }}</span></td>
+              <td>{{ jobTime(row.started_at) }}</td>
+              <td>{{ jobTime(row.last_success_at) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 

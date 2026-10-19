@@ -5,7 +5,7 @@
 领取时间 | 结束时间 | 进度(回复) | 得分
 - 文档 ID：PDCA_TODO_LEDGER_DOC_ID 环境变量；首次创建时写回
   todo_group_state.ledger_doc_id / ledger_sheet_id。
-- 幂等：每次全量重写数据区（表头 + 行），行数上限 2000，分批写入。
+- 幂等：每次全量重写数据区（表头 + 行），行数上限 10000，分批写入。
 用法：python scripts/sync_todo_ledger.py [--dry-run] [--create]
 """
 from __future__ import annotations
@@ -41,7 +41,7 @@ HEADERS = [
     "领取时间", "结束时间", "进度(回复)", "得分",
 ]
 
-MAX_DATA_ROWS = 2000
+MAX_DATA_ROWS = 10000
 CELLS_PER_BATCH = 4000  # 每批单元格数（约 400 行），分批写入避免单次载荷过大
 
 
@@ -118,6 +118,8 @@ def build_updates(rows: list[list[str]], previous_row_count: int = 0) -> list[di
     """生成完整矩形覆盖；历史多余行以空值清除，超限则整体拒绝。"""
     if len(rows) > MAX_DATA_ROWS:
         raise RuntimeError(f"台账数据 {len(rows)} 行超过安全上限 {MAX_DATA_ROWS}，未写入")
+    if previous_row_count > MAX_DATA_ROWS:
+        raise RuntimeError(f"台账清理 {previous_row_count} 行超过安全上限 {MAX_DATA_ROWS}，未写入")
     clear_count = max(previous_row_count - len(rows), 0)
     matrix = [HEADERS] + rows + [[""] * len(HEADERS) for _ in range(clear_count)]
     return [
@@ -214,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
     doc_id, sheet_id = get_or_create_doc(create=args.create)
     previous_row_count = _state_int("ledger_row_count")
     updates = build_updates(rows, previous_row_count)
+    # 保留写入高水位：某批失败后，下次仍能清理已经扩展但尚未完成的行。
+    _set_state_value("ledger_row_count", str(max(previous_row_count, len(rows))))
     # 分批写入（每批约 CELLS_PER_BATCH 个单元格），单次载荷过大时服务端易超时
     per_batch_rows = max(CELLS_PER_BATCH // len(HEADERS), 1)
     per_batch_cells = per_batch_rows * len(HEADERS)
@@ -249,4 +253,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except RuntimeError as exc:
+        print(f"台账同步失败: {exc}", file=sys.stderr)
+        sys.exit(1)
