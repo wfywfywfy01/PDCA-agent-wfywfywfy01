@@ -23,6 +23,7 @@ from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, Omega
 from app.omega.memory_models import OmegaMemoryEntry, OmegaMemoryProposal, OmegaMemoryProfile, OmegaOpportunity
 from app.omega.coaching_models import OmegaCoachHint
 from app.omega.realtime import _acquire, _append, _release
+from tests.test_migrate_entrypoint import migration_head
 
 
 @unittest.skipUnless(os.environ.get("OMEGA_TEST_DATABASE_URL"), "disposable PostgreSQL URL not configured")
@@ -39,8 +40,9 @@ class OmegaPostgresTests(unittest.TestCase):
         cls.engine = create_engine(url, pool_pre_ping=True)
         with cls.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            if version != "021":
-                raise RuntimeError(f"expected migration 021; got {version}")
+            expected = migration_head()
+            if version != expected:
+                raise RuntimeError(f"expected migration {expected}; got {version}")
         cls._clear_test_data()
 
     @classmethod

@@ -41,11 +41,21 @@ class WalkinDailyReport(SQLModel, table=True):
     deal_count: int = Field(default=0)            # 成交组数
     # 历史字段名保留兼容；前端一直按 $ 录入，实际口径为 USD。
     deal_amount_yuan: float = Field(default=0.0)  # Revenue (USD)
+    # RUB stays in its original currency; the legacy USD field remains zero.
+    deal_amount_rub: Optional[float] = Field(default=None)
 
     notes: str = Field(default="", max_length=1024)
     submitted_by: str = Field(default="", max_length=64)
     # 与历史数据一致的 naive UTC 存储；datetime.utcnow() 在 Python 3.12 已弃用。
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+    @property
+    def revenue_currency(self) -> str:
+        return "RUB" if self.deal_amount_rub is not None else "USD"
+
+    @property
+    def revenue_amount(self) -> float:
+        return self.deal_amount_rub if self.deal_amount_rub is not None else self.deal_amount_yuan
 
     @property
     def total_visits(self) -> int:

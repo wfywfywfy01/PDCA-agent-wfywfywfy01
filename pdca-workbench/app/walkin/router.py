@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import asyncio
 import time
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -103,8 +103,9 @@ class WalkinMetricsSubmit(BaseModel):
     use_count: int = Field(0, ge=0)
     wechat_add_count: int = Field(0, ge=0)
     deal_count: int = Field(0, ge=0)                # Products Sold 成交台数
-    # 历史字段名保留兼容；录入页从一开始使用 $，实际口径为 USD。
-    deal_amount_yuan: float = Field(0.0, ge=0.0, allow_inf_nan=False)    # Revenue (USD)
+    # Legacy request field: original amount in the selected revenue_currency.
+    deal_amount_yuan: float = Field(0.0, ge=0.0, allow_inf_nan=False)
+    revenue_currency: Literal["USD", "RUB"] = "USD"
     notes: str = ""
 
 
@@ -143,7 +144,7 @@ async def submit_walkin_metrics(
 ):
     """提交门店五件套日报（dealer及以上权限）。dealer/sales角色只能提交自己名下的门店。"""
     max_revenue = get_settings().max_reported_revenue_usd
-    if body.deal_amount_yuan > max_revenue:
+    if body.revenue_currency == "USD" and body.deal_amount_yuan > max_revenue:
         raise HTTPException(
             status_code=422,
             detail=f"Revenue must be entered in USD and cannot exceed ${max_revenue:,.0f}; check the currency/unit.",
@@ -181,7 +182,8 @@ async def submit_walkin_metrics(
         use_count=body.use_count,
         wechat_add_count=body.wechat_add_count,
         deal_count=body.deal_count,
-        deal_amount_yuan=body.deal_amount_yuan,
+        deal_amount_yuan=body.deal_amount_yuan if body.revenue_currency == "USD" else 0.0,
+        deal_amount_rub=body.deal_amount_yuan if body.revenue_currency == "RUB" else None,
         notes=body.notes,
         submitted_by=user.username,
     )
@@ -193,7 +195,9 @@ async def submit_walkin_metrics(
     session.commit()
     log_action(user.username, "submit_five_kit",
                resource=f"{body.dealer_id}:{body.report_date}",
-               detail={"dealer": body.dealer_name, "revenue_usd": body.deal_amount_yuan})
+               detail={"dealer": body.dealer_name, "revenue_amount": body.deal_amount_yuan,
+                       "revenue_currency": body.revenue_currency,
+                       "revenue_usd": body.deal_amount_yuan if body.revenue_currency == "USD" else None})
     return {"ok": True, "message": "五件套数据已保存"}
 
 
@@ -268,7 +272,9 @@ async def list_walkin_metrics(
                     "wechat_add_count": r.wechat_add_count,
                     "deal_count": r.deal_count,
                     "deal_amount_yuan": r.deal_amount_yuan,
-                    "deal_amount_usd": r.deal_amount_yuan,
+                    "deal_amount_usd": r.deal_amount_yuan if r.deal_amount_rub is None else None,
+                    "revenue_currency": r.revenue_currency,
+                    "revenue_amount": r.revenue_amount,
                     "amount_requires_review": _revenue_requires_review(r.deal_amount_yuan),
                 },
                 "notes": r.notes,

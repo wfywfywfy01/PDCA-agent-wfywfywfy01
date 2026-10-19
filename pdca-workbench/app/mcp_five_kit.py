@@ -236,7 +236,9 @@ def _row(row: WalkinDailyReport) -> dict:
     payload["visits_total"] = sum(payload[f] for f in VISIT_FIELDS)
     for field in FUNNEL_FIELDS:
         payload[field] = int(getattr(row, field, 0) or 0)
-    payload["deal_amount_usd"] = float(getattr(row, "deal_amount_yuan", 0) or 0)
+    payload["deal_amount_usd"] = float(row.deal_amount_yuan) if row.deal_amount_rub is None else None
+    payload["revenue_currency"] = row.revenue_currency
+    payload["revenue_amount"] = row.revenue_amount
     payload["amount_requires_review"] = revenue_requires_review(row.deal_amount_yuan)
     # 备注是自由文本（产品型号常记在此），必须透出，否则下游会误判「无产品数据」。
     payload["notes"] = getattr(row, "notes", "") or ""

@@ -97,6 +97,7 @@ async def export_walkin_metrics(
         "触摸产品", "试用体验", "微信添加", "成交组数",
         "成交金额(USD)", "金额需核查",
         "提交人", "提交时间",
+        "终销原币币种", "终销原币金额",
     ]
     ws.append(headers)
     _header_style(ws, 1, len(headers))
@@ -114,10 +115,11 @@ async def export_walkin_metrics(
             r.walkin_visits, r.cross_visits, r.online_visits,
             r.recruit_visits, r.existing_visits, total,
             r.touch_count, r.use_count, r.wechat_add_count, r.deal_count,
-            r.deal_amount_yuan,
+            r.deal_amount_yuan if r.deal_amount_rub is None else None,
             "是" if r.deal_amount_yuan > revenue_review_threshold else "否",
             r.submitted_by,
             r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else "",
+            r.revenue_currency, r.revenue_amount,
         ])
 
     # 自动列宽
