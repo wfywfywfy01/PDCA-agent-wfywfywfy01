@@ -175,11 +175,9 @@ async def list_projects(
     from app.database import get_engine
     from app.models.pdca_task import PdcaTask
     from app.models.todo_project import TodoProject
-    from app.todos.projects import ensure_projects
 
     today_text = date.today().isoformat()
     with Session(get_engine()) as session:
-        ensure_projects(session)
         rows = list(session.exec(select(TodoProject)).all())
         tasks = list(session.exec(
             select(PdcaTask).where(PdcaTask.project_id.is_not(None))

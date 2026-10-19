@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.database import get_engine
@@ -14,6 +15,23 @@ from app.models.scheduled_job_run import ScheduledJobRun
 # claim 后进程异常退出（被杀/断电/重启）时，超时的 sending 记录按失败回收，
 # 允许后续触发（如补发兜底轮）重新执行；正常执行时长（<10 分钟）远小于该窗口。
 _STALE_SENDING_SECONDS = 30 * 60
+
+
+def expire_stale_runs() -> int:
+    """Close abandoned execution metadata only; never re-send old messages."""
+    import os
+    from app.config import get_settings
+
+    if getattr(get_settings(), "remote_db_from_host", False) and os.environ.get("PDCA_ALLOW_REMOTE_DB") != "1":
+        return 0
+    now = datetime.now(timezone.utc)
+    with Session(get_engine()) as session:
+        result = session.exec(update(ScheduledJobRun).where(
+            ScheduledJobRun.status == "sending",
+            ScheduledJobRun.started_at < now-timedelta(seconds=_STALE_SENDING_SECONDS),
+        ).values(status="failed", finished_at=now, detail="执行超过30分钟，状态已收尾；未自动补发"))
+        session.commit()
+        return result.rowcount
 
 
 def claim_run(job_name: str, bucket: str) -> bool:

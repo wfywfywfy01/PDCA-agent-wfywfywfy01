@@ -28,6 +28,8 @@ from app.models.monthly_target import MonthlyTarget
 from app.models.sync import run_full_sync, sync_dealer_sales_from_vps
 from app.scheduler.jobs import backup_database, daily_sync_job
 from app.validation import require_iso_date, require_iso_month
+from app.runtime_health import runtime_status
+from app.vertu.client import vertu_health
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -118,10 +120,12 @@ async def diagnostics(request: Request, _user: Annotated[User, Depends(require_r
             "traceback": traceback.format_exc(limit=6),
         }
 
-    knowledge_probe, logistics_probe, public_scope_probe = await asyncio.gather(
+    knowledge_probe, logistics_probe, public_scope_probe, runtime, cli_probe = await asyncio.gather(
         _upstream_probe(settings.knowledge_hub_url if settings.knowledge_hub_enabled else "", "/health"),
         _upstream_probe(settings.logistics_admin_upstream, "/orders"),
         _public_knowledge_scope_probe(request_access_token(request)),
+        asyncio.to_thread(runtime_status),
+        vertu_health(),
     )
 
     return {
@@ -135,6 +139,8 @@ async def diagnostics(request: Request, _user: Annotated[User, Depends(require_r
         "knowledge_hub_probe": knowledge_probe,
         "knowledge_public_scope_probe": public_scope_probe,
         "logistics_admin_probe": logistics_probe,
+        "runtime": runtime,
+        "vertu_cli_probe": cli_probe,
         "database": {
             "mode": get_db_mode(),
             "connected": check_db_connection(),

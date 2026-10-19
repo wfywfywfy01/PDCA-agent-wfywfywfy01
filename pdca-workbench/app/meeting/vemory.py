@@ -116,52 +116,66 @@ async def list_dealer_meetings(
     ids = _dept_ids(dept_ids)
     if not ids.strip():
         return [], "未配置经销商部门 ID（PDCA_VEMORY_DEPT_IDS）"
-    rows: list[dict] = []
-    error: str | None = None
-    expected_total: int | None = None
     from app.vertu.client import cli_command_missing
 
-    for page in range(1, settings.vemory_max_pages + 1):
-        payload = await run_vertu_json(
-            [
-                "meeting", "+list",
-                "--scope", "selection",
-                "--department-ids", ids,
-                "--start-date", start,
-                "--end-date", end,
-                "--page-size", str(settings.vemory_page_size),
-                "--page", str(page),
-            ],
-            timeout=45.0,
-        )
+    semaphore = asyncio.Semaphore(4)
+
+    async def fetch_page(page):
+        async with semaphore:
+            return await run_vertu_json(
+                [
+                    "meeting", "+list",
+                    "--scope", "selection",
+                    "--department-ids", ids,
+                    "--start-date", start,
+                    "--end-date", end,
+                    "--page-size", str(settings.vemory_page_size),
+                    "--page", str(page),
+                ],
+                timeout=45.0,
+            )
+
+    def decode_page(payload, page):
         if not isinstance(payload, dict) or not payload.get("ok"):
             if cli_command_missing("meeting"):
                 error = "本机 vps-work 没有 meeting 命令"
             else:
                 error = "会议列表接口调用失败（vps-work meeting +list）"
             logger.warning("vemory list failed page={} ids={}", page, ids)
-            break
+            return None, [], error
         try:
             total = int(payload.get("total"))
         except (TypeError, ValueError):
             total = None
         if total is None or total < 0:
-            error = "会议列表缺少有效总数，无法确认数据完整性"
             logger.warning("vemory list missing total page={} ids={}", page, ids)
-            break
-        expected_total = total
+            return None, [], "会议列表缺少有效总数，无法确认数据完整性"
         batch = payload.get("meetings") or []
         if not isinstance(batch, list) or not all(isinstance(row, dict) for row in batch):
-            error = "会议列表返回格式异常"
             logger.warning("vemory list malformed page={} ids={}", page, ids)
+            return None, [], "会议列表返回格式异常"
+        return total, batch, None
+
+    expected_total, rows, error = decode_page(await fetch_page(1), 1)
+    if error:
+        return rows, error
+    if not rows and expected_total:
+        return [], "会议列表未完整返回（分页提前结束）"
+    # 首屏确认总数后并发余页；不缓存会议列表，维持实时口径和页序。
+    page_size = max(1, settings.vemory_page_size)
+    pages = min(settings.vemory_max_pages, (expected_total + page_size - 1) // page_size)
+    remaining = await asyncio.gather(*(fetch_page(page) for page in range(2, pages + 1)))
+    for page, payload in enumerate(remaining, 2):
+        total, batch, error = decode_page(payload, page)
+        if error:
+            break
+        if total != expected_total:
+            error = "查询期间会议总数变化，请刷新后重试"
             break
         if not batch:
-            if expected_total is not None and len(rows) < expected_total:
-                error = "会议列表未完整返回（分页提前结束）"
+            error = "会议列表未完整返回（分页提前结束）"
             break
         rows.extend(batch)
-        if expected_total is not None and len(rows) >= expected_total:
-            break
     if error is None and expected_total is not None and len(rows) < expected_total:
         error = "会议列表超出安全分页上限，未使用不完整数据"
         logger.warning(

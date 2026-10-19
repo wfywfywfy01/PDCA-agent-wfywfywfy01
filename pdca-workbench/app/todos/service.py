@@ -19,6 +19,7 @@ import math
 import os
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -569,8 +570,7 @@ def build_group_notice(today: str, allowed_owners: set[str] | None = None) -> di
         )
     ]
     with Session(get_engine()) as session:
-        project_by_key, _ = ensure_projects(session)
-        project_by_id = load_all_projects(session)
+        project_by_key, project_by_id = ensure_projects(session, persist=False)
     per_owner: dict[str, dict] = {}
     for task in kept:
         owner = (task.owner or "").strip()
@@ -850,11 +850,12 @@ def run_todo_reminders(
     # 重新 select 一把再关闭 session，否则后面的 project_by_key/project_by_id
     # 访问会触发 DetachedInstanceError。
     with Session(get_engine()) as session:
-        project_by_key, _ = ensure_projects(session)
-        auto_close_meeting_projects(session)
-        session.commit()
-        project_by_id = load_all_projects(session)
-        project_by_key = {row.key: row for row in project_by_id.values()}
+        project_by_key, project_by_id = ensure_projects(session, persist=not dry_run)
+        if not dry_run:
+            auto_close_meeting_projects(session)
+            session.commit()
+            project_by_id = load_all_projects(session)
+            project_by_key = {row.key: row for row in project_by_id.values()}
     project_tasks: dict[int, list[PdcaTask]] = defaultdict(list)
     solo_candidates: list[PdcaTask] = []
     for task in tasks:
@@ -996,9 +997,13 @@ def run_todo_reminders(
             )
 
     # ── 发送：每人一条汇总消息（按项目分节 + 同类合并） ────────────────
-    for owner in sorted(person_sections, key=str.casefold):
+    owners = sorted(person_sections, key=str.casefold)
+    # 只并发只读的组织查询；发送及数据库更新仍按原顺序执行。
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        recipients = dict(zip(owners, pool.map(_resolve_and_check, owners)))
+    for owner in owners:
         sections = person_sections[owner]
-        user_id, reason = _resolve_and_check(owner)
+        user_id, reason = recipients[owner]
         if user_id is None:
             skipped_owners.append(
                 {

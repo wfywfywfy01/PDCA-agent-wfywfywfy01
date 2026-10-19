@@ -337,6 +337,11 @@ def todo_ledger_sync_job() -> None:
     """18:10 — 台账同步：闭环状态写入 VPS 智能表格。"""
     import subprocess
     import sys as _sys
+    from app.scheduler.run_ledger import claim_run, finish_run
+
+    bucket = datetime.now().date().isoformat()
+    if not claim_run("todo_ledger_sync", bucket):
+        return
 
     script = Path(__file__).resolve().parents[2] / "scripts" / "sync_todo_ledger.py"
     try:
@@ -347,11 +352,15 @@ def todo_ledger_sync_job() -> None:
             timeout=300,
         )
         if result.returncode != 0:
-            logger.warning("台账同步失败: {}", (result.stderr or result.stdout)[:200])
-            notify("台账同步失败", (result.stderr or result.stdout)[:200])
+            detail = (result.stderr or result.stdout).strip()[-450:]
+            finish_run("todo_ledger_sync", bucket, "failed", f"子进程退出码 {result.returncode}，请查看服务日志")
+            logger.warning("台账同步失败: {}", detail)
+            notify("台账同步失败", detail)
         else:
+            finish_run("todo_ledger_sync", bucket, "sent", "台账同步完成")
             logger.info("台账同步完成: {}", (result.stdout or "").strip()[:200])
     except Exception as exc:
+        finish_run("todo_ledger_sync", bucket, "failed", type(exc).__name__)
         logger.exception("台账同步异常: {}", exc)
         notify("台账同步异常", str(exc)[:200])
 
@@ -1064,6 +1073,13 @@ def start_scheduler() -> BackgroundScheduler | None:
     if _scheduler is not None:
         return _scheduler
     _scheduler = BackgroundScheduler(executors={"backup": ThreadPoolExecutor(max_workers=1)})
+
+    from app.scheduler.run_ledger import expire_stale_runs
+    _scheduler.add_job(
+        expire_stale_runs, trigger="interval", minutes=5,
+        id="expire_stale_runs", next_run_time=datetime.now(),
+        max_instances=1, coalesce=True, misfire_grace_time=300,
+    )
 
     # 备份使用独立执行器；业务同步延迟或错过执行不会跳过当天备份。
     _scheduler.add_job(

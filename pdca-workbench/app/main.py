@@ -28,6 +28,7 @@ from app.logistics.router import router as logistics_router
 from app.logistics.admin_proxy import router as logistics_admin_router
 from app.meeting.router import router as meeting_router
 from app.metrics import export_prometheus, mark_sync, record_request
+from app.runtime_health import runtime_status
 from app.onboarding.router import router as onboarding_router
 from app.pages.router import router as pages_router
 from app.files.router import router as files_router
@@ -97,6 +98,9 @@ async def lifespan(app: FastAPI):
     from sqlmodel import Session
     with Session(get_engine()) as session:
         rebuild_all_dealer_assignments(session)
+        if settings.scheduler_enabled:
+            from app.todos.projects import ensure_projects
+            ensure_projects(session)
     if settings.require_vertu:
         vertu = await vertu_health(force=True)
         if not vertu["ok"]:
@@ -455,6 +459,8 @@ async def metrics():
     settings = get_settings()
     backup_required = settings.environment == "production" and getattr(settings, "scheduler_enabled", True)
     return Response(
-        export_prometheus(backup_status_fn=backup_status if backup_required else None),
+        await asyncio.to_thread(export_prometheus,
+            backup_status_fn=backup_status if backup_required else None,
+            runtime_status_fn=runtime_status),
         media_type="text/plain; version=0.0.4",
     )

@@ -50,6 +50,21 @@ class MetricsTests(unittest.TestCase):
         text = metrics.export_prometheus(backup_status_fn=lambda: (_ for _ in ()).throw(RuntimeError()))
         self.assertIn("pdca_backup_fresh 0", text)
 
+    def test_runtime_metrics_expose_counts_not_job_contents(self):
+        text = metrics.export_prometheus(runtime_status_fn=lambda: {
+            "jobs": {"state": "available", "failed_count": 2, "stale_count": 1, "items": [{"secret": "hidden"}]},
+            "disk": {"state": "warning", "free_bytes": 1234, "free_percent": 14.2},
+        })
+        self.assertEqual(_metric_value(text, "pdca_job_failures"), "2")
+        self.assertEqual(_metric_value(text, "pdca_disk_free_percent"), "14.2")
+        self.assertNotIn("hidden", text)
+
+    def test_unknown_runtime_probe_never_reports_healthy_zero(self):
+        text = metrics.export_prometheus(runtime_status_fn=lambda: (_ for _ in ()).throw(RuntimeError("secret")))
+        self.assertEqual(_metric_value(text, "pdca_job_failures"), "-1")
+        self.assertEqual(_metric_value(text, "pdca_runtime_probe_ok"), "0")
+        self.assertNotIn("secret", text)
+
 
 if __name__ == "__main__":
     unittest.main()
