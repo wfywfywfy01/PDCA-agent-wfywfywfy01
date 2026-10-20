@@ -22,7 +22,7 @@ class RuntimeFrontendTests(unittest.TestCase):
         cls.playwright.stop()
 
     def setUp(self):
-        self.context = self.browser.new_context(service_workers="block")
+        self.context = self.browser.new_context(service_workers="block", viewport={"width": 320, "height": 900})
         self.page = self.context.new_page()
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))

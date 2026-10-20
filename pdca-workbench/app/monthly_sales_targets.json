@@ -77,6 +77,13 @@
         "target_wan": 450
       }
     ],
-    "department_target_wan": 1525
+    "department_target_wan": 1600,
+    "departments": [
+      {"name": "经销商二部", "target_wan": 800},
+      {"name": "经销商三部", "target_wan": 400},
+      {"name": "经销商四部", "target_wan": 200},
+      {"name": "经销商一部", "target_wan": 200},
+      {"name": "经销商五部", "goal": "break_zero"}
+    ]
   }
 }

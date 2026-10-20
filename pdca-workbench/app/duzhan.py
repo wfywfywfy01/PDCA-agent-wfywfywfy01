@@ -635,13 +635,62 @@ def _render_person(
     focus_override: str | None = None,
 ) -> str:
     """单人一条正文 + 本周任务（老板 2026-10-10：按人挂一周任务，命中就每天追）。"""
+    compact = getattr(get_settings(), "duzhan_compact", True)
+    from app.duzhan_ledger import OWNERS, vemory_aliases
+
+    if compact and hour == 10:
+        from app.meeting_todos import items_for_group
+
+        person = dict(person or {})
+        display = str(person.get("display") or "")
+        aliases = {display}
+        for owner in OWNERS:
+            if owner.display == display:
+                aliases.update(vemory_aliases(owner))
+        todos: list[str] = []
+        for item in items_for_group(day, group.name):
+            who = str(item.get("who") or "").strip()
+            if display and who and not any(
+                name in who or who in name for name in aliases if len(name) >= 2
+            ):
+                continue
+            text = str(item.get("text") or "").strip()
+            if text:
+                todos.append(f"{who}：{text}" if not display and who else text)
+        person["_checkin_todos"] = todos
     text = _render_person_body(
         group, hour, day, slot, slogan, person, prev_person, use_diff,
         previous_slot, focus_override,
     )
-    from app.weekly_focus import block_for
+    from app.weekly_focus import block_for, items_for
 
     display = str((person or {}).get("display") or "")
+    if compact:
+        if hour == 15:
+            return text
+        displays = [display] if display else [owner.display for owner in OWNERS if owner.group == group.name]
+        items: list[dict] = []
+        for who in displays or [""]:
+            for item in items_for(day, group.name, who):
+                if item not in items:
+                    items.append(item)
+        tasks: list[str] = []
+        for item in items[:3]:
+            task_text = (str(item.get("text_en") or item.get("text") or "")
+                         if group.lang == "en" else str(item.get("text") or ""))
+            if not display and item.get("who"):
+                task_text = f"{item['who']}：{task_text}"
+            tasks.append(_clip_text(task_text, 100 if group.lang == "en" else 80))
+        if tasks:
+            block = ("This week: " if group.lang == "en" else "本周待办：") + "；".join(tasks)
+            if len(items) > 3:
+                block += f" (+{len(items) - 3})"
+        elif hour == 10:
+            block = ("This week: reply with deliverables and due dates."
+                     if group.lang == "en" else "本周待办：请补本周交付事项和截止日。")
+        else:
+            block = ""
+        return text.rstrip() + ("\n" + block if block else "")
     block = block_for(day, group.name, display, lang=group.lang)
     if block:
         text = text.rstrip() + "\n\n" + block
@@ -662,9 +711,21 @@ def _render_person_body(
 ) -> str:
     lang = group.lang
     reporter = (person or {}).get("display") or _REPORTER.get(group.name, group.name)
+    if getattr(get_settings(), "duzhan_compact", True):
+        title = (_SLOT_EN if lang == "en" else _SLOT_ZH).get(hour, ("Brief", ""))[0]
+        zone = "北京时间" if group.tz == TZ_SHANGHAI else group.tz
+        head = (f"[{title}] {reporter} | {day} {slot} ({group.tz})"
+                if lang == "en" else f"【{title}】{reporter}｜{day} {slot}（{zone}）")
+        if hour != 15:
+            head += "\n" + _monthly_goal_text(day, lang)
+        if focus_override:
+            head += "\n" + ("Focus: " if lang == "en" else "重点：") + _clip_text(focus_override, 160)
+        return head + "\n" + _compact_body(
+            hour, person, lang, prev_person, previous_slot=previous_slot,
+        )
     target = wan_text(person.get("target_wan") if person else None, lang)
     mtd = wan_text(person.get("mtd_wan") if person else None, lang)
-    slogan_text = _slogan_text(slogan, lang)
+    slogan_text = _monthly_goal_text(day, lang).split(" | " if lang == "en" else "；", 1)[0]
     target_progress = daily_target_text(
         {
             "daily_target": (person or {}).get("daily_target_wan"),
@@ -706,12 +767,7 @@ def _render_person_body(
             f"- 汇报人：{reporter} | 日期：{day} | 阶段：{slot}\n"
             f"- 本档动作：{focus}\n"
             f"- 月度目标：{target} 万 | 滚动日目标：{target_progress}\n"
-            f"- 已录单（开单额）：{mtd} 万 | 战役：{slogan}\n"
-        )
-    if getattr(get_settings(), "duzhan_compact", True):
-        # 老板 2026-09-19：三档只出总结性内容，明细放每天 08:00 的证据 HTML。
-        return head + "\n" + _compact_body(
-            hour, person, lang, prev_person, previous_slot=previous_slot,
+            f"- 已录单（开单额）：{mtd} 万 | 战役：{slogan_text}\n"
         )
     if use_diff:
         body = _changes_text(person, prev_person, lang)
@@ -1064,6 +1120,29 @@ def _unfinished_titles(
     return out
 
 
+def _monthly_goal_text(day: str, lang: str) -> str:
+    """月度总目标与部门分解共用已确认目标文件，破零保持定性表述。"""
+    from app.daily_report import _configured_sales_target
+
+    try:
+        configured = _configured_sales_target(day[:7])
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        logger.warning("督战官月目标待确认 {}: {}", day[:7], exc)
+        configured = None
+    if configured is None:
+        return "Overseas monthly target: pending" if lang == "en" else "本月海外目标：待确认"
+    total, details = configured
+    if lang == "en":
+        department_names = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5"}
+        detail = " | ".join(details)
+        for chinese, number in department_names.items():
+            detail = detail.replace(f"经销商{chinese}部", f"Dept {number}")
+        detail = detail.replace("破零", "first sale").replace(" 万", " wan CNY")
+        return f"Overseas monthly target: {wan_text(total / 10000)} wan CNY | {detail}"
+    detail = "、".join(details).replace("经销商", "").replace(" ", "")
+    return f"本月海外目标：{wan_text(total / 10000)}万；{detail}"
+
+
 def _compact_body(
     hour: int,
     person: dict | None,
@@ -1072,11 +1151,7 @@ def _compact_body(
     *,
     previous_slot: str | None = None,
 ) -> str:
-    """三档总结版（10:00 定任务 / 15:00 追变化 / 20:00 验兑现），每人 5–7 行。
-
-    明细（三口径原文、MTO 图与 OCR、工时拆解、群原话）放每天 08:00 的证据 HTML，
-    这里只留「目标 / 变化 / 兑现 / 要你补什么」。
-    """
+    """早上定目标和待办，中午短催，晚上核对业绩、闭环与证据。"""
     person = person or {}
     english = lang == "en"
     lines: list[str] = []
@@ -1085,6 +1160,13 @@ def _compact_body(
     arrived = person.get("perf_arrived_wan")
     gap = person.get("target_gap_wan")
     ahead = bool(person.get("target_ahead"))
+    missing_amounts = sum(
+        item.get("wan") is None
+        for item in list(person.get("perf_slip") or []) + list(person.get("perf_intent") or [])
+        if isinstance(item, dict)
+    )
+    amount_note = ((f"; amount missing on {missing_amounts} item(s)" if english else f"；待补金额{missing_amounts}条")
+                   if missing_amounts else "")
     if hour == 10:
         if daily is not None:
             target_line = (
@@ -1103,6 +1185,16 @@ def _compact_body(
                       if gap is not None else f" | MTD {arrived} wan")
             )
         lines.append(target_line)
+        tasks = list(dict.fromkeys(
+            _unfinished_titles(person, lang=lang) + list(person.get("_checkin_todos") or [])
+        ))
+        lines.append(
+            ("Today's tasks: " if english else "今日待办：")
+            + ("；".join(_clip_text(task, 80) for task in tasks[:3])
+               if tasks else ("plan pending" if english else "待报今日计划"))
+            + (f" (+{len(tasks) - 3})" if len(tasks) > 3 else "")
+            + amount_note
+        )
         no_baseline = previous_slot == ""
         baseline_person = person if no_baseline else prev_person
         carried = _unfinished_titles(baseline_person, lang=lang)
@@ -1116,17 +1208,16 @@ def _compact_body(
                 else ("昨日未闭环 → 今日第一动作：" if not english else "Carry-over → first action today: ")
             )
         )
-        lines.append(
-            baseline_label
-            + ("；".join(carried[:3]) if carried else ("未见未闭环事项" if not english else "none found"))
-        )
-        ping = _amount_ping(person, lang, source=baseline_person)
-        if ping:
-            lines.append(ping.strip())
+        if carried and any(task not in tasks for task in carried[:3]):
+            lines.append(baseline_label + "；".join(carried[:3]))
         lines.append(
             "请回：今日 3–5 项（对象 / 交付物 / 截止时间）"
             if not english
             else "Reply with: 3–5 items (owner / deliverable / deadline)"
+        )
+        lines.append(
+            "MTO计划：今日4款高奢方案（单款≥30万），报客户和提交时间。"
+            if not english else "MTO plan: 4 luxury proposals today (each ≥ CNY 300k); name the client and delivery time."
         )
         return chr(10).join(lines)
     if hour == 15:
@@ -1147,25 +1238,13 @@ def _compact_body(
                 if not english
                 else f"New this slot: {('+' if delta > 0 else '')}{delta} wan"
             )
-        if rolling is not None:
-            delta_text += (
-                f"；累计已录单 {arrived} 万｜应达 {rolling} 万"
-                if not english
-                else f"; MTD {arrived} wan | due {rolling} wan"
-            )
-            if gap is not None:
-                delta_text += (
-                    f"（{'领先' if ahead else '落后'} {abs(float(gap)):g} 万）"
-                    if not english
-                    else f" ({'ahead' if ahead else 'behind'} {abs(float(gap)):g} wan)"
-                )
         lines.append(delta_text)
+        open_items = _unfinished_titles(person, limit=2, lang=lang)
         lines.append(
-            ("上午工作：" if not english else "Morning work: ") + _hours_text_short(person, lang)
+            ("未闭环：" if not english else "Open: ")
+            + ("；".join(open_items) if open_items else ("状态待回报" if not english else "status update needed"))
+            + amount_note
         )
-        ping = _amount_ping(person, lang)
-        if ping:
-            lines.append(ping.strip())
         lines.append(
             (
                 "请回：当前事项状态（完成 / 推进 / 停滞 / 未回）+ 卡点"
@@ -1203,6 +1282,18 @@ def _compact_body(
         lines.append(
             f"WhatsApp {wa_text} 户（明确意向 {intent_text} 户）｜工时：{_hours_text_short(person, lang)}"
         )
+    tasks = [item for item in (person.get("collections") or []) if isinstance(item, dict)]
+    done = sum(infer_status(item) == "done" for item in tasks)
+    lines.append(
+        (f"Closure: {done} done | {len(tasks) - done} open" if english
+         else f"闭环核对：已完成{done}项｜未闭环{len(tasks) - done}项")
+        if tasks else ("Closure: task status pending" if english else "闭环核对：待报事项状态")
+    )
+    lines.extend(_task_line(item, lang) for item in tasks[:5])
+    lines.append(("MTO today: " if english else "MTO今日达标：") + _mto_wrapup_line(person, lang))
+    lines.append(_daily_report_line(person, lang))
+    lines.append(("Blockers: " if english else "卡点：") + _clip_text(_blockers_text(person, lang), 140))
+    lines.append(("Evidence: " if english else "证据：") + _clip_text(_evidence_text(person, lang), 180))
     nxt = _unfinished_titles(person, lang=lang)
     lines.append(
         ("明日第一动作：" if not english else "First action tomorrow: ")
@@ -1782,6 +1873,8 @@ _OWN_PREFIXES = (
     "【海外渠道业绩达标群",
     "[Overseas Channel Battle Commander]",
     "[Overseas Channel Daily Triple Chase]",
+    *(f"【{title}】" for title, _focus in _SLOT_ZH.values()),
+    *(f"[{title}]" for title, _focus in _SLOT_EN.values()),
 )
 _AT_RE = re.compile(
     r"[@＠]\s*(海外渠道督战官|Overseas Channel Battle Commander)",

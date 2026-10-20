@@ -101,7 +101,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("Morning chase", text)
         self.assertIn("pending", text)
         self.assertIn("wan", text)
-        self.assertIn("RMB 13M campaign", text)
+        self.assertIn("Overseas monthly target: 1328 wan CNY", text)
         self.assertIn("No plan posted", text)
         self.assertNotIn("北京", text)
         self.assertNotIn("待确认", text)
@@ -163,7 +163,7 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("早追·定任务", text)
         self.assertIn("每日三追进度表", text)
         self.assertIn("待确认", text)
-        self.assertIn("1300万战役", text)
+        self.assertIn("本月海外目标：1328万", text)
 
     def test_midday_and_evening_slot_titles(self):
         group = _group("于冰业绩达标群")
@@ -882,8 +882,8 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         text = render_brief(group, 20, now, ledger)
         self.assertIn("月度目标：200 万", text)
         self.assertIn("已录单（开单额）：170.2 万", text)
-        # 1300万是部门月目标口号，只作“战役”展示；今日目标位改为滚动日目标
-        self.assertIn("战役：1300万战役", text)
+        # 当月总目标使用确认文件，不沿用台账中的历史战役口号。
+        self.assertIn("战役：本月海外目标：1328万", text)
         self.assertIn("滚动日目标：", text)
         self.assertNotIn("今日目标：1300万战役", text)
         self.assertIn("已交8/4（达标）：share-image.webp、share-image2.webp", text)
@@ -3621,7 +3621,8 @@ class DuzhanCompactSlotTests(unittest.TestCase):
         now = datetime(2026, 9, 19, 15, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
         person = self._person(perf_intent=[{"amount_text": "", "wan": None, "snippet": "意向金额待定"}])
         text = render_brief(group, 15, now, self._ledger(person), self._ledger(self._person()))
-        self.assertIn("补一句：水单/意向有 1 条没写金额", text)
+        self.assertIn("待补金额1条", text)
+        self.assertNotIn("补一句：", text)
 
     def test_long_format_still_available(self):
         from app.config import get_settings
