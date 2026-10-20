@@ -59,6 +59,12 @@ class DuzhanAgentApiTests(unittest.TestCase):
 
     # --- 基础 CRUD ---
 
+    def test_runtime_status_exposes_canonical_department_rosters(self):
+        body = self.client.get("/api/duzhan-agents/runtime-status").json()
+        self.assertEqual(body["department_rosters"][GROUPS[0].channel_id], ["于冰"])
+        second = next(group for group in GROUPS if group.name == "杨晶晶业绩达标群")
+        self.assertEqual(body["department_rosters"][second.channel_id], ["杨晶晶", "何海文", "王宇彤"])
+
     def test_create_and_list(self):
         response = self.client.post(
             "/api/duzhan-agents",
@@ -467,7 +473,7 @@ class DuzhanAgentApiTests(unittest.TestCase):
         problems = [(item["name"], item["errors"]) for item in body["created"] if item["errors"]]
         self.assertEqual(problems, [])
         names = [item["name"] for item in body["created"]]
-        self.assertIn(f"{GROUPS[0].name}督战官", names)
+        self.assertIn("经销商一部督战官", names)
         self.assertIn(f"{CTOB_OWNERS[0].display}C转B跟进群督战官", names)
 
         second = self.client.post("/api/duzhan-agents/seed-from-code", headers=self.headers, json={})

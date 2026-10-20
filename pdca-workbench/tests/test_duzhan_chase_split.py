@@ -121,8 +121,8 @@ class SplitMessageTests(unittest.TestCase):
             self.assertNotIn(token, body)
 
 
-class PushPerPersonTests(unittest.TestCase):
-    def test_run_duzhan_pushes_one_message_per_person(self):
+class PushDepartmentTests(unittest.TestCase):
+    def test_run_duzhan_replaces_old_person_messages_with_one_department_message(self):
         from app import duzhan as dz
 
         group = next(g for g in GROUPS if g.name == "杨晶晶业绩达标群")
@@ -148,10 +148,11 @@ class PushPerPersonTests(unittest.TestCase):
             result = dz.run_duzhan(
                 TZ_SHANGHAI, 20, datetime(2026, 10, 10, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
             )
-        self.assertEqual([body for body, _ in pushed], ["杨晶晶的档", "何海文的档", "王宇彤的档"])
-        keys = [key for _, key in pushed]
-        self.assertEqual(len(keys), len(set(keys)), "每个人的幂等键必须不同")
-        self.assertEqual(result["messages"], 3)
+        self.assertEqual(len(pushed), 1)
+        self.assertIn("经销商二部", pushed[0][0])
+        self.assertNotIn("杨晶晶的档", pushed[0][0])
+        self.assertEqual(pushed[0][1], dz._idempotency_key(TZ_SHANGHAI, "2026-10-10", 20, group.channel_id))
+        self.assertEqual(result["messages"], 1)
         self.assertEqual(result["sent"], ["杨晶晶业绩达标群"])
 
     def test_run_duzhan_falls_back_to_group_message_for_old_snapshot(self):
@@ -168,7 +169,9 @@ class PushPerPersonTests(unittest.TestCase):
             result = dz.run_duzhan(
                 TZ_SHANGHAI, 20, datetime(2026, 10, 10, 20, 0, tzinfo=ZoneInfo(TZ_SHANGHAI))
             )
-        self.assertEqual(pushed, ["老快照的合并版"])
+        self.assertEqual(len(pushed), 1)
+        self.assertIn("经销商一部", pushed[0])
+        self.assertNotIn("老快照的合并版", pushed[0])
         self.assertEqual(result["messages"], 1)
 
 

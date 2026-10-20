@@ -30,6 +30,7 @@ export interface DuzhanRuntimeStatus {
   ctob_enabled: boolean
   bot_app_id: string
   supported_channel_ids: string[]
+  department_rosters?: Record<string, string[]>
   schedule_updates_require_restart: boolean
 }
 

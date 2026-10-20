@@ -84,8 +84,13 @@ const groupIndices = computed(() => blockPositions(blocks.value, 'group'))
 const timeIndices = computed(() => blockPositions(blocks.value, 'times'))
 const conditionIndices = computed(() => blockPositions(blocks.value, 'condition'))
 const ruleIndices = computed(() => blockPositions(blocks.value, 'rule'))
+const departmentMembers = computed(() => {
+  const group = blocks.value.find((block) => block.type === 'group')
+  return runtime.value?.department_rosters?.[String(group?.channel_id || '')] || []
+})
 const extraIndices = computed(() => blocks.value.flatMap((block, index) =>
-  ['group', 'times', 'condition', 'rule'].includes(block.type) ? [] : [index],
+  ['group', 'times', 'condition', 'rule'].includes(block.type)
+    || (block.type === 'people' && departmentMembers.value.length) ? [] : [index],
 ))
 const previewSlots = computed(() => {
   const times = blocks.value.find((block) => block.type === 'times')
@@ -354,6 +359,10 @@ function onAddBlock(spec: BlockTypeSpec) {
 function onFieldChange(index: number, key: string, value: unknown) {
   const previousLabel = String(blocks.value[index]?.label || '')
   blocks.value = updateBlockField(blocks.value, index, key, value)
+  if (blocks.value[index]?.type === 'group' && key === 'channel_id' && departmentMembers.value.length) {
+    blocks.value = blocks.value.map((block) => block.type === 'people'
+      ? { ...block, names: [...departmentMembers.value] } : block)
+  }
   if (selectedId.value === null && blocks.value[index]?.type === 'group' && key === 'label') {
     name.value = nameForSelectedGroup(name.value, previousLabel, String(value || ''))
   }
@@ -479,6 +488,7 @@ onMounted(load)
           />
           <button v-if="!groupIndices.length" class="btn" type="button" :disabled="busy" @click="addType('group')">＋ 选择目标群</button>
           <p v-if="channelsError" class="hint">群聊列表暂不可用：{{ channelsError }}。可在目标群卡片中手动填写群 ID。</p>
+          <div v-if="departmentMembers.length" class="workflow-note"><strong>按部门汇总，每个时段一条</strong><span>部门成员：{{ departmentMembers.join('、') }}。名单随目标群统一维护。</span></div>
         </section>
 
         <section class="step" aria-labelledby="time-step">

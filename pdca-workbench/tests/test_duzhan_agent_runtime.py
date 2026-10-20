@@ -127,7 +127,7 @@ class RuntimeTranslationTests(unittest.TestCase):
         })
         self.assertFalse(runtime.conditions_allow(agent, "2026-10-01", {"people": []}))
         self.assertFalse(runtime.conditions_allow(agent, "2026-10-13", {"people": []}))
-        ledger = {"people": [{"group": NEW_GROUP.name, "mtd_wan": 0}]}
+        ledger = {"people": [{"group": NEW_GROUP.name, "display": "于冰", "mtd_wan": 0}]}
         self.assertTrue(runtime.conditions_allow(agent, "2026-10-13", ledger))
         self.assertFalse(runtime.conditions_allow(agent, "2026-10-01", ledger))
 

@@ -139,6 +139,7 @@ async def runtime_status(
         "ctob_enabled": bool(settings.ctob_enabled),
         "bot_app_id": settings.duzhan_bot_app_id,
         "supported_channel_ids": service.supported_channel_ids(),
+        "department_rosters": service.department_rosters(),
         "schedule_updates_require_restart": True,
     }
 

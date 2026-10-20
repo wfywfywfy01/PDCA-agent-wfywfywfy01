@@ -25,7 +25,7 @@ class CheckinTests(TestCase):
                 {"title": "客户A尾款", "status": "stalled", "progress": "待到账"},
                 {"title": "客户B合同", "status": "done", "progress": "已完成"},
             ],
-            "mto_count": 4, "mto_quotes": [], "wa_reached": 8,
+            "mto_count": 4, "mto_quotes": [], "history_ok": True, "wa_reached": 8,
             "intent_count": 2, "hours_minutes": 120,
             "blockers": ["客户A需财务核对"], "evidence": ["XSD-TEST"],
             "daily_report_ok": False,
@@ -55,7 +55,7 @@ class CheckinTests(TestCase):
 
     def test_morning_is_goals_daily_weekly_and_mto_only(self):
         text = self.render(10)
-        for item in ("1600", "二部800万", "三部400万", "四部200万", "一部200万", "五部破零",
+        for item in ("经销商一部", "部门月目标：200万",
                      "今日待办", "客户A尾款", "今天提交报价", "本周完成客户A合同", "MTO", "4款"):
             self.assertIn(item, text)
         for item in ("其他人的待办", "VPS 留痕", "工时", "日报核对", "1300万", "业绩三关键词"):
@@ -75,7 +75,7 @@ class CheckinTests(TestCase):
         text = self.render(20)
         for item in ("已完成1项", "未闭环1项", "客户B合同", "客户A尾款", "MTO", "日报核对", "明日第一动作"):
             self.assertIn(item, text)
-        self.assertIn("待确认（日报群取数失败）", text)
+        self.assertIn("日报核对：待确认：于冰", text)
         self.assertNotIn("未见今日正式日报", text)
 
     def test_custom_time_keeps_the_same_stage_contract(self):
@@ -140,7 +140,7 @@ class CheckinTests(TestCase):
                 target.write_text(json.dumps(payload), encoding="utf-8")
                 with patch.object(daily_report, "_SALES_TARGETS_FILE", target):
                     text = self.render(10)
-                self.assertIn("本月海外目标：待确认", text)
+                self.assertIn("部门月目标：待确认", text)
                 self.assertIn("今日待办", text)
 
     def test_historical_long_mode_uses_the_confirmed_goal_instead_of_a_stale_slogan(self):

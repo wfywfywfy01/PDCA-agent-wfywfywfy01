@@ -519,6 +519,26 @@ def _previous_slot_label(snapshot: dict | None, *, configured: bool) -> str | No
     return slot
 
 
+def _department_for(group: DuzhanGroup):
+    from app.duzhan_departments import department_for
+
+    canonical = next((item for item in GROUPS if item.channel_id == group.channel_id), None)
+    return department_for(canonical.name) if canonical else None
+
+
+def _department_brief(group, hour, day, slot, ledger, prev_ledger, previous_slot, focus_override):
+    if not getattr(get_settings(), "duzhan_compact", True):
+        return None
+    department = _department_for(group)
+    if department is None:
+        return None
+    from app.duzhan_departments import render
+
+    title = (_SLOT_EN if group.lang == "en" else _SLOT_ZH)[hour][0]
+    return render(department, group, hour, day, slot, title, ledger, prev_ledger,
+                  previous_slot=previous_slot, focus_override=focus_override)
+
+
 def render_brief(
     group: DuzhanGroup,
     hour: int,
@@ -530,7 +550,7 @@ def render_brief(
     previous_slot: str | None = None,
     focus_override: str | None = None,
 ) -> str:
-    """按群语言渲染每日三追进度表。15/20 有上一档则只报变化。
+    """精简模式按部门汇总；历史长版保留逐人诊断。使用群语言和真实时刻。
 
     `focus_override` 有值时替换「本档动作」那一句（AI 规则块生成），其余一字不动。
     """
@@ -538,6 +558,11 @@ def render_brief(
     stage_hour = slot_stage_hour(hour, minute)
     day = local.strftime("%Y-%m-%d")
     slot = f"{hour:02d}:{minute:02d}"
+    department_body = _department_brief(
+        group, stage_hour, day, slot, ledger, prev_ledger, previous_slot, focus_override,
+    )
+    if department_body is not None:
+        return department_body
     people = people_for(group.name, ledger)
     slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
     prev_people = {
@@ -581,7 +606,7 @@ def render_person_briefs(
     previous_slot: str | None = None,
     focus_override: str | None = None,
 ) -> list[dict]:
-    """按人拆分的消息：每人一条，各自 @ 到人（老板 2026-10-10「分开追、对应到人」）。
+    """生产精简模式返回一条部门消息；历史长版保留逐人诊断。
 
     返回 [{"display": 人名, "text": 该人一条完整消息}]；
     没有名单时退回一条群级消息（display 为空串），保证任何配置下都发得出去。
@@ -590,6 +615,11 @@ def render_person_briefs(
     stage_hour = slot_stage_hour(hour, minute)
     day = local.strftime("%Y-%m-%d")
     slot = f"{hour:02d}:{minute:02d}"
+    department_body = _department_brief(
+        group, stage_hour, day, slot, ledger, prev_ledger, previous_slot, focus_override,
+    )
+    if department_body is not None:
+        return [{"display": "", "text": department_body}]
     people = people_for(group.name, ledger)
     slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
     prev_people = {
@@ -1813,7 +1843,17 @@ def run_duzhan(
             logger.info("督战官发送条件未满足，跳过 {} {} {}", group.name, day, hour)
             continue
         parts: list[tuple[str, str]] = []
-        if isinstance(person_bodies, dict):
+        if getattr(get_settings(), "duzhan_compact", True) and _department_for(group) is not None:
+            # Reuse facts, not old per-person copy, across the department cutover.
+            from app.duzhan_admin import ai_rules
+
+            override = ai_rules.focus_for(group, hour, day, ledger, minute=minute)
+            body = _department_brief(
+                group, slot_stage_hour(hour, minute), day, f"{hour:02d}:{minute:02d}",
+                ledger, prev_ledger, previous_slot, override,
+            )
+            parts = [("", body)]
+        elif isinstance(person_bodies, dict):
             rows = person_bodies.get(group.channel_id) or []
             if isinstance(rows, list):
                 parts = [
