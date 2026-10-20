@@ -62,18 +62,25 @@ def _time_progress(day: str) -> float:
 def _configured_sales_target(month: str) -> tuple[float, list[str]] | None:
     """读取已确认月目标；新部保持部门合计，不擅自拆到个人。"""
     payload = json.loads(_SALES_TARGETS_FILE.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("月目标文件必须是对象")
     plan = payload.get(month)
     if plan is None:
         return None
-    entries = plan.get("entries")
+    if not isinstance(plan, dict):
+        raise ValueError(f"{month} 月目标必须是对象")
+    entries = plan.get("departments", plan.get("entries"))
     declared_total = float(plan.get("department_target_wan"))
-    if not isinstance(entries, list) or not entries:
+    if not isinstance(entries, list) or not entries or not all(isinstance(row, dict) for row in entries):
         raise ValueError(f"{month} 月目标明细为空")
-    actual_total = sum(float(row["target_wan"]) for row in entries)
+    actual_total = sum(float(row["target_wan"]) for row in entries if row.get("goal") != "break_zero")
     if actual_total != declared_total:
         raise ValueError(f"{month} 月目标合计不一致：{actual_total} != {declared_total}")
     details = []
     for row in entries:
+        if row.get("goal") == "break_zero":
+            details.append(f"{row['name']} 破零")
+            continue
         members = row.get("members") or []
         suffix = f"（{'、'.join(members)}合计）" if members else ""
         details.append(f"{row['name']}{suffix} {float(row['target_wan']):g} 万")

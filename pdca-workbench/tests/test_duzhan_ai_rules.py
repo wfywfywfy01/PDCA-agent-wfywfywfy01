@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -233,13 +234,17 @@ class GenerateRetryTests(unittest.TestCase):
 class RenderOverrideTests(unittest.TestCase):
     def test_override_replaces_only_the_action_line(self):
         ledger = empty_ledger(DAY)
-        default = render_brief(GROUP, 10, NOW, ledger, None)
-        custom = render_brief(GROUP, 10, NOW, ledger, None, focus_override="十点先补三条未闭环")
-        self.assertIn("本档动作：十点先补三条未闭环", custom)
-        self.assertNotIn("本档动作：十点先补三条未闭环", default)
-        default_lines = [line for line in default.splitlines() if not line.startswith("- 本档动作：")]
-        custom_lines = [line for line in custom.splitlines() if not line.startswith("- 本档动作：")]
-        self.assertEqual(custom_lines, default_lines, "除了本档动作那一行，其余必须一字不动")
+        for compact, prefix in ((True, "重点："), (False, "- 本档动作：")):
+            with self.subTest(compact=compact), patch(
+                "app.duzhan.get_settings", return_value=SimpleNamespace(duzhan_compact=compact)
+            ):
+                default = render_brief(GROUP, 10, NOW, ledger, None)
+                custom = render_brief(GROUP, 10, NOW, ledger, None, focus_override="十点先补三条未闭环")
+                self.assertIn(prefix + "十点先补三条未闭环", custom)
+                self.assertNotIn(prefix + "十点先补三条未闭环", default)
+                default_lines = [line for line in default.splitlines() if not line.startswith(prefix)]
+                custom_lines = [line for line in custom.splitlines() if not line.startswith(prefix)]
+                self.assertEqual(custom_lines, default_lines, "除了本档动作那一行，其余必须一字不动")
 
     def test_empty_override_keeps_default(self):
         ledger = empty_ledger(DAY)

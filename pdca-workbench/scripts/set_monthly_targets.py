@@ -123,7 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     elif (data.get(month) or {}).get("entries"):
         base = [dict(item) for item in data[month]["entries"]]
     entries = merge(base, [parse_person(raw) for raw in args.person], [parse_group(raw) for raw in args.group])
-    block = {"entries": entries}
+    block = dict(data.get(args.copy_from.strip() if args.copy_from else month) or {})
+    block["entries"] = entries
     dept = data.get(month, {}).get("department_target_wan")
     if args.copy_from:
         dept = (data.get(args.copy_from.strip()) or {}).get("department_target_wan", dept)
@@ -133,7 +134,8 @@ def main(argv: list[str] | None = None) -> int:
         block["department_target_wan"] = dept
     # 与 app/daily_report.py 同一条不变量：明细合计必须等于部门目标，
     # 否则日报任务会直接抛错。写盘前先拦下来，别等生产定时任务失败。
-    total = sum(float(item.get("target_wan") or 0) for item in entries)
+    breakdown = block.get("departments", entries)
+    total = sum(float(item.get("target_wan") or 0) for item in breakdown)
     declared = block.get("department_target_wan")
     if declared is not None and abs(total - float(declared)) > 0.01 and not args.allow_mismatch:
         raise SystemExit(

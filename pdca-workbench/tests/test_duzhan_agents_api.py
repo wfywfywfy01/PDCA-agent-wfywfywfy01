@@ -177,7 +177,9 @@ class DuzhanAgentApiTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["mode"], "render")
         self.assertEqual(body["source"], "empty_ledger")  # 测试环境没有组表快照
-        self.assertIn("海外渠道业绩达标群", body["body"])
+        self.assertIn("早追·定任务", body["body"])
+        self.assertIn("今日待办", body["body"])
+        self.assertIn("MTO", body["body"])
         self.assertGreater(body["chars"], 100)
         self.assertEqual(body["renderer"], "duzhan.render_brief")
 
