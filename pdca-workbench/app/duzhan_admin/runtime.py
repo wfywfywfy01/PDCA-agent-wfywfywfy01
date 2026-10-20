@@ -121,7 +121,7 @@ def previous_slot_of(agent: DuzhanAgent, current_slot: str) -> tuple[int, str] |
 def conditions_allow(agent: DuzhanAgent, day: str, ledger: dict | None) -> bool:
     """发送前检查条件块；数据不可用时不把它当成「没有数据」。"""
     from app.ctob import OWNERS as CTOB_OWNERS
-    from app.duzhan_ledger import people_for
+    from app.duzhan_departments import people_for
     from app.workday_calendar import day_kind
 
     group = group_of(agent)

@@ -57,7 +57,9 @@ class ParityTests(unittest.TestCase):
             self.seeded = {row.name: row for row in session.exec(select(DuzhanAgent)).all()}
 
     def _agent_for(self, group):
-        agent = self.seeded.get(f"{group.name}督战官")
+        agent = next((row for row in self.seeded.values()
+                      if runtime.group_of(row) is not None
+                      and runtime.group_of(row).channel_id == group.channel_id), None)
         self.assertIsNotNone(agent, f"没有导入 {group.name} 的配置")
         return agent
 

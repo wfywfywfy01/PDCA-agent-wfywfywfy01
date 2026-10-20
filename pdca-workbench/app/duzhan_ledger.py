@@ -199,6 +199,8 @@ class PersonRow:
     daily_report: dict = field(default_factory=dict)
     # 日报群取数是否成功：失败时必须写「待确认」，不能渲染成「未见日报」并据此扣分。
     daily_report_ok: bool = True
+    # None also covers historical snapshots without collection provenance.
+    history_ok: bool | None = None
     # 第 8 节「今日早会待办」正文（按群分流，空串表示当天没有、不出这一节）
     meeting_todos: str = ""
     collections: list[dict] = field(default_factory=list)
@@ -2461,14 +2463,14 @@ def parse_owner_reports(
     return list(collections_by_key.values())[-12:], blockers[:5], evidence[:8]
 
 
-def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list[dict]:
+def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list[dict] | None:
     """拉昨日中午到现在的群消息，避免漏掉晚间更新。"""
     from datetime import date, timedelta
 
     from app.vertu.client import run_vertu_sync_json
 
     if not channel_id:
-        return []
+        return None
     prev = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
     payload = run_vertu_sync_json(
         [
@@ -2483,9 +2485,9 @@ def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list
         ],
         timeout=40.0,
     )
-    if not isinstance(payload, dict):
-        return []
-    return [item for item in (payload.get("messages") or []) if isinstance(item, dict)]
+    if not isinstance(payload, dict) or not isinstance(payload.get("messages"), list):
+        return None
+    return [item for item in payload["messages"] if isinstance(item, dict)]
 
 
 def messages_on_day(messages: list[dict], day: str, tz_name: str) -> list[dict]:
@@ -3305,9 +3307,7 @@ def collect_ledger(day: str) -> dict:
         8,
         "督战官拉群历史",
     )
-    histories: dict[str, list[dict]] = {
-        cid: (rows or []) for cid, rows in zip(channel_ids, history_list)
-    }
+    histories = dict(zip(channel_ids, history_list))
     # 每人三项 MCP 查询并发预取（串行时这是除 OCR 外的第二个大头）。
     subjects = {item.display: _subject(item) for item in OWNERS}
     queried = [item for item in OWNERS if subjects[item.display]]
@@ -3323,20 +3323,25 @@ def collect_ledger(day: str) -> dict:
     }
     # 当日消息过滤 + 图片 OCR：Qwen 是单机推理，按人并发预取（默认 3，避免打爆网关）。
     owner_msgs: dict[str, list[dict]] = {}
+    owner_history_ok: dict[str, bool] = {}
     ocr_inputs: list[tuple] = []
     for owner in OWNERS:
         if not owner.im_user_id:
             continue
         raw_msgs: list[dict] = []
-        for cid in _history_ids(owner):
+        ids = _history_ids(owner)
+        owner_history_ok[owner.display] = bool(ids) and all(isinstance(histories.get(cid), list) for cid in ids)
+        for cid in ids:
             raw_msgs.extend(histories.get(cid) or [])
         try:
             day_msgs = messages_on_day(raw_msgs, day, _group_timezone(owner))
         except Exception as exc:  # noqa: BLE001
             logger.warning("督战官当日消息过滤失败 {}: {}", owner.display, exc)
             day_msgs = []
+            owner_history_ok[owner.display] = False
         owner_msgs[owner.display] = day_msgs
-        ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
+        if owner_history_ok[owner.display]:
+            ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
 
     # 三个 OCR 开关都用 getattr 兜底：采集是关键路径，Settings 少一个字段也不能整轮失败。
     ocr_workers = getattr(settings, "mto_ocr_workers", 3)
@@ -3379,6 +3384,7 @@ def collect_ledger(day: str) -> dict:
         row.vemory, row.vemory_ok = match_vemory(owner, vemory_rows)
         row.daily_report = match_daily_report(owner, daily_reports)
         row.daily_report_ok = daily_reports_ok
+        row.history_ok = owner_history_ok.get(owner.display, False)
         # 模板合规核对：卡片交了但正文没按模板 → 记缺项；只有群里正文、没有卡片 → 也算已交
         _report_text = report_texts.get(str(owner.im_user_id or ""), "")
         if row.daily_report:
@@ -3426,10 +3432,11 @@ def collect_ledger(day: str) -> dict:
                         f"{row.daily_report.get('spent_hours', 0)}h",
                     )
             else:
-                row.mto_count, row.mto_names, row.mto_quotes = 0, [], []
+                row.mto_count, row.mto_names, row.mto_quotes = None, [], []
         except Exception as exc:  # noqa: BLE001
             logger.warning("督战官拉群消息失败 {}: {}", owner.display, exc)
             row.mto_count, row.mto_names, row.mto_quotes = None, [], []
+            row.history_ok = False
         subject = _subject(owner)
         if subject:
             reach, ops, customers = mcp_cache.get(owner.display, (None, None, None))

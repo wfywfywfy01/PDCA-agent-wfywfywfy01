@@ -71,7 +71,7 @@ def _digest(group, hour: int, day: str, ledger: dict | None, minute: int = 0) ->
     """给模型的事实清单（用的都是现有渲染器已经在用的字段，缺数据会写"待确认"）。"""
     from app.ctob import OWNERS as CTOB_OWNERS
     from app.duzhan import _daily_report_text, _perf_text, slot_stage_hour
-    from app.duzhan_ledger import people_for
+    from app.duzhan_departments import people_for
 
     if any(owner.channel_id == group.channel_id for owner in CTOB_OWNERS):
         data = ledger or {}
@@ -104,6 +104,8 @@ def _digest(group, hour: int, day: str, ledger: dict | None, minute: int = 0) ->
         perf = re.sub(r"\s+", " ", _perf_text(person, "zh")).strip()[:80]
         report = re.sub(r"\s+", " ", _daily_report_text(person, "zh")).strip()[:60]
         lines.append(f"- {display}：{perf}；{report}")
+        if person.get("history_ok") is not True:
+            lines.append(f"  {display}群消息采集待确认，MTO与事项闭环不得按零判断")
     return "\n".join(lines)
 
 
@@ -111,7 +113,7 @@ def _build_messages(
     group, hour: int, day: str, ledger: dict | None, rule: Block, minute: int = 0,
 ) -> list[dict[str, str]]:
     system = (
-        "你是跨境电商团队的督战助理。你只写一句话：这一档要求每个人做什么。"
+        "你是跨境电商团队的督战助理。你只写一句话：这一档本部门要交付什么，保留事项负责人。"
         "要求：中文；一行；不超过 60 字；像主管当面催办；不要称呼、不要 emoji、不要引号、不要换行、不要编号。"
         "直接输出这句话本身，不要推理过程、不要解释、不要复述要求。"
     )
@@ -143,10 +145,13 @@ def _fixed_focus(text: str) -> str:
 
 def _cache_path(
     agent_id: int, day: str, hour: int, rule: Block | None = None, minute: int = 0,
+    *, cohort: tuple[str, ...] = (),
 ) -> Path:
     suffix = ""
     if rule is not None:
         raw = json.dumps(rule.as_dict(), ensure_ascii=False, sort_keys=True)
+        if cohort:
+            raw += json.dumps({"report_scope": "department", "members": cohort}, ensure_ascii=False)
         suffix = "_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
     return _cache_dir() / f"agent{agent_id}_{day}_{clock}{suffix}.txt"
@@ -206,7 +211,7 @@ def _content_of(data: dict) -> str:
 
 
 def _rule_matches(rule: Block, group, day: str, ledger: dict | None) -> bool:
-    from app.duzhan_ledger import people_for
+    from app.duzhan_departments import people_for
     from app.workday_calendar import day_kind
 
     when = str(rule.get("when") or "always")
@@ -228,7 +233,11 @@ def _ai_focus(
     agent: DuzhanAgent, group, hour: int, day: str, ledger: dict | None, rule: Block, *,
     minute: int = 0, preview: bool = False,
 ) -> Optional[str]:
-    cache = _cache_path(agent.id, day, hour, rule, minute)
+    from app.duzhan_departments import department_for
+
+    department = department_for(group.name)
+    cache = _cache_path(agent.id, day, hour, rule, minute,
+                        cohort=department.members if department else ())
     budget_day = today_in_shanghai() if preview else day
     if not preview and cache.is_file():
         try:

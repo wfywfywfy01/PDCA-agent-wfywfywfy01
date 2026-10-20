@@ -37,13 +37,24 @@ def blocks_of(agent: DuzhanAgent) -> list[Block]:
 
 
 def roster_by_group() -> dict[str, list[str]]:
-    """达标群 → 名单；名单只在 duzhan_ledger 里维护一份，配置里不另存。"""
-    from app.duzhan_ledger import OWNERS
+    """达标群 → 当前部门名单；身份别名保留在 duzhan_ledger。"""
+    from app.duzhan_departments import DEPARTMENTS
 
-    table: dict[str, list[str]] = {}
-    for owner in OWNERS:
-        table.setdefault(owner.group, []).append(owner.display)
-    return table
+    return {department.group: list(department.members) for department in DEPARTMENTS}
+
+
+def department_rosters() -> dict[str, list[str]]:
+    """部门名单按真实群 ID 绑定，配置页与实际汇总使用同一来源。"""
+    from app.duzhan import GROUPS
+
+    rosters = roster_by_group()
+    return {group.channel_id: rosters[group.name] for group in GROUPS if group.name in rosters}
+
+
+def _department_members(blocks: list[Block]) -> list[str]:
+    rosters = department_rosters()
+    return next((rosters[str(block.get("channel_id"))] for block in blocks
+                 if block.type == "group" and str(block.get("channel_id")) in rosters), [])
 
 
 def roster_names() -> list[str]:
@@ -118,6 +129,10 @@ def validate_agent(
         owners=owners_for(blocks) if owners is None else owners,
         strategies=strategy_ids() if strategies is None else strategies,
     )
+    members = _department_members(blocks)
+    selected = _people_of(blocks)
+    if members and selected and set(selected) != set(members):
+        errors.append(f"按部门汇总需覆盖完整部门名单：{'、'.join(members)}；请使用部门全部成员或留空")
     from app.ctob import OWNERS as CTOB_OWNERS
 
     ctob_channels = {owner.channel_id for owner in CTOB_OWNERS}
@@ -183,6 +198,7 @@ def resolve_spec(agent: DuzhanAgent) -> dict:
             }
         )
     renderer = renderer_for(blocks)
+    members = _department_members(blocks)
     timezone_name = "Asia/Shanghai" if renderer == RENDERER_CTOB else (agent.timezone or "Asia/Shanghai")
     return {
         "id": agent.id,
@@ -195,7 +211,8 @@ def resolve_spec(agent: DuzhanAgent) -> dict:
             if block.type == "group"
         ],
         "slots": _slots_of(blocks),
-        "people": _people_of(blocks),
+        "people": members or _people_of(blocks),
+        "department_report": bool(members),
         "sources": [str(block.get("key") or "") for block in blocks if block.type == "source"],
         "rules": rules,
         "conditions": [
@@ -238,7 +255,8 @@ def _summary_lines(
     lines.append(f"档位：{'、'.join(slots) or '未配置'}（{spec['timezone']}）")
     if day:
         lines.append(f"试跑日期：{day}")
-    lines.append(f"覆盖人员：{'、'.join(spec['people']) if spec['people'] else '该群全员（未限定）'}")
+    prefix = "部门成员（每时段合并一条）" if spec["department_report"] else "覆盖人员"
+    lines.append(f"{prefix}：{'、'.join(spec['people']) if spec['people'] else '该群全员（未限定）'}")
     lines.append(
         "数据源："
         + (" → ".join(SOURCE_KEYS.get(key, key) for key in spec["sources"]) if spec["sources"] else "未配置")
@@ -474,11 +492,58 @@ DUZHAN_SEED_SOURCES = ["wa_summary", "mto_ocr", "im_trace", "daily_report", "vem
 CTOB_SEED_SOURCES = ["wa_summary"]
 
 
+def configure_departments(session: Session, *, apply: bool = False) -> list[dict]:
+    """Preview/apply one atomic cohort update; preserve card rules, slots and enabled state."""
+    import json
+    from datetime import datetime, timezone
+    from app.duzhan import GROUPS
+    from app.duzhan_departments import department_for
+
+    cards = list(session.exec(select(DuzhanAgent).with_for_update()).all())
+    plans = []
+    for group in GROUPS:
+        department = department_for(group.name)
+        matching = [card for card in cards if any(
+            block.type == "group" and block.get("channel_id") == group.channel_id
+            for block in blocks_of(card)
+        )]
+        if len(matching) != 1:
+            raise ValueError(f"{department.name} 必须恰有一张现有群配置，当前 {len(matching)} 张")
+        card = matching[0]
+        name = f"{department.name}督战官"
+        if any(other.id != card.id and other.name == name for other in cards):
+            raise ValueError(f"配置名称已被其他群使用：{name}")
+        payload = json.loads(card.blocks_json)
+        people = next((block for block in payload["blocks"] if block.get("type") == "people"), None)
+        if people is None:
+            payload["blocks"].insert(2, {"type": "people", "names": list(department.members)})
+        else:
+            people["names"] = list(department.members)
+        blocks_json = json.dumps(payload, ensure_ascii=False)
+        candidate = card.model_copy(update={"name": name, "blocks_json": blocks_json})
+        errors = validate_agent(candidate)
+        if errors:
+            raise ValueError(f"{department.name} 配置校验失败：{'；'.join(errors)}")
+        if card.name != name or json.loads(card.blocks_json) != payload:
+            plans.append((card, name, blocks_json, department))
+    result = [{"id": card.id, "before": card.name, "after": name,
+               "members": list(department.members), "enabled": card.enabled}
+              for card, name, _blocks, department in plans]
+    if apply:
+        for card, name, blocks_json, _department in plans:
+            card.name, card.blocks_json = name, blocks_json
+            card.updated_at = datetime.now(timezone.utc)
+            session.add(card)
+        session.commit()
+    return result
+
+
 def seed_from_code(session: Session) -> dict:
     """把现在硬编码的群导成配置；一律 **默认停用**，避免导入即双跑。"""
     from app.config import get_settings
     from app.ctob import OWNERS as CTOB_OWNERS
     from app.duzhan import GROUPS
+    from app.duzhan_departments import department_for
 
     settings = get_settings()
     duzhan_slots = list(getattr(settings, "duzhan_times", None) or ["10:00", "15:00", "20:00"])
@@ -489,7 +554,7 @@ def seed_from_code(session: Session) -> dict:
     for group in GROUPS:
         plans.append(
             {
-                "name": f"{group.name}督战官",
+                "name": f"{department_for(group.name).name}督战官",
                 "timezone": group.tz,
                 "blocks": _seed_blocks(
                     channel_id=group.channel_id,
@@ -517,11 +582,15 @@ def seed_from_code(session: Session) -> dict:
             }
         )
 
-    existing = {row.name for row in session.exec(select(DuzhanAgent)).all()}
+    existing_rows = list(session.exec(select(DuzhanAgent)).all())
+    existing = {row.name for row in existing_rows}
+    existing_channels = {str(block.get("channel_id") or "") for row in existing_rows
+                         for block in blocks_of(row) if block.type == "group"}
     created: list[DuzhanAgent] = []
     skipped: list[str] = []
     for plan in plans:
-        if plan["name"] in existing:
+        channel = next(block["channel_id"] for block in plan["blocks"]["blocks"] if block["type"] == "group")
+        if plan["name"] in existing or channel in existing_channels:
             skipped.append(plan["name"])
             continue
         row = DuzhanAgent(

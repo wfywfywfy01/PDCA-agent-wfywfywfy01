@@ -94,7 +94,7 @@ class FocusForTests(unittest.TestCase):
         second = ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY))
         self.assertEqual(second, AI_TEXT)
         self.assertEqual(len(self.calls), 1, "同一天同一档不该重复调模型")
-        self.assertTrue(ai_rules._cache_path(agent.id, DAY, 10, ai_rules.ai_rule_of(agent)).is_file())
+        self.assertTrue(ai_rules._cache_path(agent.id, DAY, 10, ai_rules.ai_rule_of(agent), cohort=("于冰",)).is_file())
 
     def test_changed_prompt_does_not_reuse_old_cache(self):
         agent = self.add_agent()
@@ -144,7 +144,7 @@ class FocusForTests(unittest.TestCase):
         self.add_agent(blocks=blocks)
         self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, empty_ledger(DAY)), "兜底动作")
         ledger = empty_ledger(DAY)
-        ledger["people"] = [{"group": GROUP.name, "daily_report": {}, "daily_report_ok": True}]
+        ledger["people"] = [{"group": GROUP.name, "display": "于冰", "daily_report": {}, "daily_report_ok": True}]
         self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, ledger), "固定文案：核验交付物")
         ledger["people"][0]["daily_report_ok"] = False
         self.assertEqual(ai_rules.focus_for(GROUP, 10, DAY, ledger), "兜底动作")
