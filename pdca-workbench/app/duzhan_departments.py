@@ -131,11 +131,11 @@ def _belongs(who: str, department: Department) -> bool:
                           for alias in aliases(department, member) if len(alias) >= 2)
 
 
-def _target(department: Department, day: str) -> dict:
+def _file_target(department: Department, day: str) -> dict:
     from app import daily_report
 
     try:
-        if daily_report._configured_sales_target(day[:7]) is None:
+        if daily_report._bundled_sales_target(day[:7]) is None:
             return {}
         payload = json.loads(daily_report._SALES_TARGETS_FILE.read_text(encoding="utf-8"))
         plan = next((dict(row) for row in payload[day[:7]].get("departments", [])
@@ -157,7 +157,7 @@ def _tasks(rows: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
             if isinstance(item, dict) and str(item.get("title") or "").strip()]
 
 
-def _mto_summary(rows: list[tuple[str, dict]], english: bool) -> str:
+def _mto_summary(rows: list[tuple[str, dict]], english: bool, *, daily_count: int = 4, min_wan: float = 30) -> str:
     captured, counts, pending = [], [], []
     for name, row in rows:
         quotes = row.get("mto_quotes")
@@ -166,7 +166,7 @@ def _mto_summary(rows: list[tuple[str, dict]], english: bool) -> str:
         quotes = quotes if quotes_known else []
         checked = [quote for quote in quotes if _finite_number(quote.get("wan"))
                    and isinstance(quote.get("qualifies"), bool) and quote.get("raw_ok") is not False]
-        qualified = sum(quote["qualifies"] and quote["wan"] >= 30 for quote in checked)
+        qualified = sum(quote["qualifies"] and quote["wan"] >= min_wan for quote in checked)
         counts.append(qualified)
         source_known = row.get("history_ok") is True and _finite_number(source_count) and source_count >= 0
         captured.append((name, {"count": len(quotes)
@@ -175,9 +175,9 @@ def _mto_summary(rows: list[tuple[str, dict]], english: bool) -> str:
             pending.append(name)
     seen = total(captured, "count")
     seen_text = ("pending" if english else "待确认") if seen is None else f"{seen:g}" + (" records" if english else "条")
-    qualified_members = sum(count >= 4 for count in counts)
-    text = (f"MTO: captured {seen_text} | verified {sum(counts)} qualified | {qualified_members}/{len(rows)} members at 4 each"
-            if english else f"MTO核验：采集数{seen_text}｜已核达标{sum(counts)}款｜达标成员{qualified_members}/{len(rows)}（每人4款，单款≥30万）")
+    qualified_members = sum(count >= daily_count for count in counts)
+    text = (f"MTO: captured {seen_text} | verified {sum(counts)} qualified | {qualified_members}/{len(rows)} members at {daily_count} each (≥ CNY {min_wan * 10:g}k each)"
+            if english else f"MTO核验：采集数{seen_text}｜已核达标{sum(counts)}款｜达标成员{qualified_members}/{len(rows)}（每人{daily_count}款，单款≥{min_wan:g}万）")
     return text + (("; pending: " if english else "；待核：") + "、".join(pending) if pending else "")
 
 
@@ -186,12 +186,17 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
            focus_override: str | None = None) -> str:
     from app.meeting_todos import items_for_group
     from app.weekly_focus import items_for
+    from app.duzhan_monthly_metrics import effective_metrics, recheck_row
 
     english = group.lang == "en"
     pending = "pending" if english else "待确认"
     rows = member_rows(department, ledger)
     previous = member_rows(department, prev_ledger)
+    metrics = effective_metrics(group.channel_id, day[:7])
+    daily_count, min_wan = metrics["mto_daily_count"], metrics["mto_min_wan"]
     metric_rows = member_rows(department, ledger, metrics_only=True)
+    if metrics["source"] == "saved":
+        metric_rows = [(name, recheck_row(row, metrics)) for name, row in metric_rows]
     arrived = total(rows, "perf_arrived_wan")
     tasks = _tasks(rows)
     open_tasks = [(name, item) for name, item in tasks if infer_status(item) != "done"]
@@ -232,7 +237,7 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
                       reply])
         return "\n".join(lines)
 
-    plan = _target(department, day)
+    plan = {"goal": metrics["goal"], "target_wan": metrics["sales_target_wan"]}
     goal = None if plan.get("goal") == "break_zero" else plan.get("target_wan")
     progress = daily_target_progress(goal, arrived, day)
     goal_text = ("first sale" if english else "破零") if plan.get("goal") == "break_zero" else (
@@ -271,8 +276,8 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
                         weekly.append((f"{who}：" if who else "") + text)
         lines.append(("This week: " if english else "本周待办：")
                      + _items_line(weekly, "reply with deliverables and due dates" if english else "请补本周交付事项和截止日"))
-        lines.append((f"MTO plan: {4 * len(metric_rows)} proposals, 4 per person, each ≥ CNY 300k." if english
-                      else f"MTO计划：共{4 * len(metric_rows)}款高奢方案（每人4款，单款≥30万），报客户与提交时间。")
+        lines.append((f"MTO plan: {daily_count * len(metric_rows)} proposals, {daily_count} per person, each ≥ CNY {min_wan * 10:g}k." if english
+                      else f"MTO计划：共{daily_count * len(metric_rows)}款高奢方案（每人{daily_count}款，单款≥{min_wan:g}万），报客户与提交时间。")
                      + ((" Owners: " if english else "负责人：") + "、".join(department.metric_members)
                         if department.task_only_members else ""))
         lines.append("Reply with 3–5 department deliverables and deadlines." if english else "请回：本部今日3–5项交付物和截止时间。")
@@ -291,7 +296,7 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
         status = ("done" if infer_status(item) == "done" else "open") if english else (
             "已完成" if infer_status(item) == "done" else "未闭环")
         lines.append(f"- {status}｜" + _clip(task_name(name, item)))
-    lines.append(_mto_summary(metric_rows, english))
+    lines.append(_mto_summary(metric_rows, english, daily_count=daily_count, min_wan=min_wan))
     missing, unverified, incomplete = [], [], []
     for name, row in metric_rows:
         if not row or row.get("daily_report_ok") is False:

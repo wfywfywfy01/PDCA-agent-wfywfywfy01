@@ -197,6 +197,8 @@ class PersonRow:
     mto_count: int | None = None
     mto_names: list[str] = field(default_factory=list)
     mto_quotes: list[dict] = field(default_factory=list)
+    mto_daily_goal: int = 4
+    mto_min_wan: float = 30
     hours_minutes: float | None = None
     hours_band: str = ""
     hours_window: str = ""
@@ -3392,6 +3394,9 @@ def collect_ledger(day: str) -> dict:
         for item, result in zip(ocr_inputs, ocr_results)
     }
     people: list[PersonRow] = []
+    from app.duzhan_monthly_metrics import metrics_for_owner
+
+    monthly_by_group = {group: metrics_for_owner(group, day) for group in {owner.group for owner in OWNERS}}
     for owner in OWNERS:
         row = PersonRow(
             group=owner.group,
@@ -3500,6 +3505,16 @@ def collect_ledger(day: str) -> dict:
         row.days_in_month = progress["days_in_month"]
         row.target_gap_wan = progress["gap"]
         row.target_ahead = progress["ahead"]
+        policy = monthly_by_group[owner.group]
+        row.mto_daily_goal, row.mto_min_wan = policy["mto_daily_count"], policy["mto_min_wan"]
+        if policy["source"] == "saved" and not is_task_only(owner.group, owner.display):
+            from app.duzhan_monthly_metrics import recheck_row
+            from app.mto_ocr import summarize_quotes
+
+            checked = recheck_row(asdict(row), {"mto_daily_count": row.mto_daily_goal, "mto_min_wan": row.mto_min_wan})
+            row.mto_count, row.mto_quotes = checked["mto_count"], checked["mto_quotes"]
+            if row.mto_quotes:
+                _, row.mto_names = summarize_quotes(row.mto_quotes, min_wan=row.mto_min_wan)
         people.append(score_row(row))
     from app.duzhan_departments import task_scope_row
 

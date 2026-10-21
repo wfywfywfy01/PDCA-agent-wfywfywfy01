@@ -16,6 +16,7 @@ from app.database import get_session
 from app.duzhan_admin import service
 from app.duzhan_blocks import block_schema, dump_blocks, is_valid_day, parse_blocks
 from app.models.duzhan_agent import DuzhanAgent
+from app.duzhan_monthly_metrics import MonthlyMetricsIn, monthly_response, save_metrics, validate_month
 
 router = APIRouter(prefix="/api/duzhan-agents", tags=["duzhan-agents"])
 
@@ -175,6 +176,28 @@ def _name_taken(session: Session, name: str, *, exclude_id: Optional[int] = None
     if exclude_id is not None:
         statement = statement.where(DuzhanAgent.id != exclude_id)
     return session.exec(statement).first() is not None
+
+
+@router.get("/monthly-metrics", summary="按群、按月份读取业绩及 MTO 指标")
+async def get_monthly_metrics(
+    channel_id: str, month: str,
+    _user: Annotated[User, Depends(require_admin)] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+) -> dict:
+    try:
+        validate_month(month)
+        return monthly_response(session, channel_id, month)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.put("/monthly-metrics", summary="保存该群该月指标，保留其他群及历史月份")
+async def put_monthly_metrics(
+    payload: MonthlyMetricsIn,
+    _user: Annotated[User, Depends(require_admin)] = None,
+    session: Annotated[Session, Depends(get_session)] = None,
+) -> dict:
+    return save_metrics(session, payload)
 
 
 @router.get("", summary="子 Agent 列表")

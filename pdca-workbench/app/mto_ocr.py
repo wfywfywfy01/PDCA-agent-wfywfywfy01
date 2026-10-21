@@ -153,7 +153,7 @@ def _usd(value: object) -> float | None:
         return None
 
 
-def summarize_quotes(quotes: list[dict]) -> tuple[int, list[str]]:
+def summarize_quotes(quotes: list[dict], *, min_wan: float = THRESHOLD_WAN) -> tuple[int, list[str]]:
     """≥30 万且有报价的张数；文案含金额、是否达标、目标客户。"""
     names: list[str] = []
     qualify_n = 0
@@ -166,7 +166,7 @@ def summarize_quotes(quotes: list[dict]) -> tuple[int, list[str]]:
         usd = item.get("usd")
         wan = item.get("wan")
         money = f"${usd:g}" if usd is not None else "金额待确认"
-        bar = "达标" if item.get("qualifies") else "未满30万"
+        bar = "达标" if item.get("qualifies") else f"未满{min_wan:g}万"
         if wan is not None and usd is not None:
             money = f"${usd:g}≈{wan}万"
         target = str(item.get("target_customer") or "").strip() or "目标客户待确认"

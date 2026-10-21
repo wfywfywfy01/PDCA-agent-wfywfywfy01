@@ -4,6 +4,7 @@ import AppNav from '@/components/AppNav.vue'
 import { HttpError } from '@/api/client'
 import { fetchBotChannels, type BotChannel } from '@/api/agentAdmin'
 import BlockCard from '@/components/BlockCard.vue'
+import DuzhanMonthlyMetrics from '@/components/DuzhanMonthlyMetrics.vue'
 import {
   addBlock as appendBlock, agentPayload, aiStatus as fetchAiStatus, blockSchema, configChanged,
   createAgent, defaultBlock, deleteAgent, blockPositions, starterBlocks,
@@ -51,6 +52,8 @@ const channels = ref<BotChannel[]>([])
 const channelsError = ref('')
 const pendingTarget = ref<number | 'new' | null>(null)
 const search = ref('')
+const metricsEditor = ref<InstanceType<typeof DuzhanMonthlyMetrics> | null>(null)
+const metricsDirty = ref(false)
 
 const current = computed(() => agents.value.find((item) => item.id === selectedId.value) || null)
 const savedErrors = computed(() => current.value?.errors || [])
@@ -98,7 +101,7 @@ const previewSlots = computed(() => {
     : []
 })
 const jsonPending = computed(() => jsonText.value !== toJson(blocks.value))
-const unsaved = computed(() => jsonPending.value || configChanged(
+const unsaved = computed(() => metricsDirty.value || jsonPending.value || configChanged(
   current.value
     ? { name: current.value.name, timezone: current.value.timezone, note: current.value.note, blocks: current.value.blocks.blocks }
     : null,
@@ -116,6 +119,7 @@ function describe(err: unknown): string {
 }
 
 function fill(item: DuzhanAgentItem) {
+  metricsDirty.value = false
   selectedId.value = item.id
   name.value = item.name
   timezone.value = item.timezone
@@ -135,6 +139,7 @@ function fill(item: DuzhanAgentItem) {
 }
 
 function startDraft() {
+  metricsDirty.value = false
   selectedId.value = null
   name.value = ''
   timezone.value = 'Asia/Shanghai'
@@ -241,6 +246,7 @@ async function save() {
     error.value = '先按 JSON 覆盖卡片，再保存。'
     return
   }
+  if (metricsDirty.value && !await metricsEditor.value?.save()) return
   busy.value = true
   error.value = ''
   message.value = ''
@@ -252,7 +258,7 @@ async function save() {
     await reload(saved.id)
     message.value = saved.errors.length
       ? '已存草稿，但配置还有 ' + saved.errors.length + ' 处问题，暂时不能启用。'
-      : (liveConfig.value ? '已保存。文案和条件在下一档生效；群和时段变更需重启服务。' : '已保存。当前生产仍使用代码配置。')
+      : (liveConfig.value ? '已保存。指标、文案和条件在下一档生效；群和时段变更需重启服务。' : '已保存。当前生产仍使用代码配置。')
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -356,6 +362,10 @@ function onAddBlock(spec: BlockTypeSpec) {
 }
 
 function onFieldChange(index: number, key: string, value: unknown) {
+  if (metricsDirty.value && blocks.value[index]?.type === 'group') {
+    error.value = '请先保存本月指标，再更换目标群。'
+    return
+  }
   const previousLabel = String(blocks.value[index]?.label || '')
   blocks.value = updateBlockField(blocks.value, index, key, value)
   if (blocks.value[index]?.type === 'group' && key === 'channel_id' && departmentMembers.value.length) {
@@ -388,6 +398,10 @@ function onRemove(index: number) {
 }
 
 function applyJson() {
+  if (metricsDirty.value) {
+    error.value = '请先保存本月指标，再覆盖卡片。'
+    return
+  }
   jsonError.value = ''
   try {
     blocks.value = fromJson(jsonText.value)
@@ -482,7 +496,7 @@ onMounted(load)
           <BlockCard
             v-for="index in groupIndices" :key="'group-' + index"
             :block="blocks[index]" :spec="specs.find((item) => item.type === 'group') || { type: 'group', label: '目标群', fields: [] }"
-            :index="index" :total="blocks.length" :group-options="groupOptions" :disabled="busy" locked plain
+            :index="index" :total="blocks.length" :group-options="groupOptions" :disabled="busy || metricsDirty" locked plain
             @change="(key, value) => onFieldChange(index, key, value)"
           />
           <button v-if="!groupIndices.length" class="btn" type="button" :disabled="busy" @click="addType('group')">＋ 选择目标群</button>
@@ -493,6 +507,13 @@ onMounted(load)
             <span v-if="departmentTaskOnlyMembers.length">仅追待办：{{ departmentTaskOnlyMembers.join('、') }}。业绩计入部门；MTO、日报和销售过程专项不催办。</span>
           </div>
         </section>
+
+        <DuzhanMonthlyMetrics
+          v-if="departmentMembers.length" :key="String(selectedId) + selectedChannelId" ref="metricsEditor"
+          :channel-id="selectedChannelId" :initial-month="todayInZone(timezone).slice(0, 7)" :disabled="busy"
+          :metric-members="departmentMembers.length - departmentTaskOnlyMembers.length"
+          @dirty="metricsDirty = $event" @saved="rendered = null; preview = null"
+        />
 
         <section class="step" aria-labelledby="time-step">
           <div class="step-head"><span class="step-number">2</span><div><h3 id="time-step">什么时间检查并发结果</h3><p>早追、中追、晚追各可自定义一个时间，精确到分钟；系统按最近的 10:00 / 15:00 / 20:00 匹配阶段。当前时区：{{ timezone }}。C 转 B 群固定使用 Asia/Shanghai。</p></div></div>

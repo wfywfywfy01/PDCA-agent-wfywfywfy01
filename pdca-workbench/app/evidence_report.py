@@ -323,7 +323,7 @@ def person_card(row: dict, raw: list[dict], images: list[dict]) -> str:
             f"<div class='kv'><b>WhatsApp</b>{esc(row.get('wa_reached') if row.get('wa_reached') is not None else '待确认')} 户"
             + ("（已同步下限）" if row.get("wa_lower_bound") else "") + "</div>"
             f"<div class='kv'><b>明确意向</b>{esc(row.get('intent_count') if row.get('intent_count') is not None else '待确认')} 户（MCP）</div>"
-            f"<div class='kv'><b>MTO 4 款</b>{esc(row.get('mto_count') if row.get('mto_count') is not None else '待确认')} 张</div>"
+            f"<div class='kv'><b>MTO {esc(row.get('mto_daily_goal', 4))} 款（单款≥{esc(row.get('mto_min_wan', 30))}万）</b>{esc(row.get('mto_count') if row.get('mto_count') is not None else '待确认')} 款</div>"
             f"<div class='kv'><b>工时</b>{hours(row.get('hours_minutes'))}｜{esc(row.get('hours_band') or '待确认')}</div>"
             f"<div class='kv'><b>日报</b>{_daily_cell(row)}</div>"
             f"<div class='kv'><b>评分</b>{esc(round(float(row.get('score') or 0)))} 分</div>"
@@ -423,7 +423,7 @@ CHECKLIST = """
 <h2>复查要点（人工逐条核对，读错就记下来改）</h2>
 <ol>
   <li><b>三关键词</b>：每条原话是不是本人说的？金额有没有读错、有没有把“无/无意向/模板回显”当成客户水单或意向？</li>
-  <li><b>MTO</b>：图片张数 = 群里实际发的报价图张数？OCR 的型号 / USD / 是否≥30万 / 交期 / 客户名 对不对？</li>
+  <li><b>MTO</b>：核对图片及 OCR 的型号、USD、单款金额是否达到该群当月门槛、交期、客户名；款数按各群本月指标检查。</li>
   <li><b>WhatsApp / 意向户数</b>：来自平台统计（MCP），与本人实际聊天量是否同量级？</li>
   <li><b>工时</b>：WA / MTO / 催收 / 会议 / VPS 五块之和是否合理？申报工时与系统证据差多少？</li>
   <li><b>日报</b>：卡片是否已交？条目数与本人自报是否一致？</li>
@@ -435,7 +435,9 @@ CHECKLIST = """
 
 
 def build_html(day: str, ledger: dict) -> str:
-    people = [task_scope_row(row) for row in ledger.get("people") or []]
+    from app.duzhan_monthly_metrics import policy_rows
+
+    people = policy_rows([task_scope_row(row) for row in ledger.get("people") or []], day)
     raw_by_owner = ledger.get("_raw_by_owner") or {}
     images = ledger.get("_images") or {}
     red = ledger.get("red") or []

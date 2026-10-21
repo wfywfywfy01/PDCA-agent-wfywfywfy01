@@ -100,6 +100,10 @@ def _digest(group, hour: int, day: str, ledger: dict | None, minute: int = 0) ->
     ]
     department = department_for(group.name)
     if department:
+        from app.duzhan_monthly_metrics import effective_metrics
+
+        metrics = effective_metrics(group.channel_id, day[:7])
+        lines.append("本月部门指标：" + json.dumps(metrics, ensure_ascii=False, sort_keys=True))
         booked = total(member_rows(department, ledger), "perf_arrived_wan")
         lines.append(f"部门累计业绩（全员）：{wan_text(booked)}万")
     for person in people[:8]:
@@ -157,7 +161,7 @@ def _fixed_focus(text: str) -> str:
 
 def _cache_path(
     agent_id: int, day: str, hour: int, rule: Block | None = None, minute: int = 0,
-    *, cohort: tuple[str, ...] = (), task_only: tuple[str, ...] = (),
+    *, cohort: tuple[str, ...] = (), task_only: tuple[str, ...] = (), metrics: dict | None = None,
 ) -> Path:
     suffix = ""
     if rule is not None:
@@ -165,6 +169,8 @@ def _cache_path(
         if cohort:
             raw += json.dumps({"report_scope": "department", "members": cohort,
                                "task_only": task_only}, ensure_ascii=False)
+        if metrics is not None:
+            raw += json.dumps(metrics, ensure_ascii=False, sort_keys=True)
         suffix = "_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
     return _cache_dir() / f"agent{agent_id}_{day}_{clock}{suffix}.txt"
@@ -250,9 +256,14 @@ def _ai_focus(
     from app.duzhan_departments import department_for
 
     department = department_for(group.name)
+    from app.duzhan_monthly_metrics import effective_metrics
+
+    metrics = effective_metrics(group.channel_id, day[:7]) if department else None
+    if metrics and metrics["source"] != "saved":
+        metrics = None
     cache = _cache_path(agent.id, day, hour, rule, minute,
                         cohort=department.members if department else (),
-                        task_only=department.task_only_members if department else ())
+                        task_only=department.task_only_members if department else (), metrics=metrics)
     budget_day = today_in_shanghai() if preview else day
     if not preview and cache.is_file():
         try:

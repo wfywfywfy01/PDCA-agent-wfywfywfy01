@@ -83,7 +83,7 @@ class DepartmentCheckins(TestCase):
 
     def test_break_zero_never_becomes_a_numeric_zero_daily_target(self):
         group = next(group for group in GROUPS if group.name == "Q4五百万")
-        with patch("app.duzhan_departments._target", return_value={"goal": "break_zero", "target_wan": 0}):
+        with patch("app.duzhan_departments._file_target", return_value={"goal": "break_zero", "target_wan": 0}):
             text = render_brief(group, 10, self.now, {"people": [
                 dict(group=group.name, display="邓琳莹", perf_arrived_wan=0),
             ]})

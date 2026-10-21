@@ -74,6 +74,28 @@ export function updateAgent(id: number, input: AgentInput): Promise<DuzhanAgentI
   return apiPut('/api/duzhan-agents/' + id, input)
 }
 
+export interface MonthlyMetrics {
+  channel_id: string
+  month: string
+  goal: 'amount' | 'break_zero'
+  sales_target_wan: number | null
+  mto_daily_count: number
+  mto_min_wan: number
+  version: number
+  source: 'saved' | 'bundled' | 'unset'
+  updated_at: string | null
+}
+
+interface MonthlyMetricsResult { metrics: MonthlyMetrics; saved_months: string[] }
+
+export function getMonthlyMetrics(channelId: string, month: string): Promise<MonthlyMetricsResult> {
+  return apiGet('/api/duzhan-agents/monthly-metrics?' + new URLSearchParams({ channel_id: channelId, month }))
+}
+
+export function putMonthlyMetrics(input: MonthlyMetrics): Promise<MonthlyMetricsResult> {
+  return apiPut('/api/duzhan-agents/monthly-metrics', input)
+}
+
 export function toggleAgent(id: number, enabled: boolean): Promise<DuzhanAgentItem> {
   return apiPost('/api/duzhan-agents/' + id + '/toggle', { enabled })
 }

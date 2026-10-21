@@ -680,6 +680,11 @@ def _render_person(
     from app.duzhan_ledger import OWNERS, vemory_aliases
     from app.duzhan_departments import is_task_only
 
+    if _department_for(group) and person and not is_task_only(group.name, str(person.get("display") or "")):
+        from app.duzhan_monthly_metrics import policy_rows
+
+        person = policy_rows([person], day)[0]
+
     if hour == 10 and (compact or is_task_only(group.name, str((person or {}).get("display") or ""))):
         from app.meeting_todos import items_for_group
 
@@ -878,13 +883,14 @@ def _full_person_body(
     hours = hours_text(person, lang)
     daily = _daily_report_text(person, lang)
     perf = _perf_text(person, lang)
+    daily_count, min_wan = (person or {}).get("mto_daily_goal", 4), (person or {}).get("mto_min_wan", 30)
     if lang == "en":
         return (
             "1. Performance keywords (booked / payment slip / intent):\n"
             f"{perf}\n"
             "2. Core collection (progress % + expected payment time):\n"
             f"{core}\n"
-            "3. Daily 4 MTO luxury proposals (≥ CNY 300k):\n"
+            f"3. Daily {daily_count} MTO luxury proposals (≥ CNY {min_wan * 10:g}k):\n"
             f"   • Submitted: {mto}\n"
             "   • Reach: WhatsApp screenshot pending unless posted in-group\n"
             "4. Today's activity and hours:\n"
@@ -903,7 +909,7 @@ def _full_person_body(
         f"{perf}\n"
         "2. 核心客户催款与回款进展（百分比量化 + 预计打款时间）：\n"
         f"{core}\n"
-        "3. 每日 4 款 MTO 高奢方案输出（≥30万）：\n"
+        f"3. 每日 {daily_count} 款 MTO 高奢方案输出（≥{min_wan:g}万）：\n"
         f"   • 摘要：{_mto_summary(person, lang)}\n"
         f"   • {mto}\n"
         "   • 触达记录：WhatsApp 发送截图以群内原图为准，未标截图则待确认\n"
@@ -924,6 +930,7 @@ def _full_person_body(
 def _mto_summary(person: dict | None, lang: str) -> str:
     """MTO 摘要行（老板 2026-09-22 要求）：N 款达标 + 型号/金额，读不出写待确认。"""
     person = person or {}
+    min_wan = person.get("mto_min_wan", 30)
     quotes = [q for q in (person.get("mto_quotes") or []) if isinstance(q, dict)]
     if not quotes:
         count = person.get("mto_count")
@@ -949,7 +956,7 @@ def _mto_summary(person: dict | None, lang: str) -> str:
     else:
         parts.append("0 qualified")
     if near:
-        parts.append((f"{len(near)} under 300k" if lang == "en" else f"{len(near)} 款未满 30 万") + "（" + "、".join(near[:2]) + "）")
+        parts.append((f"{len(near)} under {min_wan * 10:g}k" if lang == "en" else f"{len(near)} 款未满 {min_wan:g} 万") + "（" + "、".join(near[:2]) + "）")
     if unread:
         parts.append(f"{unread} " + ("unreadable" if lang == "en" else "张读不出金额"))
     return "｜".join(parts)
@@ -962,6 +969,7 @@ def _mto_wrapup_line(person: dict | None, lang: str) -> str:
     交付物核验放在 20:00 才有意义：几款、达标了哪几款、几张读不出。
     """
     person = person or {}
+    min_wan = person.get("mto_min_wan", 30)
     quotes = [q for q in (person.get("mto_quotes") or []) if isinstance(q, dict)]
     if not quotes:
         count = person.get("mto_count")
@@ -986,7 +994,7 @@ def _mto_wrapup_line(person: dict | None, lang: str) -> str:
             f"{len(ok)}/{len(quotes)} qualified" + ((" (" + ", ".join(ok[:3]) + ")") if ok else "")
         ]
         if near:
-            parts.append(f"{len(near)} under 300k (" + ", ".join(near[:2]) + ")")
+            parts.append(f"{len(near)} under {min_wan * 10:g}k (" + ", ".join(near[:2]) + ")")
         if unread:
             parts.append(f"{unread} unreadable")
     else:
@@ -994,7 +1002,7 @@ def _mto_wrapup_line(person: dict | None, lang: str) -> str:
             f"{len(ok)}/{len(quotes)} 款达标" + (("（" + "、".join(ok[:3]) + "）") if ok else "")
         ]
         if near:
-            parts.append(f"{len(near)} 款未满 30 万（" + "、".join(near[:2]) + "）")
+            parts.append(f"{len(near)} 款未满 {min_wan:g} 万（" + "、".join(near[:2]) + "）")
         if unread:
             parts.append(f"{unread} 张读不出金额")
     return "｜".join(parts)
@@ -1280,8 +1288,8 @@ def _compact_body(
             else "Reply with: 3–5 items (owner / deliverable / deadline)"
         )
         lines.append(
-            "MTO计划：今日4款高奢方案（单款≥30万），报客户和提交时间。"
-            if not english else "MTO plan: 4 luxury proposals today (each ≥ CNY 300k); name the client and delivery time."
+            f"MTO计划：今日{person.get('mto_daily_goal', 4)}款高奢方案（单款≥{person.get('mto_min_wan', 30):g}万），报客户和提交时间。"
+            if not english else f"MTO plan: {person.get('mto_daily_goal', 4)} luxury proposals today (each ≥ CNY {person.get('mto_min_wan', 30) * 10:g}k); name the client and delivery time."
         )
         return chr(10).join(lines)
     if hour == 15:
@@ -1567,6 +1575,7 @@ def _mto_text(person: dict | None, lang: str) -> str:
     if not person or person.get("mto_count") is None:
         return "pending" if lang == "en" else "待确认"
     count = int(person.get("mto_count") or 0)
+    goal, min_wan = person.get("mto_daily_goal", 4), person.get("mto_min_wan", 30)
     quotes = [item for item in (person.get("mto_quotes") or []) if isinstance(item, dict)]
     ocr_on = bool(quotes) and any(item.get("raw_ok") for item in quotes)
     names = [str(item) for item in (person.get("mto_names") or []) if item]
@@ -1574,15 +1583,15 @@ def _mto_text(person: dict | None, lang: str) -> str:
     extra = f": {shown}" if lang == "en" and shown else (f"：{shown}" if shown else "")
     if lang == "en":
         if ocr_on:
-            tag = "met 4 quotes ≥CNY300k" if count >= 4 else "under 4 qualifying quotes"
+            tag = f"met {goal} quotes ≥CNY{min_wan * 10:g}k" if count >= goal else f"under {goal} qualifying quotes"
         else:
-            tag = "met 4" if count >= 4 else "under 4"
-        return f"{count}/4 ({tag}){extra}"
+            tag = f"met {goal}" if count >= goal else f"under {goal}"
+        return f"{count}/{goal} ({tag}){extra}"
     if ocr_on:
-        tag = "达标" if count >= 4 else "未满4款≥30万"
+        tag = "达标" if count >= goal else f"未满{goal}款≥{min_wan:g}万"
     else:
-        tag = "达标" if count >= 4 else "未满4款"
-    return f"已交{count}/4（{tag}）{extra}"
+        tag = "达标" if count >= goal else f"未满{goal}款"
+    return f"已交{count}/{goal}（{tag}）{extra}"
 
 
 def _vps_text(person: dict | None, lang: str) -> str:
