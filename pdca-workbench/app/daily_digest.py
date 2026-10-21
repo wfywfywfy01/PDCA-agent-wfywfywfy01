@@ -14,6 +14,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.duzhan_ledger import RATE_CNY, TODAY_SLOGAN, collect_ledger
+from app.duzhan_departments import is_task_only, task_scope_row
 
 TZ_SHANGHAI = "Asia/Shanghai"
 
@@ -142,7 +143,9 @@ def build_digest(
     """
     ledger_day = ledger_day or _prev_day(day)
     ledger = ledger or collect_ledger(ledger_day)
-    people = ledger.get("people") or []
+    people = [task_scope_row(row) for row in ledger.get("people") or []]
+    metric_people = [person for person in people
+                     if not is_task_only(str(person.get("group") or ""), str(person.get("display") or ""))]
     department_target = _department_target(ledger_day)
     arrived_values = [p.get("perf_arrived_wan") for p in people]
     known_arrived = [float(v) for v in arrived_values if v is not None]
@@ -150,19 +153,19 @@ def build_digest(
     missing_arrived = sum(1 for v in arrived_values if v is None)
     slip_total = sum(
         float(item.get("wan") or 0)
-        for p in people for item in (p.get("perf_slip") or [])
+        for p in metric_people for item in (p.get("perf_slip") or [])
     )
     intent_total = sum(
         float(item.get("wan") or 0)
-        for p in people for item in (p.get("perf_intent") or [])
+        for p in metric_people for item in (p.get("perf_intent") or [])
     )
-    slip_items = [item for p in people for item in (p.get("perf_slip") or [])]
-    intent_items = [item for p in people for item in (p.get("perf_intent") or [])]
+    slip_items = [item for p in metric_people for item in (p.get("perf_slip") or [])]
+    intent_items = [item for p in metric_people for item in (p.get("perf_intent") or [])]
     slip_count = len(slip_items)
     intent_count = len(intent_items)
     slip_known = sum(1 for item in slip_items if item.get("wan") is not None)
     intent_known = sum(1 for item in intent_items if item.get("wan") is not None)
-    mto_done = sum(1 for p in people if (p.get("mto_count") or 0) >= 4)
+    mto_done = sum(1 for p in metric_people if (p.get("mto_count") or 0) >= 4)
     lines: list[str] = []
     missing_text = f"（{missing_arrived} 人未出数）" if missing_arrived else ""
     lines.append(f"【海外渠道日报｜{day} 08:00】")
@@ -175,10 +178,10 @@ def build_digest(
         f"｜水单 {_bucket_text(slip_count, slip_total, slip_known)}"
         f"｜意向 {_bucket_text(intent_count, intent_total, intent_known)}"
     )
-    if people:
+    if metric_people:
         lines.append(
-            f"   • MTO：4 款达标 {mto_done}/{len(people)} 人"
-            f"｜工时合计 {_hours_text(people)}｜战役 {TODAY_SLOGAN}"
+            f"   • MTO：4 款达标 {mto_done}/{len(metric_people)} 人"
+            f"｜工时合计 {_hours_text(metric_people)}｜战役 {TODAY_SLOGAN}"
         )
     else:
         lines.append(f"   • MTO / 工时：待确认（未取到人员台账）｜战役 {TODAY_SLOGAN}")
@@ -189,25 +192,30 @@ def build_digest(
         members = [p for p in people if _group_of(p) == group_name]
         if not members:
             continue
+        metric_members = [member for member in members if member in metric_people]
         group_target = _group_target(members, ledger_day)
         group_mtd = sum(float(m.get('mtd_wan') or 0) for m in members if m.get('mtd_wan') is not None)
         group_mtd = group_mtd if any(m.get('mtd_wan') is not None for m in members) else None
-        group_slip = [i for m in members for i in (m.get('perf_slip') or [])]
-        group_intent = [i for m in members for i in (m.get('perf_intent') or [])]
-        mto_ok = sum(1 for m in members if (m.get('mto_count') or 0) >= 4)
+        group_slip = [i for m in metric_members for i in (m.get('perf_slip') or [])]
+        group_intent = [i for m in metric_members for i in (m.get('perf_intent') or [])]
+        mto_ok = sum(1 for m in metric_members if (m.get('mto_count') or 0) >= 4)
         member_text = " / ".join(str(m.get('display') or '未署名') for m in members)
         lines.append(f"   • {group_name}（{member_text}）")
         lines.append(f"     - {_target_line(group_target, group_mtd, ledger_day)}")
         lines.append(f"     - 水单：{_amounts(group_slip)}｜意向：{_amounts(group_intent)}")
-        lines.append(
-            f"     - MTO 4 款达标 {mto_ok}/{len(members)} 人"
-            f"｜工时合计 {_hours_text(members)}"
-        )
+        if metric_members:
+            lines.append(
+                f"     - MTO 4 款达标 {mto_ok}/{len(metric_members)} 人"
+                f"｜工时合计 {_hours_text(metric_members)}"
+            )
     lines.append("")
     lines.append("三、个人明细")
     for person in sorted(people, key=lambda item: -(float(item.get('mtd_wan') or 0))):
         display = person.get('display') or '未署名'
         mtd = person.get('mtd_wan')
+        if is_task_only(str(person.get("group") or ""), str(display)):
+            lines.append(f"   • {display}：已录单 {_wan(mtd)}｜仅追待办与闭环")
+            continue
         daily = person.get('daily_target_wan')
         gap = person.get('target_gap_wan')
         wa = person.get('wa_reached')

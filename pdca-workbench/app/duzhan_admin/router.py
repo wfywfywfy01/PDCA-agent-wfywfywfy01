@@ -140,6 +140,7 @@ async def runtime_status(
         "bot_app_id": settings.duzhan_bot_app_id,
         "supported_channel_ids": service.supported_channel_ids(),
         "department_rosters": service.department_rosters(),
+        "department_task_only_rosters": service.department_rosters(task_only=True),
         "schedule_updates_require_restart": True,
     }
 

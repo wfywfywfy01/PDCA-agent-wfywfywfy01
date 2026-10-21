@@ -33,8 +33,8 @@ class DepartmentCheckins(TestCase):
     def test_exact_department_roster(self):
         self.assertEqual({item.name: item.members for item in DEPARTMENTS}, {
             "经销商一部": ("于冰",), "经销商二部": ("杨晶晶", "何海文", "王宇彤"),
-            "经销商三部": ("Lina", "Safae"), "经销商四部": ("尤文静", "Sana", "张月馨"),
-            "经销商五部": ("邓琳莹",),
+            "经销商三部": ("Lina", "Safae", "冯磊"), "经销商四部": ("尤文静", "Sana", "张月馨"),
+            "经销商五部": ("邓琳莹", "刘春梅", "付汪阳"),
         })
 
     def test_department_preview_uses_full_roster_and_rejects_personal_subset(self):
@@ -167,11 +167,11 @@ class DepartmentCheckins(TestCase):
             {"type": "group", "channel_id": group.channel_id, "label": group.name},
             {"type": "condition", "key": "has_data", "value": True},
         ]}))
-        ledger = {"people": [dict(group=group.name, display="刘春梅", perf_arrived_wan=100, daily_report_ok=True)]}
+        ledger = {"people": [dict(group=group.name, display="非本部成员", perf_arrived_wan=100, daily_report_ok=True)]}
         self.assertFalse(runtime.conditions_allow(agent, "2026-10-20", ledger))
         rule = parse_blocks({"blocks": [{"type": "rule", "when": "missing_report", "text": "催日报"}]})[0]
         self.assertFalse(ai_rules._rule_matches(rule, group, "2026-10-20", ledger))
-        self.assertNotIn("刘春梅", ai_rules._digest(group, 10, "2026-10-20", ledger))
+        self.assertNotIn("非本部成员", ai_rules._digest(group, 10, "2026-10-20", ledger))
 
     def test_early_keeps_daily_weekly_and_joint_owner_tasks(self):
         self.rows[1]["collections"] = [{"title": "客户A尾款", "status": "stalled"}]
@@ -244,15 +244,18 @@ class DepartmentCheckins(TestCase):
                 line = next(line for line in self.render(20)[0]["text"].splitlines() if line.startswith("MTO核验"))
                 self.assertIn("待核：杨晶晶", line)
 
-    def test_fifth_department_excludes_the_old_shared_group_member(self):
+    def test_fifth_department_includes_task_only_members_without_mto_quotas(self):
         group = next(group for group in GROUPS if group.name == "Q4五百万")
-        ledger = {"people": [dict(group=group.name, display="刘春梅", perf_arrived_wan=999),
+        ledger = {"people": [dict(group=group.name, display="刘春梅", perf_arrived_wan=7),
+                             dict(group=group.name, display="付汪阳", perf_arrived_wan=4),
                              dict(group=group.name, display="邓琳莹", perf_arrived_wan=0)]}
         text = render_brief(group, 10, self.now, ledger)
         self.assertIn("经销商五部", text)
         self.assertIn("破零", text)
-        self.assertNotIn("刘春梅", text)
-        self.assertNotIn("999", text)
+        self.assertIn("刘春梅", text)
+        self.assertIn("付汪阳", text)
+        self.assertIn("累计已录单11万", text)
+        self.assertIn("MTO计划：共4款", text)
         self.assertNotIn("0万/天", text)
 
     def test_fourth_department_matches_existing_viki_and_jiangxu_aliases(self):

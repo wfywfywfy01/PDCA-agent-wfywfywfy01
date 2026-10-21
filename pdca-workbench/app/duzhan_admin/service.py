@@ -37,22 +37,23 @@ def blocks_of(agent: DuzhanAgent) -> list[Block]:
 
 
 def roster_by_group() -> dict[str, list[str]]:
-    """达标群 → 当前部门名单；身份别名保留在 duzhan_ledger。"""
+    """达标群 → 完整待办、闭环和部门业绩名单。"""
     from app.duzhan_departments import DEPARTMENTS
 
     return {department.group: list(department.members) for department in DEPARTMENTS}
 
 
-def department_rosters() -> dict[str, list[str]]:
-    """部门名单按真实群 ID 绑定，配置页与实际汇总使用同一来源。"""
+def department_rosters(*, task_only: bool = False) -> dict[str, list[str]]:
+    """按真实群 ID 提供完整名单或仅追待办名单。"""
     from app.duzhan import GROUPS
+    from app.duzhan_departments import department_for
 
-    rosters = roster_by_group()
-    return {group.channel_id: rosters[group.name] for group in GROUPS if group.name in rosters}
+    return {group.channel_id: list(department.task_only_members if task_only else department.members)
+            for group in GROUPS if (department := department_for(group.name)) is not None}
 
 
-def _department_members(blocks: list[Block]) -> list[str]:
-    rosters = department_rosters()
+def _department_members(blocks: list[Block], *, task_only: bool = False) -> list[str]:
+    rosters = department_rosters(task_only=task_only)
     return next((rosters[str(block.get("channel_id"))] for block in blocks
                  if block.type == "group" and str(block.get("channel_id")) in rosters), [])
 
@@ -132,7 +133,7 @@ def validate_agent(
     members = _department_members(blocks)
     selected = _people_of(blocks)
     if members and selected and set(selected) != set(members):
-        errors.append(f"按部门汇总需覆盖完整部门名单：{'、'.join(members)}；请使用部门全部成员或留空")
+        errors.append(f"按部门汇总需覆盖完整部门名单：{'、'.join(members)}；请使用全体部门成员或留空")
     from app.ctob import OWNERS as CTOB_OWNERS
 
     ctob_channels = {owner.channel_id for owner in CTOB_OWNERS}
@@ -212,6 +213,7 @@ def resolve_spec(agent: DuzhanAgent) -> dict:
         ],
         "slots": _slots_of(blocks),
         "people": members or _people_of(blocks),
+        "task_only_people": _department_members(blocks, task_only=True),
         "department_report": bool(members),
         "sources": [str(block.get("key") or "") for block in blocks if block.type == "source"],
         "rules": rules,
@@ -255,8 +257,10 @@ def _summary_lines(
     lines.append(f"档位：{'、'.join(slots) or '未配置'}（{spec['timezone']}）")
     if day:
         lines.append(f"试跑日期：{day}")
-    prefix = "部门成员（每时段合并一条）" if spec["department_report"] else "覆盖人员"
+    prefix = "部门成员（当前督战，每时段合并一条）" if spec["department_report"] else "覆盖人员"
     lines.append(f"{prefix}：{'、'.join(spec['people']) if spec['people'] else '该群全员（未限定）'}")
+    if spec["task_only_people"]:
+        lines.append("仅追待办与闭环（业绩计入部门，不追MTO等销售专项）：" + "、".join(spec["task_only_people"]))
     lines.append(
         "数据源："
         + (" → ".join(SOURCE_KEYS.get(key, key) for key in spec["sources"]) if spec["sources"] else "未配置")

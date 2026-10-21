@@ -17,15 +17,20 @@ class Department:
     group: str
     members: tuple[str, ...]
     english_name: str
+    task_only_members: tuple[str, ...] = ()
+
+    @property
+    def metric_members(self) -> tuple[str, ...]:
+        return tuple(name for name in self.members if name not in self.task_only_members)
 
 
 # Identity aliases remain in OWNERS; this is the current reporting cohort.
 DEPARTMENTS = (
     Department("经销商一部", "于冰业绩达标群", ("于冰",), "Dealer Dept 1"),
     Department("经销商二部", "杨晶晶业绩达标群", ("杨晶晶", "何海文", "王宇彤"), "Dealer Dept 2"),
-    Department("经销商三部", "Lina业绩达标群", ("Lina", "Safae"), "Dealer Dept 3"),
+    Department("经销商三部", "Lina业绩达标群", ("Lina", "Safae", "冯磊"), "Dealer Dept 3", task_only_members=("冯磊",)),
     Department("经销商四部", "viki业绩达标群", ("尤文静", "Sana", "张月馨"), "Dealer Dept 4"),
-    Department("经销商五部", "Q4五百万", ("邓琳莹",), "Dealer Dept 5"),
+    Department("经销商五部", "Q4五百万", ("邓琳莹", "刘春梅", "付汪阳"), "Dealer Dept 5", task_only_members=("刘春梅", "付汪阳")),
 )
 
 
@@ -39,13 +44,47 @@ def aliases(department: Department, member: str) -> set[str]:
     return vemory_aliases(owner) if owner else {member}
 
 
-def member_rows(department: Department, ledger: dict | None) -> list[tuple[str, dict]]:
-    rows = [row for row in (ledger or {}).get("people", [])
+def is_task_only(group_name: str, display: str) -> bool:
+    department = department_for(group_name)
+    return bool(department and any(display.casefold() in {name.casefold() for name in aliases(department, member)}
+                                   for member in department.task_only_members))
+
+
+def task_scope_row(row: dict) -> dict:
+    """Remove legacy routine quota reminders, keeping concrete business tasks and proof."""
+    from app.duzhan_ledger import _outreach_titles
+
+    if not is_task_only(str(row.get("group") or ""), str(row.get("display") or "")):
+        return row
+
+    def routine(title: str) -> bool:
+        report = re.search(r"(?:补交|补齐|提交|填写|上报)\s*(?:正式|海外|工作|今日|今天|当日|销售|\s)*日报", title)
+        quota = ("mto" in title.casefold() or "高奢方案" in title) and re.search(
+            r"(?:每日|每天|每人|补交|补齐|凑齐)\s*(?:MTO\s*)?[0-9一二三四五六七八九十两]+\s*款|MTO\s*(?:配额|指标)|"
+            r"^(?:请\s*)?(?:(?:今日|今天|每日|每天|每人)\s*)*(?:补交|补齐|提交|完成|凑齐)?\s*"
+            r"(?:[0-9一二三四五六七八九十两]+\s*款\s*)?MTO(?=$|\s|方案|高奢|和|及)",
+            title, re.I,
+        )
+        process = _outreach_titles(title) and re.search(r"\d+\s*(?:人|户|个|contacts?|accounts?|people)", title, re.I)
+        return bool(report or quota or process)
+
+    result = dict(row)
+    if isinstance(row.get("collections"), list):
+        result["collections"] = [item for item in row["collections"]
+                                 if isinstance(item, dict) and not routine(str(item.get("title") or ""))]
+    if isinstance(row.get("evidence"), list):
+        result["evidence"] = [item for item in row["evidence"]
+                              if not str(item).startswith(("海外日报已交", "MTO图 ")) and not routine(str(item))]
+    return result
+
+
+def member_rows(department: Department, ledger: dict | None, *, metrics_only: bool = False) -> list[tuple[str, dict]]:
+    rows = [task_scope_row(row) for row in (ledger or {}).get("people") or []
             if isinstance(row, dict) and row.get("group") == department.group]
     return [(member, next((row for row in rows
                            if str(row.get("display") or "").casefold()
                            in {alias.casefold() for alias in aliases(department, member)}), {}))
-            for member in department.members]
+            for member in (department.metric_members if metrics_only else department.members)]
 
 
 def people_for(group_name: str, ledger: dict | None) -> list[dict]:
@@ -152,6 +191,7 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
     pending = "pending" if english else "待确认"
     rows = member_rows(department, ledger)
     previous = member_rows(department, prev_ledger)
+    metric_rows = member_rows(department, ledger, metrics_only=True)
     arrived = total(rows, "perf_arrived_wan")
     tasks = _tasks(rows)
     open_tasks = [(name, item) for name, item in tasks if infer_status(item) != "done"]
@@ -164,7 +204,7 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
         text = str(item.get("text_en") or item.get("title") or "") if english else str(item.get("title") or "")
         return f"{name}：{text}"
 
-    missing_amounts = sum(item.get("wan") is None for _name, row in rows
+    missing_amounts = sum(item.get("wan") is None for _name, row in metric_rows
                           for key in ("perf_slip", "perf_intent") for item in row.get(key) or []
                           if isinstance(item, dict))
     amount_note = ((f"; {missing_amounts} amount(s) pending" if english else f"；待补金额{missing_amounts}条")
@@ -188,7 +228,7 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
         lines.extend([change,
                       ("Open: " if english else "未闭环：")
                       + _items_line([task_name(name, item) for name, item in open_tasks],
-                                    "status update needed" if english else "状态待回报", 2) + amount_note,
+                                    "status update needed" if english else "状态待回报", 3) + amount_note,
                       reply])
         return "\n".join(lines)
 
@@ -200,7 +240,7 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
     booked = pending if arrived is None else wan_text(arrived) + (" wan CNY" if english else "万")
     sales_line = (f"Monthly target: {goal_text} | MTD booked: {booked}" if english
                   else f"部门月目标：{goal_text}｜累计已录单{booked}")
-    unknown = [name for name, row in rows if row.get("perf_arrived_wan") is None]
+    unknown = [name for name, row in rows if not _finite_number(row.get("perf_arrived_wan"))]
     if unknown:
         sales_line += (" | confirm: " if english else "（待确认：") + "、".join(unknown) + ("" if english else "）")
     if stage == 10 and progress["daily_target"] is not None:
@@ -209,7 +249,7 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
     lines.append(sales_line)
 
     if stage == 10:
-        lines.append(("Members: " if english else "成员：") + "、".join(department.members))
+        lines.append(("Todo owners: " if english else "待办负责人：") + "、".join(department.members))
         daily = [task_name(name, item) for name, item in open_tasks]
         current_keys = {(name, item["title"]) for name, item in tasks}
         daily.extend(task_name(name, item) for name, item in _tasks(previous)
@@ -231,8 +271,10 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
                         weekly.append((f"{who}：" if who else "") + text)
         lines.append(("This week: " if english else "本周待办：")
                      + _items_line(weekly, "reply with deliverables and due dates" if english else "请补本周交付事项和截止日"))
-        lines.append((f"MTO plan: {4 * len(rows)} proposals, 4 per person, each ≥ CNY 300k." if english
-                      else f"MTO计划：共{4 * len(rows)}款高奢方案（每人4款，单款≥30万），报客户与提交时间。"))
+        lines.append((f"MTO plan: {4 * len(metric_rows)} proposals, 4 per person, each ≥ CNY 300k." if english
+                      else f"MTO计划：共{4 * len(metric_rows)}款高奢方案（每人4款，单款≥30万），报客户与提交时间。")
+                     + ((" Owners: " if english else "负责人：") + "、".join(department.metric_members)
+                        if department.task_only_members else ""))
         lines.append("Reply with 3–5 department deliverables and deadlines." if english else "请回：本部今日3–5项交付物和截止时间。")
         return "\n".join(lines)
 
@@ -249,9 +291,9 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
         status = ("done" if infer_status(item) == "done" else "open") if english else (
             "已完成" if infer_status(item) == "done" else "未闭环")
         lines.append(f"- {status}｜" + _clip(task_name(name, item)))
-    lines.append(_mto_summary(rows, english))
+    lines.append(_mto_summary(metric_rows, english))
     missing, unverified, incomplete = [], [], []
-    for name, row in rows:
+    for name, row in metric_rows:
         if not row or row.get("daily_report_ok") is False:
             unverified.append(name)
         elif not row.get("daily_report"):
@@ -265,20 +307,21 @@ def render(department: Department, group, stage: int, day: str, slot: str, title
         if names:
             report_parts.append(label + "：" + "、".join(names))
     lines.append(("Daily report check: " if english else "日报核对：")
-                 + ("；".join(report_parts) if report_parts else ("all complete" if english else "全员已提交且字段齐全")))
-    reached, intent, minutes = (total(rows, key) for key in ("wa_reached", "intent_count", "hours_minutes"))
+                 + ("；".join(report_parts) if report_parts else (
+                     "all sales process members complete" if english else "专项考核成员已提交且字段齐全")))
+    reached, intent, minutes = (total(metric_rows, key) for key in ("wa_reached", "intent_count", "hours_minutes"))
     hours = pending if minutes is None else wan_text(minutes / 60) + (" person-hours" if english else "人时")
-    reached_text = count_text(reached, lower_bound=any(row.get("wa_lower_bound") is True for _name, row in rows),
+    reached_text = count_text(reached, lower_bound=any(row.get("wa_lower_bound") is True for _name, row in metric_rows),
                               lang=group.lang)
     if english:
-        lines.append(f"Member totals: WhatsApp {reached_text} contacts | intent {wan_text(intent, group.lang)} | estimated {hours}")
+        lines.append(f"Sales process totals: WhatsApp {reached_text} contacts | intent {wan_text(intent, group.lang)} | estimated {hours}")
     else:
         wa_text = pending if reached is None else reached_text + "户次"
         intent_text = pending if intent is None else wan_text(intent) + "户次"
-        lines.append(f"成员合计：WhatsApp触达{wa_text}（明确意向{intent_text}）｜留痕折算{hours}")
+        lines.append(f"成员合计（专项考核）：WhatsApp触达{wa_text}（明确意向{intent_text}）｜留痕折算{hours}")
     for key, label in (("perf_slip", "Payment slips: " if english else "水单："),
                        ("perf_intent", "Intent amounts: " if english else "意向金额：")):
-        entries = [f"{name}：{item.get('amount_text') or pending}" for name, row in rows
+        entries = [f"{name}：{item.get('amount_text') or pending}" for name, row in metric_rows
                    for item in row.get(key) or [] if isinstance(item, dict)]
         if entries:
             lines.append(label + _items_line(entries, pending, 2))
