@@ -102,10 +102,10 @@ class GrowthTests(unittest.TestCase):
 
     def test_plain_body_fills_sender_and_postal_address(self):
         content = self._email("Hi\n\n{{sender_name}}")
-        with patch.dict(os.environ, {"PDCA_GROWTH_SENDER_NAME": "April Yang, VERTU",
+        with patch.dict(os.environ, {"PDCA_GROWTH_SENDER_NAME": r"Frank Foo\nDealer Network Development Manager, Europe\nVERTU",
                                      "PDCA_GROWTH_POSTAL_ADDRESS": "Room 505, Kowloon, Hong Kong"}):
             body = mailer.plain_body(content)
-        self.assertIn("April Yang, VERTU", body)
+        self.assertIn("Frank Foo\nDealer Network Development Manager, Europe\nVERTU", body)
         self.assertNotIn("{{sender_name}}", body)
         self.assertTrue(body.rstrip().endswith("Room 505, Kowloon, Hong Kong"))
 

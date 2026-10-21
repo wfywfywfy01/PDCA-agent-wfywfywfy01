@@ -8,7 +8,7 @@
   PDCA_GROWTH_IMAP_HOST / PDCA_GROWTH_IMAP_PORT(993)
   PDCA_GROWTH_DAILY_CAP（默认 25，单邮箱日上限）
   PDCA_GROWTH_POSTAL_ADDRESS（CAN-SPAM 要求的公司地址，附在签名）
-  PDCA_GROWTH_SENDER_NAME（替换正文 {{sender_name}}，如 "Frank Foo, Regional Dealer Development Manager, Europe, VERTU"）
+  PDCA_GROWTH_SENDER_NAME（替换正文 {{sender_name}}，多行用 \\n 分隔）
   PDCA_GROWTH_PUBLIC_BASE（默认 https://pdca-workbench-teams.vertu.cn）
 """
 from __future__ import annotations
@@ -87,7 +87,7 @@ def with_utm(url: str, content: GrowthContent) -> str:
 def plain_body(content: GrowthContent) -> str:
     """正文（填署名）+ 退订句 + 公司地址（CAN-SPAM）。"""
     body = content.body.rstrip().replace(
-        "{{sender_name}}", _env("PDCA_GROWTH_SENDER_NAME", "VERTU Global Team"))
+        "{{sender_name}}", _env("PDCA_GROWTH_SENDER_NAME", "VERTU Global Team").replace("\\n", "\n"))
     footer = "\n".join(filter(None, [OPT_OUT, _env("PDCA_GROWTH_POSTAL_ADDRESS")]))
     return f"{body}\n\n{footer}\n"
 
