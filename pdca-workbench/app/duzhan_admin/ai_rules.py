@@ -71,7 +71,8 @@ def _digest(group, hour: int, day: str, ledger: dict | None, minute: int = 0) ->
     """给模型的事实清单（用的都是现有渲染器已经在用的字段，缺数据会写"待确认"）。"""
     from app.ctob import OWNERS as CTOB_OWNERS
     from app.duzhan import _daily_report_text, _perf_text, slot_stage_hour
-    from app.duzhan_departments import people_for
+    from app.duzhan_departments import department_for, is_task_only, member_rows, people_for, total
+    from app.duzhan_ledger import infer_status, wan_text
 
     if any(owner.channel_id == group.channel_id for owner in CTOB_OWNERS):
         data = ledger or {}
@@ -97,15 +98,25 @@ def _digest(group, hour: int, day: str, ledger: dict | None, minute: int = 0) ->
         f"档位：{hour:02d}:{minute:02d}（{_SLOT_TITLES[stage_hour]}）",
         f"覆盖人数：{len(people)}",
     ]
+    department = department_for(group.name)
+    if department:
+        booked = total(member_rows(department, ledger), "perf_arrived_wan")
+        lines.append(f"部门累计业绩（全员）：{wan_text(booked)}万")
     for person in people[:8]:
         display = str(person.get("display") or "")
         if not display:
             continue
-        perf = re.sub(r"\s+", " ", _perf_text(person, "zh")).strip()[:80]
-        report = re.sub(r"\s+", " ", _daily_report_text(person, "zh")).strip()[:60]
+        task_only = is_task_only(group.name, display)
+        perf = (f"已录单：{wan_text(person.get('perf_arrived_wan'))}万" if task_only
+                else re.sub(r"\s+", " ", _perf_text(person, "zh")).strip()[:80])
+        report = ("仅追待办与闭环，不追MTO、日报或销售过程专项" if task_only
+                  else re.sub(r"\s+", " ", _daily_report_text(person, "zh")).strip()[:60])
         lines.append(f"- {display}：{perf}；{report}")
+        for task in (person.get("collections") or [])[:3]:
+            if isinstance(task, dict) and task.get("title"):
+                lines.append(f"  事项（{infer_status(task)}）：{task['title']}")
         if person.get("history_ok") is not True:
-            lines.append(f"  {display}群消息采集待确认，MTO与事项闭环不得按零判断")
+            lines.append(f"  {display}群消息采集待确认，事项闭环不得按零判断")
     return "\n".join(lines)
 
 
@@ -115,6 +126,7 @@ def _build_messages(
     system = (
         "你是跨境电商团队的督战助理。你只写一句话：这一档本部门要交付什么，保留事项负责人。"
         "要求：中文；一行；不超过 60 字；像主管当面催办；不要称呼、不要 emoji、不要引号、不要换行、不要编号。"
+        "标为仅追待办的成员照常催待办与闭环，业绩计入部门，但不催其MTO、日报或销售过程专项。"
         "直接输出这句话本身，不要推理过程、不要解释、不要复述要求。"
     )
     user = (
@@ -145,13 +157,14 @@ def _fixed_focus(text: str) -> str:
 
 def _cache_path(
     agent_id: int, day: str, hour: int, rule: Block | None = None, minute: int = 0,
-    *, cohort: tuple[str, ...] = (),
+    *, cohort: tuple[str, ...] = (), task_only: tuple[str, ...] = (),
 ) -> Path:
     suffix = ""
     if rule is not None:
         raw = json.dumps(rule.as_dict(), ensure_ascii=False, sort_keys=True)
         if cohort:
-            raw += json.dumps({"report_scope": "department", "members": cohort}, ensure_ascii=False)
+            raw += json.dumps({"report_scope": "department", "members": cohort,
+                               "task_only": task_only}, ensure_ascii=False)
         suffix = "_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     clock = f"{hour:02d}" if minute == 0 else f"{hour:02d}{minute:02d}"
     return _cache_dir() / f"agent{agent_id}_{day}_{clock}{suffix}.txt"
@@ -211,7 +224,7 @@ def _content_of(data: dict) -> str:
 
 
 def _rule_matches(rule: Block, group, day: str, ledger: dict | None) -> bool:
-    from app.duzhan_departments import people_for
+    from app.duzhan_departments import is_task_only, people_for
     from app.workday_calendar import day_kind
 
     when = str(rule.get("when") or "always")
@@ -225,6 +238,7 @@ def _rule_matches(rule: Block, group, day: str, ledger: dict | None) -> bool:
         return any(
             not row.get("daily_report") and row.get("daily_report_ok") is not False
             for row in people_for(group.name, ledger)
+            if not is_task_only(group.name, str(row.get("display") or ""))
         )
     return False
 
@@ -237,7 +251,8 @@ def _ai_focus(
 
     department = department_for(group.name)
     cache = _cache_path(agent.id, day, hour, rule, minute,
-                        cohort=department.members if department else ())
+                        cohort=department.members if department else (),
+                        task_only=department.task_only_members if department else ())
     budget_day = today_in_shanghai() if preview else day
     if not preview and cache.is_file():
         try:

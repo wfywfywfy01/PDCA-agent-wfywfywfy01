@@ -563,11 +563,11 @@ def render_brief(
     )
     if department_body is not None:
         return department_body
-    people = people_for(group.name, ledger)
+    people = _report_people(group, ledger)
     slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
     prev_people = {
         str(item.get("display") or ""): item
-        for item in people_for(group.name, prev_ledger)
+        for item in _report_people(group, prev_ledger)
     }
     use_diff = stage_hour in (15, 20) and prev_ledger is not None
     if people:
@@ -620,11 +620,11 @@ def render_person_briefs(
     )
     if department_body is not None:
         return [{"display": "", "text": department_body}]
-    people = people_for(group.name, ledger)
+    people = _report_people(group, ledger)
     slogan = (ledger or {}).get("today_target") or TODAY_SLOGAN
     prev_people = {
         str(item.get("display") or ""): item
-        for item in people_for(group.name, prev_ledger)
+        for item in _report_people(group, prev_ledger)
     }
     use_diff = stage_hour in (15, 20) and prev_ledger is not None
     if not people:
@@ -652,6 +652,17 @@ def render_person_briefs(
     return out
 
 
+def _report_people(group: DuzhanGroup, ledger: dict | None) -> list[dict]:
+    """Old snapshots keep an explicit pending row for every current department member."""
+    from app.duzhan_departments import member_rows
+
+    department = _department_for(group)
+    if department and department.task_only_members:
+        return [row or {"group": group.name, "display": name}
+                for name, row in member_rows(department, ledger)]
+    return people_for(group.name, ledger)
+
+
 def _render_person(
     group: DuzhanGroup,
     hour: int,
@@ -667,8 +678,9 @@ def _render_person(
     """单人一条正文 + 本周任务（老板 2026-10-10：按人挂一周任务，命中就每天追）。"""
     compact = getattr(get_settings(), "duzhan_compact", True)
     from app.duzhan_ledger import OWNERS, vemory_aliases
+    from app.duzhan_departments import is_task_only
 
-    if compact and hour == 10:
+    if hour == 10 and (compact or is_task_only(group.name, str((person or {}).get("display") or ""))):
         from app.meeting_todos import items_for_group
 
         person = dict(person or {})
@@ -741,6 +753,28 @@ def _render_person_body(
 ) -> str:
     lang = group.lang
     reporter = (person or {}).get("display") or _REPORTER.get(group.name, group.name)
+    from app.duzhan_departments import is_task_only
+
+    if is_task_only(group.name, reporter):
+        english = lang == "en"
+        head = (f"[Todo follow-up] {reporter} | {day} {slot} ({group.tz})" if english
+                else f"【待办督战】{reporter}｜{day} {slot}（{group.tz}）")
+        status = ("Tasks and closure:" if english else "待办与闭环：")
+        if (person or {}).get("history_ok") is not True:
+            status += " pending collection" if english else "采集待确认"
+        tasks = [item for item in (person or {}).get("collections") or [] if isinstance(item, dict)]
+        current_titles = {item.get("title") for item in tasks}
+        tasks.extend(item for item in (prev_person or {}).get("collections") or []
+                     if isinstance(item, dict) and infer_status(item) != "done"
+                     and item.get("title") not in current_titles)
+        details = [f"- {'done' if infer_status(item) == 'done' else 'open'} | " + _task_line(item, lang).strip()
+                   if english else f"- {'已完成' if infer_status(item) == 'done' else '未闭环'}｜" + _task_line(item, lang).strip()
+                   for item in tasks[:8]]
+        details.extend((person or {}).get("_checkin_todos") or [])
+        return "\n".join([head, status, *(details or [_collections_text(person, lang, hour)]),
+                          ("Blockers: " if english else "卡点：") + _blockers_text(person, lang),
+                          ("Reply with progress, evidence and next deadline." if english
+                           else "请回：进度、完成证据和下一步截止时间。")])
     if getattr(get_settings(), "duzhan_compact", True):
         title = (_SLOT_EN if lang == "en" else _SLOT_ZH).get(hour, ("Brief", ""))[0]
         zone = "北京时间" if group.tz == TZ_SHANGHAI else group.tz
@@ -1843,16 +1877,15 @@ def run_duzhan(
             logger.info("督战官发送条件未满足，跳过 {} {} {}", group.name, day, hour)
             continue
         parts: list[tuple[str, str]] = []
-        if getattr(get_settings(), "duzhan_compact", True) and _department_for(group) is not None:
-            # Reuse facts, not old per-person copy, across the department cutover.
+        if _department_for(group) is not None:
+            # Reapply current roles to old snapshots in both output formats.
             from app.duzhan_admin import ai_rules
 
             override = ai_rules.focus_for(group, hour, day, ledger, minute=minute)
-            body = _department_brief(
-                group, slot_stage_hour(hour, minute), day, f"{hour:02d}:{minute:02d}",
-                ledger, prev_ledger, previous_slot, override,
-            )
-            parts = [("", body)]
+            parts = [(row["display"], row["text"]) for row in render_person_briefs(
+                group, hour, render_now, ledger, prev_ledger, minute=minute,
+                previous_slot=previous_slot, focus_override=override,
+            )]
         elif isinstance(person_bodies, dict):
             rows = person_bodies.get(group.channel_id) or []
             if isinstance(rows, list):
@@ -1909,6 +1942,8 @@ def run_duzhan(
 BOT_NAME = "海外渠道督战官"
 AT_NAMES = (BOT_NAME, "Overseas Channel Battle Commander")
 _OWN_PREFIXES = (
+    "【待办督战】",
+    "[Todo follow-up]",
     "【海外渠道督战官】",
     "【海外渠道业绩达标群",
     "[Overseas Channel Battle Commander]",

@@ -150,7 +150,8 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
         self.assertNotIn("土耳其", text)
         # 英文档里不允许漏出中文：文案映射表（duzhan.py 的 zh→en 映射）与生成端
         # 必须成对改名，否则会像 2026-09-20 的「本月回款0→本月已录单0」那样只改一半。
-        leftovers = sorted({ch for ch in text if "\u4e00" <= ch <= "\u9fff"})
+        # Newly tracked member 冯磊 keeps his confirmed name in the English group.
+        leftovers = sorted({ch for ch in text.replace("冯磊", "") if "\u4e00" <= ch <= "\u9fff"})
         self.assertEqual(leftovers, [], f"英文正文里仍有中文: {leftovers}")
         self.assertNotIn("折扣", text)
         self.assertNotIn("本月回款", text)
@@ -326,8 +327,8 @@ class DuzhanGroupTests(LongFormatMixin, unittest.TestCase):
                 datetime(2026, 9, 15, 10, 0, tzinfo=ZoneInfo(TZ_PARIS)),
             )
         self.assertEqual(result["sent"], ["Lina业绩达标群"])
-        self.assertEqual(len(push.call_args_list), 1)
-        body = push.call_args.args[0]
+        self.assertEqual(len(push.call_args_list), 3)
+        body = "\n".join(call.args[0] for call in push.call_args_list)
         channel = push.call_args.args[1]
         self.assertIn("Paris time", body)
         self.assertIn("Daily Triple Chase", body)
@@ -1039,8 +1040,8 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
                 "于冰业绩达标群": ["于冰"],
                 "杨晶晶业绩达标群": ["杨晶晶", "何海文", "王宇彤"],
                 "viki业绩达标群": ["Viki", "江旭", "张月馨"],
-                "Lina业绩达标群": ["Lina", "Safae"],
-                "Q4五百万": ["刘春梅", "邓琳莹"],
+                "Lina业绩达标群": ["Lina", "Safae", "冯磊"],
+                "Q4五百万": ["刘春梅", "付汪阳", "邓琳莹"],
             },
         )
         self.assertNotIn("新人小组业绩达标群", by_group, "新人小组群不再有任何成员")

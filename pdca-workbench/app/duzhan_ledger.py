@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -149,6 +150,12 @@ OWNERS: tuple[Owner, ...] = (
         follow_channel_id="8cf4b40b-0e60-4819-9120-a22f3c808a00",
     ),
     Owner(
+        "Lina业绩达标群",
+        "冯磊",
+        cli_name="冯磊-1",
+        im_user_id=12545,
+    ),
+    Owner(
         # 老板 2026-10-10：Q4 五百万专项群，和邓琳莹一起追
         "Q4五百万",
         "刘春梅",
@@ -158,6 +165,12 @@ OWNERS: tuple[Owner, ...] = (
         vps_names=("刘春梅",),
         # 老板 2026-10-10：10 月给刘春梅 100 万（从「其他（待拆解）」里挪，总额仍是 1525 万）
         target_wan=100,
+    ),
+    Owner(
+        "Q4五百万",
+        "付汪阳",
+        cli_name="付汪阳",
+        im_user_id=13365,
     ),
     Owner(
         "Q4五百万",
@@ -764,7 +777,10 @@ def resolve_month_target(
 
 def month_target_scope(day: str, monthly_targets: dict[str, float]) -> tuple[bool, list[str]]:
     """当月目标文件覆盖情况：返回 (是否覆盖到人, 文件没覆盖、只能兜底的人)。"""
-    tracked = [item for item in OWNERS if item.target_wan or item.group]
+    from app.duzhan_departments import is_task_only
+
+    tracked = [item for item in OWNERS if (item.target_wan or item.group)
+               and not is_task_only(item.group, item.display)]
     if not monthly_targets:
         return False, [item.display for item in tracked]
     missing = [
@@ -3131,8 +3147,15 @@ def _mtd_wan(owner: Owner, rows: list[dict]) -> float | None:
             matched.append(row)
     if not matched:
         return None
-    total = sum(float(item.get("sales_amount") or 0) for item in matched)
-    return round(total / 10000, 2)
+    try:
+        if any(item.get("sales_amount") in (None, "") or isinstance(item.get("sales_amount"), bool)
+               for item in matched):
+            return None
+        amounts = [float(item["sales_amount"]) for item in matched]
+        total = sum(amounts)
+        return round(total / 10000, 2) if all(math.isfinite(value) for value in amounts) and math.isfinite(total) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _parallel_map(func, items: list, workers: int, label: str) -> list:
@@ -3309,8 +3332,11 @@ def collect_ledger(day: str) -> dict:
     )
     histories = dict(zip(channel_ids, history_list))
     # 每人三项 MCP 查询并发预取（串行时这是除 OCR 外的第二个大头）。
-    subjects = {item.display: _subject(item) for item in OWNERS}
-    queried = [item for item in OWNERS if subjects[item.display]]
+    from app.duzhan_departments import is_task_only
+
+    subjects = {item.display: _subject(item) for item in OWNERS
+                if not is_task_only(item.group, item.display)}
+    queried = [item for item in OWNERS if subjects.get(item.display)]
     bundles = _parallel_map(
         lambda item: _mcp_bundle(subjects[item.display], period),
         queried,
@@ -3340,7 +3366,7 @@ def collect_ledger(day: str) -> dict:
             day_msgs = []
             owner_history_ok[owner.display] = False
         owner_msgs[owner.display] = day_msgs
-        if owner_history_ok[owner.display]:
+        if owner_history_ok[owner.display] and not is_task_only(owner.group, owner.display):
             ocr_inputs.append((owner.display, day_msgs, owner.im_user_id))
 
     # 三个 OCR 开关都用 getattr 兜底：采集是关键路径，Settings 少一个字段也不能整轮失败。
@@ -3414,30 +3440,31 @@ def collect_ledger(day: str) -> dict:
                 )
                 # 业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向
                 row.perf_arrived_wan = row.mtd_wan
-                buckets = parse_performance_buckets(
-                    msgs, owner.im_user_id, arrived_wan=row.mtd_wan
-                )
-                row.perf_slip = buckets.get("slip") or []
-                row.perf_intent = buckets.get("intent") or []
-                for item in (row.perf_slip + row.perf_intent)[:4]:
-                    if item.get("amount_text"):
-                        _push_evidence(row.evidence, item["amount_text"])
-                for name in row.mto_names[:4]:
-                    _push_evidence(row.evidence, f"MTO图 {name}")
-                if row.daily_report:
-                    _push_evidence(
-                        row.evidence,
-                        "海外日报已交"
-                        f"{row.daily_report.get('item_count', 0)}项/"
-                        f"{row.daily_report.get('spent_hours', 0)}h",
+                if not is_task_only(owner.group, owner.display):
+                    buckets = parse_performance_buckets(
+                        msgs, owner.im_user_id, arrived_wan=row.mtd_wan
                     )
+                    row.perf_slip = buckets.get("slip") or []
+                    row.perf_intent = buckets.get("intent") or []
+                    for item in (row.perf_slip + row.perf_intent)[:4]:
+                        if item.get("amount_text"):
+                            _push_evidence(row.evidence, item["amount_text"])
+                    for name in row.mto_names[:4]:
+                        _push_evidence(row.evidence, f"MTO图 {name}")
+                    if row.daily_report:
+                        _push_evidence(
+                            row.evidence,
+                            "海外日报已交"
+                            f"{row.daily_report.get('item_count', 0)}项/"
+                            f"{row.daily_report.get('spent_hours', 0)}h",
+                        )
             else:
                 row.mto_count, row.mto_names, row.mto_quotes = None, [], []
         except Exception as exc:  # noqa: BLE001
             logger.warning("督战官拉群消息失败 {}: {}", owner.display, exc)
             row.mto_count, row.mto_names, row.mto_quotes = None, [], []
             row.history_ok = False
-        subject = _subject(owner)
+        subject = subjects.get(owner.display)
         if subject:
             reach, ops, customers = mcp_cache.get(owner.display, (None, None, None))
             row.wa_reached, row.wa_lower_bound = parse_wa_reached(reach)
@@ -3474,8 +3501,10 @@ def collect_ledger(day: str) -> dict:
         row.target_gap_wan = progress["gap"]
         row.target_ahead = progress["ahead"]
         people.append(score_row(row))
-    ledger["people"] = [asdict(item) for item in people]
-    red, black = rank_red_black(people)
+    from app.duzhan_departments import task_scope_row
+
+    ledger["people"] = [task_scope_row(asdict(item)) for item in people]
+    red, black = rank_red_black([row for row in people if not is_task_only(row.group, row.display)])
     ledger["red"] = red
     ledger["black"] = black
     return ledger

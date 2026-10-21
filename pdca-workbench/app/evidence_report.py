@@ -31,6 +31,8 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 if str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
+from app.duzhan_departments import is_task_only, task_scope_row
+
 
 def load_env_file() -> None:
     """把 pdca-workbench/.env 灌进环境（与部署同源），已存在的变量不覆盖。"""
@@ -195,7 +197,8 @@ def collect(day: str, image_limit: int) -> dict:
     # 传附件字典会取不到图片——2026-09-18 首版就因此一张图都没内嵌。
     try:
         images = download_images(
-            [{"display": item.display} for item in OWNERS], raw_by_owner, image_limit
+            [{"display": item.display} for item in OWNERS if not is_task_only(item.group, item.display)],
+            raw_by_owner, image_limit
         )
     except Exception as exc:  # noqa: BLE001 — 图片失败不影响文字证据
         logger.warning("证据日报图片处理失败: {}", exc)
@@ -294,42 +297,47 @@ def mto_block(row: dict, images: list[dict]) -> str:
 
 
 def person_card(row: dict, raw: list[dict], images: list[dict]) -> str:
+    row = task_scope_row(row)
     name = esc(row.get("display"))
     parts = [f"<div class='card'><h3>👤 {name} <span class='tag'>{esc(row.get('group'))}</span></h3>"]
-    target = row.get("target_wan")
-    target_text = wan(target) if target is not None else (
-        "按小组口径 " + esc(row.get("group_target_name") or "小组") + " " + wan(row.get("group_target_wan"))
-        if row.get("group_target_wan") else "<span class='pending'>待确认</span>"
-    )
-    gap = row.get("target_gap_wan")
-    gap_text = "—"
-    if gap is not None:
-        gap_text = ("<span class='good'>领先 " if row.get("target_ahead") else "<span class='bad'>落后 ") + f"{abs(float(gap)):g} 万</span>"
-    parts.append(
-        "<div class='grid'>"
-        f"<div class='kv'><b>月目标</b>{target_text}</div>"
-        f"<div class='kv'><b>滚动日目标</b>{esc(row.get('daily_target_wan') if row.get('daily_target_wan') is not None else '待确认')} 万/天</div>"
-        f"<div class='kv'><b>累计应达</b>{wan(row.get('rolling_target_wan'))}</div>"
-        f"<div class='kv'><b>已录单（开单额）</b>{wan(row.get('perf_arrived_wan'))}</div>"
-        f"<div class='kv'><b>领先/落后</b>{gap_text}</div>"
-        f"<div class='kv'><b>WhatsApp</b>{esc(row.get('wa_reached') if row.get('wa_reached') is not None else '待确认')} 户"
-        + ("（已同步下限）" if row.get("wa_lower_bound") else "") + "</div>"
-        f"<div class='kv'><b>明确意向</b>{esc(row.get('intent_count') if row.get('intent_count') is not None else '待确认')} 户（MCP）</div>"
-        f"<div class='kv'><b>MTO 4 款</b>{esc(row.get('mto_count') if row.get('mto_count') is not None else '待确认')} 张</div>"
-        f"<div class='kv'><b>工时</b>{hours(row.get('hours_minutes'))}｜{esc(row.get('hours_band') or '待确认')}</div>"
-        f"<div class='kv'><b>日报</b>{_daily_cell(row)}</div>"
-        f"<div class='kv'><b>评分</b>{esc(round(float(row.get('score') or 0)))} 分</div>"
-        "</div>"
-    )
-    parts.append("<h3>① 业绩三关键词（原文级证据）</h3><ul>")
-    parts.append(
-        "<li><b>已录单（开单额）</b>：" + wan(row.get("perf_arrived_wan"))
-        + "（系统 sales 视图口径，非银行回款；不是群原话）</li>"
-    )
-    parts.append("<li><b>水单</b>（客户已付款未到账）：</li>" + evidence_li(row.get("perf_slip") or []))
-    parts.append("<li><b>意向</b>（明确意向金额）：</li>" + evidence_li(row.get("perf_intent") or []))
-    parts.append("</ul>")
-    parts.append("<h3>② MTO 报价图 + OCR 结果</h3>" + mto_block(row, images))
+    task_only = is_task_only(str(row.get("group") or ""), str(row.get("display") or ""))
+    if task_only:
+        parts.append("<p>仅追待办与闭环；已录单（计入部门业绩）：" + wan(row.get("perf_arrived_wan")) + "</p>")
+    else:
+        target = row.get("target_wan")
+        target_text = wan(target) if target is not None else (
+            "按小组口径 " + esc(row.get("group_target_name") or "小组") + " " + wan(row.get("group_target_wan"))
+            if row.get("group_target_wan") else "<span class='pending'>待确认</span>"
+        )
+        gap = row.get("target_gap_wan")
+        gap_text = "—"
+        if gap is not None:
+            gap_text = ("<span class='good'>领先 " if row.get("target_ahead") else "<span class='bad'>落后 ") + f"{abs(float(gap)):g} 万</span>"
+        parts.append(
+            "<div class='grid'>"
+            f"<div class='kv'><b>月目标</b>{target_text}</div>"
+            f"<div class='kv'><b>滚动日目标</b>{esc(row.get('daily_target_wan') if row.get('daily_target_wan') is not None else '待确认')} 万/天</div>"
+            f"<div class='kv'><b>累计应达</b>{wan(row.get('rolling_target_wan'))}</div>"
+            f"<div class='kv'><b>已录单（开单额）</b>{wan(row.get('perf_arrived_wan'))}</div>"
+            f"<div class='kv'><b>领先/落后</b>{gap_text}</div>"
+            f"<div class='kv'><b>WhatsApp</b>{esc(row.get('wa_reached') if row.get('wa_reached') is not None else '待确认')} 户"
+            + ("（已同步下限）" if row.get("wa_lower_bound") else "") + "</div>"
+            f"<div class='kv'><b>明确意向</b>{esc(row.get('intent_count') if row.get('intent_count') is not None else '待确认')} 户（MCP）</div>"
+            f"<div class='kv'><b>MTO 4 款</b>{esc(row.get('mto_count') if row.get('mto_count') is not None else '待确认')} 张</div>"
+            f"<div class='kv'><b>工时</b>{hours(row.get('hours_minutes'))}｜{esc(row.get('hours_band') or '待确认')}</div>"
+            f"<div class='kv'><b>日报</b>{_daily_cell(row)}</div>"
+            f"<div class='kv'><b>评分</b>{esc(round(float(row.get('score') or 0)))} 分</div>"
+            "</div>"
+        )
+        parts.append("<h3>① 业绩三关键词（原文级证据）</h3><ul>")
+        parts.append(
+            "<li><b>已录单（开单额）</b>：" + wan(row.get("perf_arrived_wan"))
+            + "（系统 sales 视图口径，非银行回款；不是群原话）</li>"
+        )
+        parts.append("<li><b>水单</b>（客户已付款未到账）：</li>" + evidence_li(row.get("perf_slip") or []))
+        parts.append("<li><b>意向</b>（明确意向金额）：</li>" + evidence_li(row.get("perf_intent") or []))
+        parts.append("</ul>")
+        parts.append("<h3>② MTO 报价图 + OCR 结果</h3>" + mto_block(row, images))
     coll = row.get("collections") or []
     parts.append("<h3>③ 催款/任务（系统读到的条目）</h3>")
     if coll:
@@ -346,18 +354,19 @@ def person_card(row: dict, raw: list[dict], images: list[dict]) -> str:
     parts.append("<li>卡点：" + (esc("；".join(clip(item, 120) for item in blockers)) if blockers else "<span class='pending'>未见</span>") + "</li>")
     parts.append("<li>证据：" + (esc(" / ".join(clip(item, 60) for item in (row.get("evidence") or [])[:8])) or "<span class='pending'>无</span>") + "</li>")
     parts.append("</ul>")
-    parts.append("<h3>⑤ 工时拆解 / VPS / Vemory</h3><ul>")
-    parts.append("<li>工时拆解：" + esc(json.dumps(row.get("hours_parts") or {}, ensure_ascii=False)) + "</li>")
-    parts.append("<li>WA 窗口：" + esc(row.get("hours_window") or "待确认") + "</li>")
-    parts.append(
-        "<li>VPS：IM " + esc(row.get("vps_im_sent") if row.get("vps_im_sent") is not None else "待确认")
-        + " 条 / Agent " + esc(row.get("vps_agent_calls") if row.get("vps_agent_calls") is not None else "待确认")
-        + " 次 / 轮数 " + esc(row.get("vps_turns") if row.get("vps_turns") is not None else "待确认")
-        + "（" + esc(row.get("vps_first") or "") + "-" + esc(row.get("vps_last") or "") + "）</li>"
-    )
-    meetings = row.get("vemory") or []
-    parts.append("<li>Vemory：" + (esc("；".join(clip(item.get("name"), 60) for item in meetings[:5])) if meetings else "无有效录音") + "</li>")
-    parts.append("</ul>")
+    if not task_only:
+        parts.append("<h3>⑤ 工时拆解 / VPS / Vemory</h3><ul>")
+        parts.append("<li>工时拆解：" + esc(json.dumps(row.get("hours_parts") or {}, ensure_ascii=False)) + "</li>")
+        parts.append("<li>WA 窗口：" + esc(row.get("hours_window") or "待确认") + "</li>")
+        parts.append(
+            "<li>VPS：IM " + esc(row.get("vps_im_sent") if row.get("vps_im_sent") is not None else "待确认")
+            + " 条 / Agent " + esc(row.get("vps_agent_calls") if row.get("vps_agent_calls") is not None else "待确认")
+            + " 次 / 轮数 " + esc(row.get("vps_turns") if row.get("vps_turns") is not None else "待确认")
+            + "（" + esc(row.get("vps_first") or "") + "-" + esc(row.get("vps_last") or "") + "）</li>"
+        )
+        meetings = row.get("vemory") or []
+        parts.append("<li>Vemory：" + (esc("；".join(clip(item.get("name"), 60) for item in meetings[:5])) if meetings else "无有效录音") + "</li>")
+        parts.append("</ul>")
     parts.append(
         "<details><summary>⑥ 当天本人群原话（" + str(len(raw)) + " 条，用于逐条核对系统有没有读错）</summary><pre>"
         + esc("\n".join(
@@ -377,6 +386,13 @@ def overview_table(people: list[dict], raw_by_owner: dict, images: dict) -> str:
     rows = []
     for row in people:
         name = str(row.get("display") or "")
+        if is_task_only(str(row.get("group") or ""), name):
+            rows.append("<tr>" + f"<td><b>{esc(name)}</b></td><td>{esc(row.get('group'))}</td>"
+                        + "<td colspan='3'>仅追待办与闭环</td>"
+                        + f"<td>{wan(row.get('perf_arrived_wan'))}</td>"
+                        + "<td colspan='7'>不参与销售专项考核</td>"
+                        + f"<td>{len(raw_by_owner.get(name) or [])}</td><td>{len(images.get(name) or [])}</td></tr>")
+            continue
         gap = row.get("target_gap_wan")
         if gap is None:
             gap_text = "—"
@@ -419,11 +435,15 @@ CHECKLIST = """
 
 
 def build_html(day: str, ledger: dict) -> str:
-    people = ledger.get("people") or []
+    people = [task_scope_row(row) for row in ledger.get("people") or []]
     raw_by_owner = ledger.get("_raw_by_owner") or {}
     images = ledger.get("_images") or {}
     red = ledger.get("red") or []
     black = ledger.get("black") or []
+    task_only_names = {str(row.get("display") or "") for row in people
+                       if is_task_only(str(row.get("group") or ""), str(row.get("display") or ""))}
+    red = [row for row in red if str(row.get("display") or "") not in task_only_names]
+    black = [row for row in black if str(row.get("display") or "") not in task_only_names]
     now = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M")
     total_images = sum(len(items) for items in images.values())
     embeds = sum(1 for items in images.values() for item in items if item.get("b64"))

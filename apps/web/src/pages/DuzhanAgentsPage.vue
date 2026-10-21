@@ -84,10 +84,9 @@ const groupIndices = computed(() => blockPositions(blocks.value, 'group'))
 const timeIndices = computed(() => blockPositions(blocks.value, 'times'))
 const conditionIndices = computed(() => blockPositions(blocks.value, 'condition'))
 const ruleIndices = computed(() => blockPositions(blocks.value, 'rule'))
-const departmentMembers = computed(() => {
-  const group = blocks.value.find((block) => block.type === 'group')
-  return runtime.value?.department_rosters?.[String(group?.channel_id || '')] || []
-})
+const selectedChannelId = computed(() => String(blocks.value.find((block) => block.type === 'group')?.channel_id || ''))
+const departmentMembers = computed(() => runtime.value?.department_rosters?.[selectedChannelId.value] || [])
+const departmentTaskOnlyMembers = computed(() => runtime.value?.department_task_only_rosters?.[selectedChannelId.value] || [])
 const extraIndices = computed(() => blocks.value.flatMap((block, index) =>
   ['group', 'times', 'condition', 'rule'].includes(block.type)
     || (block.type === 'people' && departmentMembers.value.length) ? [] : [index],
@@ -488,7 +487,11 @@ onMounted(load)
           />
           <button v-if="!groupIndices.length" class="btn" type="button" :disabled="busy" @click="addType('group')">＋ 选择目标群</button>
           <p v-if="channelsError" class="hint">群聊列表暂不可用：{{ channelsError }}。可在目标群卡片中手动填写群 ID。</p>
-          <div v-if="departmentMembers.length" class="workflow-note"><strong>按部门汇总，每个时段一条</strong><span>部门成员：{{ departmentMembers.join('、') }}。名单随目标群统一维护。</span></div>
+          <div v-if="departmentMembers.length" class="workflow-note">
+            <strong>按部门汇总，每个时段一条</strong>
+            <span>待办与闭环：{{ departmentMembers.join('、') }}。名单随目标群统一维护。</span>
+            <span v-if="departmentTaskOnlyMembers.length">仅追待办：{{ departmentTaskOnlyMembers.join('、') }}。业绩计入部门；MTO、日报和销售过程专项不催办。</span>
+          </div>
         </section>
 
         <section class="step" aria-labelledby="time-step">

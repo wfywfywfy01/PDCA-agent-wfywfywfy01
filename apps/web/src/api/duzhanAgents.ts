@@ -31,6 +31,7 @@ export interface DuzhanRuntimeStatus {
   bot_app_id: string
   supported_channel_ids: string[]
   department_rosters?: Record<string, string[]>
+  department_task_only_rosters?: Record<string, string[]>
   schedule_updates_require_restart: boolean
 }
 

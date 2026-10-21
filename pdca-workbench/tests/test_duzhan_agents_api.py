@@ -65,6 +65,15 @@ class DuzhanAgentApiTests(unittest.TestCase):
         second = next(group for group in GROUPS if group.name == "杨晶晶业绩达标群")
         self.assertEqual(body["department_rosters"][second.channel_id], ["杨晶晶", "何海文", "王宇彤"])
 
+    def test_runtime_status_distinguishes_task_only_department_members(self):
+        body = self.client.get("/api/duzhan-agents/runtime-status").json()
+        third = next(group for group in GROUPS if group.name == "Lina业绩达标群")
+        fifth = next(group for group in GROUPS if group.name == "Q4五百万")
+        self.assertEqual(body["department_task_only_rosters"][third.channel_id], ["冯磊"])
+        self.assertEqual(body["department_task_only_rosters"][fifth.channel_id], ["刘春梅", "付汪阳"])
+        self.assertEqual(body["department_rosters"][third.channel_id], ["Lina", "Safae", "冯磊"])
+        self.assertEqual(body["department_rosters"][fifth.channel_id], ["邓琳莹", "刘春梅", "付汪阳"])
+
     def test_create_and_list(self):
         response = self.client.post(
             "/api/duzhan-agents",
