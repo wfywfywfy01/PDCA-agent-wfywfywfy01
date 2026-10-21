@@ -8,7 +8,7 @@
   PDCA_GROWTH_IMAP_HOST / PDCA_GROWTH_IMAP_PORT(993)
   PDCA_GROWTH_DAILY_CAP（默认 25，单邮箱日上限）
   PDCA_GROWTH_POSTAL_ADDRESS（CAN-SPAM 要求的公司地址，附在签名）
-  PDCA_GROWTH_SENDER_NAME（替换正文 {{sender_name}}，如 "April Yang, VERTU"）
+  PDCA_GROWTH_SENDER_NAME（替换正文 {{sender_name}}，如 "Frank Foo, Regional Dealer Development Manager, Europe, VERTU"）
   PDCA_GROWTH_PUBLIC_BASE（默认 https://pdca-workbench-teams.vertu.cn）
 """
 from __future__ import annotations
