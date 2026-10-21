@@ -207,7 +207,14 @@ def build_digest(
         group_goal = metric_members[0].get('mto_daily_goal', 4) if metric_members else 4
         member_text = " / ".join(str(m.get('display') or '未署名') for m in members)
         lines.append(f"   • {group_name}（{member_text}）")
-        lines.append(f"     - {_target_line(group_target, group_mtd, ledger_day)}")
+        from app.duzhan_departments import department_for
+        from app.duzhan_monthly_metrics import metrics_for_owner
+
+        metrics = metrics_for_owner(group_name, ledger_day) if department_for(group_name) else None
+        target_line = (f"月目标 破零｜累计已录单 {_wan(group_mtd)}"
+                       if metrics and metrics["goal"] == "break_zero"
+                       else _target_line(group_target, group_mtd, ledger_day))
+        lines.append(f"     - {target_line}")
         lines.append(f"     - 水单：{_amounts(group_slip)}｜意向：{_amounts(group_intent)}")
         if metric_members:
             lines.append(

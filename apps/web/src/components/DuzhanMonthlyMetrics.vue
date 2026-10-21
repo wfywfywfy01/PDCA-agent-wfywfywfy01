@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { getMonthlyMetrics, putMonthlyMetrics, type MonthlyMetrics } from '@/api/duzhanAgents'
 
-const props = defineProps<{ channelId: string; initialMonth: string; disabled: boolean; metricMembers: number }>()
+const props = defineProps<{ channelId: string; initialMonth: string; disabled: boolean; active: boolean; metricMembers: number }>()
 const emit = defineEmits<{ dirty: [value: boolean]; saved: [] }>()
 const month = ref(props.initialMonth)
 const data = ref<MonthlyMetrics | null>(null)
@@ -92,6 +92,7 @@ defineExpose({ save })
       <label>生效月份<input :value="month" type="month" min="1000-01" max="9999-12" :disabled="disabled || loading || saving" @change="chooseMonth" /></label>
     </header>
     <p v-if="savedMonths.length" class="hint">已保存月份：{{ savedMonths.join('、') }}</p>
+    <p v-if="!active" role="status">当前督战官未启用后台配置，本区暂不能修改。</p>
     <div v-if="pendingMonth" class="notice" role="status">本月有未保存的指标。
       <button class="btn btn-sm" type="button" @click="discardMonth">放弃改动，切到 {{ pendingMonth }}</button>
       <button class="btn btn-sm" type="button" @click="pendingMonth = ''">继续编辑</button>
@@ -99,14 +100,14 @@ defineExpose({ save })
     <p v-if="loading" role="status">正在读取本月指标…</p>
     <form v-else-if="data" ref="form" @submit.prevent="save">
       <p class="hint">{{ data.source === 'saved' ? '使用已保存的本月指标。' : data.source === 'bundled' ? '当前沿用原配置，修改后保存即可。' : '本月业绩目标待填写；MTO 默认每人每天 4 款、单款 30 万元。' }}</p>
-      <fieldset :disabled="disabled || saving"><legend class="sr-only">本月指标</legend>
+      <fieldset :disabled="disabled || !active || saving"><legend class="sr-only">本月指标</legend>
         <label>业绩目标方式<select v-model="data.goal"><option value="amount">填写金额</option><option value="break_zero">破零</option></select></label>
         <label v-if="data.goal === 'amount'">本月业绩目标（万元）<input v-model.number="data.sales_target_wan" type="number" min="0.01" max="1000000000" step="0.01" required placeholder="例如 800，表示 800 万元" /></label>
         <label>MTO 每人每天（款）<input v-model.number="data.mto_daily_count" type="number" min="1" max="100" step="1" required /></label>
         <label>MTO 单款最低金额（万元）<input v-model.number="data.mto_min_wan" type="number" min="0.01" max="1000000" step="0.01" required /></label>
       </fieldset>
       <p class="hint">人民币万元。MTO 专项考核 {{ metricMembers }} 人，每日合计 {{ Number(data.mto_daily_count) * metricMembers }} 款；“仅追待办”成员不承担此配额。</p>
-      <div class="footer"><button class="btn" type="submit" :disabled="disabled || saving || (!dirty && data.source === 'saved')">{{ saving ? '正在保存…' : '保存本月指标' }}</button><span v-if="dirty">指标未保存</span></div>
+      <div class="footer"><button class="btn" type="submit" :disabled="disabled || !active || saving || (!dirty && data.source === 'saved')">{{ saving ? '正在保存…' : '保存本月指标' }}</button><span v-if="dirty">指标未保存</span></div>
     </form>
     <p v-if="error" class="error" role="alert">{{ error }} <button v-if="!dirty" class="btn btn-sm" type="button" :disabled="disabled || loading" @click="load(month)">重新载入</button></p>
     <p v-if="error && dirty" class="hint">输入已保留。若提示已被其他页面修改，请先记下本次修改，再放弃并重新载入。</p>

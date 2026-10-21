@@ -510,7 +510,7 @@ onMounted(load)
 
         <DuzhanMonthlyMetrics
           v-if="departmentMembers.length" :key="String(selectedId) + selectedChannelId" ref="metricsEditor"
-          :channel-id="selectedChannelId" :initial-month="todayInZone(timezone).slice(0, 7)" :disabled="busy"
+          :channel-id="selectedChannelId" :initial-month="todayInZone(timezone).slice(0, 7)" :disabled="busy" :active="runtime?.source === 'db'"
           :metric-members="departmentMembers.length - departmentTaskOnlyMembers.length"
           @dirty="metricsDirty = $event" @saved="rendered = null; preview = null"
         />

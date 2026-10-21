@@ -453,7 +453,7 @@ def cleanup_temp_files(max_age_hours: float = 6.0) -> dict:
 
 def review_mto_images(
     messages: list | None, sender_id: int | None, max_images: int | None = None
-) -> tuple[int, list[str], list[dict]]:
+) -> tuple[int | None, list[str], list[dict]]:
     """本人当日图片：OCR 报价与目标客户；磁盘文件不保留。
 
     max_images 默认取 PDCA_MTO_OCR_MAX_IMAGES（8）：一天几十张图时，OCR 是整轮采集
@@ -516,7 +516,7 @@ def review_mto_images(
                 )
     if settings.qwen_api_key:
         qualify_n, names = summarize_quotes(quotes)
-        return qualify_n, names, quotes
+        return None if truncated[0] else qualify_n, names, quotes
     # 没配密钥 = 没读图：第一返回值语义是「信息完整报价数」，绝不能拿图片张数顶替，
     # 否则下游（MTO N/4 达标、工时加分）会把截图数当成达标款数。返回 None 让渲染写「待确认」。
     names = [str(item.get("file") or "image") for item in quotes][:6]

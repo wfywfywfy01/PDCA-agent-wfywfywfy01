@@ -197,6 +197,10 @@ async def put_monthly_metrics(
     _user: Annotated[User, Depends(require_admin)] = None,
     session: Annotated[Session, Depends(get_session)] = None,
 ) -> dict:
+    from app.duzhan_admin.runtime import using_db
+
+    if not using_db():
+        raise HTTPException(409, "当前督战官未启用后台配置，暂不能修改月度指标")
     return save_metrics(session, payload)
 
 

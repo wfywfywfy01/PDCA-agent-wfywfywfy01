@@ -59,7 +59,8 @@ def _detail_with_metrics(result: dict, metrics: dict) -> dict:
     qualified = sum(row["qualifies"] for row in rows)
     return {**result, "rows": rows, "qualified": qualified, "goal": metrics["mto_daily_count"],
             "min_wan": metrics["mto_min_wan"],
-            "goal_met": metrics["mto_daily_count"] > 0 and qualified >= metrics["mto_daily_count"],
+            "goal_met": (metrics["mto_daily_count"] > 0 and qualified >= metrics["mto_daily_count"]
+                         if result.get("complete", True) else None),
             "under_threshold": sum(not row["qualifies"] and row.get("wan") is not None
                                    and row.get("raw_ok") is not False for row in rows)}
 
@@ -77,8 +78,8 @@ def _vision_with_metrics(payload: dict, metrics: dict) -> dict:
             "count": checked["mto_count"] if metrics.get("source") == "saved" else payload["count"],
             "goal": metrics["mto_daily_count"],
             "min_wan": metrics["mto_min_wan"],
-            "goal_met": metrics["mto_daily_count"] > 0 and checked["mto_count"] is not None
-                        and qualified >= metrics["mto_daily_count"]}
+            "goal_met": (metrics["mto_daily_count"] > 0 and qualified >= metrics["mto_daily_count"]
+                         if checked["mto_count"] is not None else None)}
 
 
 def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> dict:
@@ -134,12 +135,14 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
             raw_messages.extend(fetch_channel_history(channel_id, day, "300"))
         messages = messages_on_day(raw_messages, day, owner_group_timezone(owner))
         image_count, file_names = parse_mto_images(messages, owner.im_user_id)
-        quote_count, _names, quotes = review_mto_images(messages, owner.im_user_id)
+        quote_count, _names, quotes = review_mto_images(messages, owner.im_user_id,
+            max_images=max(int(getattr(get_settings(), "mto_ocr_max_images", 8) or 8), metrics["mto_daily_count"]))
     except Exception as exc:  # noqa: BLE001 — 单源失败写待确认，不抛
         logger.warning("MTO 明细核对失败 owner={} day={}: {}", owner_name, day, exc)
         result["error"] = f"采集失败: {str(exc)[:200]}"
         return result
 
+    result["complete"] = quote_count is not None
     for index, quote in enumerate(quotes or []):
         usd = quote.get("usd")
         wan = quote.get("wan")
@@ -237,7 +240,8 @@ def review_owner_images(
         if cached and not force and now_mono - cached[0] < 3600:
             return _vision_with_metrics(cached[1], metrics)
     try:
-        count, names, quotes = review_mto_images(messages, sender_id)
+        count, names, quotes = review_mto_images(messages, sender_id,
+            max_images=max(int(getattr(get_settings(), "mto_ocr_max_images", 8) or 8), metrics["mto_daily_count"]))
     except Exception as exc:  # noqa: BLE001 — 单源失败写待确认
         logger.warning("MTO 视觉采集失败 owner={}: {}", owner, exc)
         count, names, quotes = None, [], []

@@ -3375,11 +3375,15 @@ def collect_ledger(day: str) -> dict:
     ocr_workers = getattr(settings, "mto_ocr_workers", 3)
     ocr_budget = getattr(settings, "mto_ocr_budget_seconds", 420)
     ocr_max_images = getattr(settings, "mto_ocr_max_images", 8)
+    from app.duzhan_monthly_metrics import metrics_for_owner
+
+    monthly_by_group = {group: metrics_for_owner(group, day) for group in {owner.group for owner in OWNERS}}
+    quota_by_owner = {owner.display: monthly_by_group[owner.group]["mto_daily_count"] for owner in OWNERS}
 
     def _ocr_one(item: tuple):
         from app.mto_ocr import review_mto_images
 
-        return review_mto_images(item[1], item[2], max_images=ocr_max_images)
+        return review_mto_images(item[1], item[2], max_images=max(int(ocr_max_images or 8), quota_by_owner[item[0]]))
 
     # OCR 单独给时间预算：超时未读完的按「待确认」，绝不拖过整点推送（见 _parallel_map_deadline）。
     ocr_results = _parallel_map_deadline(
@@ -3394,9 +3398,6 @@ def collect_ledger(day: str) -> dict:
         for item, result in zip(ocr_inputs, ocr_results)
     }
     people: list[PersonRow] = []
-    from app.duzhan_monthly_metrics import metrics_for_owner
-
-    monthly_by_group = {group: metrics_for_owner(group, day) for group in {owner.group for owner in OWNERS}}
     for owner in OWNERS:
         row = PersonRow(
             group=owner.group,
@@ -3509,12 +3510,10 @@ def collect_ledger(day: str) -> dict:
         row.mto_daily_goal, row.mto_min_wan = policy["mto_daily_count"], policy["mto_min_wan"]
         if policy["source"] == "saved" and not is_task_only(owner.group, owner.display):
             from app.duzhan_monthly_metrics import recheck_row
-            from app.mto_ocr import summarize_quotes
 
             checked = recheck_row(asdict(row), {"mto_daily_count": row.mto_daily_goal, "mto_min_wan": row.mto_min_wan})
             row.mto_count, row.mto_quotes = checked["mto_count"], checked["mto_quotes"]
-            if row.mto_quotes:
-                _, row.mto_names = summarize_quotes(row.mto_quotes, min_wan=row.mto_min_wan)
+            row.mto_names = checked.get("mto_names", [])
         people.append(score_row(row))
     from app.duzhan_departments import task_scope_row
 
