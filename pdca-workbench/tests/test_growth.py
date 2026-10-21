@@ -100,6 +100,15 @@ class GrowthTests(unittest.TestCase):
         self.assertIn(mailer.OPT_OUT, msg.get_content())
         self.assertEqual(self.session.get(GrowthContent, content.id).status, "sent")
 
+    def test_plain_body_fills_sender_and_postal_address(self):
+        content = self._email("Hi\n\n{{sender_name}}")
+        with patch.dict(os.environ, {"PDCA_GROWTH_SENDER_NAME": "April Yang, VERTU",
+                                     "PDCA_GROWTH_POSTAL_ADDRESS": "Room 505, Kowloon, Hong Kong"}):
+            body = mailer.plain_body(content)
+        self.assertIn("April Yang, VERTU", body)
+        self.assertNotIn("{{sender_name}}", body)
+        self.assertTrue(body.rstrip().endswith("Room 505, Kowloon, Hong Kong"))
+
     def test_send_with_tracking_adds_html_alternative(self):
         content = self._email()
         smtp = MagicMock()
