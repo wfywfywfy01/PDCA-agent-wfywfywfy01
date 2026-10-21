@@ -221,6 +221,22 @@ def im_reply_poll_job() -> None:
         notify("IM 回复采集失败", str(exc)[:300])
 
 
+def growth_reply_poll_job() -> None:
+    """增长飞轮：IMAP 只读扫描开发信回复（未配置邮箱则跳过）。"""
+    from sqlmodel import Session as DbSession
+
+    from app.database import get_engine
+    from app.growth.mailer import imap_configured, poll_replies
+
+    if not imap_configured():
+        return
+    try:
+        with DbSession(get_engine()) as db:
+            logger.info("开发信回复采集: 新匹配 {}", poll_replies(db))
+    except Exception as exc:
+        logger.exception("开发信回复采集异常: {}", exc)
+
+
 def logibot_run_job() -> None:
     """日升货代跟踪机器人：拉群预报/面单、匹配录单人、官网轨迹、飞书。
 
@@ -1321,6 +1337,15 @@ def start_scheduler() -> BackgroundScheduler | None:
         minute="*/30",
         hour="9-18",
         id="im_reply_poll",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    _scheduler.add_job(
+        growth_reply_poll_job,
+        trigger="cron",
+        minute="15,45",
+        id="growth_reply_poll",
         max_instances=1,
         coalesce=True,
     )
