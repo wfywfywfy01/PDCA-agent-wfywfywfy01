@@ -108,6 +108,12 @@ class GrowthTests(unittest.TestCase):
         self.assertIn("Frank Foo\nDealer Network Development Manager, Europe\nVERTU", body)
         self.assertNotIn("{{sender_name}}", body)
         self.assertTrue(body.rstrip().endswith("Room 505, Kowloon, Hong Kong"))
+        self.assertTrue(body.startswith("Hi\n\nFrank Foo"))
+
+    def test_plain_body_moves_inline_signature_to_own_paragraph(self):
+        with patch.dict(os.environ, {"PDCA_GROWTH_SENDER_NAME": "Frank Foo"}):
+            body = mailer.plain_body(self._email("Worth a chat? {{sender_name}}"))
+        self.assertTrue(body.startswith("Worth a chat?\n\nFrank Foo"))
 
     def test_send_with_tracking_adds_html_alternative(self):
         content = self._email()

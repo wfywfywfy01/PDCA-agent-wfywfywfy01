@@ -86,7 +86,8 @@ def with_utm(url: str, content: GrowthContent) -> str:
 
 def plain_body(content: GrowthContent) -> str:
     """正文（填署名）+ 退订句 + 公司地址（CAN-SPAM）。"""
-    body = content.body.rstrip().replace(
+    body = re.sub(r"(?<!\n)[ \t]*\{\{sender_name\}\}", "\n\n{{sender_name}}", content.body.rstrip())
+    body = body.replace(
         "{{sender_name}}", _env("PDCA_GROWTH_SENDER_NAME", "VERTU Global Team").replace("\\n", "\n"))
     footer = "\n".join(filter(None, [OPT_OUT, _env("PDCA_GROWTH_POSTAL_ADDRESS")]))
     return f"{body}\n\n{footer}\n"
