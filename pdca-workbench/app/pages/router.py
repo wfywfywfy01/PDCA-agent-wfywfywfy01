@@ -594,6 +594,17 @@ async def knowledge_page(
     return _html_file(html_path)
 
 
+@router.get("/growth")
+@router.get("/growth/")
+async def growth_page(
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    html_path = get_settings().frontend_dir / "growth.html"
+    if not html_path.is_file():
+        raise HTTPException(status_code=404, detail="growth.html 缺失")
+    return _html_file(html_path)
+
+
 @router.get("/dealer-sellin")
 @router.get("/dealer-sellin/")
 async def dealer_sellin_page(
