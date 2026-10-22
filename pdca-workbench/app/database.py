@@ -154,6 +154,7 @@ def init_db(apply_patches: bool = True) -> None:
     from app.models.todo_group_state import TodoGroupState  # noqa: F401
     from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
     from app.models.scheduled_job_run import ScheduledJobRun  # noqa: F401
+    from app.growth import models as growth_models  # noqa: F401
     from app.agents.models import (  # noqa: F401
         AgentDraft,
         AgentEvent,
@@ -183,6 +184,7 @@ def _migrate_schema() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS owner_key VARCHAR(128) DEFAULT ''",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS team_key VARCHAR(64) DEFAULT ''",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS data_scope VARCHAR(16) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS knowledge_read_all BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN IF NOT EXISTS sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE dealer_stores ALTER COLUMN sales_owner TYPE VARCHAR(128)",
@@ -255,6 +257,7 @@ def _migrate_schema() -> None:
         "ALTER TABLE users ADD COLUMN owner_key VARCHAR(128) DEFAULT ''",
         "ALTER TABLE users ADD COLUMN team_key VARCHAR(64) DEFAULT ''",
         "ALTER TABLE users ADD COLUMN data_scope VARCHAR(16) DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN knowledge_read_all BOOLEAN NOT NULL DEFAULT 0",
         "ALTER TABLE dealer_stores ADD COLUMN dealer_level VARCHAR(8) DEFAULT 'L1'",
         "ALTER TABLE dealer_stores ADD COLUMN sales_owner VARCHAR(64) DEFAULT ''",
         "ALTER TABLE dealer_stores ADD COLUMN team_key VARCHAR(64) DEFAULT 'overseas'",

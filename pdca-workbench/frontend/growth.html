@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>增长飞轮</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;margin:0;background:#f5f6f8;color:#222}
+  header{background:#111;color:#e8c77a;padding:14px 24px;font-size:18px;font-weight:600}
+  main{max-width:1200px;margin:0 auto;padding:16px;display:grid;gap:16px}
+  section{background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  h2{margin:0 0 12px;font-size:16px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  input,select,textarea{font:inherit;padding:6px 8px;border:1px solid #ccd;border-radius:4px}
+  textarea{width:100%;box-sizing:border-box}
+  button{font:inherit;padding:6px 14px;border:0;border-radius:4px;background:#222;color:#fff;cursor:pointer}
+  button.sec{background:#e9ebef;color:#222}
+  button:disabled{opacity:.5;cursor:wait}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top}
+  .tag{display:inline-block;padding:1px 6px;border-radius:3px;background:#eef;font-size:12px;margin-right:4px}
+  .bar{height:10px;background:#eee;border-radius:5px;min-width:120px;position:relative}
+  .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:#c9a24a}
+  .card{border:1px solid #eee;border-radius:6px;padding:10px;margin-bottom:8px}
+  .muted{color:#888;font-size:12px}
+  #msg{position:fixed;right:16px;bottom:16px;background:#222;color:#fff;padding:8px 14px;border-radius:4px;display:none}
+</style>
+</head>
+<body>
+<header>增长飞轮 · 内容生成 → 投放 → 数据 → 优化</header>
+<main>
+  <section>
+    <h2>1. 素材库（产品 / 服务 / 经销商 catalog、经销商背调）</h2>
+    <div class="row">
+      <select id="aKind"><option value="product">产品</option><option value="service">服务</option>
+        <option value="dealer">经销商</option><option value="dossier">经销商背调</option></select>
+      <input id="aTitle" placeholder="标题" size="30">
+      <input id="aFile" type="file" accept=".txt,.md,.csv,.json">
+      <button onclick="saveAsset()">保存</button>
+    </div>
+    <textarea id="aBody" rows="5" placeholder="粘贴内容，或选择 txt/md/csv 文件自动填入（PDF/Excel 先转文本）"></textarea>
+    <table><thead><tr><th>类型</th><th>标题</th><th>字数</th><th></th></tr></thead><tbody id="assets"></tbody></table>
+  </section>
+
+  <section>
+    <h2>2. 生成一轮内容（多版本，用于 A/B 对比）</h2>
+    <div class="row">
+      <select id="gKind"><option value="seo">SEO 文章</option><option value="geo">GEO 文章</option>
+        <option value="email">开发信</option><option value="ad">投流文案</option></select>
+      <input id="gTopic" placeholder="主题 / 关键词" size="40">
+      <select id="gDossier"><option value="">不指定背调</option></select>
+      <select id="gVariants"><option>1</option><option selected>2</option><option>3</option></select>个版本
+      <input id="gLang" value="English" size="10">
+      <button id="gBtn" onclick="generate()">生成</button>
+    </div>
+    <textarea id="gHot" rows="3" placeholder="最近线索 / 热点（可选）：客户问询、展会、竞品动态、搜索热词…"></textarea>
+  </section>
+
+  <section>
+    <h2>3. 开发信效果（按轮次 / 版本）</h2>
+    <div class="muted" id="statInfo"></div>
+    <table><thead><tr><th>轮次</th><th>版本</th><th>主题行 / 假设</th><th>送达</th><th>退信率</th>
+      <th>回复率（主指标）</th><th>退订</th><th>打开率*</th><th>点击率*</th></tr></thead><tbody id="stats"></tbody></table>
+    <div class="muted">送达 &lt; 100 封标"样本不足"，不判胜负。*仅统计开启追踪的邮件；打开率受 Apple 隐私保护影响偏高。
+      止损：近 7 天退信率 &gt; 2% 全局停发；单版本 300 封后回复率 &lt; 1% 自动暂停。</div>
+  </section>
+
+  <section>
+    <h2>4. SEO 顾问（只读 vertu.com 海外站，只出建议不自动改稿）</h2>
+    <div class="row">
+      <button id="pBtn" class="sec" onclick="loadSeoPosts()">加载文章清单</button>
+      <button id="g4Btn" class="sec" onclick="loadGa4()">载入 GA4 + 选题表</button>
+      <span class="muted" id="seoInfo"></span>
+    </div>
+    <div id="posts" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
+    <textarea id="seoTable" rows="6" placeholder="点「载入 GA4 + 选题表」，或自己粘贴流量表（带表头即可）"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="fixBtn" onclick="seoReview('fix')">对选中文章出修改建议</button>
+      <button id="ideaBtn" class="sec" onclick="seoReview('idea')">基于流量表出新选题</button>
+      <select id="seoN"><option>3</option><option selected>5</option><option>8</option><option>10</option></select>个选题
+    </div>
+    <div class="muted">修改建议会抓取选中文章全文 + 你的流量表，给出标题/meta/结构/关键词的可执行改法；生成结果见下方「内容列表」，可推审核群。</div>
+  </section>
+
+  <section>
+    <h2>5. 内容列表</h2>
+    <div class="row"><select id="fKind" onchange="loadContents()"><option value="">全部</option>
+      <option value="seo">SEO</option><option value="geo">GEO</option><option value="email">开发信</option>
+      <option value="ad">投流</option><option value="seo_fix">SEO修改建议</option>
+      <option value="seo_idea">SEO新选题</option></select></div>
+    <div id="contents"></div>
+  </section>
+</main>
+<div id="msg"></div>
+<script>
+const KIND = {seo:'SEO', geo:'GEO', email:'开发信', ad:'投流', seo_fix:'SEO修改建议', seo_idea:'SEO新选题',
+  product:'产品', service:'服务', dealer:'经销商', dossier:'背调'};
+const STATUS = {draft:'草稿', pushed:'已推审核', sent:'已发送', paused:'已止损暂停'};
+
+/**
+ * 调用后端 API，失败抛出带后端 detail 的错误。
+ * @param {string} path 接口路径
+ * @param {RequestInit} [opt] fetch 选项
+ * @returns {Promise<any>} JSON 结果
+ */
+async function api(path, opt = {}) {
+  const r = await fetch('/api/growth' + path, {credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'}, ...opt});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+  return data;
+}
+
+/** @param {string} text 提示文字 */
+function toast(text) {
+  const el = document.getElementById('msg');
+  el.textContent = text; el.style.display = 'block';
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.style.display = 'none', 4000);
+}
+
+/** @param {string} s @returns {string} HTML 转义 */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/** @param {?number} v 0-1 比率，null 表示未追踪 @returns {string} 进度条 HTML */
+const bar = v => v == null ? '<span class="muted">未追踪</span>'
+  : `<div class="bar"><i style="width:${Math.round(v*100)}%"></i></div>${(v*100).toFixed(1)}%`;
+
+document.getElementById('aFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  document.getElementById('aBody').value = await f.text();
+  if (!document.getElementById('aTitle').value) document.getElementById('aTitle').value = f.name;
+};
+
+/** 保存素材 */
+async function saveAsset() {
+  try {
+    await api('/assets', {method: 'POST', body: JSON.stringify({
+      kind: aKind.value, title: aTitle.value.trim(), body: aBody.value})});
+    aTitle.value = aBody.value = ''; toast('已保存'); loadAssets();
+  } catch (e) { toast(e.message); }
+}
+
+/** @param {number} id 素材 id */
+async function delAsset(id) {
+  if (!confirm('删除该素材？')) return;
+  await api('/assets/' + id, {method: 'DELETE'}); loadAssets();
+}
+
+/** 加载素材列表与背调下拉 */
+async function loadAssets() {
+  const rows = await api('/assets');
+  assets.innerHTML = rows.map(r => `<tr><td><span class="tag">${KIND[r.kind]}</span></td><td>${esc(r.title)}</td>
+    <td>${r.chars}</td><td><button class="sec" onclick="delAsset(${r.id})">删除</button></td></tr>`).join('');
+  gDossier.innerHTML = '<option value="">不指定背调</option>' + rows.filter(r => r.kind === 'dossier')
+    .map(r => `<option value="${r.id}">${esc(r.title)}</option>`).join('');
+}
+
+/** 生成一轮内容 */
+async function generate() {
+  gBtn.disabled = true; gBtn.textContent = '生成中…（约 1 分钟）';
+  try {
+    const rows = await api('/generate', {method: 'POST', body: JSON.stringify({
+      kind: gKind.value, topic: gTopic.value.trim(), hotspots: gHot.value,
+      dealer_asset_id: gDossier.value ? +gDossier.value : null,
+      variants: +gVariants.value, language: gLang.value.trim() || 'English'})});
+    toast(`第 ${rows[0].round_no} 轮已生成 ${rows.length} 个版本`); loadContents();
+  } catch (e) { toast(e.message); }
+  gBtn.disabled = false; gBtn.textContent = '生成';
+}
+
+/** @param {number} id 内容 id */
+async function saveContent(id) {
+  try {
+    await api('/contents/' + id, {method: 'PUT', body: JSON.stringify({
+      title: document.getElementById('t' + id).value, body: document.getElementById('b' + id).value})});
+    toast('已保存');
+  } catch (e) { toast(e.message); }
+}
+
+/** @param {number} id 内容 id */
+async function pushContent(id) {
+  try { await saveContent(id); await api(`/contents/${id}/push`, {method: 'POST'}); toast('已推送审核群'); loadContents(); }
+  catch (e) { toast(e.message); }
+}
+
+/** @param {number} id 内容 id */
+async function sendContent(id) {
+  const recipients = document.getElementById('r' + id).value.split(/[\s,;]+/).filter(Boolean);
+  if (!recipients.length || !confirm(`确认发送给 ${recipients.length} 个地址？`)) return;
+  try {
+    await saveContent(id);
+    const track = document.getElementById('k' + id).checked;
+    const r = await api(`/contents/${id}/send`, {method: 'POST', body: JSON.stringify({recipients, track})});
+    toast(`已发 ${r.sent.length}，跳过 ${r.skipped.length}，失败 ${r.failed.length}，今日剩余额度 ${r.cap_left}`);
+    loadContents(); loadStats();
+  } catch (e) { toast(e.message); }
+}
+
+/** 加载内容卡片 */
+async function loadContents() {
+  const rows = await api('/contents' + (fKind.value ? '?kind=' + fKind.value : ''));
+  contents.innerHTML = rows.map(c => `<div class="card">
+    <div class="row"><span class="tag">第${c.round_no}轮·${c.variant}</span><span class="tag">${KIND[c.kind]}</span>
+      <span class="tag">${STATUS[c.status] || c.status}</span><span class="muted">${esc(c.angle)}</span></div>
+    <details><summary>${esc(c.title)}</summary>
+      <input id="t${c.id}" value="${esc(c.title)}" style="width:100%;margin:6px 0">
+      <textarea id="b${c.id}" rows="14">${esc(c.body)}</textarea>
+      <div class="row" style="margin-top:6px"><button class="sec" onclick="saveContent(${c.id})">保存修改</button>
+      ${c.kind === 'email'
+        ? `<textarea id="r${c.id}" rows="2" placeholder="收件人，逗号/换行分隔（先做邮箱验证，退信率需 < 2%）"></textarea>
+           <label class="muted"><input type="checkbox" id="k${c.id}"> 开启打开/点击追踪（不推荐，影响送达）</label>
+           <button onclick="sendContent(${c.id})">发送</button>`
+        : `<button onclick="pushContent(${c.id})">推送审核群</button>`}</div>
+    </details></div>`).join('') || '<div class="muted">暂无内容</div>';
+}
+
+/** 从 GA4 拉内容页流量，并拼上选题表对齐结果，填进流量表。 */
+async function loadGa4() {
+  g4Btn.disabled = true; g4Btn.textContent = '拉取中…';
+  try {
+    const r = await api('/seo/ga4');
+    seoTable.value = r.table;
+    const age = r.age_hours != null ? `，${r.age_hours} 小时前同步` : '';
+    seoInfo.textContent = `GA4 近 ${r.days} 天内容页 ${r.top} 条，选题 ${r.topics} 条${age}`;
+  } catch (e) { toast(e.message); }
+  g4Btn.disabled = false; g4Btn.textContent = '载入 GA4 + 选题表';
+}
+
+/** 加载 vertu.com 文章清单供勾选 */
+async function loadSeoPosts() {
+  pBtn.disabled = true; pBtn.textContent = '加载中…';
+  try {
+    const rows = await api('/seo/posts?limit=200');
+    posts.innerHTML = rows.map(p => `<label style="display:block;font-size:13px">
+      <input type="checkbox" class="pck" value="${esc(p.url)}">
+      <span class="muted">${esc(p.lastmod)}</span> ${esc(p.slug)}</label>`).join('');
+    seoInfo.textContent = `共 ${rows.length} 篇（倒序），勾选后点「出修改建议」`;
+  } catch (e) { toast(e.message); }
+  pBtn.disabled = false; pBtn.textContent = '重新加载文章清单';
+}
+
+/** @param {'fix'|'idea'} mode 修改建议 / 新选题 */
+async function seoReview(mode) {
+  const urls = [...document.querySelectorAll('.pck:checked')].map(c => c.value);
+  if (mode === 'fix' && !urls.length) return toast('先勾选至少一篇文章');
+  const btn = mode === 'fix' ? fixBtn : ideaBtn;
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '分析中…（约 1 分钟）';
+  try {
+    const rows = await api('/seo/review', {method: 'POST', body: JSON.stringify({
+      urls: mode === 'fix' ? urls : [], table: seoTable.value, ideas: +seoN.value})});
+    toast(`已生成 ${rows.length} 条建议，见内容列表`); loadContents();
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = old;
+}
+
+/** 加载开发信效果 */
+async function loadStats() {
+  const s = await api('/stats');
+  statInfo.textContent = `今日已发 ${s.sent_today} 封 · SMTP ${s.smtp ? '已配置' : '未配置'} · IMAP 回复采集 ${s.imap ? '已配置' : '未配置'}`;
+  stats.innerHTML = s.rows.map(r => `<tr><td>${r.round_no}</td><td>${r.variant}
+      ${r.status === 'paused' ? '<span class="tag">已止损</span>' : ''}</td>
+    <td>${esc(r.title)}<div class="muted">${esc(r.angle)}</div></td>
+    <td>${r.delivered}${r.enough_sample ? '' : '<div class="muted">样本不足</div>'}</td>
+    <td>${(r.bounce_rate*100).toFixed(1)}%</td><td>${bar(r.reply_rate)}</td><td>${r.unsub}</td>
+    <td>${bar(r.open_rate)}</td><td>${bar(r.click_rate)}</td></tr>`).join('')
+    || '<tr><td colspan="9" class="muted">暂无发送数据</td></tr>';
+}
+
+loadAssets().catch(e => toast(e.message)); loadContents().catch(e => toast(e.message)); loadStats().catch(e => toast(e.message));
+</script>
+</body>
+</html>

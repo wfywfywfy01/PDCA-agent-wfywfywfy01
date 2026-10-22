@@ -208,6 +208,7 @@ class UserCreateBody(BaseModel):
     owner_key: str = ""
     team_key: str = ""
     data_scope: str = ""
+    knowledge_read_all: bool = False
 
 
 class UserUpdateBody(BaseModel):
@@ -219,6 +220,7 @@ class UserUpdateBody(BaseModel):
     owner_key: str | None = None
     team_key: str | None = None
     data_scope: str | None = None
+    knowledge_read_all: bool | None = None
 
 
 class ResetPasswordBody(BaseModel):
@@ -276,6 +278,7 @@ async def list_users(
             "owner_key": getattr(u, "owner_key", "") or "",
             "team_key": getattr(u, "team_key", "") or "",
             "data_scope": getattr(u, "data_scope", "") or "",
+            "knowledge_read_all": bool(getattr(u, "knowledge_read_all", False)),
             "is_active": u.is_active,
             "must_change_password": getattr(u, "must_change_password", False),
             "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -359,6 +362,9 @@ async def create_user(
         raise HTTPException(status_code=400, detail="无效数据范围")
     if body.data_scope == "all" and body.role != "admin":
         raise HTTPException(status_code=400, detail="仅管理员可使用全局数据范围")
+    effective_scope = body.data_scope.strip() or _ROLE_SCOPE_DEFAULTS[body.role]
+    if body.knowledge_read_all and (body.role != "viewer" or effective_scope != "none"):
+        raise HTTPException(status_code=400, detail="全库资料只读仅可授予无业务数据范围的 viewer")
     if len(body.password) < 12:
         raise HTTPException(status_code=400, detail="密码至少 12 位")
     if session.exec(select(User).where(User.username == body.username)).first():
@@ -379,6 +385,7 @@ async def create_user(
         owner_key=body.owner_key.strip(),
         team_key=body.team_key.strip(),
         data_scope=body.data_scope.strip() or _ROLE_SCOPE_DEFAULTS[body.role],
+        knowledge_read_all=body.knowledge_read_all,
         must_change_password=True,
         pwd_version=0,
     )
@@ -415,6 +422,18 @@ async def update_user(
     next_owner_key = body.owner_key if body.owner_key is not None else getattr(target, "owner_key", "")
     next_team_key = body.team_key if body.team_key is not None else getattr(target, "team_key", "")
     next_is_active = body.is_active if body.is_active is not None else target.is_active
+    if next_role not in ROLE_LEVELS:
+        raise HTTPException(status_code=400, detail="无效角色")
+    next_scope = (
+        body.data_scope.strip() if body.data_scope is not None else target.data_scope
+    ) or _ROLE_SCOPE_DEFAULTS[next_role]
+    next_knowledge_read_all = (
+        body.knowledge_read_all
+        if body.knowledge_read_all is not None
+        else bool(getattr(target, "knowledge_read_all", False))
+    )
+    if next_knowledge_read_all and (next_role != "viewer" or next_scope != "none"):
+        raise HTTPException(status_code=400, detail="全库资料只读仅可授予无业务数据范围的 viewer")
     # Deactivation is a containment action and must still work when the old
     # store/team binding has already been disabled.
     if next_is_active:
@@ -452,6 +471,8 @@ async def update_user(
         if value == "all" and target.role != "admin":
             raise HTTPException(status_code=400, detail="仅管理员可使用全局数据范围")
         target.data_scope = value
+    if body.knowledge_read_all is not None:
+        target.knowledge_read_all = body.knowledge_read_all
     session.add(target)
     session.commit()
     if target.role == "sales":

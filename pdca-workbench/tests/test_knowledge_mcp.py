@@ -45,6 +45,15 @@ class KnowledgeMcpTests(unittest.TestCase):
             )
             session.add_all([
                 user,
+                User(
+                    username="knowledge-reader",
+                    hashed_password="x",
+                    role="viewer",
+                    data_scope="none",
+                    knowledge_read_all=True,
+                    pwd_version=0,
+                    must_change_password=False,
+                ),
                 DealerStore(
                     store_id="iran",
                     name="Safiran Hamrah",
@@ -150,6 +159,36 @@ class KnowledgeMcpTests(unittest.TestCase):
             ))
         self.assertEqual(caught.exception.status_code, 403)
         upstream.assert_not_awaited()
+
+    def test_full_library_reader_lists_and_searches_every_dealer(self):
+        access = SimpleNamespace(subject="knowledge-reader")
+        dealer_id = str(uuid4())
+        upstream = AsyncMock(side_effect=[
+            [{
+                "id": dealer_id,
+                "official_name": "External Dealer",
+                "country_code": "GB",
+                "status": "active",
+            }],
+            {"items": [{"text": "evidence"}]},
+        ])
+        with (
+            patch("app.knowledge.mcp.get_engine", return_value=self.engine),
+            patch("app.knowledge.mcp.get_access_token", return_value=access),
+            patch("app.knowledge.mcp.request_json", new=upstream),
+        ):
+            visible = asyncio.run(list_dealers())
+            result = asyncio.run(search_dealer_knowledge("contract", dealer_id=dealer_id))
+
+        self.assertEqual(visible["dealers"], [{
+            "dealer_id": dealer_id,
+            "name": "External Dealer",
+            "country_code": "GB",
+            "status": "active",
+        }])
+        self.assertEqual(result["items"][0]["text"], "evidence")
+        self.assertEqual(upstream.await_args_list[0].args[:2], ("GET", "/v1/dealers"))
+        self.assertEqual(upstream.await_args_list[1].kwargs["body"]["dealer_id"], dealer_id)
 
 
 if __name__ == "__main__":
