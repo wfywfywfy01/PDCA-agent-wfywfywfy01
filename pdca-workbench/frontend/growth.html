@@ -66,16 +66,34 @@
   </section>
 
   <section>
-    <h2>4. 内容列表</h2>
+    <h2>4. SEO 顾问（只读 vertu.com 海外站，只出建议不自动改稿）</h2>
+    <div class="row">
+      <button id="pBtn" class="sec" onclick="loadSeoPosts()">加载文章清单</button>
+      <span class="muted" id="seoInfo"></span>
+    </div>
+    <div id="posts" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
+    <textarea id="seoTable" rows="4" placeholder="粘贴流量表（Search Console / GA4 / 内部表，带表头即可，不限列）：查询词、页面、点击、曝光、CTR、排名…"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="fixBtn" onclick="seoReview('fix')">对选中文章出修改建议</button>
+      <button id="ideaBtn" class="sec" onclick="seoReview('idea')">基于流量表出新选题</button>
+      <select id="seoN"><option>3</option><option selected>5</option><option>8</option><option>10</option></select>个选题
+    </div>
+    <div class="muted">修改建议会抓取选中文章全文 + 你的流量表，给出标题/meta/结构/关键词的可执行改法；生成结果见下方「内容列表」，可推审核群。</div>
+  </section>
+
+  <section>
+    <h2>5. 内容列表</h2>
     <div class="row"><select id="fKind" onchange="loadContents()"><option value="">全部</option>
       <option value="seo">SEO</option><option value="geo">GEO</option><option value="email">开发信</option>
-      <option value="ad">投流</option></select></div>
+      <option value="ad">投流</option><option value="seo_fix">SEO修改建议</option>
+      <option value="seo_idea">SEO新选题</option></select></div>
     <div id="contents"></div>
   </section>
 </main>
 <div id="msg"></div>
 <script>
-const KIND = {seo:'SEO', geo:'GEO', email:'开发信', ad:'投流', product:'产品', service:'服务', dealer:'经销商', dossier:'背调'};
+const KIND = {seo:'SEO', geo:'GEO', email:'开发信', ad:'投流', seo_fix:'SEO修改建议', seo_idea:'SEO新选题',
+  product:'产品', service:'服务', dealer:'经销商', dossier:'背调'};
 const STATUS = {draft:'草稿', pushed:'已推审核', sent:'已发送', paused:'已止损暂停'};
 
 /**
@@ -193,6 +211,33 @@ async function loadContents() {
            <button onclick="sendContent(${c.id})">发送</button>`
         : `<button onclick="pushContent(${c.id})">推送审核群</button>`}</div>
     </details></div>`).join('') || '<div class="muted">暂无内容</div>';
+}
+
+/** 加载 vertu.com 文章清单供勾选 */
+async function loadSeoPosts() {
+  pBtn.disabled = true; pBtn.textContent = '加载中…';
+  try {
+    const rows = await api('/seo/posts?limit=200');
+    posts.innerHTML = rows.map(p => `<label style="display:block;font-size:13px">
+      <input type="checkbox" class="pck" value="${esc(p.url)}">
+      <span class="muted">${esc(p.lastmod)}</span> ${esc(p.slug)}</label>`).join('');
+    seoInfo.textContent = `共 ${rows.length} 篇（倒序），勾选后点「出修改建议」`;
+  } catch (e) { toast(e.message); }
+  pBtn.disabled = false; pBtn.textContent = '重新加载文章清单';
+}
+
+/** @param {'fix'|'idea'} mode 修改建议 / 新选题 */
+async function seoReview(mode) {
+  const urls = [...document.querySelectorAll('.pck:checked')].map(c => c.value);
+  if (mode === 'fix' && !urls.length) return toast('先勾选至少一篇文章');
+  const btn = mode === 'fix' ? fixBtn : ideaBtn;
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '分析中…（约 1 分钟）';
+  try {
+    const rows = await api('/seo/review', {method: 'POST', body: JSON.stringify({
+      urls: mode === 'fix' ? urls : [], table: seoTable.value, ideas: +seoN.value})});
+    toast(`已生成 ${rows.length} 条建议，见内容列表`); loadContents();
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = old;
 }
 
 /** 加载开发信效果 */

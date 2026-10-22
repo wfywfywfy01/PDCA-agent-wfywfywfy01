@@ -41,6 +41,12 @@ class GenerateBody(BaseModel):
     language: str = Field(default="English", max_length=40)
 
 
+class SeoReviewBody(BaseModel):
+    urls: list[str] = Field(default_factory=list, max_length=20)
+    table: str = Field(default="", max_length=60000)
+    ideas: int = Field(default=5, ge=1, le=10)
+
+
 class ContentPatch(BaseModel):
     title: str = Field(max_length=500)
     body: str = Field(min_length=1)
@@ -90,6 +96,26 @@ async def generate(body: GenerateBody, _: Manager, session: DB):
         raise HTTPException(502, f"生成失败：{exc}") from exc
     if not rows:
         raise HTTPException(502, "模型没有返回可用版本")
+    return [r.model_dump() for r in rows]
+
+
+@router.get("/seo/posts")
+async def seo_posts(_: Manager, limit: int = 200):
+    """vertu.com 海外站文章清单（钉 CDN IP 直连，只读）。"""
+    from app.growth import fetcher
+    return await asyncio.to_thread(fetcher.list_posts, min(max(limit, 1), 500))
+
+
+@router.post("/seo/review")
+async def seo_review(body: SeoReviewBody, _: Manager, session: DB):
+    """给定文章 URL 出修改建议；URL 为空则基于流量表出新选题。"""
+    try:
+        rows = await asyncio.to_thread(
+            service.seo_review, session, urls=body.urls or None, table=body.table, ideas=body.ideas)
+    except Exception as exc:  # 抓取/模型失败统一回 502
+        raise HTTPException(502, f"分析失败：{exc}") from exc
+    if not rows:
+        raise HTTPException(502, "模型没有返回可用建议")
     return [r.model_dump() for r in rows]
 
 
