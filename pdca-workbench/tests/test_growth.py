@@ -190,7 +190,7 @@ class GrowthTests(unittest.TestCase):
         imap = MagicMock()
         imap.search.return_value = ("OK", [b"1 2 3 4"])
         imap.fetch.side_effect = [
-            msg(b"From: a@d.test\r\nIn-Reply-To: <reply@x>\r\n", b"Sounds interesting, send specs"),
+            msg("From: 张三 <a@d.test>\r\nIn-Reply-To: <reply@x>\r\n".encode(), b"Sounds interesting, send specs"),
             msg(b"From: MAILER-DAEMON@mx.test\r\n", b"Original-Message-ID: <bounce@x>"),
             msg(b"From: c@d.test\r\nSubject: Automatic reply: hi\r\nIn-Reply-To: <ooo@x>\r\n"),
             msg(b"From: d@d.test\r\nIn-Reply-To: <unsub@x>\r\n", b"no\r\n\r\n> original"),
