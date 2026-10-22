@@ -17,6 +17,7 @@ import urllib.request
 SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 _METRICS = ("screenPageViews", "sessions", "activeUsers", "engagementRate", "keyEvents")
 _CONTENT = ("/news/", "/lifestyle/", "/guides/", "/blog")
+SNAPSHOT_VERSION = 2  # Older snapshots substituted zero for unreported topic paths.
 
 
 class Ga4Error(RuntimeError):
@@ -192,6 +193,8 @@ def _read_snapshot() -> dict | None:
         data = json.load(fh)
     if not isinstance(data, dict) or not data.get("table"):
         return None
+    if data.get("schema_version") != SNAPSHOT_VERSION:
+        raise Ga4Error("旧版 GA4 快照无法区分未查到与零流量，请用更新后的同步脚本重新生成快照")
     data["stale"] = True
     return data
 
@@ -252,6 +255,8 @@ def _live_briefing(days: int = 28, limit: int = 40) -> dict:
             prev[field] += row[field]
     lines = [
         f"GA4 content pages, last {days} days. key_events = configured conversions (0 means none or not set).",
+        f"Source: GA4 Data API pagePath report; top {limit} content pages and top 100 partner pages. "
+        "N/A = not reported in this limited result, NOT zero traffic.",
         "page\tviews\tsessions\tusers\tengagement_rate\tkey_events",
         *[_fmt(row) for row in top],
         "",
@@ -266,9 +271,11 @@ def _live_briefing(days: int = 28, limit: int = 40) -> dict:
         if not topic["url"]:
             lines.append(f"{topic['title']}\t(not published)\t\t\t")
         elif not hit:
-            lines.append(f"{topic['title']}\t{topic['url']}\t0\t0\t")
+            lines.append(f"{topic['title']}\t{topic['url']}\tN/A\tN/A\tN/A")
         else:
             lines.append(
                 f"{topic['title']}\t{topic['url']}\t{hit['views']}\t{hit['sessions']}\t{hit['engRate']}"
             )
-    return {"days": days, "top": len(top), "topics": len(topics), "table": "\n".join(lines)}
+    return {"days": days, "top": len(top), "topics": len(topics), "table": "\n".join(lines),
+            "schema_version": SNAPSHOT_VERSION,
+            "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

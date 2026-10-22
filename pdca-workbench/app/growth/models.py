@@ -2,10 +2,10 @@
 """增长飞轮：素材、生成内容、开发信发送与追踪。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Column, Text
+from sqlalchemy import Column, DateTime, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -66,3 +66,26 @@ class GrowthUnsub(SQLModel, table=True):
 
     email: str = Field(primary_key=True, max_length=320)
     at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class GrowthDelivery(SQLModel, table=True):
+    """Durable send claim. Never automatically retry an existing claim.
+
+    A separate table preserves historical duplicate GrowthSend records. Pending
+    may mean process death after SMTP accepted DATA; it cannot safely expire.
+    """
+
+    __tablename__ = "growth_deliveries"
+    __table_args__ = (UniqueConstraint("content_id", "to_addr", name="uq_growth_delivery_recipient"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    content_id: int = Field(index=True)
+    to_addr: str = Field(max_length=320)
+    status: str = Field(default="pending", index=True, max_length=16)
+    token: str = Field(unique=True, index=True, max_length=40)
+    message_id: str = Field(max_length=300)
+    tracked: bool = False
+    claimed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc),
+                                 sa_column=Column(DateTime(timezone=True), nullable=False, index=True))
+    finished_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
+    detail: str = Field(default="", max_length=500)
