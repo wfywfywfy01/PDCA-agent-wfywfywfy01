@@ -247,6 +247,57 @@ class GrowthTests(unittest.TestCase):
         self.assertIsNotNone(self.session.get(GrowthUnsub, "unsub@d.test"))
         self.assertIsNone(rows["quiet"].replied_at)
 
+    def test_ga4_briefing_joins_unpublished_topic(self):
+        from app.growth import ga4
+        top = [{"page": "/lifestyle/price", "views": 100, "sessions": 80, "users": 70,
+                "engRate": 0.7, "keyEvents": 0}]
+        partners = [{"page": "//news/partners/live-post", "views": 4, "sessions": 3, "users": 3,
+                     "engRate": 0.5, "keyEvents": 0},
+                    {"page": "/news/partners/live-post", "views": 1, "sessions": 1, "users": 1,
+                     "engRate": 1, "keyEvents": 0}]
+        topics = "title\turl\nLive\thttps://vertu.com/news/partners/live-post\nDraft\t\n"
+        with self._topics(topics), \
+                patch.object(ga4, "content_rows", return_value=top), \
+                patch.object(ga4, "path_rows", return_value=partners):
+            out = ga4.briefing(28)
+        self.assertEqual(out["topics"], 2)
+        self.assertIn("/lifestyle/price\t100\t80\t70\t0.7\t0", out["table"])
+        self.assertIn("Live\thttps://vertu.com/news/partners/live-post\t5\t4\t0.5", out["table"])
+        self.assertIn("Draft\t(not published)", out["table"])
+
+    def test_ga4_briefing_uses_snapshot_when_google_unreachable(self):
+        import tempfile
+
+        from app.growth import ga4
+        fh = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json")
+        json.dump({"days": 28, "top": 1, "topics": 2, "table": "cached-table"}, fh)
+        fh.close()
+        self.addCleanup(os.remove, fh.name)
+        with patch.dict(os.environ, {"PDCA_GROWTH_GA4_SNAPSHOT": fh.name}), \
+                patch.object(ga4, "content_rows", side_effect=ga4.Ga4Error("down")):
+            out = ga4.briefing()
+        self.assertTrue(out["stale"])
+        self.assertEqual(out["table"], "cached-table")
+
+    def test_seo_review_uses_ga4_when_table_empty(self):
+        from app.growth import fetcher, ga4
+        idea = json.dumps({"variants": [{"angle": "a", "title": "q", "body": "outline"}]})
+        with patch.object(ga4, "configured", return_value=True), \
+                patch.object(ga4, "briefing", return_value={"table": "page\tviews\n/price\t9"}), \
+                patch.object(fetcher, "list_posts", return_value=[]), \
+                patch.object(service, "_llm", return_value=idea) as llm:
+            rows = service.seo_review(self.session, urls=None, table="", ideas=1)
+        self.assertEqual(rows[0].kind, "seo_idea")
+        self.assertIn("/price", llm.call_args.args[0][1]["content"])
+
+    def _topics(self, text: str):
+        import tempfile
+        fh = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".tsv")
+        fh.write(text)
+        fh.close()
+        self.addCleanup(os.remove, fh.name)
+        return patch.dict(os.environ, {"PDCA_GROWTH_SEO_TOPICS_FILE": fh.name})
+
 
 if __name__ == "__main__":
     unittest.main()

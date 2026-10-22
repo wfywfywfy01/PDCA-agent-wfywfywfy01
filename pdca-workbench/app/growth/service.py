@@ -87,9 +87,15 @@ def seo_review(
 ) -> list[GrowthContent]:
     """P3 只读 SEO 顾问：给已有文章出修改建议（urls 非空），或基于流量表出新选题。
 
-   不改线上文章，只产出建议供人工在 Shopify 执行。"""
-    from app.growth import fetcher
+    不改线上文章，只产出建议供人工在 Shopify 执行。table 为空且 GA4 已配置时自动拉流量。
+    """
+    from app.growth import fetcher, ga4
 
+    if not table.strip() and ga4.configured():
+        try:
+            table = ga4.briefing()["table"]
+        except Exception as exc:
+            table = f"(GA4 拉取失败：{exc})"
     round_no = (session.exec(select(func.max(GrowthContent.round_no))).one() or 0) + 1
     rows: list[GrowthContent] = []
     if urls:
