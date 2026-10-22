@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
+from scripts import deploy_omega_web as omega_deploy
 from scripts.deploy_omega_web import build_run_args, copy_environment, deploy, require_revision, run_docker, same_environment
 
 
@@ -156,12 +158,116 @@ class DeployOmegaWebTests(unittest.TestCase):
             return ""
 
         with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
-              patch("scripts.deploy_omega_web._active_calls", return_value=0),
+              patch("scripts.deploy_omega_web._deployment_gate", create=True),
               patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker)):
             with self.assertRaisesRegex(RuntimeError, "rename failure"):
                 deploy("ssh://test")
         self.assertEqual(commands, ["stop", "rename", "start"])
         self.assertTrue(old["State"]["Running"])
+
+    def test_deployment_gate_covers_old_web_stop_and_blocks_new_call_race(self):
+        old = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1"}},
+               "State": {"Health": {"Status": "unhealthy"}, "Running": True}}
+        image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": "abcdef0"}, "Env": []}}
+        state = {"web": old, "rollback": None, "locked": False}
+        events = []
+
+        def fake_inspect(_host, name):
+            if name == "pdca-workbench":
+                return self.source
+            if name == self.source["Config"]["Image"]:
+                return image
+            if name == "pdca-omega-web":
+                return state["web"]
+            return state["rollback"] if name.startswith("pdca-omega-web-rollback-") else None
+
+        @contextmanager
+        def fake_gate(host):
+            self.assertEqual(host, "ssh://test")
+            state["locked"] = True
+            events.append("lock")
+            try:
+                yield
+            finally:
+                state["locked"] = False
+                events.append("unlock")
+
+        def fake_docker(_host, *args):
+            action = args[0]
+            events.append(action)
+            if action == "stop":
+                # A new connection can be admitted here unless the DB gate is held.
+                self.assertTrue(state["locked"])
+                old["State"]["Running"] = False
+            elif action == "rename":
+                state["rollback"], state["web"] = state["web"], None
+            elif action == "run":
+                state["web"] = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1"}},
+                                "State": {"Health": {"Status": "healthy"}, "Running": True}}
+            elif action == "rm":
+                state["rollback"] = None
+            return ""
+
+        with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
+              patch("scripts.deploy_omega_web._deployment_gate", create=True, side_effect=fake_gate),
+              patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker),
+              patch("scripts.deploy_omega_web._wait_healthy"),
+              patch("scripts.deploy_omega_web._smoke")):
+            self.assertEqual(deploy("ssh://test"), "abcdef0")
+        self.assertLess(events.index("lock"), events.index("stop"))
+        self.assertLess(events.index("stop"), events.index("unlock"))
+        self.assertFalse(state["locked"])
+
+    def test_deployment_gate_uses_postgres_lock_over_ssh_and_rejects_live_call(self):
+        class Pipe:
+            def __init__(self, value=""):
+                self.value = value
+                self.writes = []
+
+            def readline(self):
+                return self.value
+
+            def write(self, value):
+                self.writes.append(value)
+
+            def flush(self):
+                pass
+
+            def close(self):
+                pass
+
+        class Process:
+            def __init__(self, count):
+                self.stdin = Pipe()
+                self.stdout = Pipe(f"{count}\n")
+                self.returncode = None
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.returncode = 0
+                return 0
+
+            def kill(self):
+                self.returncode = -9
+
+        process = Process(0)
+        with patch("scripts.deploy_omega_web.subprocess.Popen", return_value=process) as launch:
+            with omega_deploy._deployment_gate("ssh://test"):
+                self.assertIsNone(process.poll())
+        args = launch.call_args.args[0]
+        self.assertEqual(args[:5], ["docker", "-H", "ssh://test", "exec", "-i"])
+        self.assertIn("pdca-workbench", args)
+        self.assertIn("LOCK TABLE omega_jobs IN SHARE MODE", " ".join(args))
+        self.assertEqual(process.stdin.writes, ["\n"])
+
+        process = Process(1)
+        with patch("scripts.deploy_omega_web.subprocess.Popen", return_value=process):
+            with self.assertRaisesRegex(RuntimeError, "active Omega realtime call"):
+                with omega_deploy._deployment_gate("ssh://test"):
+                    self.fail("active call must block deployment")
+        self.assertEqual(process.stdin.writes, ["\n"])
 
 
 if __name__ == "__main__":

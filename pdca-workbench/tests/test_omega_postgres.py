@@ -68,7 +68,7 @@ class OmegaPostgresTests(unittest.TestCase):
     def setUp(self):
         with Session(self.engine) as db:
             user = User(username="omega-" + uuid4().hex, role="sales", team_key="team-a",
-                        hashed_password="test-only", is_active=True)
+                        hashed_password="test-only", is_active=True, must_change_password=False)
             db.add(user)
             db.flush()
             self.user_id = user.id

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
@@ -48,7 +49,8 @@ from app.knowledge.mcp import knowledge_mcp, knowledge_mcp_app
 from app.mcp_five_kit import five_kit_mcp, five_kit_mcp_app
 from app.agents.router import router as agents_router
 from app.duzhan_admin.router import router as duzhan_admin_router
-from app.omega.router import router as omega_router
+from app.omega.models import OmegaWorkerHeartbeat, utcnow
+from app.omega.router import is_enabled as omega_enabled, router as omega_router
 from app.omega.voice import router as omega_voice_router
 from app.omega.real import router as omega_real_router
 from app.omega.realtime import router as omega_realtime_router
@@ -393,6 +395,18 @@ def _daily_report_status() -> dict:
     }
 
 
+def _omega_worker_status() -> dict:
+    try:
+        with Session(get_engine()) as db:
+            recent = db.exec(select(OmegaWorkerHeartbeat.worker_id).where(
+                OmegaWorkerHeartbeat.last_seen >= utcnow() - timedelta(seconds=20)
+            ).limit(1)).first() is not None
+        return {"ok": recent, "state": "fresh" if recent else "stale"}
+    except Exception as exc:
+        logger.warning("Omega worker health probe failed: {}", type(exc).__name__)
+        return {"ok": False, "state": "unknown"}
+
+
 @app.get("/health")
 async def health():
     """健康检查（含数据库连通性）。"""
@@ -429,7 +443,12 @@ async def health():
             "not_required": True,
             "detail": "该门户不依赖 vertu-cli",
         }
-    ok = db_ok and backup["ok"] and vertu["ok"]
+    # Caddy rewrites /omega-health to this endpoint on the independent Omega web.
+    omega_web = omega_enabled() and not getattr(settings, "scheduler_enabled", True)
+    omega_worker = (
+        await asyncio.to_thread(_omega_worker_status) if db_ok else {"ok": False, "state": "unknown"}
+    ) if omega_web else {"ok": True, "not_required": True}
+    ok = db_ok and backup["ok"] and vertu["ok"] and omega_worker["ok"]
     daily_report_required = getattr(settings, "scheduler_enabled", True) and getattr(
         settings, "daily_report_enabled", False
     )
@@ -450,6 +469,7 @@ async def health():
         "database_connected": db_ok,
         "backup": backup,
         "vertu_cli": vertu,
+        "omega_worker": omega_worker,
         "daily_report": daily_report,
     }
     return JSONResponse(payload, status_code=200 if ok else 503)

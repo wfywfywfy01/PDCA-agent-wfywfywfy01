@@ -725,7 +725,7 @@ if (-not (Test-Path -LiteralPath $EnvFile)) {
 }
 
 if (-not $Sha) {
-    $run = gh run list --repo $CiRepo --workflow pdca-ci-cd.yml --branch main --status success `
+    $run = gh run list --repo $CiRepo --workflow "PDCA CI/CD" --branch main --status success `
         --limit 1 --json headSha,conclusion | ConvertFrom-Json
     if (-not $run -or $run.conclusion -ne "success") {
         throw "No successful main PDCA CI/CD run found"
@@ -737,7 +737,7 @@ if ($Sha -notmatch '^[0-9a-f]{40}$') { throw "Sha must be a full 40-character co
 if (-not $SkipCiCheck) {
     # gh run list 的 --commit / --status 过滤均存在漏报怪癖；显式 --repo 锁定
     # fork（默认解析会跟到 upstream），拉取最近 10 条 run 后精确匹配 headSha。
-    $runs = gh run list --repo $CiRepo --workflow pdca-ci-cd.yml --branch main `
+    $runs = gh run list --repo $CiRepo --workflow "PDCA CI/CD" --branch main `
         --limit 10 --json headSha,conclusion | ConvertFrom-Json
     $matched = @($runs | Where-Object { $_.headSha -eq $Sha -and $_.conclusion -eq "success" })
     if (-not $matched) {

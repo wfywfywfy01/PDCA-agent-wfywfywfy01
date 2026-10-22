@@ -25,6 +25,8 @@ from app.omega.reports import WEIGHTS
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix="/api/omega", tags=["omega"])
+VOICE_TAIL_INCOMPLETE = "语音尾稿未完成，请检查逐字稿后重新演练"
+VOICE_STREAM_ORPHANED = "实时语音意外中断，尾稿未确认；请重新演练"
 
 
 def is_enabled() -> bool:
@@ -417,6 +419,11 @@ def owned_session(db: Session, user: User, session_id: str) -> OmegaSession:
     return visible_session(db, user, row)
 
 
+def require_session_owner(user: User, row: OmegaSession) -> None:
+    if user.id != row.owner_id:
+        raise HTTPException(403, "仅本场创建者可以操作对话")
+
+
 def visible_session(db: Session, user: User, row: OmegaSession | None) -> OmegaSession:
     if row is None:
         raise HTTPException(404, "演练不存在")
@@ -431,6 +438,23 @@ def session_segments(db: Session, session_id: str) -> list[OmegaSegment]:
     ).order_by(OmegaSegment.seq)).all())
 
 
+def unanswered_turn_job(db: Session, row: OmegaSession, segments: list[OmegaSegment]) -> OmegaJob | None:
+    if not segments or segments[-1].speaker != "sales":
+        return None
+    last = segments[-1]
+    if not last.request_key:
+        return None
+    return db.exec(select(OmegaJob).where(
+        OmegaJob.session_id == row.id, OmegaJob.kind == "turn",
+        OmegaJob.request_key == last.request_key, OmegaJob.status != "succeeded",
+    )).first()
+
+
+def failed_turn_job(db: Session, row: OmegaSession, segments: list[OmegaSegment]) -> OmegaJob | None:
+    job = unanswered_turn_job(db, row, segments)
+    return job if row.status == "active" and job and job.status == "failed" and job.session_revision == row.revision else None
+
+
 def session_view(db: Session, row: OmegaSession) -> dict:
     from app.omega.memory import session_snapshot
     version = db.get(OmegaCaseVersion, row.case_version_id)
@@ -442,6 +466,11 @@ def session_view(db: Session, row: OmegaSession) -> dict:
         OmegaJob.kind.in_(["turn", "report"]),
         OmegaJob.status.in_(["queued", "running"]),
     ).order_by(OmegaJob.created_at.desc()).limit(1)).first()
+    segments = session_segments(db, row.id)
+    failed_turn = failed_turn_job(db, row, segments)
+    blocked_message = voice_tail_error(db, row)
+    if not blocked_message and unanswered_turn_job(db, row, segments):
+        blocked_message = "最后一轮对手未回复；本场不能评分，请重新开练"
     return {
         "id": row.id, "case_id": row.case_id, "team_key": row.team_key, "mode": row.mode,
         "assignment_id": row.assignment_id,
@@ -454,13 +483,16 @@ def session_view(db: Session, row: OmegaSession) -> dict:
         "revision": row.revision, "transcript_hash": row.transcript_hash,
         "latest_report_id": latest_report.id if latest_report else "",
         "pending_job_id": pending_job.id if pending_job else "",
+        "failed_turn_job_id": failed_turn.id if failed_turn else "",
+        "report_blocked": bool(blocked_message),
+        "report_blocked_message": blocked_message,
         "segments": [
             {"id": segment.id, "seq": segment.seq, "speaker": segment.speaker,
              "text": segment.text, "source": segment.source,
              "asr_original": segment.asr_original,
              "source_speaker": segment.source_speaker, "speaker_id": segment.speaker_id,
              "turn_id": segment.turn_id, "provider_event_id": segment.provider_event_id}
-            for segment in session_segments(db, row.id)
+            for segment in segments
         ],
     }
 
@@ -546,7 +578,7 @@ def submit_turn(
     row = owned_session(db, user, session_id)
     row = db.exec(select(OmegaSession).where(OmegaSession.id == row.id)
                   .with_for_update().execution_options(populate_existing=True)).one()
-    require_writer(user, row.owner_id)
+    require_session_owner(user, row)
     request_hash = digest(body.model_dump())
     existing = db.exec(select(OmegaJob).where(
         OmegaJob.session_id == row.id, OmegaJob.kind == "turn",
@@ -571,6 +603,8 @@ def submit_turn(
     if pending:
         raise HTTPException(409, "上一轮仍在处理")
     segments = session_segments(db, row.id)
+    if failed_turn_job(db, row, segments):
+        raise HTTPException(409, "上一轮对手回复失败，请重试该轮回复")
     if len(segments) >= 120 or sum(len(part.text) for part in segments) + len(body.text) > 24000:
         raise HTTPException(413, "本场演练已达长度上限，请结束并复盘")
     part = OmegaSegment(session_id=row.id, seq=len(segments) + 1,
@@ -611,6 +645,51 @@ def get_job(
     return job_view(job)
 
 
+@router.post("/jobs/{job_id}/retry", status_code=202, dependencies=[Depends(enabled)])
+def retry_failed_turn(
+    job_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_session)],
+):
+    job = db.get(OmegaJob, job_id)
+    if job is None or job.kind != "turn":
+        raise HTTPException(404, "任务不存在")
+    row = owned_session(db, user, job.session_id)
+    row = db.exec(select(OmegaSession).where(OmegaSession.id == row.id)
+                  .with_for_update().execution_options(populate_existing=True)).one()
+    require_session_owner(user, row)
+    job = db.exec(select(OmegaJob).where(OmegaJob.id == job_id)
+                  .with_for_update().execution_options(populate_existing=True)).one()
+    if row.status != "active" or row.revision != job.session_revision:
+        raise HTTPException(409, "该轮已变化，无法重试")
+    if job.status in {"queued", "running"}:
+        return job_view(job)
+    failed = failed_turn_job(db, row, session_segments(db, row.id))
+    if job.status != "failed" or failed is None or failed.id != job.id:
+        raise HTTPException(409, "该轮无法重试")
+    live = db.exec(select(OmegaJob).where(
+        OmegaJob.session_id == row.id, OmegaJob.kind == "realtime",
+        OmegaJob.status == "running", OmegaJob.lease_until > utcnow(),
+    )).first()
+    if live:
+        raise HTTPException(409, "实时语音正在进行，请先挂断")
+    pending = db.exec(select(OmegaJob).where(
+        OmegaJob.session_id == row.id, OmegaJob.kind == "turn",
+        OmegaJob.status.in_(["queued", "running"]),
+    )).first()
+    if pending:
+        raise HTTPException(409, "上一轮仍在处理")
+    job.status = "queued"
+    job.attempts = 0
+    job.error = ""
+    job.lease_token = ""
+    job.lease_until = None
+    job.available_at = utcnow()
+    job.updated_at = utcnow()
+    db.commit()
+    return job_view(job)
+
+
 @router.post("/sessions/{session_id}/finish", dependencies=[Depends(enabled)])
 def finish_session(
     session_id: str,
@@ -621,18 +700,31 @@ def finish_session(
     row = owned_session(db, user, session_id)
     row = db.exec(select(OmegaSession).where(OmegaSession.id == row.id)
                   .with_for_update().execution_options(populate_existing=True)).one()
-    require_writer(user, row.owner_id)
-    require_complete_voice_tail(db, row)
-    if row.status == "ended":
-        if session_segments(db, row.id):
-            enqueue_report(db, row)
-            db.commit()
-        return session_view(db, row)
+    require_session_owner(user, row)
+    tail_error = voice_tail_error(db, row)
     realtime = db.exec(select(OmegaJob).where(
         OmegaJob.session_id == row.id, OmegaJob.kind == "realtime", OmegaJob.status == "running",
-    )).first()
+    ).with_for_update()).first()
     if realtime:
-        raise HTTPException(409, "实时语音尾部尚未保存，请等待连接关闭后再结束")
+        deadline = realtime.lease_until
+        if deadline is None or (deadline.replace(tzinfo=timezone.utc) if deadline.tzinfo is None
+                                else deadline) > utcnow():
+            raise HTTPException(409, "实时语音尾部尚未保存，请等待连接关闭后再结束")
+        realtime.status = "failed"
+        realtime.error = VOICE_STREAM_ORPHANED
+        realtime.lease_token = ""
+        realtime.updated_at = utcnow()
+        row.voice_state = "error"
+        tail_error = VOICE_STREAM_ORPHANED
+    segments = session_segments(db, row.id)
+    unanswered = unanswered_turn_job(db, row, segments)
+    if row.status == "ended":
+        if segments and not tail_error and not unanswered:
+            enqueue_report(db, row)
+            db.commit()
+        elif realtime:
+            db.commit()
+        return session_view(db, row)
     for job in db.exec(select(OmegaJob).where(
         OmegaJob.session_id == row.id,
         OmegaJob.kind.in_(["turn", "realtime"]),
@@ -643,25 +735,33 @@ def finish_session(
     row.status = "ended"
     row.revision += 1
     row.ended_at = utcnow()
-    row.transcript_hash = transcript_digest(session_segments(db, row.id))
-    if session_segments(db, row.id):
+    row.transcript_hash = transcript_digest(segments)
+    if segments and not tail_error and not unanswered:
         enqueue_report(db, row)
     db.commit()
     return session_view(db, row)
 
 
+def voice_tail_error(db: Session, row: OmegaSession) -> str:
+    for marker in (VOICE_TAIL_INCOMPLETE, VOICE_STREAM_ORPHANED):
+        incomplete = db.exec(select(OmegaJob.id).where(
+            OmegaJob.session_id == row.id, OmegaJob.kind == "realtime", OmegaJob.error == marker,
+        )).first()
+        if incomplete:
+            return marker
+    return ""
+
+
 def require_complete_voice_tail(db: Session, row: OmegaSession) -> None:
-    incomplete = db.exec(select(OmegaJob).where(
-        OmegaJob.session_id == row.id, OmegaJob.kind == "realtime",
-        OmegaJob.error == "语音尾稿未完成，请检查逐字稿后重新演练",
-    )).first()
-    if incomplete:
-        raise HTTPException(409, incomplete.error)
+    if error := voice_tail_error(db, row):
+        raise HTTPException(409, error)
 
 
 def enqueue_report(db: Session, row: OmegaSession, request_key: str | None = None) -> OmegaJob:
     """Caller holds the session lock and commits with transcript/state changes."""
     require_complete_voice_tail(db, row)
+    if unanswered_turn_job(db, row, session_segments(db, row.id)):
+        raise HTTPException(409, "对手回复未完成，本场不能评分")
     from app.omega.coaching import report_hints_metadata
     from app.omega.memory import session_snapshot
     snapshot = session_snapshot(row, db.get(OmegaCaseVersion, row.case_version_id))

@@ -90,6 +90,7 @@ class VoiceBoundaryTests(unittest.TestCase):
 
         class Browser:
             def __init__(self):
+                self.cookies = {}
                 self.incoming = asyncio.Queue()
                 self.events, self.audio = [], []
                 self.boundary_triggered = False

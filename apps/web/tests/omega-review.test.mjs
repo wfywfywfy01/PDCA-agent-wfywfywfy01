@@ -6,7 +6,7 @@ import ts from 'typescript'
 import * as vue from 'vue'
 import { renderToString } from 'vue/server-renderer'
 
-function mountReview() {
+function mountReview(apiGet = () => {}, apiPost = () => {}) {
   const source = readFileSync(new URL('../src/pages/OmegaPage.vue', import.meta.url), 'utf8')
     .replaceAll('import.meta.env.MODE', "'test'")
     .replaceAll('import.meta.env.BASE_URL', "'/'")
@@ -18,11 +18,12 @@ function mountReview() {
   })
   assert.deepEqual(template.errors, [])
   const exports = {}
+  let leaveGuard
   const stubComponent = { render: () => null }
   const modules = {
     vue: { ...vue, onMounted() {}, onBeforeUnmount() {}, watch() {} },
-    'vue-router': { useRouter: () => ({ replace() {} }) },
-    '@/api/client': { apiGet() {}, apiPost() {}, apiPatch() {}, apiRequest() {}, HttpError: class extends Error {} },
+    'vue-router': { useRouter: () => ({ replace() {} }), onBeforeRouteLeave: (guard) => { leaveGuard = guard } },
+    '@/api/client': { apiGet, apiPost, apiPatch() {}, apiRequest() {}, HttpError: class extends Error {} },
     '@/components/AppNav.vue': { default: stubComponent },
     '@/components/omega/OmegaSetup.vue': { default: stubComponent },
     '@/components/omega/OmegaMeetingMaterials.vue': { default: stubComponent },
@@ -42,7 +43,8 @@ function mountReview() {
   page.loading.value = false
   page.setupOpen.value = false
   page.me.value = { id: 1, role: 'sales' }
-  return { page, html: () => renderToString(vue.createSSRApp({ ...exports.default, render: exports.render, setup: () => page })) }
+  return { page, leaveGuard: () => leaveGuard,
+    html: () => renderToString(vue.createSSRApp({ ...exports.default, render: exports.render, setup: () => page })) }
 }
 
 function dimension(key, score) {
@@ -146,4 +148,173 @@ test('report evidence links back to the matching transcript turn', async () => {
   assert.match(rendered, /id="omega-segment-line-1"/)
   assert.match(rendered, /查看第 1 条原话/)
   assert.match(rendered, /omega-quote-link/)
+})
+
+test('job status polling recovers after one network failure', async () => {
+  let jobReads = 0
+  const { page } = mountReview(async (path) => {
+    if (path === '/api/omega/jobs/job-1') {
+      if (++jobReads === 1) throw new Error('temporary network failure')
+      return { id: 'job-1', status: 'succeeded', result_id: '', kind: 'turn' }
+    }
+    if (path === '/api/omega/sessions/session-1') return { id: 'session-1', status: 'active', segments: [] }
+    throw new Error(`Unexpected request ${path}`)
+  })
+  page.chosenSession.value = { id: 'session-1', status: 'active' }
+  page.activeJob.value = { id: 'job-1', status: 'running', kind: 'turn' }
+  const originalSetTimeout = globalThis.setTimeout
+  const originalClearTimeout = globalThis.clearTimeout
+  let retry
+  globalThis.setTimeout = (callback, delay) => { retry = { callback, delay }; return 1 }
+  globalThis.clearTimeout = () => {}
+  try {
+    await page.pollJob()
+    assert.ok(retry, 'temporary failure schedules another status check')
+    assert.match(page.error.value, /temporary network failure/)
+    await retry.callback()
+    assert.equal(page.activeJob.value.status, 'succeeded')
+    assert.equal(page.error.value, '')
+  } finally {
+    globalThis.setTimeout = originalSetTimeout
+    globalThis.clearTimeout = originalClearTimeout
+  }
+})
+
+test('a failed text reply retries the saved turn without submitting another sales message', async () => {
+  const calls = []
+  const { page, html } = mountReview(() => {}, async (path) => {
+    calls.push(path)
+    return { id: 'failed-turn', status: 'queued', result_id: '', kind: 'turn' }
+  })
+  page.chosenSession.value = { id: 'practice-1', owner_id: 1, status: 'active',
+    case_snapshot: page.blankDraft(), segments: [{ id: 'sales-1', speaker: 'sales', text: '请谈谈库存风险。' }] }
+  page.textReady.value = true
+  page.activeJob.value = { id: 'failed-turn', kind: 'turn', status: 'failed', error: '模型超时' }
+  assert.match(await html(), /重试对手回复/)
+  await page.retryTurn()
+  assert.deepEqual(calls, ['/api/omega/jobs/failed-turn/retry'])
+  assert.equal(page.activeJob.value.status, 'queued')
+})
+
+test('unknown voice tail explains why an ended session cannot be scored', async () => {
+  const { page, html } = mountReview()
+  page.chosenSession.value = { id: 'interrupted-voice', owner_id: 1, status: 'ended',
+    report_blocked: true, report_blocked_message: '语音尾稿未确认；本场不能评分', case_snapshot: page.blankDraft(),
+    segments: [{ id: 'saved-1', speaker: 'sales', text: '已保存的发言' }] }
+  const rendered = await html()
+  assert.match(rendered, /尾稿未确认/)
+  assert.doesNotMatch(rendered, /生成复盘/)
+})
+
+test('unsaved custom meeting survives accidental new practice, history switch, and refresh', async () => {
+  let reads = 0
+  const { page, leaveGuard } = mountReview(async () => { reads++; throw new Error('history should stay unopened') })
+    page.newCase()
+    page.setupOpen.value = false
+    page.caseBriefInput.value = '客户希望了解首单政策'
+    page.draft.value.meeting_materials = [{ name: '首单方案', text: '内部方案', purpose: 'reference', visibility: 'shared' }]
+    assert.equal(page.hasUnsavedChanges(), true)
+
+    page.newCase()
+    assert.equal(page.caseBriefInput.value, '客户希望了解首单政策')
+    assert.match(page.discardPrompt.value, /尚未保存/)
+    page.cancelDiscard()
+    await page.openSession('older-session')
+    assert.equal(reads, 0)
+    assert.equal(page.chosenSession.value, null)
+    page.cancelDiscard()
+
+    const beforeUnload = { prevented: false, preventDefault() { this.prevented = true }, returnValue: undefined }
+    page.warnBeforeUnload(beforeUnload)
+    assert.equal(beforeUnload.prevented, true)
+    assert.equal(beforeUnload.returnValue, '')
+    const navigation = leaveGuard()()
+    assert.match(page.discardPrompt.value, /离开会议陪练/)
+    page.cancelDiscard()
+    assert.equal(await navigation, false)
+
+    const acceptedNavigation = leaveGuard()()
+    page.discardAndContinue()
+    assert.equal(await acceptedNavigation, true)
+
+    page.newCase()
+    page.discardAndContinue()
+    assert.equal(page.caseBriefInput.value, '')
+    assert.equal(page.hasUnsavedChanges(), false)
+})
+
+test('an in-flight setup save blocks parent navigation and route leave', async () => {
+  let reads = 0
+  const savedCase = { id: 'saved-case', kind: 'case', title: '已保存会议', draft: {} }
+  const { page, leaveGuard } = mountReview(async (path) => {
+    reads++
+    if (path === '/api/omega/cases') return [savedCase]
+    if (path === '/api/omega/sessions' || path === '/api/omega/assignments') return []
+    throw new Error(`Unexpected request ${path}`)
+  })
+  let saving = true
+  page.setupRef.value = { hasUnsavedChanges: () => false, isBusy: () => saving }
+  page.setupOpen.value = true
+  page.newCase()
+  page.showCase({ id: 'other-case' })
+  await page.openSession('other-session')
+  page.toggleProfiles()
+  assert.equal(page.setupOpen.value, true)
+  assert.equal(page.profilesOpen.value, false)
+  assert.equal(page.chosenCase.value, null)
+  assert.equal(reads, 0)
+  assert.match(page.notice.value, /正在保存/)
+  assert.equal(leaveGuard()(), false)
+  saving = false
+  assert.equal(leaveGuard()(), true)
+  await page.savedTemplate(savedCase.id)
+  assert.equal(page.chosenCase.value?.id, savedCase.id)
+  assert.equal(page.setupOpen.value, false)
+})
+
+test('declining a quick card leaves the unsaved custom meeting and creates no session', async () => {
+  const requests = []
+  const { page } = mountReview(() => {}, async (path) => { requests.push(path); throw new Error('should not create') })
+    page.newCase()
+    page.setupOpen.value = false
+    page.caseBriefInput.value = '客户的真实问题和会议资料'
+    await page.startQuickPractice({ title: '客户要求降价', brief: '模拟背景', stance: '模拟立场', objection: '价格', goal: '约定下一步' })
+    assert.deepEqual(requests, [])
+    assert.equal(page.caseBriefInput.value, '客户的真实问题和会议资料')
+    assert.match(page.discardPrompt.value, /开始新练习/)
+    page.cancelDiscard()
+    assert.deepEqual(requests, [])
+})
+
+test('accepting a quick card opens its new session after one discard confirmation', async () => {
+  const posts = []
+  const { page } = mountReview(async (path) => {
+    if (path === '/api/omega/cases' || path === '/api/omega/sessions' || path === '/api/omega/assignments') return []
+    if (path === '/api/omega/sessions/new-session') return { id: 'new-session', owner_id: 1, status: 'active', segments: [] }
+    throw new Error(`Unexpected GET ${path}`)
+  }, async (path) => {
+    posts.push(path)
+    if (path === '/api/omega/cases') return { id: 'new-case', owner_id: 1 }
+    if (path === '/api/omega/sessions') return { id: 'new-session' }
+    if (path === '/api/omega/cases/new-case/confirm') return {}
+    throw new Error(`Unexpected POST ${path}`)
+  })
+  page.setupRef.value = { hasUnsavedChanges: () => true, isBusy: () => false }
+  await page.startQuickPractice({ title: '客户要求降价', brief: '模拟背景', stance: '模拟立场', objection: '价格', goal: '约定下一步' })
+  assert.match(page.discardPrompt.value, /开始新练习/)
+  page.discardAndContinue()
+  for (let index = 0; index < 20 && page.busy.value; index++) await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(posts, ['/api/omega/cases', '/api/omega/cases/new-case/confirm', '/api/omega/sessions'])
+  assert.equal(page.discardPrompt.value, '')
+  assert.equal(page.chosenSession.value?.id, 'new-session')
+})
+
+test('a manager viewing a sales session does not see controls to speak as that sales user', async () => {
+  const { page, html } = mountReview()
+  page.me.value = { id: 2, role: 'manager' }
+  page.chosenSession.value = { id: 'sales-session', owner_id: 1, status: 'active',
+    mode: 'rehearsal', case_snapshot: page.blankDraft(), segments: [] }
+  assert.doesNotMatch(await html(), /omega-practice-controls/)
+  page.me.value = { id: 1, role: 'sales' }
+  assert.match(await html(), /omega-practice-controls/)
 })

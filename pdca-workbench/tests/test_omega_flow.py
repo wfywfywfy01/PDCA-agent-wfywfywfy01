@@ -542,6 +542,8 @@ class OmegaFlowTests(unittest.TestCase):
             self.assertTrue(self.client.get("/api/omega/status").json()["ready"])
 
     def test_retries_do_not_duplicate_turn_and_report_requires_ended_session(self):
+        from app.omega.jobs import run_once
+
         case = self.client.post("/api/omega/cases", json=self.case_body()).json()
         confirmed = self.client.post(f"/api/omega/cases/{case['id']}/confirm")
         self.assertEqual(confirmed.status_code, 200, confirmed.text)
@@ -555,13 +557,15 @@ class OmegaFlowTests(unittest.TestCase):
         self.assertEqual(again.json(), first.json())
         busy = self.client.post(f"/api/omega/sessions/{session_id}/turns", json={"request_key": "turn-unique-0002", "text": "Another statement"})
         self.assertEqual(busy.status_code, 409)
+        self.assertTrue(run_once(self.engine, generate=lambda *_: "Please send the written schedule."))
         ended = self.client.post(f"/api/omega/sessions/{session_id}/finish", json={"request_key": "finish-unique-01"})
         self.assertEqual(ended.status_code, 200, ended.text)
         report = self.client.post(f"/api/omega/sessions/{session_id}/reports", json={"request_key": "report-unique-01"})
         self.assertEqual(report.status_code, 202, report.text)
         details = self.client.get(f"/api/omega/sessions/{session_id}")
         self.assertEqual(details.status_code, 200)
-        self.assertEqual([(part["speaker"], part["text"]) for part in details.json()["segments"]], [("sales", body["text"])])
+        self.assertEqual([(part["speaker"], part["text"]) for part in details.json()["segments"]],
+                         [("sales", body["text"]), ("counterparty", "Please send the written schedule.")])
 
     def test_worker_keeps_private_limit_from_counterparty_and_saves_reply(self):
         from app.omega.jobs import run_once

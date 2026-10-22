@@ -4,10 +4,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import re
 import subprocess
 import tempfile
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -139,23 +142,59 @@ def _write_environment(env: dict[str, str]) -> str:
         raise
 
 
-def _active_calls(host: str) -> int:
-    query = ("from sqlalchemy import text; from app.database import get_engine; "
-             "c=get_engine().connect(); "
-             "print(c.execute(text(\"SELECT count(*) FROM omega_jobs WHERE kind = 'realtime' "
-             "AND status = 'running'\")).scalar_one()); c.close()")
-    for name in (NAME, "pdca-omega-worker", SOURCE):
-        candidate = inspect(host, name)
-        if candidate and candidate["State"]["Running"]:
-            raw = run_docker(host, "exec", name, "python", "-c", query)
+@contextmanager
+def _deployment_gate(host: str):
+    """Hold PostgreSQL's job-table lock until the old Web has stopped."""
+    if not host.startswith("ssh://"):
+        raise ValueError("Omega deployment requires SSH Docker transport")
+    code = """import sys
+from sqlalchemy import text
+from app.database import get_engine
+with get_engine().connect() as db:
+    with db.begin():
+        db.execute(text("SET LOCAL lock_timeout = '20s'"))
+        db.execute(text("LOCK TABLE omega_jobs IN SHARE MODE"))
+        count = db.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = 'realtime' AND status = 'running'")).scalar_one()
+        print(count, flush=True)
+        sys.stdin.readline()
+"""
+    process = subprocess.Popen(
+        ["docker", "-H", host, "exec", "-i", SOURCE, "python", "-u", "-c", code],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, encoding="utf-8", bufsize=1,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    ready: queue.Queue[str] = queue.Queue(maxsize=1)
+    threading.Thread(target=lambda: ready.put(process.stdout.readline()), daemon=True).start()
+    try:
+        try:
+            count = int(ready.get(timeout=30).strip())
+        except (queue.Empty, ValueError):
+            raise RuntimeError("Cannot acquire Omega deployment gate") from None
+        if count < 0 or process.poll() is not None:
+            raise RuntimeError("Omega deployment gate exited before admission check")
+        if count:
+            raise RuntimeError(f"{count} active Omega realtime call(s); deployment deferred")
+        yield
+        if process.poll() is not None:
+            raise RuntimeError("Omega deployment gate exited before old Web stopped")
+    finally:
+        if process.poll() is None:
             try:
-                count = int(raw)
-            except ValueError as exc:
-                raise RuntimeError("Cannot verify active Omega calls") from exc
-            if count < 0:
-                raise RuntimeError("Cannot verify active Omega calls")
-            return count
-    raise RuntimeError("No running container can verify active Omega calls")
+                process.stdin.write("\n")
+                process.stdin.flush()
+            except OSError:
+                pass
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        process.stdout.close()
 
 
 def _wait_healthy(host: str, name: str, seconds: int = 120) -> None:
@@ -219,8 +258,6 @@ def deploy(host: str, *, target_revision: str | None = None) -> str:
         current["Config"].get("Labels") or {}).get("com.vertu.pdca.revision") == revision:
         if same_environment(current, image, env):
             return revision
-    if current and _active_calls(host):
-        raise RuntimeError("Active Omega realtime call; deployment deferred")
     env_path = _write_environment(env)
     old_name = f"{NAME}-rollback-{datetime.now(timezone.utc):%Y%m%d%H%M%S}"
     renamed = False
@@ -228,7 +265,8 @@ def deploy(host: str, *, target_revision: str | None = None) -> str:
         args = build_run_args(source, env_path, image_name=image_name, revision=revision)
         if current:
             try:
-                run_docker(host, "stop", "--time", "30", NAME)
+                with _deployment_gate(host):
+                    run_docker(host, "stop", "--time", "30", NAME)
                 run_docker(host, "rename", NAME, old_name)
                 renamed = True
             except BaseException:

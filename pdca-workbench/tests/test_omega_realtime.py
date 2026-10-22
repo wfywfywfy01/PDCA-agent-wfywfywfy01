@@ -5,6 +5,7 @@ import unittest
 import base64
 import json
 import tempfile
+from datetime import timedelta
 from threading import Event
 import asyncio
 from pathlib import Path
@@ -16,11 +17,12 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
 from app.auth.deps import get_current_user
-from app.auth.security import create_access_token
+from app.auth.security import create_access_token, hash_password
 from app.config import get_settings
 from app.database import get_session
 from app.main import app
-from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession
+from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession, utcnow
+from app.omega.router import VOICE_STREAM_ORPHANED
 from app.omega.realtime import _acquire, _append, _receive_audio, _receive_doubao_audio, _release, _renew
 from app.omega.realtime import _provider_url
 
@@ -87,6 +89,112 @@ class RealtimeSessionTests(unittest.TestCase):
             self.assertEqual(db.get(OmegaJob, job_id).status, "succeeded")
             self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 2)
 
+    def test_logout_revokes_connected_realtime_lease_on_next_renewal(self):
+        login_token = create_access_token({"sub": self.user.username, "pwd_v": 0})
+        job_id, lease_token, _ = _acquire(
+            self.engine, self.user, self.session_id, auth_token=login_token)
+        _renew(self.engine, self.session_id, job_id, lease_token)
+        with Session(self.engine) as db:
+            self.assertNotIn(login_token, db.get(OmegaJob, job_id).payload_json)
+
+        self.client.cookies.set("pdca_token", login_token)
+        response = self.client.post("/api/auth/logout", headers={"Origin": "http://testserver"})
+        self.assertEqual(response.status_code, 200)
+        with self.assertRaisesRegex(ValueError, "登录已失效"):
+            _renew(self.engine, self.session_id, job_id, lease_token)
+
+    def test_password_change_revokes_connected_realtime_lease_on_next_renewal(self):
+        old_password = "old-voice-password-123"
+        with Session(self.engine) as db:
+            owner = db.get(User, self.user.id)
+            owner.hashed_password = hash_password(old_password)
+            db.commit()
+        login_token = create_access_token({"sub": self.user.username, "pwd_v": 0})
+        job_id, lease_token, _ = _acquire(
+            self.engine, self.user, self.session_id, auth_token=login_token)
+        _renew(self.engine, self.session_id, job_id, lease_token)
+
+        self.client.cookies.set("pdca_token", login_token)
+        response = self.client.post("/api/auth/change-password", json={
+            "old_password": old_password, "new_password": "new-voice-password-123",
+        }, headers={"Origin": "http://testserver"})
+        self.assertEqual(response.status_code, 200)
+        with self.assertRaisesRegex(ValueError, "登录已失效"):
+            _renew(self.engine, self.session_id, job_id, lease_token)
+
+    def test_manager_can_read_but_cannot_speak_or_stop_sellers_stream(self):
+        manager = User(id=2, username="voice-manager", role="manager", team_key="team-a")
+        with Session(self.engine) as db:
+            db.add(User(id=2, username=manager.username, role=manager.role,
+                        team_key=manager.team_key, hashed_password="test-only",
+                        is_active=True, must_change_password=False))
+            db.commit()
+        login_token = create_access_token({"sub": manager.username, "pwd_v": 0})
+        with self.assertRaises(HTTPException) as rejected:
+            _acquire(self.engine, manager, self.session_id, auth_token=login_token)
+        self.assertEqual(rejected.exception.status_code, 403)
+        with Session(self.engine) as db:
+            source = db.get(OmegaSession, self.session_id)
+            own = OmegaSession(case_id=source.case_id, case_version_id=source.case_version_id,
+                               team_key="team-a", owner_id=manager.id)
+            db.add(own)
+            db.commit()
+            own_id = own.id
+        own_job, own_token, _ = _acquire(self.engine, manager, own_id, auth_token=login_token)
+        _release(self.engine, own_job, own_token, failed=False)
+        job_id, lease_token, _ = _acquire(self.engine, self.user, self.session_id)
+        _renew(self.engine, self.session_id, job_id, lease_token)
+        _append(self.engine, self.session_id, job_id, lease_token, "sales", "Can we agree on Friday?")
+
+        app.dependency_overrides[get_current_user] = lambda: manager
+        with patch("app.omega.realtime.is_enabled", return_value=True), \
+                patch("app.omega.router.is_enabled", return_value=True):
+            self.assertEqual(self.client.get(f"/api/omega/sessions/{self.session_id}").status_code, 200)
+            self.assertEqual(self.client.post(
+                f"/api/omega/sessions/{self.session_id}/realtime/stop",
+                headers={"Origin": "http://testserver"}).status_code, 403)
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(OmegaJob, job_id).status, "running")
+
+        with Session(self.engine) as db:
+            db.get(User, self.user.id).is_active = False
+            db.commit()
+        with self.assertRaisesRegex(ValueError, "账号已失效"):
+            _renew(self.engine, self.session_id, job_id, lease_token)
+        with Session(self.engine) as db:
+            actor = db.get(User, self.user.id)
+            actor.is_active = True
+            actor.role = "viewer"
+            db.commit()
+        with self.assertRaises(HTTPException) as rejected:
+            _renew(self.engine, self.session_id, job_id, lease_token)
+        self.assertEqual(rejected.exception.status_code, 403)
+        with Session(self.engine) as db:
+            db.get(User, self.user.id).role = "sales"
+            db.commit()
+        app.dependency_overrides[get_current_user] = lambda: self.user
+        with patch("app.omega.realtime.is_enabled", return_value=True):
+            self.assertEqual(self.client.post(
+                f"/api/omega/sessions/{self.session_id}/realtime/stop",
+                headers={"Origin": "http://testserver"}).status_code, 200)
+
+    def test_failed_text_reply_blocks_voice_until_same_turn_is_retried(self):
+        with Session(self.engine) as db:
+            game = db.get(OmegaSession, self.session_id)
+            game.revision += 1
+            db.add(OmegaSegment(session_id=game.id, seq=1, speaker="sales",
+                                text="Who owns the stock risk?", request_key="failed-text-1"))
+            db.add(OmegaJob(session_id=game.id, kind="turn", request_key="failed-text-1",
+                            request_hash="x" * 64, status="failed",
+                            session_revision=game.revision))
+            db.commit()
+        with self.assertRaises(HTTPException) as rejected:
+            _acquire(self.engine, self.user, self.session_id)
+        self.assertEqual(rejected.exception.status_code, 409)
+        with Session(self.engine) as db:
+            self.assertEqual([part.speaker for part in db.exec(select(OmegaSegment)).all()], ["sales"])
+            self.assertEqual(len(db.exec(select(OmegaJob).where(OmegaJob.kind == "realtime")).all()), 0)
+
     def test_assigned_skill_shapes_realtime_buyer(self):
         with Session(self.engine) as db:
             game = db.get(OmegaSession, self.session_id)
@@ -122,6 +230,20 @@ class RealtimeSessionTests(unittest.TestCase):
             self.assertEqual(stopped.error, "语音尾稿未完成，请检查逐字稿后重新演练")
         second_job, _, _ = _acquire(self.engine, self.user, self.session_id)
         self.assertNotEqual(first_job, second_job)
+
+    def test_expired_stream_cannot_reconnect_and_launder_unknown_audio_into_report(self):
+        job_id, _, _ = _acquire(self.engine, self.user, self.session_id)
+        with Session(self.engine) as db:
+            job = db.get(OmegaJob, job_id)
+            job.lease_until = utcnow() - timedelta(seconds=1)
+            db.commit()
+        with self.assertRaises(HTTPException) as rejected:
+            _acquire(self.engine, self.user, self.session_id)
+        self.assertEqual(rejected.exception.status_code, 409)
+        with Session(self.engine) as db:
+            job = db.get(OmegaJob, job_id)
+            self.assertEqual((job.status, job.error, job.lease_token), ('failed', VOICE_STREAM_ORPHANED, ''))
+            self.assertEqual(len(db.exec(select(OmegaJob).where(OmegaJob.session_id == self.session_id)).all()), 1)
 
     def test_cross_origin_socket_is_rejected(self):
         from starlette.websockets import WebSocketDisconnect
@@ -173,6 +295,21 @@ class RealtimeSessionTests(unittest.TestCase):
                 headers={"Origin": "http://testserver"},
             ) as socket:
                 self.assertIn("尚未配置", socket.receive_json()["message"])
+
+    def test_websocket_binds_its_login_cookie_to_the_lease(self):
+        login_token = create_access_token({"sub": self.user.username, "pwd_v": 0})
+        self.client.cookies.set("pdca_token", login_token)
+        with patch.object(get_settings(), "auth_mode", "local"), \
+             patch("app.omega.realtime.is_enabled", return_value=True), \
+             patch("app.omega.realtime.configured", return_value=True), \
+             patch("app.omega.realtime.provider_name", return_value="qwen"), \
+             patch("app.omega.realtime._acquire", side_effect=HTTPException(401, "login changed")) as acquire:
+            with self.client.websocket_connect(
+                f"/api/omega/sessions/{self.session_id}/realtime",
+                headers={"Origin": "http://testserver"},
+            ) as socket:
+                self.assertEqual(socket.receive_json()["message"], "login changed")
+        self.assertEqual(acquire.call_args.args[3], login_token)
 
     def test_mock_provider_streams_audio_and_persists_final_words(self):
         class Provider:

@@ -2,15 +2,16 @@
 import json
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 from sqlmodel import Session, select
 
 from app.auth.models import User
 from app.omega.coaching_models import OmegaCoachHint
-from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment, OmegaSession
+from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaJob, OmegaReport, OmegaSegment, OmegaSession, utcnow
 from app.omega.reports import WEIGHTS, validate_report
-from app.omega.router import canonical, report_input_hash, transcript_digest
+from app.omega.router import VOICE_STREAM_ORPHANED, canonical, report_input_hash, transcript_digest
 from tests import test_omega_flow as fixtures
 
 
@@ -201,11 +202,13 @@ class OmegaTemplateTests(unittest.TestCase):
             self.assertNotIn(copy['id'], {row['id'] for row in self.client.get('/api/omega/templates').json()})
 
     def test_finish_atomically_queues_one_report_and_keeps_transcript(self):
+        from app.omega.jobs import run_once
         case = self.client.post('/api/omega/cases', json=self.case_body()).json()
         self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
         game = self.client.post('/api/omega/sessions', json={'case_id': case['id']}).json()
         self.client.post(f"/api/omega/sessions/{game['id']}/turns", json={
             'request_key': 'auto-report-turn', 'text': '请确认下一步负责人。'}).raise_for_status()
+        self.assertTrue(run_once(self.engine, generate=lambda *_: '需要先确认内部审批。'))
         first = self.client.post(f"/api/omega/sessions/{game['id']}/finish", json={'request_key': 'auto-finish-001'})
         self.assertEqual(first.status_code, 200, first.text)
         self.assertTrue(first.json()['pending_job_id'])
@@ -216,7 +219,7 @@ class OmegaTemplateTests(unittest.TestCase):
         with Session(self.engine) as db:
             jobs = db.exec(select(OmegaJob).where(OmegaJob.session_id == game['id'], OmegaJob.kind == 'report')).all()
             self.assertEqual(len(jobs), 1)
-            self.assertEqual(len(db.exec(select(OmegaSegment).where(OmegaSegment.session_id == game['id'])).all()), 1)
+            self.assertEqual(len(db.exec(select(OmegaSegment).where(OmegaSegment.session_id == game['id'])).all()), 2)
 
     def test_real_import_automatically_queues_report_once(self):
         self.current = User(id=1, username='seller-a', role='admin', team_key='team-a')
@@ -315,7 +318,7 @@ class OmegaTemplateTests(unittest.TestCase):
         self.assertEqual(ended.status_code, 200, ended.text)
         self.assertTrue(ended.json()['pending_job_id'])
 
-    def test_incomplete_voice_tail_cannot_finish_or_generate_report(self):
+    def test_incomplete_voice_tail_can_end_but_cannot_generate_report(self):
         template = self.template()
         created = self.client.post('/api/omega/template-starts', json=self.start_body(template)).json()
         game_id = created['session_id']
@@ -325,21 +328,52 @@ class OmegaTemplateTests(unittest.TestCase):
             db.add(OmegaSegment(session_id=game_id, seq=1, speaker='sales', text='之前已保存的发言。'))
             db.commit()
         response = self.client.post(f'/api/omega/sessions/{game_id}/finish', json={'request_key': 'finish-incomplete'})
-        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['status'], 'ended')
+        self.assertTrue(response.json()['report_blocked'])
+        self.assertEqual(response.json()['pending_job_id'], '')
         with Session(self.engine) as db:
             game = db.get(OmegaSession, game_id)
-            self.assertEqual(game.status, 'active')
-            game.status = 'ended'
+            self.assertEqual(game.status, 'ended')
             # A durable incomplete-input marker must survive a later status change.
             db.exec(select(OmegaJob).where(OmegaJob.session_id == game_id)).one().status = 'succeeded'
             db.commit()
         response = self.client.post(f'/api/omega/sessions/{game_id}/finish', json={'request_key': 'refinish-incomplete'})
-        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()['report_blocked'])
         response = self.client.post(f'/api/omega/sessions/{game_id}/reports', json={'request_key': 'report-incomplete'})
         self.assertEqual(response.status_code, 409, response.text)
         with Session(self.engine) as db:
             self.assertEqual(len(db.exec(select(OmegaSegment).where(OmegaSegment.session_id == game_id)).all()), 1)
             self.assertEqual(db.exec(select(OmegaJob).where(OmegaJob.session_id == game_id, OmegaJob.kind == 'report')).all(), [])
+
+    def test_expired_realtime_lease_can_end_without_scoring_unknown_tail(self):
+        template = self.template()
+        game_id = self.client.post('/api/omega/template-starts', json=self.start_body(template)).json()['session_id']
+        with Session(self.engine) as db:
+            live = OmegaJob(session_id=game_id, kind='realtime', request_key='orphaned-stream',
+                            request_hash='0' * 64, status='running', lease_token='old-token',
+                            lease_until=utcnow() - timedelta(seconds=1))
+            db.add(live)
+            db.add(OmegaSegment(session_id=game_id, seq=1, speaker='sales', text='已保存的完整发言。'))
+            db.commit()
+            live_id = live.id
+        path = f'/api/omega/sessions/{game_id}'
+        ended = self.client.post(path + '/finish', json={'request_key': 'finish-orphaned'})
+        self.assertEqual(ended.status_code, 200, ended.text)
+        self.assertEqual(ended.json()['status'], 'ended')
+        self.assertEqual(ended.json()['pending_job_id'], '')
+        self.assertTrue(ended.json()['report_blocked'])
+        self.assertIn('尾稿未确认', ended.json()['report_blocked_message'])
+        self.assertEqual([part['text'] for part in ended.json()['segments']], ['已保存的完整发言。'])
+        self.assertEqual(self.client.post(path + '/finish', json={'request_key': 'finish-orphaned'}).status_code, 200)
+        blocked = self.client.post(path + '/reports', json={'request_key': 'report-orphaned'})
+        self.assertEqual(blocked.status_code, 409, blocked.text)
+        with Session(self.engine) as db:
+            live = db.get(OmegaJob, live_id)
+            self.assertEqual((live.status, live.error, live.lease_token), ('failed', VOICE_STREAM_ORPHANED, ''))
+            self.assertEqual(db.exec(select(OmegaJob).where(OmegaJob.session_id == game_id,
+                OmegaJob.kind == 'report')).all(), [])
 
     def test_report_freezes_hint_metadata_into_input_hash(self):
         template = self.template()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import AppNav from '@/components/AppNav.vue'
 import OmegaSetup from '@/components/omega/OmegaSetup.vue'
 import OmegaMeetingMaterials from '@/components/omega/OmegaMeetingMaterials.vue'
@@ -45,7 +45,7 @@ type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer
 }
 type CaseRow = { id: string; kind?: string; title: string; team_key?: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
 type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; asr_original?: string; seq: number }
-type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string }
+type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
@@ -113,6 +113,12 @@ const textReady = ref(false)
 const multiVoiceReady = ref(false)
 const setupOpen = ref(true)
 const setupKey = ref(0)
+const setupRef = ref<{ hasUnsavedChanges: () => boolean; isBusy: () => boolean } | null>(null)
+const discardPrompt = ref('')
+const discardButton = ref<HTMLButtonElement | null>(null)
+let pendingDiscardAction: (() => void | Promise<void>) | null = null
+let pendingRouteResolve: ((allow: boolean) => void) | null = null
+let discardApproved = false
 const profilesOpen = ref(false)
 const voicePhase = ref<'live' | 'pausing' | 'coaching' | 'resuming' | 'error'>('live')
 const voiceRecoveryBlocked = ref(false)
@@ -133,6 +139,7 @@ const voiceAllowed = computed(() => participants.value.length <= 1 || multiVoice
 const voiceConnecting = ref(false)
 const voiceConnected = ref(false)
 const voiceInterrupted = ref(false)
+const voiceEndNotice = ref('')
 const voiceSessionKey = 'omega-active-voice-session'
 function rememberedVoiceSession() {
   try { return sessionStorage.getItem(voiceSessionKey) } catch { return null }
@@ -158,6 +165,7 @@ const participantMap = ref<Record<string, string>>({})
 const meetingPreview = ref<Array<{ speaker: string; text: string }>>([])
 const draft = ref<CaseDraft>(blankDraft())
 const caseBriefInput = ref('')
+let editingBaseline = ''
 const materialBusy = ref(false)
 const analysisBusy = ref(false)
 const analysisReady = ref(false)
@@ -220,6 +228,9 @@ const missingDraftFields = computed(() => {
   return fields
 })
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+let pollFailureJobId = ''
+let pollFailures = 0
+let pollError = ''
 let quoteTimer: ReturnType<typeof setTimeout> | undefined
 let recorder: MediaRecorder | undefined
 let stream: MediaStream | undefined
@@ -274,6 +285,60 @@ function detail(err: unknown): string {
 function key(): string { return crypto.randomUUID() }
 function canWrite(ownerId: number): boolean { return me.value?.id === ownerId || ['manager', 'admin'].includes(me.value?.role || '') }
 function caseName(id: string): string { return cases.value.find((row) => row.id === id)?.title || '谈判任务' }
+function editingSnapshot() {
+  return JSON.stringify({ caseBriefInput: caseBriefInput.value, draft: draft.value, amountMajor: amountMajor.value })
+}
+function hasUnsavedChanges() {
+  return editing.value && editingSnapshot() !== editingBaseline || setupRef.value?.hasUnsavedChanges() === true
+}
+function setupBusy() { return setupRef.value?.isBusy() === true }
+function cancelDiscard() {
+  const resolve = pendingRouteResolve
+  pendingRouteResolve = null
+  pendingDiscardAction = null
+  discardPrompt.value = ''
+  resolve?.(false)
+}
+function requestDiscard(message: string, action: (() => void | Promise<void>) | null, resolve?: (allow: boolean) => void) {
+  cancelDiscard()
+  discardPrompt.value = message
+  pendingDiscardAction = action
+  pendingRouteResolve = resolve || null
+  void nextTick(() => discardButton.value?.focus())
+}
+function discardAndContinue() {
+  const action = pendingDiscardAction
+  const resolve = pendingRouteResolve
+  pendingDiscardAction = null
+  pendingRouteResolve = null
+  discardPrompt.value = ''
+  if (resolve) { resolve(true); return }
+  discardApproved = true
+  try {
+    if (action) void Promise.resolve(action()).catch(err => { error.value = detail(err) })
+  } catch (err) { error.value = detail(err) }
+  finally { discardApproved = false }
+}
+function confirmDiscard(action: () => void | Promise<void>, target: string) {
+  if (setupBusy()) { notice.value = '正在保存本次设置，请等待完成。'; return false }
+  if (discardApproved || !hasUnsavedChanges()) return true
+  requestDiscard(`本次会议设置尚未保存。${target}会丢失填写的内容和资料。`, action)
+  return false
+}
+function warnBeforeUnload(event: BeforeUnloadEvent) {
+  if (!hasUnsavedChanges() && !setupBusy()) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onBeforeRouteLeave(() => {
+  if (setupBusy()) { notice.value = '正在保存本次设置，请等待完成。'; return false }
+  if (!hasUnsavedChanges()) return true
+  return new Promise<boolean>(resolve => requestDiscard('本次会议设置尚未保存。离开会议陪练会丢失填写的内容和资料。', null, resolve))
+})
+function toggleProfiles() {
+  if (setupBusy()) { notice.value = '正在保存本次设置，请等待完成。'; return }
+  profilesOpen.value = !profilesOpen.value
+}
 function quoteNumber(quote: Quote): number { return (chosenSession.value?.segments || []).findIndex((part) => part.id === quote.segment_id) + 1 }
 function showQuote(quote: Quote) {
   const target = document.getElementById(`omega-segment-${quote.segment_id}`)
@@ -338,7 +403,9 @@ async function loadMoreAssignments() {
   } catch (err) { error.value = detail(err) }
   finally { loadingMoreAssignments.value = false }
 }
-async function openSession(id: string) {
+async function openSession(id: string, discardConfirmed = false) {
+  if (!discardConfirmed && !confirmDiscard(() => openSession(id), '切换演练记录')) return
+  const discardedSetup = setupRef.value?.hasUnsavedChanges() === true
   profilesOpen.value = false
   const token = ++openToken
   if (pollTimer) clearTimeout(pollTimer)
@@ -347,6 +414,7 @@ async function openSession(id: string) {
   chosenAssignment.value = null
   const game = await apiGet<SessionRow>(`/api/omega/sessions/${id}`)
   if (token !== openToken) return
+  if (discardedSetup) setupKey.value++
   mobileNavOpen.value = false
   editing.value = false
   chosenSession.value = game
@@ -363,11 +431,12 @@ async function openSession(id: string) {
     if (token !== openToken) return
     report.value = loadedReport
   }
-  if (game.pending_job_id) {
-    const job = await apiGet<Job>(`/api/omega/jobs/${game.pending_job_id}`)
+  const recoverableJobId = game.pending_job_id || game.failed_turn_job_id
+  if (recoverableJobId) {
+    const job = await apiGet<Job>(`/api/omega/jobs/${recoverableJobId}`)
     if (token !== openToken) return
     activeJob.value = job
-    schedulePoll()
+    if (['queued', 'running'].includes(job.status)) schedulePoll()
   }
 }
 function prepareTemplateVoice() {
@@ -392,7 +461,8 @@ async function startedTemplate(result: TemplateStart, autoVoice = false) {
     await loadLists()
     setupOpen.value = false
     setupKey.value++
-    if (result.session_id) await openSession(result.session_id)
+    cancelDiscard()
+    if (result.session_id) await openSession(result.session_id, true)
     else {
       const row = cases.value.find(item => item.id === result.case_id)
       if (!row) throw new Error('场景已建立，请刷新任务列表后继续导入会议')
@@ -408,6 +478,7 @@ async function savedTemplate(caseId: string) {
     await loadLists()
     const row = cases.value.find(item => item.id === caseId)
       || await apiGet<CaseRow>(`/api/omega/cases/${caseId}`)
+    cancelDiscard()
     showCase(row)
     setupKey.value++
     notice.value = '本次设置已保存到任务列表。确认目标后可继续开练。'
@@ -437,6 +508,7 @@ async function saveCase() {
     await loadLists()
     chosenCase.value = saved
     editing.value = false
+    cancelDiscard()
     notice.value = '草稿已保存，请核对后确认目标版本。'
   })
 }
@@ -446,14 +518,16 @@ async function saveAndStart() {
     const saved = await apiPost<CaseRow>('/api/omega/cases', caseBody())
     chosenCase.value = saved
     editing.value = false
+    cancelDiscard()
     await loadLists()
     await apiPost(`/api/omega/cases/${saved.id}/confirm`)
     const game = await apiPost<SessionRow>('/api/omega/sessions', { case_id: saved.id })
     await loadLists()
-    await openSession(game.id)
+    await openSession(game.id, true)
   })
 }
 async function startQuickPractice(scenario: typeof quickScenarios[number]) {
+  if (!confirmDiscard(() => startQuickPractice(scenario), '开始新练习')) return
   await run(async () => {
     const template = quickDraft(scenario)
     let saved = cases.value.find((row) => row.owner_id === me.value?.id && row.title === template.title
@@ -465,7 +539,8 @@ async function startQuickPractice(scenario: typeof quickScenarios[number]) {
     }
     const game = await apiPost<SessionRow>('/api/omega/sessions', { case_id: saved.id })
     await loadLists()
-    await openSession(game.id)
+    editing.value = false
+    await openSession(game.id, true)
   })
 }
 async function analyzeCaseDraft() {
@@ -577,6 +652,8 @@ async function createAssignment(sourceReportId: string | null = null) {
   })
 }
 function showAssignment(row: Assignment) {
+  if (!confirmDiscard(() => showAssignment(row), '切换指派练习')) return
+  if (setupRef.value?.hasUnsavedChanges()) setupKey.value++
   profilesOpen.value = false
   setupOpen.value = false
   sidebarTab.value = 'assignments'
@@ -620,7 +697,8 @@ async function importMeeting() {
   })
 }
 async function sendTurn() {
-  if (!chosenSession.value || !textReady.value || voiceConnecting.value || voiceConnected.value || !textInput.value.trim()) return
+  if (!chosenSession.value || !textReady.value || voiceConnecting.value || voiceConnected.value || !textInput.value.trim()
+      || activeJob.value?.kind === 'turn' && activeJob.value.status === 'failed') return
   const sessionId = chosenSession.value.id
   await run(async () => {
     const job = await apiPost<Job>(`/api/omega/sessions/${sessionId}/turns`,
@@ -631,6 +709,17 @@ async function sendTurn() {
     voiceOriginal.value = ''
     activeJob.value = job
     await refreshSession()
+    schedulePoll()
+  })
+}
+async function retryTurn() {
+  if (!chosenSession.value || activeJob.value?.kind !== 'turn' || activeJob.value.status !== 'failed') return
+  const sessionId = chosenSession.value.id
+  const jobId = activeJob.value.id
+  await run(async () => {
+    const job = await apiPost<Job>(`/api/omega/jobs/${jobId}/retry`)
+    if (chosenSession.value?.id !== sessionId || activeJob.value?.id !== jobId) return
+    activeJob.value = job
     schedulePoll()
   })
 }
@@ -654,17 +743,18 @@ async function finishSession() {
     chosenSession.value = ended
     activeJob.value = null
     await loadLists()
-    if (ended.pending_job_id || textReady.value && ended.segments?.length) {
+    if (!ended.report_blocked && (ended.pending_job_id || textReady.value && ended.segments?.length)) {
       activeJob.value = ended.pending_job_id
         ? await apiGet<Job>(`/api/omega/jobs/${ended.pending_job_id}`)
         : await apiPost<Job>(`/api/omega/sessions/${sessionId}/reports`, { request_key: key() })
       schedulePoll()
       notice.value = '对话已保存，正在生成复盘。'
-    } else notice.value = ended.segments?.length ? '对话已保存，可稍后生成复盘。' : '演练已结束，本场没有可复盘的对话。'
+    } else notice.value = ended.report_blocked ? ended.report_blocked_message || '本场对话不完整，无法评分；请新开一场。'
+      : ended.segments?.length ? '对话已保存，可稍后生成复盘。' : '演练已结束，本场没有可复盘的对话。'
   })
 }
 async function makeReport() {
-  if (!chosenSession.value || !textReady.value) return
+  if (!chosenSession.value || !textReady.value || chosenSession.value.report_blocked) return
   await run(async () => {
     activeJob.value = await apiPost<Job>(`/api/omega/sessions/${chosenSession.value!.id}/reports`, { request_key: key() })
     schedulePoll()
@@ -674,9 +764,13 @@ async function pollJob() {
   if (!activeJob.value) return
   const jobId = activeJob.value.id
   const sessionId = chosenSession.value?.id
+  if (pollFailureJobId !== jobId) { pollFailureJobId = jobId; pollFailures = 0 }
   try {
     const job = await apiGet<Job>(`/api/omega/jobs/${jobId}`)
     if (activeJob.value?.id !== jobId || chosenSession.value?.id !== sessionId) return
+    if (error.value === pollError) error.value = ''
+    pollError = ''
+    pollFailures = 0
     activeJob.value = job
     if (job.status === 'succeeded') {
       if (job.result_id) {
@@ -690,11 +784,21 @@ async function pollJob() {
     } else if (job.status === 'failed' || job.status === 'cancelled') {
       error.value = job.error || '任务已取消，请重试'
     } else schedulePoll()
-  } catch (err) { error.value = detail(err) }
+  } catch (err) {
+    if (activeJob.value?.id !== jobId || chosenSession.value?.id !== sessionId) return
+    if (err instanceof HttpError && err.status === 401) {
+      router.replace({ path: '/login', query: { next: '/omega' } })
+      return
+    }
+    pollError = detail(err)
+    error.value = pollError
+    pollFailures++
+    schedulePoll(Math.min(30000, 1200 * 2 ** Math.min(pollFailures, 5)))
+  }
 }
-function schedulePoll() {
+function schedulePoll(delay = 1200) {
   if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = setTimeout(pollJob, 1200)
+  pollTimer = setTimeout(pollJob, delay)
 }
 async function reviewReport() {
   if (!report.value) return
@@ -706,6 +810,8 @@ async function reviewReport() {
   })
 }
 function editCase(row: CaseRow) {
+  if (!confirmDiscard(() => editCase(row), '编辑其他任务')) return
+  if (setupRef.value?.hasUnsavedChanges()) setupKey.value++
   profilesOpen.value = false
   setupOpen.value = false
   sidebarTab.value = 'cases'
@@ -717,11 +823,14 @@ function editCase(row: CaseRow) {
   amountMajor.value = row.draft.goal.amount_minor === null ? ''
     : (row.draft.goal.amount_minor / 10 ** minorDigits(row.draft.goal.currency)).toFixed(minorDigits(row.draft.goal.currency))
   editing.value = true
+  editingBaseline = editingSnapshot()
   chosenSession.value = null
   chosenAssignment.value = null
   report.value = null
 }
 function showCase(row: CaseRow) {
+  if (!confirmDiscard(() => showCase(row), '切换任务')) return
+  if (setupRef.value?.hasUnsavedChanges()) setupKey.value++
   profilesOpen.value = false
   setupOpen.value = false
   sidebarTab.value = 'cases'
@@ -737,7 +846,7 @@ function showCase(row: CaseRow) {
   editing.value = false
 }
 function newCase(resetSetup = true) {
-  if (callOpen.value) return
+  if (callOpen.value || !confirmDiscard(() => { newCase(resetSetup) }, '开始新练习')) return false
   cancelTemplateVoice()
   if (resetSetup) setupKey.value++
   profilesOpen.value = false
@@ -757,8 +866,14 @@ function newCase(resetSetup = true) {
   caseBriefInput.value = ''
   analysisReady.value = false
   reviewOpen.value = false
+  editingBaseline = editingSnapshot()
+  return true
 }
-function customCase() { newCase(); setupOpen.value = false }
+function customCase() {
+  if (!confirmDiscard(customCase, '创建自定义练习')) return
+  if (newCase()) setupOpen.value = false
+}
+function cancelEditing() { if (confirmDiscard(cancelEditing, '取消编辑')) editing.value = false }
 function stopCapture(discard = false) {
   if (discard) recordingToken++
   if (recordingTimeout) clearTimeout(recordingTimeout)
@@ -943,6 +1058,7 @@ async function startVoice() {
   const sessionId = chosenSession.value.id
   voiceConnecting.value = true
   voiceInterrupted.value = false
+  voiceEndNotice.value = ''
   voicePhase.value = 'live'
   voiceRecoveryBlocked.value = false
   voiceEpoch.value = 0
@@ -979,6 +1095,11 @@ async function startVoice() {
         if (message.type === 'error') {
           error.value = message.message || '实时语音连接失败'
           if (!voiceClosing.value) { voiceInterrupted.value = true; stopVoice() }
+          return
+        }
+        if (message.type === 'ending') {
+          voiceEndNotice.value = message.message || '本次通话已达时长上限'
+          if (!voiceClosing.value) void hangupVoice()
           return
         }
         if (message.type === 'closed') {
@@ -1179,6 +1300,7 @@ watch(error, async (message) => {
 })
 watch(caseBriefInput, () => { analysisReady.value = false; reviewOpen.value = false })
 onMounted(async () => {
+  window.addEventListener('beforeunload', warnBeforeUnload)
   try {
     const status = await apiGet<{ ready: boolean; actor_id: number; role: string; realtime_configured: boolean; model_configured: boolean; worker_online: boolean; multi_voice_ready?: boolean }>('/api/omega/status')
     if (!status.ready) { error.value = '会议陪练暂不可用，请联系管理员检查语音与复盘服务。'; return }
@@ -1202,6 +1324,8 @@ onMounted(async () => {
   } finally { loading.value = false }
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', warnBeforeUnload)
+  cancelDiscard()
   openToken++
   if (pollTimer) clearTimeout(pollTimer)
   if (quoteTimer) clearTimeout(quoteTimer)
@@ -1218,8 +1342,9 @@ onBeforeUnmount(() => {
   <main class="page omega" :class="{ 'is-setup': setupOpen && !profilesOpen }">
     <header class="page-head omega-head">
       <div><p class="omega-kicker">培训 · 会前演练 · 会后复盘</p><h1>会议陪练</h1><p class="sub">选一张场景卡，练到关键问题，带着下一步去见客户。</p></div>
-      <div class="omega-head-meta"><button class="btn btn-sm btn-ghost" type="button" :disabled="callOpen || busy || !me" @click="profilesOpen = !profilesOpen">{{ profilesOpen ? '返回练习' : '查看档案' }}</button><span class="pill pill-muted">组内可见</span><span :class="['pill', realtimeReady ? 'pill-green' : 'pill-muted']">{{ realtimeReady ? '实时语音可用' : '实时语音未配置' }}</span></div>
+      <div class="omega-head-meta"><button class="btn btn-sm btn-ghost" type="button" :disabled="callOpen || busy || setupBusy() || !me" @click="toggleProfiles">{{ profilesOpen ? '返回练习' : '查看档案' }}</button><span class="pill pill-muted">组内可见</span><span :class="['pill', realtimeReady ? 'pill-green' : 'pill-muted']">{{ realtimeReady ? '实时语音可用' : '实时语音未配置' }}</span></div>
     </header>
+    <div v-if="discardPrompt" class="card omega-discard-confirm" role="region" aria-label="确认离开当前设置"><p>{{ discardPrompt }}</p><div><button ref="discardButton" class="btn btn-primary" type="button" @click="discardAndContinue">继续，丢弃未保存内容</button><button class="btn btn-ghost" type="button" @click="cancelDiscard">继续编辑</button></div></div>
     <p v-if="demoMode" class="omega-notice" role="status"><strong>交互原型 · 模拟数据</strong>　AI 分析、文字回复、语音识别和复盘内容均为预设；麦克风音频不会上传。刷新页面会重置演示数据。</p>
     <p v-if="error" class="omega-alert" role="alert">{{ error }}</p>
     <p v-if="notice" class="omega-notice" role="status">{{ notice }}</p>
@@ -1260,8 +1385,8 @@ onBeforeUnmount(() => {
         </div>
       </aside>
       <section class="omega-main">
-        <div v-if="!setupOpen && !profilesOpen" class="omega-return"><button class="btn btn-sm" type="button" :disabled="callOpen || busy" @click="editing ? editing = false : newCase(false)">{{ editing ? '取消编辑' : '← 返回场景卡' }}</button></div>
-        <OmegaSetup :key="setupKey" v-show="setupOpen && !profilesOpen" :manager="['manager', 'admin'].includes(me?.role || '')" :multi-voice-ready="multiVoiceReady" :realtime-ready="realtimeReady" @prepare-voice="prepareTemplateVoice" @cancel-voice-preparation="cancelTemplateVoice" @started="startedTemplate" @saved="savedTemplate" @custom="customCase" />
+        <div v-if="!setupOpen && !profilesOpen" class="omega-return"><button class="btn btn-sm" type="button" :disabled="callOpen || busy" @click="editing ? cancelEditing() : newCase(false)">{{ editing ? '取消编辑' : '← 返回场景卡' }}</button></div>
+        <OmegaSetup :key="setupKey" ref="setupRef" v-show="setupOpen && !profilesOpen" :manager="['manager', 'admin'].includes(me?.role || '')" :multi-voice-ready="multiVoiceReady" :realtime-ready="realtimeReady" @prepare-voice="prepareTemplateVoice" @cancel-voice-preparation="cancelTemplateVoice" @started="startedTemplate" @saved="savedTemplate" @custom="customCase" />
         <OmegaProfiles v-if="profilesOpen && me" :sales-id="me.id" @open-session="openSession($event).catch((err) => error = detail(err))" />
         <div v-else-if="!setupOpen && editing" class="card pad omega-intake">
           <template v-if="!chosenCase">
@@ -1274,7 +1399,7 @@ onBeforeUnmount(() => {
             <textarea id="omega-case-brief" v-model="caseBriefInput" rows="4" minlength="1" maxlength="6000" placeholder="例如：客户觉得价格高，要求再降 10%。我想先弄清他跟谁比较，再争取本周确认订单。"></textarea>
             <label for="omega-custom-topic">本次会议命题（可选）</label><input id="omega-custom-topic" v-model.trim="draft.meeting_topic" maxlength="500" placeholder="例如：给代理销售主管做新品培训">
             <OmegaMeetingMaterials :model-value="draft.meeting_materials || []" @update:model-value="draft.meeting_materials = $event" @busy="materialBusy = $event" />
-            <div class="omega-intake-actions"><span>AI 只整理你写出的客户事实，缺少的金额、日期不会猜。</span><button class="btn btn-primary" type="button" :disabled="analysisBusy || !caseBriefInput.trim()" @click="analyzeCaseDraft">{{ analysisBusy ? '分析中…' : analysisReady ? '重新分析' : '整理练习' }}</button></div>
+            <div class="omega-intake-actions"><span>输入和资料尚未保存。先整理练习，再保存草稿；AI 不会猜缺少的金额、日期。</span><button class="btn btn-primary" type="button" :disabled="analysisBusy || !caseBriefInput.trim()" @click="analyzeCaseDraft">{{ analysisBusy ? '分析中…' : analysisReady ? '重新分析' : '整理练习' }}</button></div>
           </template>
           <template v-else><h2>编辑任务草稿</h2><p class="sub">修改后需重新确认目标版本，既有演练仍使用原版本。</p></template>
           <section v-if="!chosenCase && analysisReady" class="omega-analysis" aria-label="AI 生成的任务草稿">
@@ -1282,7 +1407,7 @@ onBeforeUnmount(() => {
             <dl class="omega-analysis-summary"><div><dt>对手会知道</dt><dd>{{ draft.public_brief }} {{ draft.counterparty_brief }} {{ draft.buyer_objections.join('；') }}</dd></div><div><dt>本场目标</dt><dd>{{ draft.goal.success_condition }}</dd></div><div><dt>不能承诺</dt><dd>{{ draft.goal.hard_limits.filter(Boolean).join('；') }}</dd></div><div v-if="draft.goal.outcome_type === 'payment_commitment'"><dt>金额与日期</dt><dd>{{ amountMajor }} {{ draft.goal.currency }} · {{ draft.goal.due_date }}</dd></div><div v-if="draft.seller_private"><dt>仅销售可见</dt><dd>{{ draft.seller_private }}</dd></div></dl>
             <p v-if="missingDraftFields.length" class="omega-missing" role="status">还需补充：{{ missingDraftFields.join('、') }}。请展开更多设定修改。</p>
             <p v-else class="omega-review-note">确认目标和底线无误后开始；这一步会保存并确认本场目标。</p>
-            <div class="omega-actions"><button class="btn btn-primary" type="button" :disabled="busy || materialBusy || !!missingDraftFields.length" @click="saveAndStart">确认并开练</button><button class="btn btn-ghost" type="button" :aria-expanded="reviewOpen" @click="reviewOpen = !reviewOpen">{{ reviewOpen ? '收起更多设定' : '修改内容或更多设定' }}</button></div>
+            <div class="omega-actions"><button class="btn btn-primary" type="button" :disabled="busy || materialBusy || !!missingDraftFields.length" @click="saveAndStart">确认并开练</button><button class="btn" type="button" :disabled="busy || materialBusy || !!missingDraftFields.length" @click="saveCase">保存草稿，稍后再练</button><button class="btn btn-ghost" type="button" :aria-expanded="reviewOpen" @click="reviewOpen = !reviewOpen">{{ reviewOpen ? '收起更多设定' : '修改内容或更多设定' }}</button></div>
           </section>
           <div v-show="chosenCase || reviewOpen" class="omega-review-fields">
           <form class="form-grid omega-form" @submit.prevent="saveCase">
@@ -1309,7 +1434,7 @@ onBeforeUnmount(() => {
               <label>币种<input v-model.trim="draft.goal.currency" maxlength="3" pattern="[A-Z]{3}" required></label>
               <label>最迟日期<input v-model="draft.goal.due_date" type="date" required></label>
             </template>
-            <div class="span-2 omega-actions"><button class="btn" type="submit" :disabled="busy || materialBusy || (!chosenCase && !!missingDraftFields.length)">保存草稿</button><button class="btn btn-ghost" type="button" @click="editing = false">取消</button></div>
+            <div class="span-2 omega-actions"><button class="btn" type="submit" :disabled="busy || materialBusy || (!chosenCase && !!missingDraftFields.length)">保存草稿</button><button class="btn btn-ghost" type="button" @click="cancelEditing">取消</button></div>
           </form>
           </div>
         </div>
@@ -1344,23 +1469,26 @@ onBeforeUnmount(() => {
             <div v-if="activeJob && ['queued', 'running'].includes(activeJob.status)" class="omega-responding" role="status">{{ activeJob.kind === 'turn' ? '对手正在回应…' : '报告生成中…' }}</div>
             <div v-if="!voiceConnected && chosenSession.segments?.length" class="omega-transcript-tools"><button class="btn btn-sm btn-ghost" type="button" @click="speakLastReply">播放最新回复</button></div>
           </section>
-          <form v-if="chosenSession.status === 'active' && canWrite(chosenSession.owner_id)" class="card omega-practice-controls" @submit.prevent="sendTurn">
+          <form v-if="chosenSession.status === 'active' && chosenSession.owner_id === me?.id" class="card omega-practice-controls" @submit.prevent="sendTurn">
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
               <div><p class="omega-kicker">{{ participants.length > 1 ? '可打断的多角色演练' : '实时语音' }}</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : participants.length > 1 ? '每次一位对手发言，角色切换可能稍有等待' : '连接后开始说话，双方原话自动保存' }}</p></div>
-              <div class="omega-voice-actions"><button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="!voiceAllowed || busy || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
+              <div class="omega-voice-actions"><button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="!voiceAllowed || busy || activeJob?.kind === 'turn' && activeJob?.status === 'failed' || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
                 <button v-else class="btn omega-voice-button" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '挂断中…' : voiceConnecting ? '取消连接' : '挂断实时对话' }}</button>
-                <button v-if="!callOpen" class="btn btn-ghost omega-voice-button" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
+                <button v-if="!callOpen" class="btn btn-ghost omega-voice-button" type="button" :disabled="busy" @click="finishSession">{{ activeJob?.kind === 'turn' && activeJob.status !== 'succeeded' ? '结束本场（不评分）' : '结束并复盘' }}</button></div>
             </div>
+            <p v-if="voiceEndNotice && !callOpen" class="omega-alert" role="status">{{ voiceEndNotice }} 已确认的原话仍可查看。</p>
+            <div v-if="activeJob?.kind === 'turn' && activeJob.status === 'failed'" class="omega-alert" role="alert">销售发言已保存，对手回复失败。<button class="btn btn-sm" type="button" :disabled="busy" @click="retryTurn">重试对手回复</button></div>
             <p v-if="voiceInterrupted" class="omega-alert" role="alert">语音连接中断，已保存的对话仍在。点击“继续实时对话”接着练。</p>
             <p v-if="!voiceAllowed" class="sub" role="status">多人语音尚未通过当前服务的能力验证。可用文字演练，或改为一位主谈。</p>
-            <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
+            <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || activeJob?.kind === 'turn' && activeJob?.status === 'failed' || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
-            <div v-if="!realtimeReady" class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy" @click="finishSession">结束并复盘</button></div>
+            <div v-if="!realtimeReady" class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy" @click="finishSession">{{ activeJob?.kind === 'turn' && activeJob.status !== 'succeeded' ? '结束本场（不评分）' : '结束并复盘' }}</button></div>
           </form>
-          <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : '查看本场复盘' }}</strong><p v-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="!textReady || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : '生成复盘' }}</button></div>
+          <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ chosenSession.report_blocked ? '本场无法评分' : activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : '查看本场复盘' }}</strong><p v-if="chosenSession.report_blocked">{{ chosenSession.report_blocked_message || '本场对话不完整，无法评分。' }}已保存的原话仍可查看。</p><p v-else-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="!chosenSession.report_blocked && canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="!textReady || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : '生成复盘' }}</button></div>
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
             <p v-if="report.content.hints_used?.length" class="sub">本场使用了 {{ report.content.hints_used.length }} 次教练建议。评分仍依据本场原话。</p>
             <div class="omega-score-summary"><strong>{{ report.content.score?.total == null ? '证据不足' : `${report.content.score.total} 分` }}</strong><span>{{ report.content.score?.total == null ? `已获 ${report.content.score?.earned ?? 0} 分／可评分 ${report.content.score?.available ?? 0} 分，暂不折算总分` : '本场综合评分 · 满分 100' }}</span></div>
+            <p class="sub">AI 评分用于训练建议。主管需核对原话与结论，再用于正式评价。</p>
             <p class="omega-report-result"><strong>{{ outcomeNames[report.content.outcome?.status || 'unverified'] || '证据不足' }}</strong>　{{ report.content.outcome?.reason }}</p>
             <div v-if="strengthPoint" class="omega-report-strength"><span>做得好 · {{ dimensionNames[strengthPoint.key] || strengthPoint.key }}</span><p>{{ strengthPoint.reason }}</p><blockquote v-if="strengthPoint.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(strengthPoint.quotes[0])">“{{ strengthPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(strengthPoint.quotes[0]) }} 条原话</small></button></blockquote></div>
             <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(coachingPoint.quotes[0])">“{{ coachingPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(coachingPoint.quotes[0]) }} 条原话</small></button></blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
@@ -1441,7 +1569,7 @@ onBeforeUnmount(() => {
       <div class="omega-call-center">
         <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting, 'is-paused': voicePhase !== 'live' }" aria-hidden="true"></div>
         <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'error' ? '演练已暂停' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>
-        <p>{{ voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : voicePhase !== 'live' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
+        <p>{{ voiceClosing ? voiceEndNotice || '正在保存语音尾稿…' : voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : voicePhase !== 'live' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
         <div v-if="participants.length > 1" class="omega-participants" aria-label="对手参会人"><span v-for="person in participants" :key="person.id" :class="{ active: voiceSpeaking && currentSpeakerId === person.id }">{{ person.name }} · {{ person.role }}</span></div>
         <div v-if="voicePhase === 'coaching'" class="omega-private-coach" role="status"><p>{{ coachBusy ? '教练正在看本场对话…' : coachText || '可向教练求助，也可直接继续演练。' }}</p><button v-if="!coachBusy" class="btn btn-sm btn-ghost" type="button" @click="requestCoach">再给一条建议</button></div>
         <p v-if="coachError" class="omega-call-error" role="alert">{{ coachError }}</p>
@@ -1460,6 +1588,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .omega { max-width: 1380px; }
+.omega-discard-confirm { margin-bottom: 16px; padding: 14px; border-color: var(--blue); background: var(--blue-soft); }
+.omega-discard-confirm p { margin: 0 0 10px; line-height: 1.5; }
+.omega-discard-confirm > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.omega-discard-confirm .btn { min-height: 44px; }
 .omega-head { align-items: center; margin-bottom: 22px; }
 .omega-head h1 { font-size: 30px; letter-spacing: -.03em; }
 .omega-kicker { margin: 0 0 6px; color: var(--blue); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
