@@ -69,10 +69,11 @@
     <h2>4. SEO 顾问（只读 vertu.com 海外站，只出建议不自动改稿）</h2>
     <div class="row">
       <button id="pBtn" class="sec" onclick="loadSeoPosts()">加载文章清单</button>
+      <button id="g4Btn" class="sec" onclick="loadGa4()">载入 GA4 + 选题表</button>
       <span class="muted" id="seoInfo"></span>
     </div>
     <div id="posts" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
-    <textarea id="seoTable" rows="4" placeholder="粘贴流量表（Search Console / GA4 / 内部表，带表头即可，不限列）：查询词、页面、点击、曝光、CTR、排名…"></textarea>
+    <textarea id="seoTable" rows="6" placeholder="点「载入 GA4 + 选题表」，或自己粘贴流量表（带表头即可）"></textarea>
     <div class="row" style="margin-top:8px">
       <button id="fixBtn" onclick="seoReview('fix')">对选中文章出修改建议</button>
       <button id="ideaBtn" class="sec" onclick="seoReview('idea')">基于流量表出新选题</button>
@@ -211,6 +212,17 @@ async function loadContents() {
            <button onclick="sendContent(${c.id})">发送</button>`
         : `<button onclick="pushContent(${c.id})">推送审核群</button>`}</div>
     </details></div>`).join('') || '<div class="muted">暂无内容</div>';
+}
+
+/** 从 GA4 拉内容页流量，并拼上选题表对齐结果，填进流量表。 */
+async function loadGa4() {
+  g4Btn.disabled = true; g4Btn.textContent = '拉取中…';
+  try {
+    const r = await api('/seo/ga4');
+    seoTable.value = r.table;
+    seoInfo.textContent = `GA4 近 ${r.days} 天内容页 ${r.top} 条，选题 ${r.topics} 条`;
+  } catch (e) { toast(e.message); }
+  g4Btn.disabled = false; g4Btn.textContent = '载入 GA4 + 选题表';
 }
 
 /** 加载 vertu.com 文章清单供勾选 */

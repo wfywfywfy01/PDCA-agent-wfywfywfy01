@@ -99,6 +99,19 @@ async def generate(body: GenerateBody, _: Manager, session: DB):
     return [r.model_dump() for r in rows]
 
 
+@router.get("/seo/ga4")
+async def seo_ga4(_: Manager, days: int = 28):
+    """近 N 天内容页流量，并与选题表 TSV 对齐。"""
+    from app.growth import ga4
+
+    if not ga4.configured():
+        raise HTTPException(503, "GA4 未配置（PDCA_GROWTH_GA4_PROPERTY_ID 与服务账号）")
+    try:
+        return await asyncio.to_thread(ga4.briefing, days)
+    except Exception as exc:
+        raise HTTPException(502, f"GA4 拉取失败：{exc}") from exc
+
+
 @router.get("/seo/posts")
 async def seo_posts(_: Manager, limit: int = 200):
     """vertu.com 海外站文章清单（钉 CDN IP 直连，只读）。"""
