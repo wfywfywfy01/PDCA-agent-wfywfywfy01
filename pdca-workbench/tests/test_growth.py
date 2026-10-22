@@ -271,7 +271,8 @@ class GrowthTests(unittest.TestCase):
 
         from app.growth import ga4
         fh = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json")
-        json.dump({"days": 28, "top": 1, "topics": 2, "table": "cached-table"}, fh)
+        json.dump({"days": 28, "top": 1, "topics": 2, "table": "cached-table",
+                   "schema_version": ga4.SNAPSHOT_VERSION, "fetched_at": "2026-10-22T00:00:00Z"}, fh)
         fh.close()
         self.addCleanup(os.remove, fh.name)
         with patch.dict(os.environ, {"PDCA_GROWTH_GA4_SNAPSHOT": fh.name}), \

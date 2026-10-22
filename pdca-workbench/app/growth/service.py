@@ -91,16 +91,20 @@ def seo_review(
     """
     from app.growth import fetcher, ga4
 
-    if not table.strip() and ga4.configured():
-        try:
-            table = ga4.briefing()["table"]
-        except Exception as exc:
-            table = f"(GA4 拉取失败：{exc})"
+    if not table.strip():
+        if not ga4.configured() and not os.environ.get("PDCA_GROWTH_GA4_SNAPSHOT", "").strip():
+            raise ga4.Ga4Error("没有可用流量数据，请先载入 GA4 或粘贴带来源和日期的流量表")
+        report = ga4.briefing()
+        source = "cached snapshot" if report.get("stale") else "live GA4 report"
+        table = (f"Source: {source}; fetched_at={report.get('fetched_at') or 'N/A'}\n"
+                 f"{report['table']}")
     round_no = (session.exec(select(func.max(GrowthContent.round_no))).one() or 0) + 1
     rows: list[GrowthContent] = []
     if urls:
         for url in urls:
             art = fetcher.fetch_post(url)
+            if art.get("status") != 200 or not art.get("text", "").strip():
+                raise ValueError(f"文章抓取失败（HTTP {art.get('status', 'N/A')}）：{url}")
             user = (
                 f"Task: {SEO_FIX}\nLanguage: {language}\nArticle URL: {url}\n"
                 f"Current title: {art['title']}\nCurrent meta: {art['meta']}\n"

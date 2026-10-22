@@ -61,6 +61,7 @@
     <div class="muted" id="statInfo"></div>
     <table><thead><tr><th>轮次</th><th>版本</th><th>主题行 / 假设</th><th>送达</th><th>退信率</th>
       <th>回复率（主指标）</th><th>退订</th><th>打开率*</th><th>点击率*</th></tr></thead><tbody id="stats"></tbody></table>
+    <div id="unresolved"></div>
     <div class="muted">送达 &lt; 100 封标"样本不足"，不判胜负。*仅统计开启追踪的邮件；打开率受 Apple 隐私保护影响偏高。
       止损：近 7 天退信率 &gt; 2% 全局停发；单版本 300 封后回复率 &lt; 1% 自动暂停。</div>
   </section>
@@ -73,6 +74,7 @@
       <span class="muted" id="seoInfo"></span>
     </div>
     <div id="posts" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
+    <div class="muted" id="ga4Info" role="status"></div>
     <textarea id="seoTable" rows="6" placeholder="点「载入 GA4 + 选题表」，或自己粘贴流量表（带表头即可）"></textarea>
     <div class="row" style="margin-top:8px">
       <button id="fixBtn" onclick="seoReview('fix')">对选中文章出修改建议</button>
@@ -96,6 +98,7 @@
 const KIND = {seo:'SEO', geo:'GEO', email:'开发信', ad:'投流', seo_fix:'SEO修改建议', seo_idea:'SEO新选题',
   product:'产品', service:'服务', dealer:'经销商', dossier:'背调'};
 const STATUS = {draft:'草稿', pushed:'已推审核', sent:'已发送', paused:'已止损暂停'};
+const contentActions = new Set();
 
 /**
  * 调用后端 API，失败抛出带后端 detail 的错误。
@@ -107,7 +110,11 @@ async function api(path, opt = {}) {
   const r = await fetch('/api/growth' + path, {credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'}, ...opt});
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+  if (!r.ok) {
+    const error = new Error(data.detail || ('HTTP ' + r.status));
+    error.status = r.status;
+    throw error;
+  }
   return data;
 }
 
@@ -168,41 +175,76 @@ async function generate() {
   gBtn.disabled = false; gBtn.textContent = '生成';
 }
 
-/** @param {number} id 内容 id */
-async function saveContent(id) {
+/** 保存成功后才外发；同一内容的保存、推送和发送互斥。 */
+async function contentAction(id, action, recipients = []) {
+  if (contentActions.has(id)) return;
+  contentActions.add(id);
+  const controls = document.getElementById('c' + id).querySelectorAll('button,input,textarea');
+  const info = document.getElementById('m' + id);
+  const label = {save:'保存', push:'推送', send:'发送'}[action];
+  controls.forEach(el => el.disabled = true);
+  info.textContent = label + '中…';
+  let saved = false;
   try {
     await api('/contents/' + id, {method: 'PUT', body: JSON.stringify({
       title: document.getElementById('t' + id).value, body: document.getElementById('b' + id).value})});
-    toast('已保存');
-  } catch (e) { toast(e.message); }
+    saved = true;
+    document.getElementById('h' + id).textContent = document.getElementById('t' + id).value;
+    let message = '已保存';
+    if (action === 'push') {
+      await api(`/contents/${id}/push`, {method: 'POST'});
+      document.getElementById('s' + id).textContent = STATUS.pushed;
+      message = '已推送审核群';
+    } else if (action === 'send') {
+      const track = document.getElementById('k' + id).checked;
+      const r = await api(`/contents/${id}/send`, {method: 'POST', body: JSON.stringify({recipients, track})});
+      const pending = r.pending || [], uncertain = r.uncertain || [];
+      message = `已发 ${r.sent.length}，跳过 ${r.skipped.length}，失败 ${r.failed.length}，今日剩余额度 ${r.cap_left}`;
+      if (r.sent.length) document.getElementById('s' + id).textContent = STATUS.sent;
+      if (r.failed.length) message += `；失败地址：${r.failed.join('，')}`;
+      if (pending.length || uncertain.length) {
+        message += `；处理中 ${pending.length}，结果待核实 ${uncertain.length}，不会自动重发，请核对发件箱`;
+        message += `；相关地址：${[...pending, ...uncertain].join('，')}`;
+      }
+      await loadStats().catch(() => { message += '；统计刷新失败，请稍后刷新页面查看'; });
+    }
+    info.textContent = message;
+    toast(message);
+  } catch (e) {
+    info.textContent = !saved ? `保存失败，未外发：${e.message}`
+      : action === 'send' && (!e.status || e.status >= 500)
+        ? `发送请求未完成，结果待核实，不会自动重发；请先核对发件箱：${e.message}`
+        : `${label}失败：${e.message}`;
+    toast(info.textContent);
+  } finally {
+    controls.forEach(el => el.disabled = false);
+    contentActions.delete(id);
+  }
 }
 
 /** @param {number} id 内容 id */
-async function pushContent(id) {
-  try { await saveContent(id); await api(`/contents/${id}/push`, {method: 'POST'}); toast('已推送审核群'); loadContents(); }
-  catch (e) { toast(e.message); }
-}
+async function saveContent(id) { await contentAction(id, 'save'); }
+
+/** @param {number} id 内容 id */
+async function pushContent(id) { await contentAction(id, 'push'); }
 
 /** @param {number} id 内容 id */
 async function sendContent(id) {
+  if (contentActions.has(id)) return;
   const recipients = document.getElementById('r' + id).value.split(/[\s,;]+/).filter(Boolean);
-  if (!recipients.length || !confirm(`确认发送给 ${recipients.length} 个地址？`)) return;
-  try {
-    await saveContent(id);
-    const track = document.getElementById('k' + id).checked;
-    const r = await api(`/contents/${id}/send`, {method: 'POST', body: JSON.stringify({recipients, track})});
-    toast(`已发 ${r.sent.length}，跳过 ${r.skipped.length}，失败 ${r.failed.length}，今日剩余额度 ${r.cap_left}`);
-    loadContents(); loadStats();
-  } catch (e) { toast(e.message); }
+  if (!recipients.length) return toast('请填写至少一个收件人地址');
+  if (!confirm(`确认发送给 ${recipients.length} 个地址？`)) return;
+  await contentAction(id, 'send', recipients);
 }
 
 /** 加载内容卡片 */
 async function loadContents() {
   const rows = await api('/contents' + (fKind.value ? '?kind=' + fKind.value : ''));
-  contents.innerHTML = rows.map(c => `<div class="card">
+  if (contentActions.size) return toast('有内容正在处理，完成后再切换筛选查看最新列表');
+  contents.innerHTML = rows.map(c => `<div class="card" id="c${c.id}">
     <div class="row"><span class="tag">第${c.round_no}轮·${c.variant}</span><span class="tag">${KIND[c.kind]}</span>
-      <span class="tag">${STATUS[c.status] || c.status}</span><span class="muted">${esc(c.angle)}</span></div>
-    <details><summary>${esc(c.title)}</summary>
+      <span class="tag" id="s${c.id}">${STATUS[c.status] || c.status}</span><span class="muted">${esc(c.angle)}</span></div>
+    <details><summary id="h${c.id}">${esc(c.title)}</summary>
       <input id="t${c.id}" value="${esc(c.title)}" style="width:100%;margin:6px 0">
       <textarea id="b${c.id}" rows="14">${esc(c.body)}</textarea>
       <div class="row" style="margin-top:6px"><button class="sec" onclick="saveContent(${c.id})">保存修改</button>
@@ -211,6 +253,7 @@ async function loadContents() {
            <label class="muted"><input type="checkbox" id="k${c.id}"> 开启打开/点击追踪（不推荐，影响送达）</label>
            <button onclick="sendContent(${c.id})">发送</button>`
         : `<button onclick="pushContent(${c.id})">推送审核群</button>`}</div>
+      <div class="muted" id="m${c.id}" role="status" aria-live="polite"></div>
     </details></div>`).join('') || '<div class="muted">暂无内容</div>';
 }
 
@@ -219,11 +262,17 @@ async function loadGa4() {
   g4Btn.disabled = true; g4Btn.textContent = '拉取中…';
   try {
     const r = await api('/seo/ga4');
-    seoTable.value = r.table;
-    const age = r.age_hours != null ? `，${r.age_hours} 小时前同步` : '';
-    seoInfo.textContent = `GA4 近 ${r.days} 天内容页 ${r.top} 条，选题 ${r.topics} 条${age}`;
-  } catch (e) { toast(e.message); }
-  g4Btn.disabled = false; g4Btn.textContent = '载入 GA4 + 选题表';
+    seoTable.value = r.table || 'N/A';
+    const freshness = r.stale === true ? '快照已过期，请先同步数据' : r.stale === false ? '快照未过期' : '快照时效 N/A';
+    ga4Info.textContent = `GA4 近 ${r.days ?? 'N/A'} 天内容页 ${r.top ?? 'N/A'} 条，选题 ${r.topics ?? 'N/A'} 条；`
+      + `同步时间 ${r.fetched_at || 'N/A'}，${r.age_hours ?? 'N/A'} 小时前；${freshness}`
+      + (r.error ? `；同步异常：${r.error}` : '');
+  } catch (e) {
+    ga4Info.textContent = `GA4 载入失败：${e.message}；流量表未更新，请核对现有内容`;
+    toast(e.message);
+  } finally {
+    g4Btn.disabled = false; g4Btn.textContent = '载入 GA4 + 选题表';
+  }
 }
 
 /** 加载 vertu.com 文章清单供勾选 */
@@ -256,7 +305,9 @@ async function seoReview(mode) {
 /** 加载开发信效果 */
 async function loadStats() {
   const s = await api('/stats');
-  statInfo.textContent = `今日已发 ${s.sent_today} 封 · SMTP ${s.smtp ? '已配置' : '未配置'} · IMAP 回复采集 ${s.imap ? '已配置' : '未配置'}`;
+  statInfo.textContent = `今日已确认发送 ${s.sent_today ?? 'N/A'} 封 · 今日占用额度 ${s.quota_used_today ?? 'N/A'} 封`
+    + ` · 处理中 ${s.pending_total ?? 'N/A'} 封 · 待核实 ${s.uncertain_total ?? 'N/A'} 封`
+    + ` · SMTP ${s.smtp ? '已配置' : '未配置'} · IMAP 回复采集 ${s.imap ? '已配置' : '未配置'}`;
   stats.innerHTML = s.rows.map(r => `<tr><td>${r.round_no}</td><td>${r.variant}
       ${r.status === 'paused' ? '<span class="tag">已止损</span>' : ''}</td>
     <td>${esc(r.title)}<div class="muted">${esc(r.angle)}</div></td>
@@ -264,6 +315,16 @@ async function loadStats() {
     <td>${(r.bounce_rate*100).toFixed(1)}%</td><td>${bar(r.reply_rate)}</td><td>${r.unsub}</td>
     <td>${bar(r.open_rate)}</td><td>${bar(r.click_rate)}</td></tr>`).join('')
     || '<tr><td colspan="9" class="muted">暂无发送数据</td></tr>';
+  const unresolvedRows = s.unresolved || [];
+  document.getElementById('unresolved').innerHTML = unresolvedRows.length ? `<details>
+    <summary>待处理 / 待核实邮件（${unresolvedRows.length} 条）</summary>
+    <p class="muted">仅列出最新记录，最多 100 条。请凭 Message-ID 人工核对邮箱与发件箱；不会自动重发。</p>
+    <div style="overflow:auto"><table><thead><tr><th>内容 ID</th><th>收件人</th><th>状态</th><th>登记时间</th>
+      <th>Message-ID</th><th>详情</th></tr></thead><tbody>${unresolvedRows.map(r => `<tr>
+      <td>${esc(r.content_id ?? 'N/A')}</td><td>${esc(r.to_addr || 'N/A')}</td>
+      <td>${esc(({pending:'处理中', uncertain:'待核实'})[r.status] || r.status || 'N/A')}</td>
+      <td>${esc(r.claimed_at || 'N/A')}</td><td><code>${esc(r.message_id || 'N/A')}</code></td>
+      <td>${esc(r.detail || 'N/A')}</td></tr>`).join('')}</tbody></table></div></details>` : '';
 }
 
 loadAssets().catch(e => toast(e.message)); loadContents().catch(e => toast(e.message)); loadStats().catch(e => toast(e.message));

@@ -6,19 +6,19 @@ import asyncio
 import base64
 import hmac
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.auth.deps import require_role
 from app.auth.models import User
 from app.database import get_session
 from app.growth import mailer, service
-from app.growth.models import GrowthAsset, GrowthContent, GrowthSend, GrowthUnsub
+from app.growth.models import GrowthAsset, GrowthContent, GrowthDelivery, GrowthSend, GrowthUnsub
 
 router = APIRouter(prefix="/api/growth", tags=["growth"])
 Manager = Annotated[User, Depends(require_role("manager"))]
@@ -190,10 +190,11 @@ async def stats(_: Manager, session: DB):
                                           "clicked": 0, "replied": 0, "unsub": 0})
         a["sent"] += 1
         a["bounced"] += s.bounced_at is not None
-        a["tracked"] += s.tracked
-        a["opened"] += s.tracked and s.opened_at is not None
-        a["clicked"] += s.tracked and s.clicked_at is not None
-        a["replied"] += s.reply_kind == "reply"
+        delivered = s.bounced_at is None
+        a["tracked"] += s.tracked and delivered
+        a["opened"] += s.tracked and delivered and s.opened_at is not None
+        a["clicked"] += s.tracked and delivered and s.clicked_at is not None
+        a["replied"] += delivered and s.reply_kind == "reply"
         a["unsub"] += s.reply_kind == "unsub"
     rows = []
     for cid, a in agg.items():
@@ -209,7 +210,20 @@ async def stats(_: Manager, session: DB):
                      "open_rate": a["opened"] / (a["tracked"] or 1) if a["tracked"] else None,
                      "click_rate": a["clicked"] / (a["tracked"] or 1) if a["tracked"] else None})
     rows.sort(key=lambda r: (-r["round_no"], r["variant"]))
+    unresolved = dict(session.exec(
+        select(GrowthDelivery.status, func.count()).where(
+            GrowthDelivery.status.in_(("pending", "uncertain"))).group_by(GrowthDelivery.status)).all())
+    deliveries = session.exec(select(GrowthDelivery).where(
+        GrowthDelivery.status.in_(("pending", "uncertain")))
+        .order_by(GrowthDelivery.claimed_at.desc()).limit(100)).all()
     return {"rows": rows, "sent_today": mailer.sent_today(session),
+            "quota_used_today": mailer.quota_used_today(session),
+            "pending_total": unresolved.get("pending", 0), "uncertain_total": unresolved.get("uncertain", 0),
+            "unresolved": [{"id": d.id, "content_id": d.content_id, "to_addr": d.to_addr,
+                            "status": d.status, "message_id": d.message_id, "detail": d.detail,
+                            "claimed_at": (d.claimed_at.astimezone(timezone.utc) if d.claimed_at.tzinfo
+                                           else d.claimed_at.replace(tzinfo=timezone.utc)).isoformat()}
+                           for d in deliveries],
             "smtp": mailer.smtp_configured(), "imap": mailer.imap_configured()}
 
 
@@ -245,7 +259,12 @@ async def track_click(token: str, u: str, s: str, session: DB):
 @router.get("/t/u/{token}", include_in_schema=False)
 async def track_unsub(token: str, session: DB):
     row = _send_by_token(session, token)
-    if row and not session.get(GrowthUnsub, row.to_addr):
-        session.add(GrowthUnsub(email=row.to_addr))
+    delivery = row or session.exec(select(GrowthDelivery).where(GrowthDelivery.token == token)).first()
+    if delivery:
+        if not session.get(GrowthUnsub, delivery.to_addr):
+            session.add(GrowthUnsub(email=delivery.to_addr))
+        if row:
+            row.reply_kind = "unsub"
+            session.add(row)
         session.commit()
     return HTMLResponse("<p>You have been unsubscribed. 已退订。</p>")
