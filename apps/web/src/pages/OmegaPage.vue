@@ -49,9 +49,9 @@ type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: nu
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
-type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; score_weights?: Record<string, number>; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string } }> }
+type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; score_weights?: Record<string, number>; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string; outcome_verdict?: 'confirmed' | 'rejected' | null } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
-type Assignment = { id: string; case_id: string; team_key?: string; assignee_id: number; source_report_id: string | null; source_session_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; baseline_quote: string | null; baseline_reason: string; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean }>; status: 'pending' | 'in_progress' | 'passed' }
+type Assignment = { id: string; case_id: string; team_key?: string; assignee_id: number; source_report_id: string | null; source_session_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; baseline_quote: string | null; baseline_reason: string; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean; outcome_review?: 'confirmed' | 'rejected' | null }>; status: 'pending' | 'in_progress' | 'passed' }
 
 const defaultWeights: Record<string, number> = { outcome: 25, information: 12, value: 12,
   concessions: 12, objections: 10, listening: 8, compliance: 10, relationship: 6, closure: 5 }
@@ -101,6 +101,7 @@ const activeJob = ref<Job | null>(null)
 const textInput = ref('')
 const reviewText = ref('')
 const nextPractice = ref('')
+const outcomeVerdictInput = ref<'' | 'confirmed' | 'rejected'>('')
 const error = ref('')
 const notice = ref('')
 const busy = ref(false)
@@ -199,6 +200,23 @@ function memberLabel(member: { id: number; name: string; username?: string }): s
     ? `${member.name}（${member.username || member.id}）` : member.name
 }
 const currentAttempt = computed(() => currentAssignment.value?.attempts.find((item) => item.session_id === chosenSession.value?.id) || null)
+function attemptLabel(attempt: Assignment['attempts'][number] | null, dimension: string): string {
+  if (dimension !== 'outcome') return attempt?.passed ? '达标' : '待重练'
+  if (attempt?.outcome_review === 'rejected') return '主管未认可'
+  if (!attempt?.result) return '待评分'
+  if (attempt.outcome_review !== 'confirmed') return '待主管确认'
+  return attempt.passed ? '达标' : '继续练习'
+}
+const outcomeVerdict = computed(() => report.value?.reviews
+  .filter((item) => item.content.outcome_verdict === 'confirmed' || item.content.outcome_verdict === 'rejected')
+  .slice(-1)[0]?.content.outcome_verdict || null)
+const outcomeLabel = computed(() => {
+  const status = report.value?.content.outcome?.status || 'unverified'
+  const label = outcomeNames[status] || '证据不足'
+  if (outcomeVerdict.value === 'confirmed') return `主管已确认：${label}`
+  if (outcomeVerdict.value === 'rejected') return `主管已驳回：AI 初判${label}`
+  return ['achieved', 'partial'].includes(status) ? `AI 初判：${label}（待主管确认）` : `AI 初判：${label}`
+})
 const matchingAssignment = computed(() => assignments.value.find((row) => row.source_report_id === report.value?.id
   && row.assignee_id === assignUserId.value && row.target_dimension === coachingPoint.value?.key) || null)
 const reportNextPractice = computed(() => {
@@ -802,11 +820,21 @@ function schedulePoll(delay = 1200) {
 }
 async function reviewReport() {
   if (!report.value) return
+  const reportId = report.value.id
+  const comment = reviewText.value
+  const practice = nextPractice.value
+  const verdict = outcomeVerdictInput.value
   await run(async () => {
-    await apiPost(`/api/omega/reports/${report.value!.id}/reviews`, { comment: reviewText.value, next_practice: nextPractice.value })
-    report.value = await apiGet<Report>(`/api/omega/reports/${report.value!.id}`)
-    reviewText.value = ''
-    nextPractice.value = ''
+    await apiPost(`/api/omega/reports/${reportId}/reviews`, { comment, next_practice: practice,
+      ...(verdict ? { outcome_verdict: verdict } : {}) })
+    const refreshed = await apiGet<Report>(`/api/omega/reports/${reportId}`)
+    if (report.value?.id === reportId) {
+      report.value = refreshed
+      reviewText.value = ''
+      nextPractice.value = ''
+      outcomeVerdictInput.value = ''
+    }
+    await loadLists()
   })
 }
 function editCase(row: CaseRow) {
@@ -1299,6 +1327,7 @@ watch(error, async (message) => {
   }
 })
 watch(caseBriefInput, () => { analysisReady.value = false; reviewOpen.value = false })
+watch(() => report.value?.id, () => { outcomeVerdictInput.value = '' })
 onMounted(async () => {
   window.addEventListener('beforeunload', warnBeforeUnload)
   try {
@@ -1440,7 +1469,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="!setupOpen && chosenAssignment" class="card pad">
           <h2>{{ caseName(chosenAssignment.case_id) }} · {{ dimensionNames[chosenAssignment.target_dimension] }}</h2>
-          <p>达标条件：该项评分达到 {{ chosenAssignment.pass_percent }}% 且有销售原话证据。</p>
+          <p>达标条件：该项评分达到 {{ chosenAssignment.pass_percent }}% 且有销售原话证据{{ chosenAssignment.target_dimension === 'outcome' ? '，并由主管确认结果判断' : '' }}。</p>
           <p v-if="chosenAssignment.instructions">练习要求：{{ chosenAssignment.instructions }}</p>
           <p v-if="chosenAssignment.due_at">截止：{{ new Date(chosenAssignment.due_at).toLocaleString() }}</p>
           <p v-if="chosenAssignment.baseline">来源报告该项：{{ chosenAssignment.baseline.score }}/{{ chosenAssignment.baseline.maximum }}（{{ chosenAssignment.baseline.percent }}%）</p>
@@ -1449,7 +1478,7 @@ onBeforeUnmount(() => {
           <p v-if="chosenAssignment.baseline_reason">上轮评语：{{ chosenAssignment.baseline_reason }}</p>
           <button v-if="chosenAssignment.source_session_id" class="btn btn-sm btn-ghost" type="button" @click="openSession(chosenAssignment.source_session_id).catch((err) => error = detail(err))">查看上轮完整复盘</button>
           <ul><li v-for="(attempt, index) in chosenAssignment.attempts" :key="attempt.session_id">
-            <button type="button" class="omega-link" @click="openSession(attempt.session_id).catch((err) => error = detail(err))">第 {{ index + 1 }} 次：{{ attempt.result ? `${attempt.result.score}/${attempt.result.maximum}（${attempt.result.percent}%）` : '尚无可核验评分' }} · {{ attempt.passed ? '达标' : '待重练' }}</button>
+            <button type="button" class="omega-link" @click="openSession(attempt.session_id).catch((err) => error = detail(err))">第 {{ index + 1 }} 次：{{ attempt.result ? `${attempt.result.score}/${attempt.result.maximum}（${attempt.result.percent}%）` : '尚无可核验评分' }} · {{ attemptLabel(attempt, chosenAssignment.target_dimension) }}</button>
           </li></ul>
           <button v-if="me?.id === chosenAssignment.assignee_id" class="btn" type="button" :disabled="busy" @click="startAssignment(chosenAssignment)">开始本次练习</button>
         </div>
@@ -1459,7 +1488,7 @@ onBeforeUnmount(() => {
             <div v-if="chosenSession.case_snapshot" class="omega-goal"><span>本场目标 · 版本 {{ chosenSession.case_version }}</span><p>{{ chosenSession.case_snapshot.goal.success_condition }}</p></div>
           <p v-if="chosenSession.case_snapshot?.meeting_topic" class="sub">本次命题：{{ chosenSession.case_snapshot.meeting_topic }}</p>
           <p v-if="chosenSession.case_snapshot?.meeting_materials?.length" class="sub">本场资料：{{ chosenSession.case_snapshot.meeting_materials.map(item => item.name).join('、') }}</p>
-          <div v-if="currentAssignment" class="omega-session-note"><strong>本轮只练：{{ dimensionNames[currentAssignment.target_dimension] || currentAssignment.target_dimension }}</strong><p>{{ currentAssignment.instructions || '先处理客户的主要卡点，再争取具体下一步。' }} · 达到 {{ currentAssignment.pass_percent }}% 算达标</p></div>
+          <div v-if="currentAssignment" class="omega-session-note"><strong>本轮只练：{{ dimensionNames[currentAssignment.target_dimension] || currentAssignment.target_dimension }}</strong><p>{{ currentAssignment.instructions || '先处理客户的主要卡点，再争取具体下一步。' }} · 达到 {{ currentAssignment.pass_percent }}% {{ currentAssignment.target_dimension === 'outcome' ? '且主管确认结果后达标' : '算达标' }}</p></div>
           </header>
           <section class="card omega-conversation" aria-labelledby="omega-conversation-title">
             <div class="omega-conversation-head"><div><p class="omega-kicker">对话实录</p><h3 id="omega-conversation-title">逐字稿</h3></div><span class="omega-turn-count">{{ (chosenSession.segments || []).length }} 条发言</span></div>
@@ -1489,10 +1518,10 @@ onBeforeUnmount(() => {
             <p v-if="report.content.hints_used?.length" class="sub">本场使用了 {{ report.content.hints_used.length }} 次教练建议。评分仍依据本场原话。</p>
             <div class="omega-score-summary"><strong>{{ report.content.score?.total == null ? '证据不足' : `${report.content.score.total} 分` }}</strong><span>{{ report.content.score?.total == null ? `已获 ${report.content.score?.earned ?? 0} 分／可评分 ${report.content.score?.available ?? 0} 分，暂不折算总分` : '本场综合评分 · 满分 100' }}</span></div>
             <p class="sub">AI 评分用于训练建议。主管需核对原话与结论，再用于正式评价。</p>
-            <p class="omega-report-result"><strong>{{ outcomeNames[report.content.outcome?.status || 'unverified'] || '证据不足' }}</strong>　{{ report.content.outcome?.reason }}</p>
+            <p class="omega-report-result"><strong>{{ outcomeLabel }}</strong>　{{ report.content.outcome?.reason }}</p>
             <div v-if="strengthPoint" class="omega-report-strength"><span>做得好 · {{ dimensionNames[strengthPoint.key] || strengthPoint.key }}</span><p>{{ strengthPoint.reason }}</p><blockquote v-if="strengthPoint.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(strengthPoint.quotes[0])">“{{ strengthPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(strengthPoint.quotes[0]) }} 条原话</small></button></blockquote></div>
             <div class="omega-report-focus"><span>{{ coachingPoint ? `最需要练：${dimensionNames[coachingPoint.key] || coachingPoint.key}` : '下次只改这一点' }}</span><p>{{ coachingPoint?.reason || reportNextPractice || '本场证据不足，先完成一轮有来有回的对话。' }}</p><blockquote v-if="coachingPoint?.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(coachingPoint.quotes[0])">“{{ coachingPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(coachingPoint.quotes[0]) }} 条原话</small></button></blockquote><p v-if="coachingPoint && reportNextPractice" class="omega-report-next"><strong>下次尝试：</strong>{{ reportNextPractice }}</p></div>
-            <p v-if="currentAssignment?.baseline" class="omega-session-note">{{ dimensionNames[currentAssignment.target_dimension] }}：上次 {{ currentAssignment.baseline.percent }}% · 本轮 {{ currentAttempt?.result ? `${currentAttempt.result.percent}%` : '待评分' }} · {{ currentAttempt?.passed ? '已达标' : '继续练习' }}</p>
+            <p v-if="currentAssignment?.baseline" class="omega-session-note">{{ dimensionNames[currentAssignment.target_dimension] }}：上次 {{ currentAssignment.baseline.percent }}% · 本轮 {{ currentAttempt?.result ? `${currentAttempt.result.percent}%` : '待评分' }} · {{ currentAssignment.target_dimension === 'outcome' ? attemptLabel(currentAttempt, 'outcome') : currentAttempt?.passed ? '已达标' : '继续练习' }}</p>
             <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">{{ currentAssignment ? '继续练本项' : coachingPoint ? '按这个卡点再练' : '再练一轮' }}</button>
             <OmegaMemoryReview v-if="chosenSession?.owner_id === me?.id" :report-id="report.id" />
             <form v-if="['manager', 'admin'].includes(me?.role || '') && coachingPoint" class="omega-import" @submit.prevent="assignFromReport">
@@ -1512,8 +1541,16 @@ onBeforeUnmount(() => {
               <p>评分覆盖 {{ report.content.score?.available ?? 0 }}/100；{{ report.content.score?.total === null ? '证据不足，暂无总分' : `总分 ${report.content.score?.total}` }}</p>
               <ul><li v-for="dim in report.content.dimensions || []" :key="dim.key"><strong>{{ dimensionNames[dim.key] || dim.key }}：</strong>{{ reportWeights[dim.key] === 0 ? '不适用' : dim.score === null ? '证据不足' : dim.score }} / {{ dim.reason }}<blockquote v-for="quote in dim.quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote></li></ul>
             </details>
-            <h4>主管点评</h4><p v-for="(item, index) in report.reviews" :key="index">{{ item.content.comment }} <small>{{ item.content.next_practice }}</small></p>
-            <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
+            <h4>主管点评</h4><p v-for="(item, index) in report.reviews" :key="index">{{ item.content.comment }} <small>{{ item.content.next_practice }}</small><strong v-if="item.content.outcome_verdict"> · {{ item.content.outcome_verdict === 'confirmed' ? '已确认目标判断' : '已驳回目标判断' }}</strong></p>
+            <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport">
+              <fieldset class="omega-outcome-review"><legend>目标判断 · 核对原话</legend>
+                <p>{{ outcomeLabel }}。{{ report.content.outcome?.reason }}</p>
+                <blockquote v-for="quote in report.content.outcome?.quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote>
+                <p v-if="!report.content.outcome?.quotes?.length">AI 未提供结果原话；请核对逐字稿后再判断。</p>
+                <label>本次点评对目标判断的处理<select v-model="outcomeVerdictInput"><option value="">仅点评，不确认目标</option><option v-if="['achieved', 'partial'].includes(report.content.outcome?.status || '')" value="confirmed">确认 AI 的目标判断</option><option value="rejected">驳回 AI 的目标判断</option></select></label>
+              </fieldset>
+              <label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button>
+            </form>
             <details v-if="['manager', 'admin'].includes(me?.role || '')" class="omega-import"><summary>手动设置指派</summary>
             <form @submit.prevent="createAssignment(report.id)">
               <label>销售<select v-model.number="assignUserId" required><option :value="null" disabled>请选择</option><option v-for="member in assignableMembers" :key="member.id" :value="member.id">{{ memberLabel(member) }}</option></select></label>
@@ -1706,6 +1743,8 @@ onBeforeUnmount(() => {
 .omega-notice { color: var(--blue); background: var(--blue-soft); }
 .omega-report { margin-top: 2px; }
 .omega-report-result { line-height: 1.6; }
+.omega-outcome-review { margin: 16px 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; }
+.omega-outcome-review legend { padding: 0 6px; font-weight: 600; }
 .omega-report-focus { margin: 20px 0; padding: 18px; border-radius: 10px; background: var(--blue-soft); }
 .omega-report-focus span { color: var(--blue); font-size: 12px; font-weight: 700; }
 .omega-report-focus p { margin: 8px 0 0; font-size: 17px; line-height: 1.6; }

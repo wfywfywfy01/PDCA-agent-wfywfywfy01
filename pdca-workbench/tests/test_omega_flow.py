@@ -821,6 +821,78 @@ class OmegaFlowTests(unittest.TestCase):
         self.assertEqual(progress["status"], "passed")
         self.assertEqual(progress["attempts"][1]["result"]["percent"], 80)
 
+    def test_outcome_assignment_needs_structured_supervisor_confirmation(self):
+        from app.omega.models import OmegaReport, OmegaSegment, OmegaSession
+        from app.omega.reports import WEIGHTS, validate_report
+
+        case = self.client.post("/api/omega/cases", json=self.case_body()).json()
+        self.client.post(f"/api/omega/cases/{case['id']}/confirm").raise_for_status()
+        with Session(self.engine) as db:
+            db.add(User(id=2, username="manager-a", role="manager", team_key="team-a",
+                        hashed_password="test-only", is_active=True))
+            db.commit()
+        self.current = User(id=2, username="manager-a", role="manager", team_key="team-a")
+        created = self.client.post("/api/omega/assignments", json={
+            "case_id": case["id"], "assignee_id": 1,
+            "target_dimension": "outcome", "pass_percent": 70,
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        assignment_id = created.json()["id"]
+        self.current = User(id=1, username="seller-a", role="sales", team_key="team-a")
+
+        for index, buyer_words in enumerate(("我不下单。", "我今天确认下单。")):
+            game = self.client.post("/api/omega/sessions", json={
+                "case_id": case["id"], "assignment_id": assignment_id,
+            }).json()
+            with Session(self.engine) as db:
+                sales = OmegaSegment(session_id=game["id"], seq=1, speaker="sales", text="请确认今天是否下单。")
+                buyer = OmegaSegment(session_id=game["id"], seq=2, speaker="counterparty", text=buyer_words)
+                db.add_all([sales, buyer])
+                db.get(OmegaSession, game["id"]).status = "ended"
+                db.flush()
+
+                def quote(segment):
+                    return {"segment_id": segment.id, "speaker": segment.speaker,
+                            "start": 0, "end": len(segment.text), "text": segment.text}
+
+                claim = {"outcome": {"status": "achieved", "reason": "AI judged an order was agreed",
+                                     "quotes": [quote(buyer)]},
+                         "dimensions": [{"key": key, "score": None, "reason": "No evidence", "quotes": []}
+                                        for key in WEIGHTS]}
+                claim["dimensions"][0].update(score=25, reason="AI judged the goal achieved",
+                                               quotes=[quote(sales)])
+                segments = [{"id": item.id, "speaker": item.speaker, "text": item.text}
+                            for item in (sales, buyer)]
+                checked = validate_report(json.dumps(claim), segments)
+                self.assertEqual(checked["outcome"]["status"], "achieved")
+                report = OmegaReport(session_id=game["id"], input_hash=f"outcome-review-{index}",
+                                     content_json=json.dumps(checked, ensure_ascii=False))
+                db.add(report)
+                db.commit()
+                report_id = report.id
+            before = self.client.get(f"/api/omega/assignments/{assignment_id}").json()
+            self.assertEqual(before["status"], "in_progress")
+            self.assertFalse(before["attempts"][index]["passed"])
+            self.assertIsNone(before["attempts"][index]["outcome_review"])
+            self.current = User(id=2, username="manager-a", role="manager", team_key="team-a")
+            if index == 1:
+                comment_only = self.client.post(f"/api/omega/reports/{report_id}/reviews", json={
+                    "comment": "请先核对客户原话。"})
+                self.assertEqual(comment_only.status_code, 201, comment_only.text)
+                still_pending = self.client.get(f"/api/omega/assignments/{assignment_id}").json()
+                self.assertFalse(still_pending["attempts"][index]["passed"])
+            verdict = "rejected" if index == 0 else "confirmed"
+            review = self.client.post(f"/api/omega/reports/{report_id}/reviews", json={
+                "comment": "已核对客户最终表态和本场目标。", "outcome_verdict": verdict})
+            self.assertEqual(review.status_code, 201, review.text)
+            self.current = User(id=1, username="seller-a", role="sales", team_key="team-a")
+
+        result = self.client.get(f"/api/omega/assignments/{assignment_id}").json()
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual([row["outcome_review"] for row in result["attempts"]],
+                         ["rejected", "confirmed"])
+        self.assertEqual([row["passed"] for row in result["attempts"]], [False, True])
+
     def test_real_vemory_report_can_assign_only_to_source_authorized_seller(self):
         from app.omega.jobs import run_once
         from app.omega.reports import WEIGHTS

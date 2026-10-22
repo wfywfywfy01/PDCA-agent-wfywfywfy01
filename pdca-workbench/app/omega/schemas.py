@@ -186,3 +186,4 @@ class ReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     comment: str = Field(min_length=5, max_length=5000)
     next_practice: str = Field(default="", max_length=1000)
+    outcome_verdict: Literal["confirmed", "rejected"] | None = None

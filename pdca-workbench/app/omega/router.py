@@ -259,6 +259,19 @@ def dimension_result(report: OmegaReport | None, dimension: str) -> dict | None:
             "report_id": report.id}
 
 
+def outcome_review_verdict(db: Session, report: OmegaReport | None) -> str | None:
+    if report is None:
+        return None
+    reviews = db.exec(select(OmegaReview).where(
+        OmegaReview.report_id == report.id
+    ).order_by(OmegaReview.created_at.desc(), OmegaReview.id.desc())).all()
+    for review in reviews:
+        verdict = json.loads(review.content_json).get("outcome_verdict")
+        if verdict in {"confirmed", "rejected"}:
+            return verdict
+    return None
+
+
 def assignment_view(db: Session, row: OmegaAssignment) -> dict:
     source = db.get(OmegaReport, row.source_report_id) if row.source_report_id else None
     baseline = dimension_result(source, row.target_dimension)
@@ -275,8 +288,11 @@ def assignment_view(db: Session, row: OmegaAssignment) -> dict:
             OmegaReport.session_id == game.id,
         ).order_by(OmegaReport.created_at.desc()).limit(1)).first()
         score = dimension_result(report, row.target_dimension)
+        verdict = outcome_review_verdict(db, report) if row.target_dimension == "outcome" else None
         attempts.append({"session_id": game.id, "status": game.status,
-                         "result": score, "passed": bool(score and score["score"] * 100 >= row.pass_percent * score["maximum"])})
+                         "result": score, "outcome_review": verdict,
+                         "passed": bool(score and (row.target_dimension != "outcome" or verdict == "confirmed")
+                                        and score["score"] * 100 >= row.pass_percent * score["maximum"])})
     return {"id": row.id, "case_id": row.case_id, "case_version_id": row.case_version_id,
             "team_key": row.team_key,
             "assignee_id": row.assignee_id, "assigned_by": row.assigned_by,
@@ -286,6 +302,7 @@ def assignment_view(db: Session, row: OmegaAssignment) -> dict:
             "due_at": row.due_at.isoformat() if row.due_at else None,
             "baseline": baseline, "baseline_quote": baseline_quote,
             "baseline_reason": (source_dimension or {}).get("reason", ""), "attempts": attempts,
+            "verification_required": row.target_dimension == "outcome",
             "status": "passed" if any(item["passed"] for item in attempts)
                       else "in_progress" if attempts else "pending"}
 
@@ -834,7 +851,7 @@ def get_report(
     owned_session(db, user, report.session_id)
     reviews = db.exec(select(OmegaReview).where(
         OmegaReview.report_id == report.id
-    ).order_by(OmegaReview.created_at)).all()
+    ).order_by(OmegaReview.created_at, OmegaReview.id)).all()
     from app.omega.reports import report_summary
     content = json.loads(report.content_json)
     content["summary"] = report_summary(content)
@@ -857,6 +874,11 @@ def add_review(
     owned_session(db, user, report.session_id)
     if user.role not in {"manager", "admin"}:
         raise HTTPException(403, "仅同组主管可以点评")
+    if body.outcome_verdict == "confirmed":
+        outcome = json.loads(report.content_json).get("outcome")
+        if (not isinstance(outcome, dict) or outcome.get("status") not in {"achieved", "partial"}
+                or not outcome.get("quotes")):
+            raise HTTPException(422, "仅可确认有原话的 AI 达成或部分达成初判")
     review = OmegaReview(report_id=report.id, reviewer_id=user.id,
                          content_json=canonical(body.model_dump()))
     db.add(review)

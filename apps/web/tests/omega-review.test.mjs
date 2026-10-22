@@ -318,3 +318,101 @@ test('a manager viewing a sales session does not see controls to speak as that s
   page.me.value = { id: 1, role: 'sales' }
   assert.match(await html(), /omega-practice-controls/)
 })
+
+test('an unreviewed outcome is an AI proposal and its assignment waits for supervisor confirmation', async () => {
+  const { page, html } = mountReview()
+  const assignment = { id: 'assignment-1', case_id: 'case-1', assignee_id: 1,
+    target_dimension: 'outcome', pass_percent: 70, status: 'in_progress',
+    baseline: { score: 15, maximum: 25, percent: 60 }, attempts: [
+      { session_id: 'practice-1', result: { score: 25, maximum: 25, percent: 100 }, passed: false, outcome_review: null },
+    ] }
+  page.me.value = { id: 2, role: 'manager' }
+  page.assignments.value = [assignment]
+  page.chosenSession.value = { id: 'practice-1', owner_id: 1, assignment_id: assignment.id,
+    status: 'ended', case_snapshot: page.blankDraft(), segments: [
+      { id: 'line-1', speaker: 'sales', text: '客户约定周五签首单。' },
+    ] }
+  page.report.value = { id: 'report-1', reviews: [], content: {
+    outcome: { status: 'achieved', reason: '客户承诺下单', quotes: [
+      { segment_id: 'line-1', speaker: 'sales', start: 0, end: 10, text: '客户约定周五签首单。' },
+    ] }, dimensions: [], score: { total: 85, earned: 85, available: 100 },
+  } }
+  let rendered = await html()
+  assert.match(rendered, /AI 初判：达成目标（待主管确认）/)
+  assert.match(rendered, /目标判断.*核对原话/s)
+  assert.match(rendered, /确认 AI 的目标判断/)
+  assert.match(rendered, /驳回 AI 的目标判断/)
+  assert.match(rendered, /仅点评，不确认目标/)
+  assert.match(rendered, /本轮 100%[^<]*待主管确认/)
+  page.chosenAssignment.value = assignment
+  page.chosenSession.value = null
+  rendered = await html()
+  assert.match(rendered, /第 1 次：25\/25（100%）[^<]*待主管确认/)
+  assert.doesNotMatch(rendered, /第 1 次：25\/25（100%）[^<]*达标/)
+})
+
+test('structured supervisor verdict is sent, refreshed, and the latest verdict labels the AI outcome', async () => {
+  const posts = []
+  let verdict = 'confirmed'
+  let commentOnly = false
+  const report = () => ({ id: 'report-1', content: {
+    outcome: { status: 'partial', reason: '只约定了部分', quotes: [] }, dimensions: [],
+    score: { total: 65, earned: 65, available: 100 },
+  }, reviews: [
+    { content: { comment: '先核对原话', next_practice: '', outcome_verdict: 'confirmed' } },
+    { content: { comment: '复核后驳回该判断', next_practice: '', outcome_verdict: verdict } },
+    ...(commentOnly ? [{ content: { comment: '只补充练习建议', next_practice: '', outcome_verdict: null } }] : []),
+  ] })
+  const { page, html } = mountReview(async (path) => {
+    if (path === '/api/omega/reports/report-1') return report()
+    if (path === '/api/omega/cases' || path === '/api/omega/sessions' || path === '/api/omega/assignments') return []
+    throw new Error(`Unexpected GET ${path}`)
+  }, async (path, body) => { posts.push({ path, body }) })
+  page.me.value = { id: 2, role: 'manager' }
+  page.chosenSession.value = { id: 'practice-1', owner_id: 1, status: 'ended',
+    case_snapshot: page.blankDraft(), segments: [] }
+  page.report.value = report()
+  verdict = 'rejected'
+  page.report.value = report()
+  assert.match(await html(), /主管已驳回：AI 初判部分达成/)
+  page.reviewText.value = '核对后目标未成立'
+  page.outcomeVerdictInput.value = 'confirmed'
+  verdict = 'confirmed'
+  await page.reviewReport()
+  assert.deepEqual(posts, [{ path: '/api/omega/reports/report-1/reviews', body: {
+    comment: '核对后目标未成立', next_practice: '', outcome_verdict: 'confirmed',
+  } }])
+  assert.equal(page.outcomeVerdictInput.value, '')
+  assert.match(await html(), /主管已确认：部分达成/)
+  page.reviewText.value = '只补充练习建议'
+  commentOnly = true
+  await page.reviewReport()
+  assert.deepEqual(posts[1], { path: '/api/omega/reports/report-1/reviews', body: {
+    comment: '只补充练习建议', next_practice: '',
+  } })
+  assert.match(await html(), /主管已确认：部分达成/)
+})
+
+test('a slow supervisor review cannot replace another report after navigation', async () => {
+  const requests = []
+  let page
+  const oldReport = { id: 'old-report', reviews: [], content: { outcome: { status: 'achieved', reason: 'AI 初判', quotes: [] } } }
+  const nextReport = { id: 'next-report', reviews: [], content: { outcome: { status: 'unverified', reason: '证据不足', quotes: [] } } }
+  const mounted = mountReview(async (path) => {
+    requests.push(path)
+    if (path === '/api/omega/reports/old-report') return oldReport
+    if (['/api/omega/cases', '/api/omega/sessions', '/api/omega/assignments'].includes(path)) return []
+    throw new Error(`Unexpected GET ${path}`)
+  }, async (path) => {
+    requests.push(path)
+    page.report.value = nextReport
+  })
+  page = mounted.page
+  page.report.value = oldReport
+  page.reviewText.value = '已核对本场原话'
+  await page.reviewReport()
+  assert.equal(page.report.value.id, 'next-report')
+  assert.equal(page.reviewText.value, '已核对本场原话')
+  assert.ok(requests.includes('/api/omega/reports/old-report'))
+  assert.ok(!requests.includes('/api/omega/reports/next-report'))
+})
