@@ -68,6 +68,46 @@ class GrowthTests(unittest.TestCase):
     def test_parse_variants_accepts_fenced_json(self):
         self.assertEqual(len(service.parse_variants('```json\n{"variants":[{"body":"x"}]}\n```')), 1)
 
+    def test_fetcher_parses_sitemap_and_article(self):
+        from app.growth import fetcher
+        sm = ("<urlset><url><loc>https://vertu.com/a/x</loc>"
+              "<lastmod>2026-10-20T00:00:00Z</lastmod></url></urlset>")
+        art = ("<html><head><title>T &amp; co</title>"
+               "<meta name='description' content='Desc'></head>"
+               "<body><script>junk()</script><h1>Hi</h1><p>world</p></body></html>")
+
+        def fake_get(path, timeout=20):
+            return (200, sm) if "sitemap" in path else (200, art)
+
+        with patch.object(fetcher, "_get", side_effect=fake_get):
+            posts = fetcher.list_posts()
+            post = fetcher.fetch_post("https://vertu.com/a/x")
+        self.assertEqual((posts[0]["slug"], posts[0]["lastmod"]), ("x", "2026-10-20"))
+        self.assertEqual((post["title"], post["meta"]), ("T &amp; co", "Desc"))
+        self.assertIn("world", post["text"])
+        self.assertNotIn("junk", post["text"])
+
+    def test_seo_review_fix_and_ideas(self):
+        from app.growth import fetcher
+        fix = json.dumps({"variants": [{"angle": "a", "title": "New Title", "body": "brief"}]})
+        idea = json.dumps({"variants": [{"angle": "a1", "title": "q1", "body": "o1"},
+                                        {"angle": "a2", "title": "q2", "body": "o2"}]})
+        art = {"url": "u", "status": 200, "title": "T", "meta": "M", "words": 9, "text": "page body"}
+        with patch.object(fetcher, "fetch_post", return_value=art), \
+                patch.object(service, "_llm", return_value=fix) as llm:
+            rows = service.seo_review(self.session, urls=["https://vertu.com/a/x"],
+                                      table="query,clicks\nx,5")
+        self.assertEqual((rows[0].kind, rows[0].topic), ("seo_fix", "https://vertu.com/a/x"))
+        prompt = llm.call_args.args[0][1]["content"]
+        self.assertIn("page body", prompt)
+        self.assertIn("query,clicks", prompt)
+        with patch.object(fetcher, "list_posts", return_value=[{"url": "u1", "lastmod": "", "slug": "old"}]), \
+                patch.object(service, "_llm", return_value=idea):
+            ideas = service.seo_review(self.session, urls=None, table="t", ideas=2)
+        self.assertEqual([(r.kind, r.variant) for r in ideas],
+                         [("seo_idea", "A"), ("seo_idea", "B")])
+        self.assertEqual(ideas[0].round_no, rows[0].round_no + 1)
+
     def test_render_html_tracks_links_with_utm_and_escapes(self):
         content = self._email("Price <b> at https://shop.test/p?x=1")
         out = mailer.render_html(content, "tok")
