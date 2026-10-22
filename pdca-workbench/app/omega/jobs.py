@@ -106,8 +106,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             game = db.get(OmegaSession, job.session_id)
             case = db.get(OmegaCase, game.case_id)
             owner = db.get(User, game.owner_id)
-            if owner is None:
-                raise ValueError("创建者账号已不存在")
+            if owner is None or not owner.is_active:
+                raise ValueError("创建者账号已失效")
             require_case(owner, db, case)
             require_session_source(owner, db, game)
             version = db.get(OmegaCaseVersion, game.case_version_id)
@@ -157,8 +157,8 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                             or report_input_hash(current_game) != input_hash):
                         raise ValueError("逐字稿已变化")
                     current_owner = db.get(User, current_game.owner_id)
-                    if current_owner is None:
-                        raise ValueError("创建者账号已不存在")
+                    if current_owner is None or not current_owner.is_active:
+                        raise ValueError("创建者账号已失效")
                     require_session_source(current_owner, db, current_game)
                 result["next_practice"] = validate_next_practice(generate(
                     "practice", practice_messages(snapshot, segments, result), 900))
@@ -180,9 +180,10 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                     or _aware(job.lease_until) <= utcnow()
                     or game.revision != expected_revision):
                 return True
-            owner = db.get(User, game.owner_id)
-            if owner is None:
-                raise ValueError("创建者账号已不存在")
+            owner = db.exec(select(User).where(User.id == game.owner_id)
+                            .with_for_update().execution_options(populate_existing=True)).first()
+            if owner is None or not owner.is_active:
+                raise ValueError("创建者账号已失效")
             require_case(owner, db, db.get(OmegaCase, game.case_id))
             require_session_source(owner, db, game)
             if kind == "turn":

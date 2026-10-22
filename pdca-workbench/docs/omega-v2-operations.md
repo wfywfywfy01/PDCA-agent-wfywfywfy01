@@ -15,16 +15,23 @@ Omega 通过独立 `pdca-omega-web` 容器提供 `/app/omega` 和 `/api/omega/*`
 | `PDCA_SUPERVISOR_PROVIDER`、`PDCA_SUPERVISOR_MODEL`、`PDCA_SUPERVISOR_API_KEY` | 对话与报告的 OpenAI 兼容 HTTPS 模型接口；可复用已获准的内部模型凭据，需显式配置到这三个变量 |
 | `PDCA_ASR_ENABLED=1`、`PDCA_DOUBAO_ASR_APP_KEY`、`PDCA_DOUBAO_ASR_ACCESS_KEY` | 可选语音转写；关闭时仍可文字演练 |
 | `PDCA_OMEGA_REALTIME_PROVIDER=doubao`、`PDCA_DOUBAO_REALTIME_API_KEY` | 豆包实时语音模型 3.0（Seeduplex，API 模型 ID `1.2.6.1`）；仅服务端持有 API Key。须先开通 `volc.speech.dialog` 资源 |
+| `PDCA_OMEGA_REALTIME_MAX_CONNECTIONS` | 全局实时语音席位，默认 8，允许 1–64；每个账号同时只能占用一场。席位满时返回 429 |
 | `PDCA_QWEN_REALTIME_WORKSPACE_ID`、`PDCA_QWEN_REALTIME_API_KEY` | 阿里云百炼北京地域 `qwen-audio-3.1-realtime-plus`；业务空间 ID 来自专属域名最左侧一段，API Key 只放服务端。独立于录音文件 ASR |
 | 既有 Vemory/Vertu 凭据 | 仅真实会议来源读取使用，浏览器不接触凭据 |
 
-实时语音默认使用豆包全双工 3.0，协议模型为 `1.2.6.1`；接入协议见[火山引擎全双工 API](https://docs.volcengine.com/docs/DoubaoVoice/endtoend-realtime-voice-full-duplex-version?lang=zh)和[接入必读](https://docs.volcengine.com/docs/DoubaoVoice/access-mustread?lang=zh)。`PDCA_OMEGA_REALTIME_PROVIDER=qwen` 仅用于显式兼容配置。豆包 API Key 不等于资源权限；握手返回 `45000030 requested resource not granted` 时，需在豆包语音控制台开通 `volc.speech.dialog` 并授权该 Key。远程部署有豆包 Key 时必须使用 SSH 或本地 Docker socket，脚本拒绝经 `tcp://` 传输；从 `.env` 删除该变量即可撤销后续部署注入。文字草稿、文字演练和报告由已配置的 DeepSeek flash 处理。
+实时语音默认使用豆包全双工 3.0，协议模型为 `1.2.6.1`；接入协议见[火山引擎全双工 API](https://docs.volcengine.com/docs/DoubaoVoice/endtoend-realtime-voice-full-duplex-version?lang=zh)和[接入必读](https://docs.volcengine.com/docs/DoubaoVoice/access-mustread?lang=zh)。`PDCA_OMEGA_REALTIME_PROVIDER=qwen` 仅用于显式兼容配置。豆包 API Key 不等于资源权限；握手返回 `45000030 requested resource not granted` 时，需在豆包语音控制台开通 `volc.speech.dialog` 并授权该 Key。生产远程部署只走 SSH：`deploy_omega_web.py` 拒绝明文 Docker TCP；`deploy_remote_docker.ps1` 在豆包 Key 存在时拒绝 TCP，但在其他配置下仍可能默认使用明文 TCP，因此必须显式传入 `-DockerHost ssh://...`。从 `.env` 删除豆包 Key 变量即可撤销后续部署注入。文字草稿、文字演练和报告由已配置的 DeepSeek flash 处理。
+
+单次实时语音最多 30 分钟；独立看门狗在浏览器或供应商发送卡住时仍检查租约和账号权限。到时先尝试保存最终语音尾稿；无法确认的尾稿保留已落库逐字稿并阻止本场评分。语音席位通过数据库事务锁跨进程分配，过期租约不计入容量。
 
 多人模板最多三位人物，使用可打断的受控多人语音：豆包监听连接持续识别销售发言，自动对手音频不会播放；服务器按点名、角色和议题选择人物，DeepSeek 仅接收该人物可知背景及公开逐字稿，再由独立的固定人物豆包连接合成回复。音色默认依次为 VV、Yunzhou、Xiaotian；自选音色仅接受这三种已验证 ID。每次输出先绑定供应商 started 事件的响应标识，后续无标识 delta 沿用该连接绑定，字幕、音频和落库使用同一 speaker_id/turn_id。多人不宣称原生端到端语音；2026-10-09 关闭 DeepSeek thinking 后，三个人物各一次合成探测的首个服务端 PCM 为 1.766–1.984 秒。这是合成输入的服务端观测，不是浏览器首音 P95；实体麦克风、手机及背景噪声尚未验收。单人保留原生全双工。
 
 求助教练时，浏览器立即停止播放和上行，服务器执行取消输出、提交并静音，等待暂停前音频的最终转写保存后再更新会话并确认；coaching 状态丢弃新 PCM。音频代次由服务器分配，控制编号支持幂等重试，迟到的旧响应不能绑定到恢复后的新发言。建议通过独立持久任务生成，只写私密 Hint，报告仅记录辅助发生时间与 Hint ID。恢复前重新校验权限及 active 状态；断线重连仍保持教练暂停。结束后不能恢复。
 
 暂停和挂断累计追踪已发送 PCM，并等待最终 ASR，最多 8 秒；最终转写后还需 1 秒没有新的 ASR 活动。供应商提交确认不含输入 ID 或帧偏移，且可能早于最终转写，因此不能单凭确认宣布排空。完全为零的 PCM 可按数字静音处理；未确定的非零尾部超时会将任务保存为 failed，并记录“语音尾稿未完成，请检查逐字稿后重新演练”，阻止本场结束评分。仅有环境噪声的非零尾部也可能保守触发此保护；1 秒静默窗口以外的迟到 ASR 尚无供应商完成屏障可证明，需在真实设备验收。认证停止接口强制释放仍在运行的连接，也会留下这一未完成标记。
+
+文字回合先保存销售原话，再生成对手回复。末轮回复失败时允许重试该回合，不重复提交销售发言；若回复仍缺失，保留原话并标记本场不能评分，不生成报告或记忆。语音尾稿未知时同样保留已确认的原话，不推断缺失内容，不评分。
+
+报告中的目标达成是 AI 初判。原话位置校验只能证明话确实说过，不能证明其语义支持结论。主管在报告页核对完整对话后，可在点评中选择“确认目标判断”或“驳回目标判断”；普通点评不算确认。针对“结果”维度的指派，须同时达到评分阈值并有主管的结构化确认才显示达标；其他维度保持原有阈值。后续明确的确认或驳回会取代较早的判断，点评历史保留。主管驳回后应在点评中写明原因，并据原话安排下一轮；这不自动改写 AI 原报告或销售档案。测试时须包含客户明确拒绝但 AI 错判达成、客户明确同意、仅追加普通点评和其他维度正常达标四种情况。
 
 `scripts/omega_voice_capability_probe.py` 支持固定合成话术、30/120 秒静音及原生 ASR 探测；`scripts/omega_voice_controlled_probe.py` 在临时数据库验证实际 DeepSeek/豆包多人合成和中断；`scripts/omega_voice_pause_probe.py` 验证真实原生 ASR、暂停排空、同一场景恢复，`--silence` 仅发送精确零 PCM。探测都不连接生产数据库或实体麦克风，密钥只从进程环境或显式未跟踪的 env 文件加载。
 
@@ -40,14 +47,22 @@ Omega 通过独立 `pdca-omega-web` 容器提供 `/app/omega` 和 `/api/omega/*`
 
 此前本机试用曾注册 Windows 登录任务 `VertuOmegaLocal`；本轮没有启用或更新该任务。可用 PowerShell 的 `Get-ScheduledTask -TaskName VertuOmegaLocal` 核对状态；服务日志在 `%LOCALAPPDATA%/VertuOmega/local/server.out.log` 和 `server.err.log`。本机登录文件与会话签名密钥都在该目录，需按本机账号凭据保护。浏览器挂断语音时先发送 WebSocket `stop`，等待服务端完成尾部逐字稿保存后关闭；超时调用同源认证接口强制释放租约会标记尾稿未完成，并阻止评分。
 
-1. 从受控代码版本构建 PDCA 镜像，在正式连接串上执行既有 `python scripts/migrate.py`，确认 Alembic 版本为 `021`。生产运行前先做备份和预发布迁移。
-2. 设置 `PDCA_OMEGA_ENABLED=1`。文字演练/报告配置模型变量并启动 worker；实时语音设置所选供应商及对应密钥，短句录音另设 ASR 变量。Compose 方式用 `docker compose --profile omega up -d --build pdca-app omega-web omega-worker` 启动；线上直连 Docker 的部署方式见独立 Web 说明。worker 不开放端口，共用 PostgreSQL 和镜像版本。反向代理需把 `/api/omega/sessions/*/realtime` 的 WebSocket Upgrade 转发到 `pdca-omega-web`，并保留 Cookie 与 Origin。
+1. 从受控代码版本构建 PDCA 镜像；如有数据库迁移，先备份并在预发布验证，再按迁移流程执行。当前 Alembic 版本为 `021`，上线前须核对目标版本及迁移兼容性。
+2. 设置 `PDCA_OMEGA_ENABLED=1`。文字演练/报告配置模型变量并启动 worker；实时语音设置所选供应商及对应密钥，短句录音另设 ASR 变量。本机 Compose 方式可用 `docker compose --profile omega up -d --build pdca-app omega-web omega-worker` 启动；生产部署按下述两步操作。worker 不开放端口，共用 PostgreSQL 和镜像版本。反向代理需把 `/api/omega/sessions/*/realtime` 的 WebSocket Upgrade 转发到 `pdca-omega-web`，并保留 Cookie 与 Origin。
 3. 登录销售或主管账号后访问 `/api/omega/status`。`realtime_configured=true` 说明实时语音变量完整；`model_configured=true` 且 `worker_online=true` 说明文字和报告可用。`ready=false` 时检查功能开关及两条链路配置。变量完整只表示已配置，不代表供应商接入验证通过。
 4. 在页面选择用途和场景卡，再点「语音开练」或「文字开练」。五组积木默认收起，可按需修改；主管可存团队预设，销售可存个人预设。自定义描述入口仍可整理场景。九维评分沿用默认权重，更多设定中可调整。场景草稿修订后再次确认会产生新版本；旧演练和既有指派保持原版本。有逐字稿的演练结束后自动请求报告；模型漏掉评分项时自动重试一次，伪造引文仍直接拒绝，其他失败可在页面重试。同组主管追加点评，不覆盖原报告。报告之后生成待确认记忆，销售核对并确认后才更新对应档案。
-5. 真实会议复盘输入 Vemory ID，检查来源逐字稿并映射所有说话人。无来源权限、无分说话人逐字稿或未映射完整时拒绝导入。会后目标标为 `post`，成果达成评分为未验证。主管可从报告指派该来源授权的销售做同版本练习；指派页显示来源基线、每次练习评分与达标状态。
+5. 真实会议复盘输入 Vemory ID，检查来源逐字稿并映射所有说话人。无来源权限、无分说话人逐字稿或未映射完整时拒绝导入。会后目标标为 `post`，成果达成评分为未验证。主管可从报告指派该来源授权的销售做同版本练习；指派页显示来源基线、每次练习评分与达标状态。AI 分数仅作训练建议，主管需对照原话核对结论后再用于正式评价；拒单误判、异议未处理、未审批让步须纳入固定业务验收样本。
+
+### 生产上线与故障回滚
+
+1. 记录当前主服务、`pdca-omega-worker`、独立 `pdca-omega-web` 的镜像 SHA 和健康状态；确认没有进行中的语音通话，数据库备份可用，目标完整 40 位 SHA 的 CI 成功且镜像已发布。存在不兼容迁移时，先制定数据回退办法，不直接回滚旧代码。
+2. 通过 SSH 更新主服务和 worker：`pwsh pdca-workbench/scripts/deploy_remote_docker.ps1 -Sha <目标40位SHA> -DockerHost ssh://<已配置的SSH主机> -EnvFile <未跟踪生产env文件>`。脚本不更新独立 Omega Web。核对公开 `/health` 的 `status=ok`、`database_connected=true`、`revision=<目标SHA>`，并核对 worker 容器运行且镜像 SHA 相同。不要依赖脚本的 Docker TCP 默认地址。
+3. 通过同一 SSH 主机更新独立 Omega Web：`python pdca-workbench/scripts/deploy_omega_web.py --docker-host ssh://<已配置的SSH主机> --revision <同一目标40位SHA>`。脚本在 PostgreSQL 事务锁内确认无活跃通话，并持续阻止新通话入库，直到旧 Web 停止；锁无法建立或发现活跃通话时停止发布。核对公开 `/omega-health` 为 200、`status=ok`、`revision=<目标SHA>`、`omega_worker.ok=true`，并再次核对 `/health` 的 SHA 相同。随后完成账号登录、文字回合与报告、实体手机麦克风豆包真实双向回合和插话测试；健康接口只验证应用、数据库及 worker 心跳，不能代替供应商接入或真实语音验收。
+
+若第 2 步失败，部署脚本会尝试恢复旧主服务；仍须逐一确认主服务、worker 与独立 Web 回到记录的旧 SHA 且两条健康接口恢复。若第 3 步失败，独立 Web 脚本只恢复自己的旧容器；先确认没有进行中的语音通话，再把主服务和 worker 部署回旧 SHA，核对三个容器同版、登录和两条健康接口。发布后发现缺陷也按“停止新会话、确认无活跃语音、先回退主服务和 worker、再回退独立 Web”的顺序操作。回退失败或旧版与新数据不兼容时，停止继续切换，按数据库备份与迁移预案恢复。
 
 ## 验证与边界
 
 本地执行 `python -m unittest discover -s tests -p 'test_omega*.py' -v`；一次性本机 PostgreSQL `omega_test` 升级到 `021` 后，以 `PDCA_ENV=development` 和 `OMEGA_TEST_DATABASE_URL` 执行 `python -m unittest tests.test_omega_postgres -v`。前端执行 `npm test`、`npm run typecheck`、`npm run build`，并用模拟上游运行 `python scripts/omega_browser_smoke.py`。另启动 `npm run demo` 后运行 `python scripts/omega_demo_smoke.py` 验证联合流程。
 
-预发布验证：能连续对话，销售插话后对手音频立即停止，最终双方逐字稿按顺序出现，挂断后麦克风停止，断线后可重新连接，报告引用原话。记录首音延迟、打断延迟、掉线率和 30 分钟稳定性；检查反向代理 WebSocket 超时。百炼北京地域已通过合成语音的真实双向回合和自动取消插话测试，应用 WebSocket 已验证转发及落库；真实麦克风、耳机回声、真实模型报告质量、Vemory 实际字段、多人负载和延迟仍需端到端验收。
+预发布验证：能连续对话，销售插话后对手音频立即停止，最终双方逐字稿按顺序出现，挂断后麦克风停止，断线后可重新连接，报告引用原话。另验证末轮文字回复失败时原话可见且不评分、语音尾稿未知时只保留已确认原话且不评分。记录首音延迟、打断延迟、掉线率和 30 分钟稳定性；检查反向代理 WebSocket 超时。2026-10-23 本机合成数据实测豆包流式识别、暂停/关闭、受控多角色发言与打断均通过，DeepSeek flash 的教练建议、复盘、下一轮练习和待确认记忆建议通过；实体手机麦克风、耳机回声、真实客户内容的报告质量、Vemory 实际字段、多人负载和延迟仍需端到端验收。

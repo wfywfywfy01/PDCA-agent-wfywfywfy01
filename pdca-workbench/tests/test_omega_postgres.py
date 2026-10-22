@@ -68,7 +68,7 @@ class OmegaPostgresTests(unittest.TestCase):
     def setUp(self):
         with Session(self.engine) as db:
             user = User(username="omega-" + uuid4().hex, role="sales", team_key="team-a",
-                        hashed_password="test-only", is_active=True)
+                        hashed_password="test-only", is_active=True, must_change_password=False)
             db.add(user)
             db.flush()
             self.user_id = user.id
@@ -102,7 +102,9 @@ class OmegaPostgresTests(unittest.TestCase):
 
     def test_realtime_lease_and_finished_session_on_postgres(self):
         with Session(self.engine) as db:
-            db.get(OmegaJob, self.job_id).status = "cancelled"
+            db.get(OmegaJob, self.job_id).status = "succeeded"
+            db.add(OmegaSegment(session_id=self.game_id, seq=2, speaker="counterparty",
+                                text="Please send a written schedule."))
             actor = db.get(User, self.user_id)
             db.expunge(actor)
             db.commit()

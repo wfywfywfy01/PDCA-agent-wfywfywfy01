@@ -118,6 +118,19 @@ def main():
             expect(page.get_by_role('heading', name='今天要练哪场会？')).to_be_visible()
             start_box = page.get_by_role('button', name='语音开练', exact=True).bounding_box()
             assert start_box and start_box['y'] >= 0 and start_box['y'] + start_box['height'] <= 844, 'first card start requires scrolling'
+            topic = page.locator('.scenario-card.selected .meeting-sources textarea').first
+            if not topic.is_visible():
+                page.locator('.scenario-card.selected .meeting-sources summary').click()
+            topic.fill('误点防丢命题')
+            rehearsal = page.get_by_role('group', name='会议用途').get_by_role('button', name='会前演练')
+            rehearsal.click()
+            confirmation = page.get_by_role('region', name='确认操作')
+            expect(confirmation).to_be_visible()
+            confirmation.get_by_role('button', name='继续编辑').click()
+            expect(topic).to_have_value('误点防丢命题')
+            rehearsal.click()
+            confirmation.get_by_role('button', name='继续，丢弃未保存内容').click()
+            expect(rehearsal).to_have_attribute('aria-pressed', 'true')
             for control in page.locator('.shell-topbar button').all():
                 box = control.bounding_box()
                 assert box and box['x'] >= 0 and box['x'] + box['width'] <= 390 and box['height'] >= 44, 'mobile topbar control is clipped or too small'
@@ -128,7 +141,8 @@ def main():
             page.get_by_role('button', name='调整这张场景卡').click()
             page.get_by_label('场景名称', exact=True).fill('手机验收场景')
             page.get_by_label('一句话说明目前进展').fill('已介绍价值，对方仍担心价格')
-            page.locator('.scenario-card.selected summary').click()
+            if not page.locator('.scenario-card.selected textarea').first.is_visible():
+                page.locator('.scenario-card.selected summary').click()
             page.locator('.scenario-card.selected textarea').first.fill('核对当地市场需求')
             page.locator('.scenario-card.selected input[type=file]').set_input_files({
                 'name': 'agenda.txt', 'mimeType': 'text/plain', 'buffer': '客户关注市场定位'.encode('utf-8')})

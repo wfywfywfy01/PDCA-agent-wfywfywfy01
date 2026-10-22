@@ -101,6 +101,13 @@ class InputValidationTests(unittest.TestCase):
         compose = (Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("SOURCE_REVISION: ${PDCA_SOURCE_REVISION:-unknown}", compose)
 
+    def test_remote_deploy_checks_successful_main_ci_for_exact_sha(self):
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "deploy_remote_docker.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(script.count('--workflow "PDCA CI/CD" --branch main'), 2)
+        self.assertIn('$_.headSha -eq $Sha -and $_.conclusion -eq "success"', script)
+
     def test_shared_shell_injection_supports_body_attributes(self):
         source = '<!doctype html><html><body class="dashboard">content</body></html>'
         result = inject_vue_shell(source)

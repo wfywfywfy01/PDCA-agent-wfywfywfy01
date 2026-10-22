@@ -37,7 +37,8 @@ async def run(args):
         engine = create_engine(f"sqlite:///{Path(scratch) / 'probe.sqlite'}")
         try:
             SQLModel.metadata.create_all(engine)
-            user = User(username="omega-synthetic-probe", id=1, role="sales", team_key="synthetic-team")
+            user = User(username="omega-synthetic-probe", id=1, role="sales", team_key="synthetic-team",
+                        must_change_password=False)
             with Session(engine) as db:
                 db.add(User(**user.model_dump(), hashed_password="synthetic-only"))
                 case = OmegaCase(team_key=user.team_key, owner_id=1, title="Synthetic protocol test")

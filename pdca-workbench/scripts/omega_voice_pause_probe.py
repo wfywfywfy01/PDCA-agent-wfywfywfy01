@@ -47,7 +47,8 @@ async def run(args):
         control = None
         try:
             SQLModel.metadata.create_all(engine)
-            user = User(id=1, username="synthetic-pause-probe", role="sales", team_key="synthetic")
+            user = User(id=1, username="synthetic-pause-probe", role="sales", team_key="synthetic",
+                        must_change_password=False)
             with Session(engine) as db:
                 db.add(User(**user.model_dump(), hashed_password="synthetic-only"))
                 case = OmegaCase(owner_id=1, team_key="synthetic", title="Synthetic native pause")

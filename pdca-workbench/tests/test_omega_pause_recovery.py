@@ -14,6 +14,7 @@ from app.omega.realtime import VoiceControl, _receive_doubao_audio, _release, re
 
 class Browser:
     def __init__(self):
+        self.cookies = {}
         self.events, self.audio = [], []
         self.started, self.saved = asyncio.Event(), asyncio.Event()
 

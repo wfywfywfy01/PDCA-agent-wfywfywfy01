@@ -24,7 +24,8 @@ class CoachingTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.engine = create_engine(f"sqlite:///{Path(self.temp.name) / 'coach.sqlite'}")
         SQLModel.metadata.create_all(self.engine)
-        self.user = User(id=1, username="coach-owner", team_key="team-a", role="sales")
+        self.user = User(id=1, username="coach-owner", team_key="team-a", role="sales",
+                         must_change_password=False)
         with Session(self.engine) as db:
             db.add(User(**self.user.model_dump(), hashed_password="test-only"))
             case = OmegaCase(team_key="team-a", owner_id=1, title="Synthetic coaching")
