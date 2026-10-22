@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import email
+import email.policy
 import hashlib
 import hmac
 import html
@@ -216,7 +217,7 @@ def poll_replies(session: Session, days: int = 14) -> int:
         for num in (data[0] or b"").split():
             _, parts = imap.fetch(num, "(BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.20000>)")
             chunks = [p[1] for p in parts if isinstance(p, tuple)]
-            headers = email.message_from_bytes(chunks[0] if chunks else b"")
+            headers = email.message_from_bytes(chunks[0] if chunks else b"", policy=email.policy.default)
             text = (chunks[1] if len(chunks) > 1 else b"").decode("utf-8", "ignore")
             if BOUNCE_FROM_RE.search(headers.get("From", "")):
                 for mid in set(re.findall(r"<[^<>\s]+@[^<>\s]+>", text)):
