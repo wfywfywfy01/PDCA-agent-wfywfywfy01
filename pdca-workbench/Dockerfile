@@ -10,6 +10,7 @@ RUN printf '%s\n' "$SOURCE_REVISION" > /tmp/pdca-source-revision
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/web ./
+COPY pdca-workbench/frontend/admin_panel.html pdca-workbench/frontend/growth.html /pdca-workbench/frontend/
 RUN npm test && npm run typecheck && npm run build
 
 FROM python:3.12-slim

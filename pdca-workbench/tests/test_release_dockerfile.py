@@ -41,6 +41,27 @@ class ReleaseDockerfileTests(unittest.TestCase):
         self.assertIn("RUN npm ci --no-audit --no-fund", self.text)
         self.assertIn("RUN npm test && npm run typecheck && npm run build", self.text)
 
+    def test_frontend_pages_are_available_before_node_tests_in_both_images(self):
+        for name in ("Dockerfile", "Dockerfile.release"):
+            text = (ROOT / "pdca-workbench" / name).read_text(encoding="utf-8")
+            stage = text.split(" AS web-build\n", 1)[1].split("\nFROM ", 1)[0]
+            before_tests = stage.split("RUN npm test", 1)[0]
+            copied = {}
+            for sources, destination in re.findall(r"(?m)^COPY (.+) (/\S+)$", before_tests):
+                for source in sources.split():
+                    target = destination + Path(source).name if destination.endswith("/") else destination
+                    copied[target] = source
+            for page in ("admin_panel.html", "growth.html"):
+                with self.subTest(dockerfile=name, page=page):
+                    source = "pdca-workbench/frontend/" + page
+                    self.assertEqual(copied.get("/" + source), source)
+
+    def test_postgres_smoke_explicitly_enables_and_runs_growth_tests(self):
+        script = (ROOT / "pdca-workbench/scripts/docker_postgres_smoke_test.sh").read_text(encoding="utf-8")
+        isolated_run = script.split('docker run --rm --network "container:$DB"', 1)[1].split("\ndocker run ", 1)[0]
+        self.assertRegex(isolated_run, r"-e PDCA_TEST_POSTGRES_URL=postgresql\+psycopg2://[^\s]+@127\.0\.0\.1:5432/omega_test\s")
+        self.assertRegex(isolated_run, r"python -m unittest [^\n]*\btests\.test_growth_postgres\b")
+
     def test_full_rebuild_revision_cannot_invalidate_dependency_installation(self):
         full = (ROOT / "pdca-workbench/Dockerfile").read_text(encoding="utf-8")
         runtime = full.split("FROM python:3.12-slim", 1)[1]

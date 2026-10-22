@@ -10,7 +10,7 @@ RUN printf '%s\n' "$SOURCE_REVISION" > /tmp/pdca-source-revision
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/web ./
-COPY pdca-workbench/frontend/admin_panel.html /pdca-workbench/frontend/admin_panel.html
+COPY pdca-workbench/frontend/admin_panel.html pdca-workbench/frontend/growth.html /pdca-workbench/frontend/
 RUN npm test && npm run typecheck && npm run build
 
 FROM ghcr.io/wfywfywfy01/pdca-workbench@sha256:163bc9d949a5c7aac8ae80082955da977ad00807ef7f6e4ea9f6cd167bf76e46
