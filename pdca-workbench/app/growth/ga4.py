@@ -206,8 +206,21 @@ def _write_snapshot(payload: dict) -> None:
     os.replace(tmp, path)
 
 
-def briefing(days: int = 28, limit: int = 40) -> dict:
-    """内容页流量 + 选题表对齐。Google 不可达时退回上次快照。"""
+def _snapshot_age_hours() -> float | None:
+    path = _snapshot_path()
+    if not path or not os.path.isfile(path):
+        return None
+    return (time.time() - os.path.getmtime(path)) / 3600
+
+
+def briefing(days: int = 28, limit: int = 40, *, force: bool = False) -> dict:
+    """有快照就直接返回。杭州服务器访问不了 Google，刷新由能连 Google 的机器写入快照。"""
+    if not force:
+        cached = _read_snapshot()
+        if cached:
+            age = _snapshot_age_hours()
+            cached["age_hours"] = round(age, 1) if age is not None else None
+            return cached
     try:
         payload = _live_briefing(days, limit)
     except Ga4Error as exc:
@@ -215,8 +228,10 @@ def briefing(days: int = 28, limit: int = 40) -> dict:
         if not cached:
             raise
         cached["error"] = str(exc)
+        cached["age_hours"] = None
         return cached
     payload["stale"] = False
+    payload["fetched_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _write_snapshot(payload)
     return payload
 
