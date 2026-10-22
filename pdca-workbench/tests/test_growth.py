@@ -257,9 +257,10 @@ class GrowthTests(unittest.TestCase):
                      "engRate": 1, "keyEvents": 0}]
         topics = "title\turl\nLive\thttps://vertu.com/news/partners/live-post\nDraft\t\n"
         with self._topics(topics), \
+                patch.dict(os.environ, {"PDCA_GROWTH_GA4_SNAPSHOT": ""}), \
                 patch.object(ga4, "content_rows", return_value=top), \
                 patch.object(ga4, "path_rows", return_value=partners):
-            out = ga4.briefing(28)
+            out = ga4.briefing(28, force=True)
         self.assertEqual(out["topics"], 2)
         self.assertIn("/lifestyle/price\t100\t80\t70\t0.7\t0", out["table"])
         self.assertIn("Live\thttps://vertu.com/news/partners/live-post\t5\t4\t0.5", out["table"])
@@ -278,6 +279,24 @@ class GrowthTests(unittest.TestCase):
             out = ga4.briefing()
         self.assertTrue(out["stale"])
         self.assertEqual(out["table"], "cached-table")
+        self.assertIsNotNone(out["age_hours"])
+
+    def test_sync_topics_from_sheet_keeps_unpublished_blank(self):
+        import importlib.util
+
+        path = os.path.join(os.path.dirname(__file__), "..", "scripts", "sync_ga4_snapshot.py")
+        spec = importlib.util.spec_from_file_location("sync_ga4_snapshot", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        text = mod._topics_from_sheet({
+            "workbook": {"sheets": {"s": {"cellData": {
+                "0": {"1": {"v": "选题"}, "7": {"v": "线上url"}},
+                "1": {"1": {"v": "已发"}, "7": {"v": "https://vertu.com/a"}},
+                "2": {"1": {"v": "未发"}, "7": {"v": ""}},
+            }}}}
+        })
+        self.assertIn("已发\thttps://vertu.com/a", text)
+        self.assertIn("未发\t\n", text)
 
     def test_seo_review_uses_ga4_when_table_empty(self):
         from app.growth import fetcher, ga4

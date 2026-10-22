@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hmac
+import os
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -100,14 +101,14 @@ async def generate(body: GenerateBody, _: Manager, session: DB):
 
 
 @router.get("/seo/ga4")
-async def seo_ga4(_: Manager, days: int = 28):
-    """近 N 天内容页流量，并与选题表 TSV 对齐。"""
+async def seo_ga4(_: Manager, days: int = 28, refresh: bool = False):
+    """近 N 天内容页流量，并与选题表 TSV 对齐。默认读快照。"""
     from app.growth import ga4
 
-    if not ga4.configured():
+    if not ga4.configured() and not os.environ.get("PDCA_GROWTH_GA4_SNAPSHOT"):
         raise HTTPException(503, "GA4 未配置（PDCA_GROWTH_GA4_PROPERTY_ID 与服务账号）")
     try:
-        return await asyncio.to_thread(ga4.briefing, days)
+        return await asyncio.to_thread(lambda: ga4.briefing(days, force=refresh))
     except Exception as exc:
         raise HTTPException(502, f"GA4 拉取失败：{exc}") from exc
 

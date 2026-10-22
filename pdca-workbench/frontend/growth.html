@@ -220,8 +220,8 @@ async function loadGa4() {
   try {
     const r = await api('/seo/ga4');
     seoTable.value = r.table;
-    seoInfo.textContent = `GA4 近 ${r.days} 天内容页 ${r.top} 条，选题 ${r.topics} 条`
-      + (r.stale ? '（缓存：这次没连上 Google）' : '');
+    const age = r.age_hours != null ? `，${r.age_hours} 小时前同步` : '';
+    seoInfo.textContent = `GA4 近 ${r.days} 天内容页 ${r.top} 条，选题 ${r.topics} 条${age}`;
   } catch (e) { toast(e.message); }
   g4Btn.disabled = false; g4Btn.textContent = '载入 GA4 + 选题表';
 }
