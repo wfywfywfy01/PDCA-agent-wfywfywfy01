@@ -180,8 +180,49 @@ def _fmt(row: dict) -> str:
     return f"{row['page']}\t{row['views']}\t{row['sessions']}\t{row['users']}\t{row['engRate']}\t{row['keyEvents']}"
 
 
+def _snapshot_path() -> str:
+    return os.environ.get("PDCA_GROWTH_GA4_SNAPSHOT", "").strip()
+
+
+def _read_snapshot() -> dict | None:
+    path = _snapshot_path()
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict) or not data.get("table"):
+        return None
+    data["stale"] = True
+    return data
+
+
+def _write_snapshot(payload: dict) -> None:
+    path = _snapshot_path()
+    if not path:
+        return
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
 def briefing(days: int = 28, limit: int = 40) -> dict:
-    """内容页流量 + 选题表对齐结果，给 SEO 顾问当 table。"""
+    """内容页流量 + 选题表对齐。Google 不可达时退回上次快照。"""
+    try:
+        payload = _live_briefing(days, limit)
+    except Ga4Error as exc:
+        cached = _read_snapshot()
+        if not cached:
+            raise
+        cached["error"] = str(exc)
+        return cached
+    payload["stale"] = False
+    _write_snapshot(payload)
+    return payload
+
+
+def _live_briefing(days: int = 28, limit: int = 40) -> dict:
+    """直接调 GA4。"""
     days = min(max(int(days), 1), 90)
     top = content_rows(days, limit)
     partners = path_rows(days, "/news/partners/", 100)

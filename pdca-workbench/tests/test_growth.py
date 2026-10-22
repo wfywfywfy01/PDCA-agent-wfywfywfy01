@@ -265,6 +265,20 @@ class GrowthTests(unittest.TestCase):
         self.assertIn("Live\thttps://vertu.com/news/partners/live-post\t5\t4\t0.5", out["table"])
         self.assertIn("Draft\t(not published)", out["table"])
 
+    def test_ga4_briefing_uses_snapshot_when_google_unreachable(self):
+        import tempfile
+
+        from app.growth import ga4
+        fh = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".json")
+        json.dump({"days": 28, "top": 1, "topics": 2, "table": "cached-table"}, fh)
+        fh.close()
+        self.addCleanup(os.remove, fh.name)
+        with patch.dict(os.environ, {"PDCA_GROWTH_GA4_SNAPSHOT": fh.name}), \
+                patch.object(ga4, "content_rows", side_effect=ga4.Ga4Error("down")):
+            out = ga4.briefing()
+        self.assertTrue(out["stale"])
+        self.assertEqual(out["table"], "cached-table")
+
     def test_seo_review_uses_ga4_when_table_empty(self):
         from app.growth import fetcher, ga4
         idea = json.dumps({"variants": [{"angle": "a", "title": "q", "body": "outline"}]})
