@@ -102,7 +102,9 @@ class OmegaPostgresTests(unittest.TestCase):
 
     def test_realtime_lease_and_finished_session_on_postgres(self):
         with Session(self.engine) as db:
-            db.get(OmegaJob, self.job_id).status = "cancelled"
+            db.get(OmegaJob, self.job_id).status = "succeeded"
+            db.add(OmegaSegment(session_id=self.game_id, seq=2, speaker="counterparty",
+                                text="Please send a written schedule."))
             actor = db.get(User, self.user_id)
             db.expunge(actor)
             db.commit()
