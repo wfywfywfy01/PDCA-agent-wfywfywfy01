@@ -257,7 +257,7 @@ def review_owner_images(
         "qualify_count": qualify_n,
         "goal": MTO_DAILY_GOAL,
         "goal_met": bool(count is not None and qualify_n >= MTO_DAILY_GOAL),
-        "quotes": results[:12],
+        "quotes": results,
         "amount_unknown": not get_settings().qwen_api_key,
     }
     payload = _vision_with_metrics(payload, metrics)

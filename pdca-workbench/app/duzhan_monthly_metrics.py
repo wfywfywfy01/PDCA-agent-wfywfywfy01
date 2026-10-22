@@ -156,6 +156,7 @@ def recheck_row(row: dict, metrics: dict) -> dict:
                                   and quote.get("raw_ok") is not False
                                   and quote["wan"] >= metrics["mto_min_wan"]) for quote in quotes]
     for quote in result["mto_quotes"]:
+        quote["raw_ok"] = quote.get("raw_ok") is not False
         quote["verdict"] = ("达标" if quote["qualifies"] else
                             f"未满{metrics['mto_min_wan']:g}万" if _amount(quote.get("wan"))
                             and quote.get("raw_ok") is not False else "金额待确认")

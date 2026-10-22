@@ -164,6 +164,27 @@ class MonthlyMetricsTests(unittest.TestCase):
                                       {"mto_daily_count": 3, "mto_min_wan": 30})
         self.assertIsNone(detail["goal_met"])
 
+    def test_vision_keeps_all_qualified_facts_for_large_quotas_and_cache(self):
+        from app.agents import mto_vision_service as vision
+
+        quotes = [dict(model="Verified quote", wan=25, raw_ok=True, qualifies=False) for _ in range(20)]
+        with patch.dict(vision._cache, {}, clear=True), \
+             patch.object(vision, "_owner_metrics", return_value={"mto_daily_count": 20, "mto_min_wan": 20, "source": "saved"}), \
+             patch.object(vision, "get_settings", return_value=SimpleNamespace(qwen_api_key="unit-test")), \
+             patch.object(vision, "write_event"), \
+             patch("app.mto_ocr.review_mto_images", return_value=(0, [], quotes)) as ocr:
+            for _ in range(2):
+                result = vision.review_owner_images("于冰", [], 123, day="2026-10-21")
+                self.assertEqual((result["count"], result["qualify_count"], result["goal_met"]), (20, 20, True))
+            ocr.assert_called_once()
+
+    def test_legacy_numeric_quote_without_raw_flag_has_consistent_description(self):
+        metrics = {"mto_daily_count": 1, "mto_min_wan": 20}
+        row = recheck_row({"mto_count": 0, "history_ok": True, "mto_quotes": [dict(wan=25, qualifies=False)]}, metrics)
+        self.assertEqual(row["mto_count"], 1)
+        self.assertNotIn("未读出报价", " ".join(row["mto_names"]))
+        self.assertNotIn("金额待确认", " ".join(row["mto_names"]))
+
     def test_runtime_reads_saved_policy_and_fails_closed_when_database_is_unavailable(self):
         self.assertEqual(self.save().status_code, 200)
         with patch("app.duzhan_admin.runtime.using_db", return_value=True), \

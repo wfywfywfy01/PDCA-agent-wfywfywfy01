@@ -165,8 +165,8 @@ def summarize_quotes(quotes: list[dict], *, min_wan: float = THRESHOLD_WAN) -> t
             qualify_n += 1
         usd = item.get("usd")
         wan = item.get("wan")
-        money = f"${usd:g}" if usd is not None else "金额待确认"
-        bar = "达标" if item.get("qualifies") else f"未满{min_wan:g}万"
+        money = f"${usd:g}" if usd is not None else f"{wan:g}万" if wan is not None else "金额待确认"
+        bar = "达标" if item.get("qualifies") else f"未满{min_wan:g}万" if wan is not None else "金额待确认"
         if wan is not None and usd is not None:
             money = f"${usd:g}≈{wan}万"
         target = str(item.get("target_customer") or "").strip() or "目标客户待确认"
