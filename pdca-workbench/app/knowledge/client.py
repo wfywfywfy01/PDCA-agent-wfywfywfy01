@@ -18,6 +18,9 @@ from app.config import get_settings
 from app.models.dealer_store import DealerStore
 
 
+KNOWLEDGE_READ_ALL = "knowledge:read:all"
+
+
 def validate_knowledge_hub_settings() -> None:
     settings = get_settings()
     if not settings.knowledge_hub_enabled:
@@ -48,7 +51,18 @@ def _token_key() -> str:
     return value
 
 
+def has_knowledge_read_all(user: User, session: Session) -> bool:
+    if not bool(getattr(user, "knowledge_read_all", False)):
+        return False
+    scope = resolve_data_scope(user, session)
+    if user.role != "viewer" or scope.mode != "none":
+        raise HTTPException(status_code=403, detail="全库资料只读账号配置无效")
+    return True
+
+
 def _knowledge_scope(user: User, session: Session) -> tuple[str, list[str], list[str]]:
+    if has_knowledge_read_all(user, session):
+        return "none", [], []
     scope = resolve_data_scope(user, session)
     if scope.unrestricted:
         return scope.mode, [], []
@@ -76,6 +90,8 @@ def _knowledge_scope(user: User, session: Session) -> tuple[str, list[str], list
 
 
 def require_knowledge_access(user: User, session: Session, dealer_id: UUID | None = None) -> None:
+    if has_knowledge_read_all(user, session):
+        return
     scope, dealer_ids, team_keys = _knowledge_scope(user, session)
     if scope == "all":
         return
@@ -88,7 +104,7 @@ def require_knowledge_access(user: User, session: Session, dealer_id: UUID | Non
 def scoped_dealers(user: User, session: Session) -> list[dict[str, str]]:
     scope = resolve_data_scope(user, session)
     stmt = select(DealerStore).where(DealerStore.is_active == True)  # noqa: E712
-    if not scope.unrestricted:
+    if not scope.unrestricted and not has_knowledge_read_all(user, session):
         if not scope.store_ids:
             return []
         stmt = stmt.where(DealerStore.store_id.in_(scope.store_ids))
@@ -132,6 +148,8 @@ def _service_token(
         "exp": now + timedelta(minutes=5),
         "jti": secrets.token_hex(16),
     }
+    if has_knowledge_read_all(user, session):
+        payload["capabilities"] = [KNOWLEDGE_READ_ALL]
     if reauthenticated_at is not None:
         payload["reauth_at"] = reauthenticated_at
         payload["reauth_purpose"] = "knowledge-original-export"

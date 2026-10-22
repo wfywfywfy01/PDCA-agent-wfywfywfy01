@@ -19,7 +19,12 @@ from app.auth.models import User
 from app.auth.security import decode_access_token, is_token_revoked
 from app.config import get_settings
 from app.database import get_engine
-from app.knowledge.client import request_json, require_knowledge_access, scoped_dealers
+from app.knowledge.client import (
+    has_knowledge_read_all,
+    request_json,
+    require_knowledge_access,
+    scoped_dealers,
+)
 
 
 _READ_SCOPE = "knowledge:read"
@@ -154,6 +159,27 @@ def _top_k(value: int) -> int:
 async def list_dealers() -> dict:
     with _authorized_user() as (user, session):
         require_knowledge_access(user, session)
+        if has_knowledge_read_all(user, session):
+            rows = await request_json(
+                "GET",
+                "/v1/dealers",
+                user=user,
+                session=session,
+                request_id=f"mcp-{uuid4().hex}",
+            )
+            if not isinstance(rows, list):
+                raise HTTPException(status_code=503, detail="知识库经销商目录响应无效")
+            return {
+                "dealers": [
+                    {
+                        "dealer_id": str(row["id"]),
+                        "name": str(row["official_name"]),
+                        "country_code": str(row.get("country_code") or ""),
+                        "status": str(row.get("status") or ""),
+                    }
+                    for row in rows
+                ]
+            }
         return {"dealers": scoped_dealers(user, session)}
 
 

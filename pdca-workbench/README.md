@@ -174,6 +174,10 @@ AI 客户端使用 `https://pdca-workbench-teams.vertu.cn/mcp/`。先调用
 `Authorization: Bearer <token>` 请求头。MCP 仅提供只读工具：列出当前账号可见
 经销商、检索脱敏证据、生成带引用回答；权限与网页完全一致。
 
+跨服务器 Agent 使用独立 `viewer` 账号。管理员可为其开启“经销商资料库全库只读”；
+该权限不扩展 PDCA 业务数据范围，也不允许上传、修改、审核或下载原件。停用账号或
+重置密码会立即使已签发的 MCP 登录令牌失效。
+
 门店五件套 MCP 的正式地址是 `https://pdca-workbench-teams.vertu.cn/mcp-five-kit/`。
 旧独立域名 `pdca-mcp.vertu.cn` 不再作为客户端入口；更新客户端配置后，
 分别用 `initialize`、`tools/list` 和一个只读 `tools/call` 验证实际可用性。
