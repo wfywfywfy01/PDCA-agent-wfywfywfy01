@@ -60,6 +60,12 @@ def _time_progress(day: str) -> float:
 
 
 def _configured_sales_target(month: str) -> tuple[float, list[str]] | None:
+    from app.duzhan_monthly_metrics import configured_sales_target
+
+    return configured_sales_target(month)
+
+
+def _bundled_sales_target(month: str) -> tuple[float, list[str]] | None:
     """读取已确认月目标；新部保持部门合计，不擅自拆到个人。"""
     payload = json.loads(_SALES_TARGETS_FILE.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):

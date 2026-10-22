@@ -522,7 +522,7 @@ class OcrBudgetTests(unittest.TestCase):
         ):
             count, _names, quotes = mto_ocr.review_mto_images(messages, 7)
         self.assertEqual(len(calls), 2, "每人最多 OCR 上限张数")
-        self.assertEqual(count, 2)
+        self.assertIsNone(count, "未核验全部图片时，不能把部分款数当作完整结果")
         self.assertEqual(len(quotes), 2)
 
     def test_explicit_max_images_wins(self):

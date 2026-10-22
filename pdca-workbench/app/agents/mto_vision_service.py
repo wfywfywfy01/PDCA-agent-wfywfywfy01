@@ -36,6 +36,52 @@ def _sha256_of(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _owner_metrics(owner_name: str, day: str) -> dict:
+    from app.duzhan_ledger import OWNERS
+    from app.duzhan_departments import is_task_only
+    from app.duzhan_monthly_metrics import metrics_for_owner
+
+    owner = next((item for item in OWNERS if item.display == owner_name), None)
+    if owner is None:
+        return {"mto_daily_count": MTO_DAILY_GOAL, "mto_min_wan": MTO_QUOTE_MIN_WAN}
+    metrics = metrics_for_owner(owner.group, day)
+    return {**metrics, "mto_daily_count": 0 if is_task_only(owner.group, owner_name) else metrics["mto_daily_count"]}
+
+
+def _detail_with_metrics(result: dict, metrics: dict) -> dict:
+    from app.duzhan_monthly_metrics import recheck_row
+
+    checked = recheck_row({"mto_count": result["qualified"], "mto_quotes": result["rows"], "history_ok": True}, metrics)
+    rows = [dict(row, verdict=("达标" if row["qualifies"] else
+                 f"未满{metrics['mto_min_wan']:g}万" if row.get("wan") is not None and row.get("raw_ok") is not False
+                 else "未读出报价") + ("（型号读不出，需人工确认）" if row.get("model_missing") else ""))
+            for row in checked["mto_quotes"]]
+    qualified = sum(row["qualifies"] for row in rows)
+    return {**result, "rows": rows, "qualified": qualified, "goal": metrics["mto_daily_count"],
+            "min_wan": metrics["mto_min_wan"],
+            "goal_met": (metrics["mto_daily_count"] > 0 and qualified >= metrics["mto_daily_count"]
+                         if result.get("complete", True) else None),
+            "under_threshold": sum(not row["qualifies"] and row.get("wan") is not None
+                                   and row.get("raw_ok") is not False for row in rows)}
+
+
+def _vision_with_metrics(payload: dict, metrics: dict) -> dict:
+    from app.duzhan_monthly_metrics import recheck_row
+
+    raw = [dict(row, wan=row.get("quote_wan"), raw_ok=row.get("review_status") == "verified")
+           for row in payload.get("quotes") or []]
+    checked = recheck_row({"mto_count": payload["count"], "mto_quotes": raw, "history_ok": True}, metrics)
+    quotes = [dict(original, qualifies=quote["qualifies"] if quote["raw_ok"] else None)
+              for original, quote in zip(payload.get("quotes") or [], checked["mto_quotes"])]
+    qualified = sum(bool(row["qualifies"]) for row in quotes)
+    return {**payload, "quotes": quotes, "qualify_count": qualified,
+            "count": checked["mto_count"] if metrics.get("source") == "saved" else payload["count"],
+            "goal": metrics["mto_daily_count"],
+            "min_wan": metrics["mto_min_wan"],
+            "goal_met": (metrics["mto_daily_count"] > 0 and qualified >= metrics["mto_daily_count"]
+                         if checked["mto_count"] is not None else None)}
+
+
 def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> dict:
     """按人+日期做 MTO 明细核对（后台/主 Agent 统一口径）。
 
@@ -58,12 +104,13 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
     if not owner.im_user_id:
         return {"owner": owner_name, "day": day, "error": "该负责人缺少 IM user_id，无法定位图片"}
 
+    metrics = _owner_metrics(owner_name, day)
     cache_key = f"detail:{owner_name}:{day}"
     now_mono = time.monotonic()
     with _cache_lock:
         cached = _cache.get(cache_key)
         if cached and not force and now_mono - cached[0] < 3600:
-            return cached[1]
+            return _detail_with_metrics(cached[1], metrics)
 
     result: dict = {
         "owner": owner_name,
@@ -88,12 +135,14 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
             raw_messages.extend(fetch_channel_history(channel_id, day, "300"))
         messages = messages_on_day(raw_messages, day, owner_group_timezone(owner))
         image_count, file_names = parse_mto_images(messages, owner.im_user_id)
-        quote_count, _names, quotes = review_mto_images(messages, owner.im_user_id)
+        quote_count, _names, quotes = review_mto_images(messages, owner.im_user_id,
+            max_images=max(int(getattr(get_settings(), "mto_ocr_max_images", 8) or 8), metrics["mto_daily_count"]))
     except Exception as exc:  # noqa: BLE001 — 单源失败写待确认，不抛
         logger.warning("MTO 明细核对失败 owner={} day={}: {}", owner_name, day, exc)
         result["error"] = f"采集失败: {str(exc)[:200]}"
         return result
 
+    result["complete"] = quote_count is not None
     for index, quote in enumerate(quotes or []):
         usd = quote.get("usd")
         wan = quote.get("wan")
@@ -108,6 +157,7 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
             "sku": quote.get("sku") or "",
             "usd": usd,
             "wan": wan,
+            "raw_ok": raw_ok,
             "qualifies": bool(qualifies),
             "delivery": quote.get("delivery") or "",
             "customer": quote.get("target_customer") or "",
@@ -129,7 +179,7 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
     result["goal_met"] = result["qualified"] >= MTO_DAILY_GOAL
     with _cache_lock:
         _cache[cache_key] = (now_mono, result)
-    return result
+    return _detail_with_metrics(result, metrics)
 
 
 def owner_group_timezone(owner) -> str:
@@ -182,14 +232,16 @@ def review_owner_images(
     """
     from app.mto_ocr import review_mto_images, summarize_quotes
 
+    metrics = _owner_metrics(owner, day)
     cache_key = f"{owner}:{day}"
     now_mono = time.monotonic()
     with _cache_lock:
         cached = _cache.get(cache_key)
         if cached and not force and now_mono - cached[0] < 3600:
-            return cached[1]
+            return _vision_with_metrics(cached[1], metrics)
     try:
-        count, names, quotes = review_mto_images(messages, sender_id)
+        count, names, quotes = review_mto_images(messages, sender_id,
+            max_images=max(int(getattr(get_settings(), "mto_ocr_max_images", 8) or 8), metrics["mto_daily_count"]))
     except Exception as exc:  # noqa: BLE001 — 单源失败写待确认
         logger.warning("MTO 视觉采集失败 owner={}: {}", owner, exc)
         count, names, quotes = None, [], []
@@ -205,9 +257,10 @@ def review_owner_images(
         "qualify_count": qualify_n,
         "goal": MTO_DAILY_GOAL,
         "goal_met": bool(count is not None and qualify_n >= MTO_DAILY_GOAL),
-        "quotes": results[:12],
+        "quotes": results,
         "amount_unknown": not get_settings().qwen_api_key,
     }
+    payload = _vision_with_metrics(payload, metrics)
     write_event(
         "mto.review_completed",
         producer="mto_vision_service",

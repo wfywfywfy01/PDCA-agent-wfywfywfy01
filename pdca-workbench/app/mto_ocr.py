@@ -153,7 +153,7 @@ def _usd(value: object) -> float | None:
         return None
 
 
-def summarize_quotes(quotes: list[dict]) -> tuple[int, list[str]]:
+def summarize_quotes(quotes: list[dict], *, min_wan: float = THRESHOLD_WAN) -> tuple[int, list[str]]:
     """≥30 万且有报价的张数；文案含金额、是否达标、目标客户。"""
     names: list[str] = []
     qualify_n = 0
@@ -165,8 +165,8 @@ def summarize_quotes(quotes: list[dict]) -> tuple[int, list[str]]:
             qualify_n += 1
         usd = item.get("usd")
         wan = item.get("wan")
-        money = f"${usd:g}" if usd is not None else "金额待确认"
-        bar = "达标" if item.get("qualifies") else "未满30万"
+        money = f"${usd:g}" if usd is not None else f"{wan:g}万" if wan is not None else "金额待确认"
+        bar = "达标" if item.get("qualifies") else f"未满{min_wan:g}万" if wan is not None else "金额待确认"
         if wan is not None and usd is not None:
             money = f"${usd:g}≈{wan}万"
         target = str(item.get("target_customer") or "").strip() or "目标客户待确认"
@@ -453,7 +453,7 @@ def cleanup_temp_files(max_age_hours: float = 6.0) -> dict:
 
 def review_mto_images(
     messages: list | None, sender_id: int | None, max_images: int | None = None
-) -> tuple[int, list[str], list[dict]]:
+) -> tuple[int | None, list[str], list[dict]]:
     """本人当日图片：OCR 报价与目标客户；磁盘文件不保留。
 
     max_images 默认取 PDCA_MTO_OCR_MAX_IMAGES（8）：一天几十张图时，OCR 是整轮采集
@@ -516,7 +516,7 @@ def review_mto_images(
                 )
     if settings.qwen_api_key:
         qualify_n, names = summarize_quotes(quotes)
-        return qualify_n, names, quotes
+        return None if truncated[0] else qualify_n, names, quotes
     # 没配密钥 = 没读图：第一返回值语义是「信息完整报价数」，绝不能拿图片张数顶替，
     # 否则下游（MTO N/4 达标、工时加分）会把截图数当成达标款数。返回 None 让渲染写「待确认」。
     names = [str(item.get("file") or "image") for item in quotes][:6]

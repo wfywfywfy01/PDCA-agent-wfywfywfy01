@@ -134,6 +134,7 @@ def check_db_connection() -> bool:
 def init_db(apply_patches: bool = True) -> None:
     """创建所有表（首次启动或迁移前）。"""
     from app.auth.models import User  # noqa: F401
+    from app.models.duzhan_monthly_metric import DuzhanMonthlyMetric  # noqa: F401
     from app.auth.security_state import LoginFailRecord, TokenRevocation  # noqa: F401
     from app.models.daily_report import DailyReport  # noqa: F401
     from app.models.dealer_sales import DealerSales  # noqa: F401

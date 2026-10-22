@@ -143,7 +143,9 @@ def build_digest(
     """
     ledger_day = ledger_day or _prev_day(day)
     ledger = ledger or collect_ledger(ledger_day)
-    people = [task_scope_row(row) for row in ledger.get("people") or []]
+    from app.duzhan_monthly_metrics import policy_rows
+
+    people = policy_rows([task_scope_row(row) for row in ledger.get("people") or []], ledger_day)
     metric_people = [person for person in people
                      if not is_task_only(str(person.get("group") or ""), str(person.get("display") or ""))]
     department_target = _department_target(ledger_day)
@@ -165,7 +167,9 @@ def build_digest(
     intent_count = len(intent_items)
     slip_known = sum(1 for item in slip_items if item.get("wan") is not None)
     intent_known = sum(1 for item in intent_items if item.get("wan") is not None)
-    mto_done = sum(1 for p in metric_people if (p.get("mto_count") or 0) >= 4)
+    mto_done = sum(1 for p in metric_people if p.get("mto_count") is not None
+                   and p["mto_count"] >= p.get("mto_daily_goal", 4))
+    mto_label = "4 款" if all(p.get("mto_daily_goal", 4) == 4 for p in metric_people) else "各群目标"
     lines: list[str] = []
     missing_text = f"（{missing_arrived} 人未出数）" if missing_arrived else ""
     lines.append(f"【海外渠道日报｜{day} 08:00】")
@@ -180,7 +184,7 @@ def build_digest(
     )
     if metric_people:
         lines.append(
-            f"   • MTO：4 款达标 {mto_done}/{len(metric_people)} 人"
+            f"   • MTO：{mto_label}达标 {mto_done}/{len(metric_people)} 人"
             f"｜工时合计 {_hours_text(metric_people)}｜战役 {TODAY_SLOGAN}"
         )
     else:
@@ -198,14 +202,23 @@ def build_digest(
         group_mtd = group_mtd if any(m.get('mtd_wan') is not None for m in members) else None
         group_slip = [i for m in metric_members for i in (m.get('perf_slip') or [])]
         group_intent = [i for m in metric_members for i in (m.get('perf_intent') or [])]
-        mto_ok = sum(1 for m in metric_members if (m.get('mto_count') or 0) >= 4)
+        mto_ok = sum(1 for m in metric_members if m.get('mto_count') is not None
+                     and m['mto_count'] >= m.get('mto_daily_goal', 4))
+        group_goal = metric_members[0].get('mto_daily_goal', 4) if metric_members else 4
         member_text = " / ".join(str(m.get('display') or '未署名') for m in members)
         lines.append(f"   • {group_name}（{member_text}）")
-        lines.append(f"     - {_target_line(group_target, group_mtd, ledger_day)}")
+        from app.duzhan_departments import department_for
+        from app.duzhan_monthly_metrics import metrics_for_owner
+
+        metrics = metrics_for_owner(group_name, ledger_day) if department_for(group_name) else None
+        target_line = (f"月目标 破零｜累计已录单 {_wan(group_mtd)}"
+                       if metrics and metrics["goal"] == "break_zero"
+                       else _target_line(group_target, group_mtd, ledger_day))
+        lines.append(f"     - {target_line}")
         lines.append(f"     - 水单：{_amounts(group_slip)}｜意向：{_amounts(group_intent)}")
         if metric_members:
             lines.append(
-                f"     - MTO 4 款达标 {mto_ok}/{len(metric_members)} 人"
+                f"     - MTO {group_goal} 款达标 {mto_ok}/{len(metric_members)} 人"
                 f"｜工时合计 {_hours_text(metric_members)}"
             )
     lines.append("")
@@ -221,7 +234,7 @@ def build_digest(
         wa = person.get('wa_reached')
         wa_text = '待确认' if wa is None else f"{wa} 户"
         mto = person.get('mto_count')
-        mto_text = '待确认' if mto is None else f"{mto}/4"
+        mto_text = '待确认' if mto is None else f"{mto}/{person.get('mto_daily_goal', 4)}"
         hours = '待确认' if person.get('hours_minutes') is None else f"{float(person['hours_minutes']) / 60:.1f}h"
         report = person.get('daily_report') or {}
         if report:
@@ -343,6 +356,16 @@ def _target_entries(day: str) -> list[dict]:
 
 def _department_target(day: str) -> float | None:
     """部门月度目标：目标文件 department_target_wan；缺失返回 None（待确认）。"""
+    from app.duzhan_admin.runtime import using_db
+
+    if using_db():
+        from app.duzhan_monthly_metrics import configured_sales_target
+
+        try:
+            configured = configured_sales_target(day[:7])
+            return configured[0] / 10000 if configured else None
+        except ValueError:
+            return None
     value = _target_month(day).get("department_target_wan")
     try:
         return float(value) if value is not None else None
@@ -352,6 +375,14 @@ def _department_target(day: str) -> float | None:
 
 def _group_target(members: list[dict], day: str) -> float | None:
     """小组月目标：先把个人目标加总；个人目标都缺时用文件里带 members 的组目标。"""
+    from app.duzhan_departments import department_for
+    from app.duzhan_monthly_metrics import metrics_for_owner
+
+    group = str(members[0].get("group") or "") if members else ""
+    if department_for(group):
+        metrics = metrics_for_owner(group, day)
+        if metrics["source"] == "saved":
+            return metrics["sales_target_wan"]
     known = [float(m["target_wan"]) for m in members if m.get("target_wan") is not None]
     if known:
         return sum(known)
