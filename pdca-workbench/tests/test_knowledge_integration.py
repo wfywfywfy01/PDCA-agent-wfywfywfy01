@@ -17,8 +17,15 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
 from app.auth.security import create_access_token, hash_password
-from app.admin.router import StoreCreateBody, StoreUpdateBody, create_store, update_store
-from app.knowledge.client import _service_token, scoped_dealers
+from app.admin.router import (
+    StoreCreateBody,
+    StoreUpdateBody,
+    UserUpdateBody,
+    create_store,
+    update_store,
+    update_user,
+)
+from app.knowledge.client import _service_token, require_knowledge_access, scoped_dealers
 from app.knowledge.router import (
     ExportBody,
     QueryBody,
@@ -77,6 +84,11 @@ class KnowledgeIntegrationTests(unittest.TestCase):
                 User(
                     username="viewer", hashed_password="x", role="viewer", data_scope="team",
                     team_key="overseas", must_change_password=False,
+                ),
+                User(
+                    username="mcp-reader", hashed_password="x", role="viewer",
+                    data_scope="none", knowledge_read_all=True,
+                    must_change_password=False,
                 ),
                 DealerStore(
                     store_id="a", name="Dealer A", team_key="overseas",
@@ -144,6 +156,27 @@ class KnowledgeIntegrationTests(unittest.TestCase):
             self.assertEqual(mapped_payload["team_keys"], ["overseas-sales"])
             self.assertEqual(unmapped_payload["team_keys"], [])
 
+    def test_full_library_reader_gets_only_read_capability(self):
+        with Session(self.engine) as session, patch(
+            "app.knowledge.client.get_settings", return_value=self.settings
+        ):
+            user = session.exec(select(User).where(User.username == "mcp-reader")).one()
+            payload = jwt.decode(
+                _service_token(user, session), self.secret, algorithms=["HS256"],
+                audience="dealer-knowledge-hub", issuer="pdca-workbench",
+            )
+            require_knowledge_access(user, session, uuid4())
+
+            self.assertEqual(payload["role"], "viewer")
+            self.assertEqual(payload["scope"], "none")
+            self.assertEqual(payload["dealer_ids"], [])
+            self.assertEqual(payload["team_keys"], [])
+            self.assertEqual(payload["capabilities"], ["knowledge:read:all"])
+            self.assertEqual(
+                {row["dealer_id"] for row in scoped_dealers(user, session)},
+                {self.dealer_a, self.dealer_b},
+            )
+
     def test_manager_cannot_change_knowledge_dealer_mapping(self):
         with Session(self.engine) as session:
             manager = session.exec(select(User).where(User.username == "manager")).one()
@@ -171,6 +204,29 @@ class KnowledgeIntegrationTests(unittest.TestCase):
             store = session.exec(select(DealerStore).where(DealerStore.store_id == "a")).one()
             self.assertEqual(store.knowledge_dealer_id, self.dealer_a)
             self.assertEqual(store.name, "Dealer A updated")
+
+    def test_full_library_permission_is_limited_to_unscoped_viewers(self):
+        with Session(self.engine) as session:
+            admin = session.exec(select(User).where(User.username == "admin")).one()
+            with self.assertRaises(HTTPException) as invalid:
+                asyncio.run(update_user(
+                    "sales",
+                    UserUpdateBody(knowledge_read_all=True),
+                    admin,
+                    session,
+                ))
+            self.assertEqual(invalid.exception.status_code, 400)
+
+            with patch("app.admin.router.log_action"):
+                asyncio.run(update_user(
+                    "viewer",
+                    UserUpdateBody(data_scope="none", knowledge_read_all=True),
+                    admin,
+                    session,
+                ))
+            viewer = session.exec(select(User).where(User.username == "viewer")).one()
+            self.assertTrue(viewer.knowledge_read_all)
+            self.assertEqual(viewer.data_scope, "none")
 
     def test_empty_and_out_of_scope_queries_fail_before_proxy(self):
         request = SimpleNamespace(state=SimpleNamespace(request_id="test-request"))
@@ -229,6 +285,12 @@ class KnowledgeIntegrationTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as caught:
                 asyncio.run(presign_knowledge_upload(body, request, viewer, session))
             self.assertEqual(caught.exception.status_code, 403)
+            upstream.assert_not_awaited()
+
+            reader = session.exec(select(User).where(User.username == "mcp-reader")).one()
+            with self.assertRaises(HTTPException) as read_all_denied:
+                asyncio.run(presign_knowledge_upload(body, request, reader, session))
+            self.assertEqual(read_all_denied.exception.status_code, 403)
             upstream.assert_not_awaited()
 
     def test_sensitive_reviews_are_admin_only_and_proxied(self):

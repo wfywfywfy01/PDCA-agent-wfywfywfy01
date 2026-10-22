@@ -37,6 +37,10 @@ class User(SQLModel, table=True):
         max_length=16,
         description="none/self/team/all；为空时按角色采用最小权限默认值",
     )
+    knowledge_read_all: bool = Field(
+        default=False,
+        description="仅用于 viewer 的经销商资料库全库只读能力",
+    )
     is_active: bool = Field(default=True)
     must_change_password: bool = Field(default=True)
     pwd_version: int = Field(default=0)

@@ -317,6 +317,7 @@
     </div>
     <div class="field" id="um_dealer_wrap" style="display:none"><label>绑定门店 store_id（dealer 角色专用）</label><input id="um_dealer" type="text" placeholder="如 sea01" /></div>
     <div class="field"><label>数据范围</label><select id="um_scope"><option value="none">无数据 none</option><option value="self" selected>本人/本店 self</option><option value="team">所在团队 team</option><option value="all">全局 all（仅管理员）</option></select></div>
+    <div class="field"><label><input id="um_knowledge_all" type="checkbox" /> 经销商资料库全库只读（仅 viewer）</label></div>
     <div class="field" id="um_password_wrap"><label>初始密码（至少 12 位）<span style="color:#e11d48">*</span></label><input id="um_password" type="password" /></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('userModal')">取消</button>
@@ -372,6 +373,9 @@ function roleBadge(r){return '<span class="badge badge-'+esc(r)+'">'+esc(r)+'</s
 function syncRoleFields(role){
   document.getElementById('um_dealer_wrap').style.display=role==='dealer'?'':'none';
   document.getElementById('um_scope').value={admin:'all',manager:'team',sales:'self',dealer:'self'}[role]||'none';
+  var knowledge=document.getElementById('um_knowledge_all');
+  knowledge.disabled=role!=='viewer';
+  if(knowledge.disabled)knowledge.checked=false;
 }
 // 用户名/门店名/审计日志等字段是用户可控输入（甚至可能来自 X-VPS-User-Name 头），
 // 直接拼进 innerHTML 会构成存储型 XSS，统一转义后再拼
@@ -393,7 +397,7 @@ function loadUsers(){
         +'<td>'+esc(u.display_name)+'</td>'
         +'<td>'+roleBadge(u.role)+'</td>'
         +'<td style="color:#64748b">'+esc(identity||u.sales_name||'未配置')+'</td>'
-        +'<td><code>'+esc(u.data_scope||'按角色默认')+'</code></td>'
+        +'<td><code>'+esc(u.data_scope||'按角色默认')+'</code>'+(u.knowledge_read_all?' <span class="badge badge-info">资料全库只读</span>':'')+'</td>'
         +'<td>'+(u.is_active?'<span class="badge badge-ok">启用</span>':'<span class="badge badge-off">停用</span>')+'</td>'
         +'<td>'+(u.must_change_password?'<span class="badge badge-warn">需改密</span>':'')+'</td>'
         +'<td style="color:#94a3b8;font-size:.7rem">'+esc((u.created_at||'').slice(0,10))+'</td>'
@@ -413,6 +417,8 @@ function openUserModal(){
   document.getElementById('um_role').value='sales';
   document.getElementById('um_team').value='overseas';
   document.getElementById('um_scope').value='self';
+  document.getElementById('um_knowledge_all').checked=false;
+  document.getElementById('um_knowledge_all').disabled=true;
   document.getElementById('um_username').disabled=false;
   document.getElementById('um_password_wrap').style.display='';
   document.getElementById('userModalTitle').textContent='新建用户';
@@ -433,6 +439,8 @@ function editUser(username){
   document.getElementById('um_role').value=u.role||'viewer';
   document.getElementById('um_dealer').value=u.dealer_id||'';
   document.getElementById('um_scope').value=u.data_scope||({admin:'all',manager:'team',sales:'self',dealer:'self'}[u.role]||'none');
+  document.getElementById('um_knowledge_all').checked=!!u.knowledge_read_all;
+  document.getElementById('um_knowledge_all').disabled=u.role!=='viewer';
   document.getElementById('um_dealer_wrap').style.display=u.role==='dealer'?'':'none';
   document.getElementById('um_password_wrap').style.display='none';
   document.getElementById('userModalTitle').textContent='编辑用户与数据权限';
@@ -447,6 +455,7 @@ function submitUser(){
     owner_key:document.getElementById('um_owner').value.trim(),
     team_key:document.getElementById('um_team').value.trim(),
     data_scope:document.getElementById('um_scope').value,
+    knowledge_read_all:document.getElementById('um_knowledge_all').checked,
     role:document.getElementById('um_role').value,
     dealer_id:document.getElementById('um_dealer').value.trim(),
     password:document.getElementById('um_password').value};
