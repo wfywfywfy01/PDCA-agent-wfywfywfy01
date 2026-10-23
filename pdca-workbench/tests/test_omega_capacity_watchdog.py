@@ -12,8 +12,11 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.auth.models import User
-from app.omega.models import OmegaJob, OmegaSession
-from app.omega.realtime import _acquire, _release, _watch_connection, realtime_session
+from app.omega.models import OmegaJob, OmegaSegment, OmegaSession
+from app.omega.real import _transcript
+from app.omega.realtime import VoiceControl, _acquire, _append, _release, _watch_connection, realtime_session
+from app.omega.router import finish_session, session_view, submit_turn
+from app.omega.schemas import OperationRequest, TurnRequest
 from tests import test_omega_realtime as realtime_fixture
 
 
@@ -85,6 +88,97 @@ class RealtimeCapacityTests(unittest.TestCase):
                 _acquire(self.engine, self.user, self.session_id)
         self.assertEqual(denied.exception.status_code, 503)
 
+    def test_long_voice_transcript_survives_old_120_segment_limit_and_still_has_hard_cap(self):
+        job_id, token, _ = _acquire(self.engine, self.user, self.session_id)
+        with Session(self.engine) as db:
+            for seq in range(1, 400):
+                db.add(OmegaSegment(session_id=self.session_id, seq=seq,
+                                    speaker="sales" if seq % 2 else "counterparty",
+                                    text="test", provider_event_id=f"old-{seq}"))
+            db.commit()
+        last = _append(self.engine, self.session_id, job_id, token, "sales", "stock risk")
+        self.assertEqual(last["seq"], 400)
+        with self.assertRaisesRegex(ValueError, "逐字稿上限"):
+            _append(self.engine, self.session_id, job_id, token,
+                    "counterparty", "next response")
+
+    def test_import_uses_same_hard_transcript_cap(self):
+        utterance = {"speaker": "seller", "text": "stock risk"}
+        self.assertEqual(len(_transcript({"transcript": [utterance] * 400})), 400)
+        with self.assertRaises(HTTPException) as denied:
+            _transcript({"transcript": [utterance] * 401})
+        self.assertEqual(denied.exception.status_code, 413)
+
+    def test_text_turn_reserves_space_for_opponent_reply(self):
+        with Session(self.engine) as db:
+            for seq in range(1, 400):
+                db.add(OmegaSegment(session_id=self.session_id, seq=seq,
+                                    speaker="sales" if seq % 2 else "counterparty",
+                                    text="test", provider_event_id=f"text-{seq}"))
+            db.commit()
+            with self.assertRaises(HTTPException) as denied:
+                submit_turn(self.session_id,
+                            TurnRequest(request_key="capacity-text", text="stock risk"),
+                            self.user, db)
+        self.assertEqual(denied.exception.status_code, 413)
+
+    def test_capacity_warning_and_orderly_end_before_hard_cap(self):
+        class Browser:
+            def __init__(self):
+                self.events = []
+
+            async def send_json(self, event):
+                self.events.append(event)
+
+        async def exercise():
+            job_id, token, _ = _acquire(self.engine, self.user, self.session_id)
+            control = VoiceControl(self.engine, self.session_id, job_id, token, confirmed=True)
+            control.deadline = asyncio.get_running_loop().time() + 200
+            browser = Browser()
+            with Session(self.engine) as db:
+                for seq in range(1, 320):
+                    db.add(OmegaSegment(session_id=self.session_id, seq=seq,
+                                        speaker="sales" if seq % 2 else "counterparty",
+                                        text="test", provider_event_id=f"warning-{seq}"))
+                db.commit()
+            with patch("app.omega.realtime._renew"):
+                watcher = asyncio.create_task(_watch_connection(
+                    browser, self.engine, self.session_id, job_id, token, control))
+                await asyncio.sleep(0)
+                _append(self.engine, self.session_id, job_id, token, "counterparty",
+                        "customer reply", capacity_control=control)
+                await asyncio.sleep(.02)
+                self.assertEqual([event["type"] for event in browser.events], ["ending_soon"])
+                with Session(self.engine) as db:
+                    for seq in range(321, 360):
+                        db.add(OmegaSegment(session_id=self.session_id, seq=seq,
+                                            speaker="sales" if seq % 2 else "counterparty",
+                                            text="test", provider_event_id=f"ending-{seq}"))
+                    db.commit()
+                _append(self.engine, self.session_id, job_id, token, "counterparty",
+                        "customer reply", capacity_control=control)
+                await asyncio.wait_for(watcher, .3)
+            self.assertTrue(control.ending)
+            self.assertEqual([event["type"] for event in browser.events],
+                             ["ending_soon", "ending"])
+            self.assertIn("逐字稿", browser.events[-1]["message"])
+            _release(self.engine, job_id, token, failed=False)
+            with Session(self.engine) as db:
+                self.assertTrue(session_view(db, db.get(OmegaSession, self.session_id))
+                                ["voice_capacity_reached"])
+            with self.assertRaises(HTTPException) as denied:
+                _acquire(self.engine, self.user, self.session_id)
+            self.assertEqual(denied.exception.status_code, 409)
+            with Session(self.engine) as db:
+                ended = finish_session(self.session_id,
+                                       OperationRequest(request_key="capacity-finish"),
+                                       self.user, db)
+            self.assertEqual(ended["status"], "ended")
+            self.assertTrue(ended["pending_job_id"])
+            self.assertFalse(ended["report_partial"])
+
+        asyncio.run(exercise())
+
     def test_watchdog_starts_drain_before_hard_deadline(self):
         class Browser:
             def __init__(self):
@@ -147,6 +241,7 @@ class RealtimeCapacityTests(unittest.TestCase):
             control = SimpleNamespace(deadline=loop.time() + .08, ending=False)
             with patch("app.omega.realtime._max_connection_seconds", .08), \
                  patch("app.omega.realtime._watchdog_drain_grace_seconds", .04), \
+                 patch("app.omega.realtime._renew"), \
                  patch("app.omega.realtime._auth_interval_seconds", .5):
                 await _watch_connection(Browser(), self.engine, self.session_id,
                                         "synthetic-job", "synthetic-token", control)
