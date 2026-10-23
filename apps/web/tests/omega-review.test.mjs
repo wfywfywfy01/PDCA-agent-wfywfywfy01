@@ -225,6 +225,26 @@ test('active session with unrecoverable voice tail only offers ending for partia
   assert.deepEqual(posts, [])
 })
 
+test('voice capacity reached offers normal review and blocks further input', async () => {
+  const posts = []
+  const { page, html } = mountReview(() => {}, async (path) => { posts.push(path); return {} })
+  page.chosenSession.value = { id: 'full-voice', owner_id: 1, status: 'active',
+    voice_capacity_reached: true, case_snapshot: page.blankDraft(),
+    segments: [{ id: 'saved-1', speaker: 'sales', text: '请确认试单条件。' }] }
+  page.realtimeReady.value = true
+  page.textReady.value = true
+  page.voiceInterrupted.value = true
+  page.textInput.value = '继续谈判'
+  page.activeJob.value = { id: 'failed-turn', kind: 'turn', status: 'failed' }
+  const rendered = await html()
+  assert.match(rendered, /本场发言接近上限，结束并复盘/)
+  assert.doesNotMatch(rendered, /继续实时对话|开始实时对话|文字发言|部分复盘|语音尾稿未确认|重试对手回复/)
+  await page.sendTurn()
+  await page.startVoice()
+  await page.retryTurn()
+  assert.deepEqual(posts, [])
+})
+
 test('a voice tail error without saved lines offers ending without promising a report', async () => {
   const { page, html } = mountReview()
   page.chosenSession.value = { id: 'empty-voice', owner_id: 1, status: 'active',

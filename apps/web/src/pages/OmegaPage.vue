@@ -45,7 +45,7 @@ type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer
 }
 type CaseRow = { id: string; kind?: string; title: string; team_key?: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
 type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; asr_original?: string; seq: number }
-type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string; report_partial?: boolean; report_warning?: string; voice_tail_unrecoverable?: boolean }
+type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string; report_partial?: boolean; report_warning?: string; voice_tail_unrecoverable?: boolean; voice_capacity_reached?: boolean }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
@@ -720,7 +720,7 @@ async function importMeeting() {
   })
 }
 async function sendTurn() {
-  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable || chosenSession.value.voice_capacity_reached
       || !textReady.value || voiceConnecting.value || voiceConnected.value || !textInput.value.trim()
       || activeJob.value?.kind === 'turn' && activeJob.value.status === 'failed') return
   const sessionId = chosenSession.value.id
@@ -737,7 +737,7 @@ async function sendTurn() {
   })
 }
 async function retryTurn() {
-  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable || chosenSession.value.voice_capacity_reached
       || activeJob.value?.kind !== 'turn' || activeJob.value.status !== 'failed') return
   const sessionId = chosenSession.value.id
   const jobId = activeJob.value.id
@@ -1084,7 +1084,7 @@ function exitVoice() {
   else void hangupVoice()
 }
 async function startVoice() {
-  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable || chosenSession.value.voice_capacity_reached
       || !realtimeReady.value || !voiceAllowed.value || voiceConnecting.value || voiceConnected.value || voiceClosing.value) return
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
     error.value = '浏览器不支持实时语音，请使用文字或短句录音'
@@ -1117,7 +1117,8 @@ async function startVoice() {
     limiter.ratio.value = 12
     voiceGain.connect(limiter).connect(voiceOutput.destination)
     const captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    if (token !== voiceToken || chosenSession.value?.id !== sessionId || chosenSession.value?.status !== 'active') {
+    if (token !== voiceToken || chosenSession.value?.id !== sessionId || chosenSession.value?.status !== 'active'
+        || chosenSession.value?.voice_capacity_reached) {
       captured.getTracks().forEach((track) => track.stop())
       return
     }
@@ -1533,6 +1534,10 @@ onBeforeUnmount(() => {
             <div v-if="chosenSession.voice_tail_unrecoverable" class="omega-tail-recovery" role="alert">
               <div><strong>本场语音尾稿未确认</strong><p v-if="chosenSession.segments?.length">逐字稿可能缺失，不能继续发言或评分。上方可核对已保存的原话。</p><p v-else>没有可复盘的原话，结束后不会生成报告。</p></div>
               <button class="btn btn-primary omega-voice-button" type="button" :disabled="busy || callOpen" @click="finishSession">{{ chosenSession.segments?.length ? '结束并查看部分复盘' : '结束本场' }}</button>
+            </div>
+            <div v-else-if="chosenSession.voice_capacity_reached" class="omega-voice-panel" role="status">
+              <div><strong>本场发言接近上限，结束并复盘</strong><p>已保存的原话可在上方核对，结束后按这些原话生成复盘。</p></div>
+              <button class="btn btn-primary omega-voice-button" type="button" :disabled="busy || callOpen" @click="finishSession">结束并复盘</button>
             </div>
             <template v-else>
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
