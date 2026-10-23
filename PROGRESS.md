@@ -512,3 +512,9 @@ Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deplo
 - Focused transcription and voice-boundary suite: **33 tests passed in 41.620 seconds**; Python compilation and `git diff --check` passed. Exact-commit CI and phone retest remain release gates.
 - Follow-up red tests found that an unknown nonempty final could be silently ignored and an event with an item ID and question ID from different active inputs could be assigned to the wrong turn. Both now fail closed. A final carrying one known alias and one new alias binds the new alias for later replay deduplication. These three regressions failed before the follow-up fix; the expanded transcription and voice-boundary suite passed **35 tests in 48.402 seconds** afterward. Capacity/watchdog suite passed **13 tests in 5.580 seconds** after keeping diagnostic logging compatible with its minimal control fixture.
 - In isolated fixed-phrase Doubao probes, a second ASR start without a final followed `response.cancel` after the first completed turn; the same probe without cancel did not show it. This is a cancellation test artifact, not evidence for the production session's cause. Any genuinely unfinalized input still yields only a partial report.
+
+## 2026-10-23: Omega 移动端复盘定位与部分记录提示
+
+- 生产只读核对：14:28 的真人语音场次保存 26 条发言；尾稿未确认，14:39 已生成无评分的部分记录，`finish` 与报告读取均返回 200。页面此前没有在报告就绪后滚动或聚焦，手机用户可能停在原位置。
+- 结束会话直接拿到报告、异步任务拿到报告时，均滚动并聚焦报告标题。尾稿不完整时，标题和提示明确为“已保存的部分对话记录”，无法生成可评分复盘；没有改变报告内容、评分或尾稿判定。
+- 测试先行：Omega 前端 28 项先有 3 项失败（缺少标题定位、聚焦和新提示）；标题文案专项先有 1 项失败。修复后 Omega 28/28、全前端 83/83 通过，`vue-tsc --noEmit` 与 Vite 生产构建通过。后端、Compose 和正式部署留给合并门禁。
