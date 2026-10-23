@@ -40,7 +40,8 @@ _doubao_url = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
 _lease_seconds = 15
 _auth_interval_seconds = 4
 _max_connection_seconds = 30 * 60
-_drain_timeout_seconds = 16
+_drain_timeout_seconds = 20
+_resume_timeout_seconds = 50
 _tail_error = VOICE_TAIL_INCOMPLETE
 _multi_voices = ("zh_female_vv_uranus_bigtts", "zh_male_yunzhou_jupiter_bigtts",
                  "zh_male_xiaotian_uranus_bigtts")
@@ -77,6 +78,7 @@ class VoiceControl:
         self.silence_task = None
         self.silence_error = None
         self.boundary_failed = False
+        self.boundary_unverified = False
         self.pending_input = None
         self.pending_nonzero = False
         self.sent_pcm_frames = 0
@@ -247,7 +249,8 @@ class VoiceControl:
                 else:
                     if isinstance(provider, DoubaoStream):
                         # Close the old generation before opening a fresh upstream stream.
-                        await asyncio.wait_for(provider.finish_input(self, restart=True), 12)
+                        await asyncio.wait_for(provider.finish_input(self, restart=True),
+                                               _resume_timeout_seconds)
                     else:
                         await self.wait_input_tail()
                         await self.stop_silence()
@@ -265,10 +268,13 @@ class VoiceControl:
                 await self.wait_input_tail()
             self._save("coaching" if action == "pause" else "listening", key, action,
                        request_epoch=message["audio_epoch"])
-        except Exception:
+        except Exception as exc:
+            logger.warning("Omega voice control failed: action={} phase={} category={}",
+                           action, getattr(provider, "boundary_phase", "control"),
+                           type(exc).__name__)
             self._save("error", key, action, request_epoch=message["audio_epoch"])
             await ws.send_json({"type": "state", "state": "error", "audio_epoch": self.epoch,
-                "request_key": key, "message": _tail_error if self.tail_incomplete
+                "request_key": key, "message": _tail_error if self.tail_incomplete or self.boundary_unverified
                 else "暂停或恢复失败，麦克风保持关闭"})
             return
         await ws.send_json({"type": "state", "state": self.state,
@@ -286,6 +292,7 @@ class DoubaoStream:
         self.boundary = self.rotating = False
         self.closed = asyncio.Event()
         self.reopened = asyncio.Event()
+        self.boundary_phase = "idle"
 
     async def __aenter__(self):
         self.context = self.factory()
@@ -321,15 +328,19 @@ class DoubaoStream:
 
     async def finish_input(self, control, *, restart=False):
         control.boundary_failed = True
+        control.boundary_unverified = True
+        self.boundary_phase = "asr_tail"
         if control.active_inputs:
             # EndASR asks the provider to finalize accepted speech. Its commit ACK
             # cannot substitute for the matching ASREnded checked below.
             await self.provider.send(json.dumps({"type": "input_audio_buffer.commit"}))
         await control.wait_asr_tail()
+        self.boundary_phase = "silence_stop"
         await control.stop_silence()
         self.boundary, self.rotating = True, restart
         self.closed.clear()
         self.reopened.clear()
+        self.boundary_phase = "close_ack"
         await self.provider.send(json.dumps({"type": "session.close"}))
         await asyncio.wait_for(self.closed.wait(), 5)
         # A close ACK is not a transcript final. Any identified unfinished speech
@@ -337,23 +348,30 @@ class DoubaoStream:
         if control.active_inputs:
             control.tail_incomplete = True
             raise ValueError(_tail_error)
+        control.boundary_unverified = False
+        # The acknowledged old stream can no longer attach speech to this PCM.
+        # A later reconnect failure must not mislabel its completed tail as missing.
+        control.pending_input = None
+        control.pending_nonzero = False
+        control.input_final.set()
         with Session(control.engine) as db:
             game = _locked_session(db, control.session_id)
             _valid_lease(db, game, control.job_id, control.token)
             role = _session_voice_role(db, game)
         if restart:
+            self.boundary_phase = "transport_close"
             await self.context.__aexit__(None, None, None)
             self.entered = False
+            self.boundary_phase = "reconnect"
             await self.__aenter__()
+            self.boundary_phase = "handshake"
             await _doubao_handshake(self.provider, role)
         # Nonzero room noise need not produce ASRInfo/ASREnded. No transcript is
         # invented, and the closed transport cannot attach late speech to new PCM.
-        control.pending_input = None
-        control.pending_nonzero = False
-        control.input_final.set()
         control.boundary_failed = False
         self.rotating = self.boundary = False
         self.reopened.set()
+        self.boundary_phase = "ready"
 
 
 @router.post("/sessions/{session_id}/realtime/stop")
@@ -1324,7 +1342,8 @@ async def realtime_session(ws: WebSocket, session_id: str,
         await asyncio.gather(control.stop_silence(), return_exceptions=True)
         _release(engine, job_id, token,
                  failed=failed or bool(control.silence_error) or control.boundary_failed,
-                 incomplete=control.tail_incomplete or bool(control.active_inputs)
+                 incomplete=control.tail_incomplete or control.boundary_unverified
+                 or bool(control.active_inputs)
                  or bool(control.pending_input and control.pending_nonzero))
         try:
             await ws.send_json({"type": "closed"})

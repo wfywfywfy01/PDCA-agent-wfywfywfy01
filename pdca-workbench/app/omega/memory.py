@@ -443,6 +443,8 @@ def enqueue_memory_job(db: Session, user: User, report: OmegaReport, request_key
     user = current_actor(db, user)
     report, game = report_source(db, user, report.id)
     _owner(user, game)
+    if json.loads(report.content_json).get("evidence_status") == "incomplete":
+        raise HTTPException(409, "本场逐字稿不完整，不能写入档案")
     proposal = db.exec(select(OmegaMemoryProposal).where(OmegaMemoryProposal.report_id == report.id)).first()
     if proposal:
         raise HTTPException(409, "记忆建议已经生成；不能覆盖已审阅建议")

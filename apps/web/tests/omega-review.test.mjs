@@ -206,6 +206,116 @@ test('unknown voice tail explains why an ended session cannot be scored', async 
   assert.doesNotMatch(rendered, /生成复盘/)
 })
 
+test('partial voice report preserves saved quotes but has no score or supervisor outcome confirmation', async () => {
+  const { page, html } = mountReview()
+  const quote = { segment_id: 'saved-1', speaker: 'sales', start: 0, end: 9, text: '我们再核对库存风险。' }
+  page.me.value = { id: 2, role: 'manager' }
+  page.chosenSession.value = { id: 'interrupted-voice', owner_id: 1, status: 'ended', report_partial: true,
+    report_warning: '语音尾稿未完成', case_snapshot: page.blankDraft(),
+    segments: [{ id: 'saved-1', speaker: 'sales', text: quote.text }] }
+  page.report.value = { id: 'partial-1', reviews: [], content: { evidence_status: 'incomplete',
+    incomplete_reason: '语音尾稿未完成', saved_quotes: [quote], score: { total: null, earned: 0, available: 0 },
+    outcome: { status: 'unverified', reason: '逐字稿不完整', quotes: [] }, dimensions: [] } }
+  const rendered = await html()
+  assert.match(rendered, /部分复盘，证据不完整，不能评分\/达标/)
+  assert.match(rendered, /语音尾稿未完成/)
+  assert.match(rendered, /我们再核对库存风险。/)
+  assert.match(rendered, /查看第 1 条原话/)
+  assert.doesNotMatch(rendered, /确认 AI 的目标判断|驳回 AI 的目标判断|指派针对性练习|本场综合评分/)
+})
+
+test('ending a voice session opens its saved partial report without the text model', async () => {
+  const reads = []
+  const posts = []
+  const partial = { id: 'partial-1', reviews: [], content: { evidence_status: 'incomplete',
+    incomplete_reason: '语音尾稿未完成', saved_quotes: [], score: { total: null, earned: 0, available: 0 } } }
+  const { page } = mountReview(async (path) => {
+    reads.push(path)
+    if (path === '/api/omega/reports/partial-1') return partial
+    if (['/api/omega/cases', '/api/omega/sessions', '/api/omega/assignments'].includes(path)) return []
+    throw new Error(`Unexpected GET ${path}`)
+  }, async (path) => {
+    posts.push(path)
+    if (path === '/api/omega/sessions/voice-1/finish') return { id: 'voice-1', owner_id: 1,
+      status: 'ended', report_partial: true, report_blocked: false, latest_report_id: 'partial-1',
+      segments: [{ id: 'saved-1', speaker: 'sales', text: '已保存的原话' }] }
+    throw new Error(`Unexpected POST ${path}`)
+  })
+  const previousWindow = globalThis.window
+  globalThis.window = { speechSynthesis: { cancel() {} } }
+  try {
+    page.chosenSession.value = { id: 'voice-1', owner_id: 1, status: 'active', segments: [] }
+    page.textReady.value = false
+    await page.finishSession()
+    assert.equal(page.report.value?.id, 'partial-1')
+    assert.deepEqual(posts, ['/api/omega/sessions/voice-1/finish'])
+    assert.ok(reads.includes('/api/omega/reports/partial-1'))
+    assert.match(page.notice.value, /部分复盘/)
+  } finally { globalThis.window = previousWindow }
+})
+
+test('an older ended voice session can generate its partial report without the text model', async () => {
+  const posts = []
+  const partial = { id: 'partial-legacy', reviews: [], content: { evidence_status: 'incomplete',
+    incomplete_reason: '语音尾稿未完成', saved_quotes: [], score: { total: null, earned: 0, available: 0 } } }
+  const { page, html } = mountReview(async (path) => {
+    if (path === '/api/omega/jobs/job-partial') return { id: 'job-partial', kind: 'report', status: 'succeeded', result_id: 'partial-legacy' }
+    if (path === '/api/omega/reports/partial-legacy') return partial
+    if (path === '/api/omega/sessions/legacy-voice') return { ...page.chosenSession.value, latest_report_id: 'partial-legacy' }
+    if (['/api/omega/cases', '/api/omega/sessions', '/api/omega/assignments'].includes(path)) return []
+    throw new Error(`Unexpected GET ${path}`)
+  }, async (path) => {
+    posts.push(path)
+    if (path === '/api/omega/sessions/legacy-voice/reports') return { id: 'job-partial', kind: 'report', status: 'succeeded', result_id: 'partial-legacy' }
+    throw new Error(`Unexpected POST ${path}`)
+  })
+  const previousSetTimeout = globalThis.setTimeout
+  const previousClearTimeout = globalThis.clearTimeout
+  globalThis.setTimeout = () => 1
+  globalThis.clearTimeout = () => {}
+  try {
+    page.chosenSession.value = { id: 'legacy-voice', owner_id: 1, status: 'ended', report_partial: true,
+      report_blocked: false, report_warning: '语音尾稿未完成', case_snapshot: page.blankDraft(),
+      segments: [{ id: 'saved-1', speaker: 'sales', text: '已保存的原话' }] }
+    page.textReady.value = false
+    const rendered = await html()
+    assert.match(rendered, /生成部分复盘/)
+    assert.doesNotMatch(rendered, /复盘服务暂不可用/)
+    await page.makeReport()
+    assert.deepEqual(posts, ['/api/omega/sessions/legacy-voice/reports'])
+    await page.pollJob()
+    assert.equal(page.report.value?.id, 'partial-legacy')
+  } finally {
+    globalThis.setTimeout = previousSetTimeout
+    globalThis.clearTimeout = previousClearTimeout
+  }
+})
+
+test('voice pause waits for the backend control acknowledgement without a premature timeout', async () => {
+  const { page, html } = mountReview()
+  const previousWebSocket = globalThis.WebSocket
+  const previousSetTimeout = globalThis.setTimeout
+  const previousClearTimeout = globalThis.clearTimeout
+  const timers = []
+  const packets = []
+  globalThis.WebSocket = { OPEN: 1 }
+  globalThis.setTimeout = (callback, delay) => { timers.push({ callback, delay }); return timers.length }
+  globalThis.clearTimeout = () => {}
+  try {
+    page.voiceSocket = { readyState: 1, send: (packet) => packets.push(JSON.parse(packet)) }
+    page.voiceConnected.value = true
+    page.controlVoice('pause')
+    assert.equal(packets[0].action, 'pause')
+    assert.equal(page.voicePhase.value, 'pausing')
+    assert.ok(timers.some((timer) => timer.delay === 55000), 'backend may need 50 seconds to save the last utterance')
+    assert.match(await html(), /正在保存上一句语音/)
+  } finally {
+    globalThis.WebSocket = previousWebSocket
+    globalThis.setTimeout = previousSetTimeout
+    globalThis.clearTimeout = previousClearTimeout
+  }
+})
+
 test('unsaved custom meeting survives accidental new practice, history switch, and refresh', async () => {
   let reads = 0
   const { page, leaveGuard } = mountReview(async () => { reads++; throw new Error('history should stay unopened') })

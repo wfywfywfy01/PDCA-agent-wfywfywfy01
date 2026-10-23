@@ -164,7 +164,7 @@ def main():
               window.__voicePackets=0;window.__controls=[];window.__controlFault='';
               const nativeSetTimeout=window.setTimeout;
               window.setTimeout=(callback,delay,...args)=>{
-                if(delay===15000)window.__controlTimeout=callback;
+                if(delay===55000)window.__controlTimeout=callback;
                 return nativeSetTimeout(callback,delay,...args);
               };
               const audio = window.__testAudio = new AudioContext();

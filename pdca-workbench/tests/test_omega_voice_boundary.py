@@ -10,7 +10,9 @@ from sqlmodel import Session, select
 import tests.test_omega_coaching as fixture
 from app.auth.models import User
 from app.omega.models import OmegaJob, OmegaSegment
+from app.omega import realtime as realtime_module
 from app.omega.realtime import DoubaoStream, VoiceControl, _receive_doubao_audio, realtime_session
+from app.omega.router import VOICE_TAIL_INCOMPLETE
 
 
 class VoiceBoundaryTests(unittest.TestCase):
@@ -19,7 +21,8 @@ class VoiceBoundaryTests(unittest.TestCase):
 
     async def exercise(self, *, late_final=False, missing_final=False, revoke=False,
                        missing_close=False, stop_only=False, reuse_ids=False,
-                       commit_required=False, commit_ack_only=False):
+                       commit_required=False, commit_ack_only=False,
+                       finalized_before_close=False, fail_new_handshake=False):
         owner = self
         transports = []
 
@@ -64,6 +67,13 @@ class VoiceBoundaryTests(unittest.TestCase):
                         self.events.put_nowait({'type': 'session.closed'})
                 elif event['type'] == 'input_audio_buffer.append':
                     pcm = base64.b64decode(event['audio'])
+                    if finalized_before_close and not self.spoken and any(pcm):
+                        self.spoken = True
+                        self.events.put_nowait({'type': 'conversation.item.input_audio_transcription.started',
+                                                'item_id': 'finished-before-close'})
+                        self.events.put_nowait({'type': 'conversation.item.input_audio_transcription.completed',
+                                                'item_id': 'finished-before-close', 'text': 'Accepted public speech'})
+                        return
                     if commit_required and self.generation == 0:
                         if not self.spoken and any(pcm):
                             self.spoken = True
@@ -134,6 +144,13 @@ class VoiceBoundaryTests(unittest.TestCase):
         async def authorize(*_):
             return self.user
 
+        original_handshake = realtime_module._doubao_handshake
+
+        async def handshake(provider, role, **kwargs):
+            if fail_new_handshake and len(transports) > 1:
+                raise RuntimeError('Sensitive upstream response')
+            await original_handshake(provider, role, **kwargs)
+
         browser = Browser()
         with Session(self.engine) as db, \
              patch('app.omega.realtime.is_enabled', return_value=True), \
@@ -141,15 +158,25 @@ class VoiceBoundaryTests(unittest.TestCase):
              patch('app.omega.realtime.ws_user', side_effect=authorize), \
              patch('app.omega.realtime._acquire', return_value=(self.job_id, self.token, 'Synthetic public role')), \
              patch('app.omega.realtime.connect', side_effect=connection), \
+             patch('app.omega.realtime._doubao_handshake', side_effect=handshake), \
              patch.dict('os.environ', {'PDCA_OMEGA_REALTIME_PROVIDER': 'doubao', 'PDCA_DOUBAO_REALTIME_API_KEY': 'synthetic-no-network'}):
             await asyncio.wait_for(realtime_session(browser, self.session_id, db), 20)
         with Session(self.engine) as db:
             job = db.get(OmegaJob, self.job_id)
             saved = list(db.exec(select(OmegaSegment).order_by(OmegaSegment.seq)))
-            if missing_final or revoke or missing_close or commit_ack_only:
+            if fail_new_handshake:
+                self.assertEqual(job.status, 'failed')
+                self.assertEqual(len(transports), 2)
+                self.assertEqual([part.text for part in saved], ['Accepted public speech'])
+                self.assertEqual(job.error, '')
+                self.assertEqual(browser.audio, [])
+            elif missing_final or revoke or missing_close or commit_ack_only:
                 self.assertEqual(job.status, 'failed')
                 self.assertEqual(len(transports), 1)
                 self.assertEqual(browser.audio, [])
+                if finalized_before_close and missing_close:
+                    self.assertEqual([part.text for part in saved], ['Accepted public speech'])
+                    self.assertEqual(job.error, VOICE_TAIL_INCOMPLETE)
             elif stop_only:
                 self.assertEqual(job.status, 'succeeded')
                 self.assertEqual(len(transports), 1)
@@ -192,11 +219,111 @@ class VoiceBoundaryTests(unittest.TestCase):
     def test_missing_close_ack_cannot_clear_unknown_microphone_samples(self):
         asyncio.run(self.exercise(missing_close=True))
 
+    def test_missing_close_ack_marks_tail_incomplete_after_asr_finished(self):
+        asyncio.run(self.exercise(missing_close=True, finalized_before_close=True))
+
+    def test_new_handshake_failure_after_close_ack_does_not_mark_tail_incomplete(self):
+        asyncio.run(self.exercise(finalized_before_close=True, fail_new_handshake=True))
+
     def test_non_speech_stop_requires_close_ack_and_invents_no_transcript(self):
         asyncio.run(self.exercise(stop_only=True))
 
     def test_new_stream_can_reuse_old_input_and_reply_ids_without_losing_turn(self):
         asyncio.run(self.exercise(late_final=True, reuse_ids=True))
+
+    def test_resume_budget_covers_tail_close_and_new_handshake(self):
+        async def exercise():
+            owner = self
+
+            class Provider:
+                def __init__(self):
+                    self.events = asyncio.Queue()
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *_):
+                    pass
+
+                async def send(self, raw):
+                    kind = json.loads(raw)["type"]
+                    if kind == "session.create":
+                        owner.assertFalse(control.pending_nonzero,
+                                          "Acknowledged old tail must not become a false incomplete report")
+                    if kind in {"session.close", "session.create"}:
+                        async def acknowledge():
+                            await asyncio.sleep(.06)
+                            self.events.put_nowait(json.dumps({"type":
+                                "session.closed" if kind == "session.close" else "session.created"}))
+                        asyncio.create_task(acknowledge())
+
+                async def recv(self):
+                    return await self.events.get()
+
+            class Browser:
+                def __init__(self):
+                    self.events = []
+
+                async def send_json(self, event):
+                    self.events.append(event)
+
+            original_wait_for = asyncio.wait_for
+
+            async def compressed_budget(awaitable, timeout):
+                # Real substeps may take 8s ASR + 5s close + 10s handshake.
+                return await original_wait_for(awaitable, timeout / 100 if timeout >= 12 else timeout)
+
+            control = VoiceControl(self.engine, self.session_id, self.job_id, self.token, confirmed=True)
+            control._save("coaching")
+            control.sent_audio(b"\0\x20")
+            stream = DoubaoStream(Provider)
+            await stream.__aenter__()
+            browser = Browser()
+            receiving = asyncio.create_task(stream.recv())
+            try:
+                async def tail():
+                    await asyncio.sleep(.08)
+                with patch.object(control, "wait_asr_tail", side_effect=tail), \
+                     patch("app.omega.realtime.provider_name", return_value="doubao"), \
+                     patch("app.omega.realtime.asyncio.wait_for", side_effect=compressed_budget):
+                    await control.handle(browser, stream, {"type": "control", "action": "resume",
+                        "request_key": "resume-slow-boundary", "audio_epoch": 2})
+                self.assertEqual(control.state, "listening")
+                self.assertEqual(browser.events[-1]["state"], "listening")
+            finally:
+                receiving.cancel()
+                await asyncio.gather(receiving, return_exceptions=True)
+                await stream.__aexit__(None, None, None)
+
+        asyncio.run(exercise())
+
+    def test_resume_failure_logs_phase_and_category_without_provider_text(self):
+        class FailingStream(DoubaoStream):
+            async def finish_input(self, control, *, restart=False):
+                self.boundary_phase = "handshake"
+                raise RuntimeError("sensitive provider response")
+
+        class Browser:
+            def __init__(self):
+                self.events = []
+
+            async def send_json(self, event):
+                self.events.append(event)
+
+        async def exercise():
+            control = VoiceControl(self.engine, self.session_id, self.job_id, self.token, confirmed=True)
+            control._save("coaching")
+            browser = Browser()
+            with patch("app.omega.realtime.provider_name", return_value="doubao"), \
+                 patch("app.omega.realtime.logger.warning") as warning:
+                await control.handle(browser, FailingStream(lambda: None),
+                    {"type": "control", "action": "resume", "request_key": "resume-log",
+                     "audio_epoch": 2})
+            self.assertEqual(browser.events[-1]["state"], "error")
+            self.assertEqual(warning.call_args.args[1:], ("resume", "handshake", "RuntimeError"))
+            self.assertNotIn("sensitive provider response", str(warning.call_args))
+
+        asyncio.run(exercise())
 
     def test_cancelled_rotation_retries_old_transport_close_during_cleanup(self):
         async def exercise():
