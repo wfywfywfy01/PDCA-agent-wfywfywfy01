@@ -17,7 +17,8 @@ from app.database import get_session
 from app.meeting import vemory as vemory_api
 from app.omega.models import OmegaCase, OmegaCaseVersion, OmegaSegment, OmegaSession, utcnow
 from app.omega.policy import require_case, require_session_source
-from app.omega.router import canonical, digest, enabled, enqueue_report, report_input_hash, session_view, transcript_digest
+from app.omega.router import (MAX_TRANSCRIPT_CHARS, MAX_TRANSCRIPT_SEGMENTS, canonical, digest,
+                              enabled, enqueue_report, report_input_hash, session_view, transcript_digest)
 
 router = APIRouter(prefix="/api/omega", tags=["omega"])
 
@@ -55,7 +56,7 @@ def _transcript(meeting: dict) -> list[dict]:
         if not speaker or len(speaker) > 120 or not content or len(content) > 4000:
             raise HTTPException(422, "逐字稿存在无说话人、空白或过长片段")
         result.append({"speaker": speaker, "text": content})
-    if len(result) > 120 or sum(len(item["text"]) for item in result) > 24000:
+    if len(result) > MAX_TRANSCRIPT_SEGMENTS or sum(len(item["text"]) for item in result) > MAX_TRANSCRIPT_CHARS:
         raise HTTPException(413, "逐字稿超出完整评估上限")
     return result
 

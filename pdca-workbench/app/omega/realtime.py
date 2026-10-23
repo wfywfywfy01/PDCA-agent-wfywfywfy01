@@ -28,9 +28,10 @@ from app.database import get_session
 from app.omega.context import actor_messages, select_next_speaker
 from app.omega.models import OmegaAssignment, OmegaCase, OmegaCaseVersion, OmegaJob, OmegaSegment, OmegaSession, new_id, utcnow
 from app.omega.policy import require_case, require_session_source
-from app.omega.router import (VOICE_STREAM_ORPHANED, VOICE_TAIL_INCOMPLETE, digest, is_enabled,
+from app.omega.router import (MAX_TRANSCRIPT_CHARS, MAX_TRANSCRIPT_SEGMENTS,
+                              VOICE_STREAM_ORPHANED, VOICE_TAIL_INCOMPLETE, digest, is_enabled,
                               owned_session, require_session_owner, session_segments,
-                              unanswered_turn_job, voice_tail_error)
+                              unanswered_turn_job, voice_capacity_level, voice_tail_error)
 from app.omega.transcription import normalize_sales_asr
 
 router = APIRouter(prefix="/api/omega", tags=["omega"])
@@ -90,6 +91,14 @@ class VoiceControl:
         self.input_final = asyncio.Event()
         self.input_final.set()
         self.tail_incomplete = False
+        self.capacity_event = asyncio.Event()
+        self.capacity_level = 0
+
+    def note_transcript(self, segments: int, chars: int) -> None:
+        level = voice_capacity_level(segments, chars)
+        if level > self.capacity_level:
+            self.capacity_level = level
+            self.capacity_event.set()
 
     def sent_audio(self, chunk=None):
         self.sent_pcm_frames += 1
@@ -529,8 +538,11 @@ def _acquire(engine, user: User, session_id: str,
         )).first()
         if pending:
             raise HTTPException(409, "先等待当前文字回复完成")
-        if unanswered_turn_job(db, game, session_segments(db, session_id)):
+        segments = session_segments(db, session_id)
+        if unanswered_turn_job(db, game, segments):
             raise HTTPException(409, "上一轮对手回复未完成，请先重试该轮")
+        if voice_capacity_level(len(segments), sum(len(part.text) for part in segments)) >= 2:
+            raise HTTPException(409, "本场逐字稿接近上限，请结束并复盘后重新开练")
         old = db.exec(select(OmegaJob).where(
             OmegaJob.session_id == session_id, OmegaJob.kind == "realtime",
             OmegaJob.status == "running",
@@ -605,7 +617,8 @@ def _renew(engine, session_id: str, job_id: str, token: str) -> None:
 
 def _append(engine, session_id: str, job_id: str, token: str,
             speaker: str, content: str, *, speaker_id: str | None = None,
-            turn_id: str | None = None, provider_event_id: str | None = None) -> dict:
+            turn_id: str | None = None, provider_event_id: str | None = None,
+            capacity_control: VoiceControl | None = None) -> dict:
     raw_content = content
     content = content.strip()
     if not content or len(content) > 4000 or speaker == "sales" and len(raw_content) > 4000:
@@ -633,7 +646,8 @@ def _append(engine, session_id: str, job_id: str, token: str,
             snapshot = session_snapshot(game, db.get(OmegaCaseVersion, game.case_version_id))
             content = normalize_sales_asr(content, snapshot,
                 (part.asr_original or part.text for part in parts))
-        if len(parts) >= 120 or sum(len(part.text) for part in parts) + len(content) > 24000:
+        chars = sum(len(part.text) for part in parts) + len(content)
+        if len(parts) >= MAX_TRANSCRIPT_SEGMENTS or chars > MAX_TRANSCRIPT_CHARS:
             raise ValueError("本场演练已达逐字稿上限，请结束并复盘")
         if speaker_id:
             version = db.get(OmegaCaseVersion, game.case_version_id)
@@ -657,6 +671,8 @@ def _append(engine, session_id: str, job_id: str, token: str,
         game.revision += 1
         job.lease_until = utcnow() + timedelta(seconds=_lease_seconds)
         db.commit()
+        if capacity_control:
+            capacity_control.note_transcript(len(parts) + 1, chars)
         return _part_view(part)
 
 
@@ -801,7 +817,7 @@ async def _speak_multi_turn(ws, control, turn_id, revision, epoch, *, generate=N
                             raise ValueError("人物回复没有有效音频")
                         part = _append(control.engine, control.session_id, control.job_id, control.token,
                             "counterparty", text, speaker_id=selected["id"], turn_id=turn_id,
-                            provider_event_id=f"doubao:multi:{request_id}")
+                            provider_event_id=f"doubao:multi:{request_id}", capacity_control=control)
                         await ws.send_json({"type": "segment", "segment": part, "audio_epoch": epoch})
                         control._save("listening")
                         return
@@ -908,17 +924,32 @@ async def _watch_connection(ws: WebSocket, engine, session_id: str,
                if _max_connection_seconds > _watchdog_warning_seconds + _watchdog_drain_grace_seconds
                else None)
     warned = False
+    capacity_warned = False
+    capacity_event = getattr(control, "capacity_event", None)
     while True:
         now = loop.time()
         remaining = drain_at - now
-        if remaining <= 0:
+        if capacity_event and capacity_event.is_set():
+            capacity_event.clear()
+        capacity_level = getattr(control, "capacity_level", 0)
+        if remaining <= 0 or capacity_level >= 2:
             control.ending = True
             try:
                 await asyncio.wait_for(ws.send_json({"type": "ending",
-                    "message": "本次通话接近时长上限，正在保存逐字稿；结束复盘后可重新开练"}), 1)
+                    "message": ("本次通话接近逐字稿上限，正在保存发言；结束复盘后可重新开练"
+                                if capacity_level >= 2 else
+                                "本次通话接近时长上限，正在保存逐字稿；结束复盘后可重新开练")}), 1)
             except (TimeoutError, RuntimeError, WebSocketDisconnect):
                 pass
             return
+        if capacity_level >= 1 and not capacity_warned:
+            capacity_warned = True
+            try:
+                await asyncio.wait_for(ws.send_json({"type": "ending_soon",
+                    "message": "本场逐字稿接近上限，请尽快收尾并复盘"}), 1)
+            except (TimeoutError, RuntimeError, WebSocketDisconnect):
+                pass
+            continue
         if warn_at is not None and not warned and now >= warn_at:
             warned = True
             try:
@@ -929,7 +960,14 @@ async def _watch_connection(ws: WebSocket, engine, session_id: str,
                 pass
             continue
         next_event = min(drain_at, warn_at) if warn_at is not None and not warned else drain_at
-        await asyncio.sleep(min(_auth_interval_seconds, next_event - now))
+        delay = min(_auth_interval_seconds, next_event - now)
+        if capacity_event:
+            try:
+                await asyncio.wait_for(capacity_event.wait(), delay)
+            except TimeoutError:
+                pass
+        else:
+            await asyncio.sleep(delay)
         if loop.time() < drain_at:
             _renew(engine, session_id, job_id, token)
 
@@ -970,7 +1008,8 @@ async def _receive_audio(ws: WebSocket, provider, engine, session_id: str,
             if content and item_id not in saved_sales:
                 if control:
                     control.awaiting_input = False
-                part = _append(engine, session_id, job_id, token, "sales", raw_content)
+                part = _append(engine, session_id, job_id, token, "sales", raw_content,
+                               capacity_control=control)
                 saved_sales.add(item_id)
                 await ws.send_json({"type": "segment", "segment": part})
         elif kind == "response.created":
@@ -1014,7 +1053,7 @@ async def _receive_audio(ws: WebSocket, provider, engine, session_id: str,
                     and (not control or control.accepts(response_id))
                     and final_reply[0] not in saved_replies):
                 part = _append(engine, session_id, job_id, token,
-                               "counterparty", final_reply[1])
+                               "counterparty", final_reply[1], capacity_control=control)
                 saved_replies.add(final_reply[0])
                 await ws.send_json({"type": "segment", "segment": part})
             interrupted_responses.discard(response_id)
@@ -1171,9 +1210,11 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                             "provider_event_id": f"doubao:asr:{item_id}"}
             if item_id in saved_sales:
                 if content and control:
-                    _append(engine, session_id, job_id, token, "sales", raw_content, **identity)
+                    _append(engine, session_id, job_id, token, "sales", raw_content,
+                            capacity_control=control, **identity)
                 continue
-            part = _append(engine, session_id, job_id, token, "sales", raw_content, **identity) if content else None
+            part = (_append(engine, session_id, job_id, token, "sales", raw_content,
+                            capacity_control=control, **identity) if content else None)
             if control and not part:
                 _renew(engine, session_id, job_id, token)
             # ASREnded may carry only an identity; closing it does not invent speech.
@@ -1239,7 +1280,8 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
             identity = ({"speaker_id": control.speaker_id,
                          "turn_id": response_turns.get(reply_id, control.turn_id),
                          "provider_event_id": f"doubao:reply:{reply_id}"} if control else {})
-            part = _append(engine, session_id, job_id, token, "counterparty", content, **identity)
+            part = _append(engine, session_id, job_id, token, "counterparty", content,
+                           capacity_control=control, **identity)
             saved_replies.add(reply_id)
             unanswered_sales -= 1
             pending_replies.pop(reply_id)

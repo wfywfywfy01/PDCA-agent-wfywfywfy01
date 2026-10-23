@@ -27,6 +27,21 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 router = APIRouter(prefix="/api/omega", tags=["omega"])
 VOICE_TAIL_INCOMPLETE = "语音尾稿未完成，请检查逐字稿后重新演练"
 VOICE_STREAM_ORPHANED = "实时语音意外中断，尾稿未确认；请重新演练"
+MAX_TRANSCRIPT_SEGMENTS = 400
+MAX_TRANSCRIPT_CHARS = 24000
+VOICE_CAPACITY_WARN_SEGMENTS = 320
+VOICE_CAPACITY_END_SEGMENTS = 360
+# The next accepted utterance and two in-flight 4000-char tail segments must fit 24000.
+VOICE_CAPACITY_WARN_CHARS = 9000
+VOICE_CAPACITY_END_CHARS = 12000
+
+
+def voice_capacity_level(segments: int, chars: int) -> int:
+    if segments >= VOICE_CAPACITY_END_SEGMENTS or chars >= VOICE_CAPACITY_END_CHARS:
+        return 2
+    if segments >= VOICE_CAPACITY_WARN_SEGMENTS or chars >= VOICE_CAPACITY_WARN_CHARS:
+        return 1
+    return 0
 
 
 def is_enabled() -> bool:
@@ -511,6 +526,8 @@ def session_view(db: Session, row: OmegaSession) -> dict:
         "report_blocked": bool(blocked_message),
         "report_blocked_message": blocked_message,
         "voice_tail_unrecoverable": voice_tail_unrecoverable,
+        "voice_capacity_reached": voice_capacity_level(
+            len(segments), sum(len(segment.text) for segment in segments)) >= 2,
         "report_partial": partial_report,
         "report_warning": report_warning,
         "segments": [
@@ -634,7 +651,11 @@ def submit_turn(
     segments = session_segments(db, row.id)
     if failed_turn_job(db, row, segments):
         raise HTTPException(409, "上一轮对手回复失败，请重试该轮回复")
-    if len(segments) >= 120 or sum(len(part.text) for part in segments) + len(body.text) > 24000:
+    if voice_capacity_level(len(segments), sum(len(part.text) for part in segments)) >= 2:
+        raise HTTPException(409, "本场逐字稿接近上限，请结束并复盘后重新开练")
+    # Leave one segment and the maximum reply length for the queued opponent turn.
+    if (len(segments) + 2 > MAX_TRANSCRIPT_SEGMENTS
+            or sum(len(part.text) for part in segments) + len(body.text) + 4000 > MAX_TRANSCRIPT_CHARS):
         raise HTTPException(413, "本场演练已达长度上限，请结束并复盘")
     part = OmegaSegment(session_id=row.id, seq=len(segments) + 1,
                         speaker="sales", text=body.text.strip(),

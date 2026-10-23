@@ -45,7 +45,7 @@ type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer
 }
 type CaseRow = { id: string; kind?: string; title: string; team_key?: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
 type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; asr_original?: string; seq: number }
-type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string; report_partial?: boolean; report_warning?: string; voice_tail_unrecoverable?: boolean }
+type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string; report_partial?: boolean; report_warning?: string; voice_tail_unrecoverable?: boolean; voice_capacity_reached?: boolean }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
@@ -72,6 +72,11 @@ const quickScenarios = [
 const safeTrainingLimit = '未经确认，不承诺价格、付款日期或交期。'
 const outcomeNames: Record<string, string> = { achieved: '达成目标', partial: '部分达成',
   not_achieved: '未达成', unverified: '证据不足' }
+function reportSavedNotice(result: Report): string {
+  if (result.content.evidence_status === 'incomplete') return '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。'
+  return result.content.score?.total == null
+    ? '复盘已生成；评分证据不足，暂无总分。' : '复盘已生成，对话和评分已保存。'
+}
 
 const router = useRouter()
 const demoMode = import.meta.env.MODE === 'omega-demo'
@@ -715,7 +720,7 @@ async function importMeeting() {
   })
 }
 async function sendTurn() {
-  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable || chosenSession.value.voice_capacity_reached
       || !textReady.value || voiceConnecting.value || voiceConnected.value || !textInput.value.trim()
       || activeJob.value?.kind === 'turn' && activeJob.value.status === 'failed') return
   const sessionId = chosenSession.value.id
@@ -732,7 +737,7 @@ async function sendTurn() {
   })
 }
 async function retryTurn() {
-  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable || chosenSession.value.voice_capacity_reached
       || activeJob.value?.kind !== 'turn' || activeJob.value.status !== 'failed') return
   const sessionId = chosenSession.value.id
   const jobId = activeJob.value.id
@@ -765,8 +770,7 @@ async function finishSession() {
     await loadLists()
     if (ended.latest_report_id) {
       report.value = await apiGet<Report>(`/api/omega/reports/${ended.latest_report_id}`)
-      notice.value = report.value.content.evidence_status === 'incomplete'
-        ? '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。' : '复盘已生成，对话和评分已保存。'
+      notice.value = reportSavedNotice(report.value)
     } else if (!ended.report_blocked && (ended.pending_job_id || textReady.value && ended.segments?.length)) {
       activeJob.value = ended.pending_job_id
         ? await apiGet<Job>(`/api/omega/jobs/${ended.pending_job_id}`)
@@ -801,8 +805,7 @@ async function pollJob() {
         const result = await apiGet<Report>(`/api/omega/reports/${job.result_id}`)
         if (chosenSession.value?.id !== sessionId) return
         report.value = result
-        notice.value = result.content.evidence_status === 'incomplete'
-          ? '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。' : '复盘已生成，对话和评分已保存。'
+        notice.value = reportSavedNotice(result)
       }
       await refreshSession()
       if (job.result_id) await loadLists()
@@ -1081,7 +1084,7 @@ function exitVoice() {
   else void hangupVoice()
 }
 async function startVoice() {
-  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable || chosenSession.value.voice_capacity_reached
       || !realtimeReady.value || !voiceAllowed.value || voiceConnecting.value || voiceConnected.value || voiceClosing.value) return
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
     error.value = '浏览器不支持实时语音，请使用文字或短句录音'
@@ -1114,7 +1117,8 @@ async function startVoice() {
     limiter.ratio.value = 12
     voiceGain.connect(limiter).connect(voiceOutput.destination)
     const captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    if (token !== voiceToken || chosenSession.value?.id !== sessionId || chosenSession.value?.status !== 'active') {
+    if (token !== voiceToken || chosenSession.value?.id !== sessionId || chosenSession.value?.status !== 'active'
+        || chosenSession.value?.voice_capacity_reached) {
       captured.getTracks().forEach((track) => track.stop())
       return
     }
@@ -1531,6 +1535,10 @@ onBeforeUnmount(() => {
               <div><strong>本场语音尾稿未确认</strong><p v-if="chosenSession.segments?.length">逐字稿可能缺失，不能继续发言或评分。上方可核对已保存的原话。</p><p v-else>没有可复盘的原话，结束后不会生成报告。</p></div>
               <button class="btn btn-primary omega-voice-button" type="button" :disabled="busy || callOpen" @click="finishSession">{{ chosenSession.segments?.length ? '结束并查看部分复盘' : '结束本场' }}</button>
             </div>
+            <div v-else-if="chosenSession.voice_capacity_reached" class="omega-voice-panel" role="status">
+              <div><strong>本场发言接近上限，结束并复盘</strong><p>已保存的原话可在上方核对，结束后按这些原话生成复盘。</p></div>
+              <button class="btn btn-primary omega-voice-button" type="button" :disabled="busy || callOpen" @click="finishSession">结束并复盘</button>
+            </div>
             <template v-else>
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
               <div><p class="omega-kicker">{{ participants.length > 1 ? '可打断的多角色演练' : '实时语音' }}</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : participants.length > 1 ? '每次一位对手发言，角色切换可能稍有等待' : '连接后开始说话，双方原话自动保存' }}</p></div>
@@ -1561,7 +1569,14 @@ onBeforeUnmount(() => {
             </div>
             <template v-else>
             <p v-if="report.content.hints_used?.length" class="sub">本场使用了 {{ report.content.hints_used.length }} 次教练建议。评分仍依据本场原话。</p>
-            <div class="omega-score-summary"><strong>{{ report.content.score?.total == null ? '证据不足' : `${report.content.score.total} 分` }}</strong><span>{{ report.content.score?.total == null ? `已获 ${report.content.score?.earned ?? 0} 分／可评分 ${report.content.score?.available ?? 0} 分，暂不折算总分` : '本场综合评分 · 满分 100' }}</span></div>
+            <div class="omega-score-summary">
+              <strong v-if="report.content.score?.total != null">{{ report.content.score.total }} 分</strong>
+              <strong v-else-if="report.content.score?.available">已评分项 {{ report.content.score.earned }} / {{ report.content.score.available }} 分</strong>
+              <strong v-else>证据不足</strong>
+              <span v-if="report.content.score?.total != null">本场综合评分 · 满分 100</span>
+              <span v-else-if="report.content.score?.available">仅已观察维度，覆盖 {{ report.content.score.available }}/100；暂无综合总分</span>
+              <span v-else>无可评分项，暂无综合总分</span>
+            </div>
             <p class="sub">AI 评分用于训练建议。主管需核对原话与结论，再用于正式评价。</p>
             <p class="omega-report-result"><strong>{{ outcomeLabel }}</strong>　{{ report.content.outcome?.reason }}</p>
             <div v-if="strengthPoint" class="omega-report-strength"><span>做得好 · {{ dimensionNames[strengthPoint.key] || strengthPoint.key }}</span><p>{{ strengthPoint.reason }}</p><blockquote v-if="strengthPoint.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(strengthPoint.quotes[0])">“{{ strengthPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(strengthPoint.quotes[0]) }} 条原话</small></button></blockquote></div>

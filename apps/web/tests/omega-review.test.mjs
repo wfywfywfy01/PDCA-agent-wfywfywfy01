@@ -148,6 +148,7 @@ test('report evidence links back to the matching transcript turn', async () => {
   assert.match(rendered, /id="omega-segment-line-1"/)
   assert.match(rendered, /查看第 1 条原话/)
   assert.match(rendered, /omega-quote-link/)
+  assert.match(rendered, /omega-score-summary"><strong>证据不足<\/strong>/)
 })
 
 test('job status polling recovers after one network failure', async () => {
@@ -221,6 +222,26 @@ test('active session with unrecoverable voice tail only offers ending for partia
   assert.doesNotMatch(rendered, /开始实时对话|继续实时对话|文字发言|重试对手回复/)
   await page.sendTurn()
   await page.startVoice()
+  assert.deepEqual(posts, [])
+})
+
+test('voice capacity reached offers normal review and blocks further input', async () => {
+  const posts = []
+  const { page, html } = mountReview(() => {}, async (path) => { posts.push(path); return {} })
+  page.chosenSession.value = { id: 'full-voice', owner_id: 1, status: 'active',
+    voice_capacity_reached: true, case_snapshot: page.blankDraft(),
+    segments: [{ id: 'saved-1', speaker: 'sales', text: '请确认试单条件。' }] }
+  page.realtimeReady.value = true
+  page.textReady.value = true
+  page.voiceInterrupted.value = true
+  page.textInput.value = '继续谈判'
+  page.activeJob.value = { id: 'failed-turn', kind: 'turn', status: 'failed' }
+  const rendered = await html()
+  assert.match(rendered, /本场发言接近上限，结束并复盘/)
+  assert.doesNotMatch(rendered, /继续实时对话|开始实时对话|文字发言|部分复盘|语音尾稿未确认|重试对手回复/)
+  await page.sendTurn()
+  await page.startVoice()
+  await page.retryTurn()
   assert.deepEqual(posts, [])
 })
 
@@ -368,6 +389,43 @@ test('ending a voice session opens its saved partial report without the text mod
     assert.deepEqual(posts, ['/api/omega/sessions/voice-1/finish'])
     assert.ok(reads.includes('/api/omega/reports/partial-1'))
     assert.match(page.notice.value, /部分复盘/)
+  } finally { globalThis.window = previousWindow }
+})
+
+test('a normal report without full score coverage does not claim a saved total', async () => {
+  const report = { id: 'report-1', reviews: [], content: {
+    score: { total: null, earned: 8, available: 12 }, dimensions: [],
+    outcome: { status: 'unverified', reason: '证据不足', quotes: [] },
+  } }
+  const ended = { id: 'practice-1', owner_id: 1, status: 'ended', latest_report_id: 'report-1', segments: [
+    { id: 'saved-1', speaker: 'sales', text: '请核对库存风险。' },
+  ] }
+  const { page, html } = mountReview(async (path) => {
+    if (path === '/api/omega/reports/report-1') return report
+    if (path === '/api/omega/jobs/report-job') return { id: 'report-job', kind: 'report', status: 'succeeded', result_id: 'report-1' }
+    if (path === '/api/omega/sessions/practice-1') return ended
+    if (['/api/omega/cases', '/api/omega/sessions', '/api/omega/assignments'].includes(path)) return []
+    throw new Error(`Unexpected GET ${path}`)
+  }, async (path) => {
+    if (path === '/api/omega/sessions/practice-1/finish') return ended
+    throw new Error(`Unexpected POST ${path}`)
+  })
+  const previousWindow = globalThis.window
+  globalThis.window = { speechSynthesis: { cancel() {} } }
+  try {
+    page.chosenSession.value = { id: 'practice-1', owner_id: 1, status: 'active', segments: ended.segments }
+    await page.finishSession()
+    assert.match(page.notice.value, /证据不足.*暂无总分/)
+    assert.doesNotMatch(page.notice.value, /评分已保存/)
+    const rendered = await html()
+    assert.match(rendered, /已评分项 8 \/ 12 分/)
+    assert.match(rendered, /仅已观察维度，覆盖 12\/100；暂无综合总分/)
+
+    page.chosenSession.value = ended
+    page.activeJob.value = { id: 'report-job', kind: 'report', status: 'running', result_id: '' }
+    await page.pollJob()
+    assert.match(page.notice.value, /证据不足.*暂无总分/)
+    assert.doesNotMatch(page.notice.value, /评分已保存/)
   } finally { globalThis.window = previousWindow }
 })
 
