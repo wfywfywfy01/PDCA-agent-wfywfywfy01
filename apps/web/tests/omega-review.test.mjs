@@ -224,6 +224,17 @@ test('active session with unrecoverable voice tail only offers ending for partia
   assert.deepEqual(posts, [])
 })
 
+test('a voice tail error without saved lines offers ending without promising a report', async () => {
+  const { page, html } = mountReview()
+  page.chosenSession.value = { id: 'empty-voice', owner_id: 1, status: 'active',
+    voice_tail_unrecoverable: true, case_snapshot: page.blankDraft(), segments: [] }
+  page.realtimeReady.value = true
+  const rendered = await html()
+  assert.match(rendered, /结束本场/)
+  assert.match(rendered, /没有可复盘的原话/)
+  assert.doesNotMatch(rendered, /结束并查看部分复盘|开始实时对话/)
+})
+
 test('two-minute voice warning stays visible without ending the call', async () => {
   const { page, html } = mountReview()
   page.chosenSession.value = { id: 'voice-1', owner_id: 1, status: 'active',
@@ -256,6 +267,55 @@ test('two-minute voice warning stays visible without ending the call', async () 
     assert.match(await html(), /距离通话时长上限约 2 分钟/)
     page.stopVoice()
   } finally {
+    for (const [name, descriptor] of Object.entries(previous)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor)
+      else delete globalThis[name]
+    }
+  }
+})
+
+test('server voice error waits for saved tail state before showing the recovery action', async () => {
+  const initial = { id: 'voice-error', owner_id: 1, status: 'active',
+    case_snapshot: null, segments: [{ id: 'saved-1', speaker: 'sales', text: '已保存的原话' }] }
+  const reads = []
+  const { page, html } = mountReview(async (path) => {
+    reads.push(path)
+    return { ...initial, voice_tail_unrecoverable: true }
+  })
+  initial.case_snapshot = page.blankDraft()
+  page.chosenSession.value = initial
+  page.realtimeReady.value = true
+  page.textReady.value = true
+  const previous = Object.fromEntries(['navigator', 'window', 'AudioContext', 'WebSocket', 'location']
+    .map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
+  let socket
+  try {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true,
+      value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } } })
+    globalThis.window = { AudioWorkletNode: class {} }
+    globalThis.location = { protocol: 'https:', host: 'testserver' }
+    globalThis.AudioContext = class {
+      destination = {}
+      async resume() {}
+      async close() {}
+      createGain() { return { gain: { value: 1 }, connect: () => ({ connect() {} }) } }
+      createDynamicsCompressor() { return { threshold: {}, knee: {}, ratio: {} } }
+    }
+    globalThis.WebSocket = class {
+      constructor() { socket = this; this.closedByClient = false }
+      close() { this.closedByClient = true }
+    }
+    await page.startVoice()
+    await socket.onmessage({ data: JSON.stringify({ type: 'error', message: '语音连接异常' }) })
+    assert.equal(socket.closedByClient, false, 'keep the socket until backend confirms the tail state')
+    await socket.onmessage({ data: JSON.stringify({ type: 'closed' }) })
+    await new Promise(setImmediate)
+    assert.deepEqual(reads, ['/api/omega/sessions/voice-error'])
+    const rendered = await html()
+    assert.match(rendered, /结束并查看部分复盘/)
+    assert.doesNotMatch(rendered, /开始实时对话|继续实时对话|文字发言/)
+  } finally {
+    page.stopVoice()
     for (const [name, descriptor] of Object.entries(previous)) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor)
       else delete globalThis[name]

@@ -1130,7 +1130,21 @@ async function startVoice() {
         const message = JSON.parse(event.data) as { type: string; message?: string; speaker?: string; speaker_id?: string; text?: string; state?: string; audio_epoch?: number; request_key?: string }
         if (message.type === 'error') {
           error.value = message.message || '实时语音连接失败'
-          if (!voiceClosing.value) { voiceInterrupted.value = true; stopVoice() }
+          if (!voiceClosing.value) {
+            voiceInterrupted.value = true
+            voiceClosing.value = true
+            voiceWorklet?.disconnect()
+            voiceWorklet = undefined
+            voiceStream?.getTracks().forEach(track => track.stop())
+            voiceStream = undefined
+            if (voiceInput) { closeAudioContext(voiceInput); voiceInput = undefined }
+            stopVoicePlayback()
+            if (voiceOutput) { closeAudioContext(voiceOutput); voiceOutput = undefined }
+            voiceGain = undefined
+            voiceConnecting.value = false
+            voiceConnected.value = false
+          }
+          voiceEndNotice.value = error.value
           return
         }
         if (message.type === 'ending_soon') {
@@ -1514,8 +1528,8 @@ onBeforeUnmount(() => {
           </section>
           <form v-if="chosenSession.status === 'active' && chosenSession.owner_id === me?.id" class="card omega-practice-controls" @submit.prevent="sendTurn">
             <div v-if="chosenSession.voice_tail_unrecoverable" class="omega-tail-recovery" role="alert">
-              <div><strong>本场语音尾稿未确认</strong><p>逐字稿可能缺失，不能继续发言或评分。上方可核对已保存的原话。</p></div>
-              <button class="btn btn-primary omega-voice-button" type="button" :disabled="busy || callOpen" @click="finishSession">结束并查看部分复盘</button>
+              <div><strong>本场语音尾稿未确认</strong><p v-if="chosenSession.segments?.length">逐字稿可能缺失，不能继续发言或评分。上方可核对已保存的原话。</p><p v-else>没有可复盘的原话，结束后不会生成报告。</p></div>
+              <button class="btn btn-primary omega-voice-button" type="button" :disabled="busy || callOpen" @click="finishSession">{{ chosenSession.segments?.length ? '结束并查看部分复盘' : '结束本场' }}</button>
             </div>
             <template v-else>
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
