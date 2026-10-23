@@ -5,6 +5,7 @@ import unittest
 import base64
 import json
 import tempfile
+import time
 from datetime import timedelta
 from threading import Event
 import asyncio
@@ -722,6 +723,15 @@ class RealtimeSessionTests(unittest.TestCase):
                 if disconnect:
                     socket.close()
                     self.assertTrue(closed.wait(8), "Provider must drain after browser disconnect")
+                    # The provider close event precedes the job's committed release.
+                    deadline = time.monotonic() + 5
+                    while True:
+                        with Session(self.engine) as db:
+                            status = db.exec(select(OmegaJob)).one().status
+                        if status in {"succeeded", "failed"} or time.monotonic() >= deadline:
+                            break
+                        time.sleep(.02)
+                    self.assertEqual(status, "succeeded")
                 else:
                     socket.send_text("stop")
                     while socket.receive_json()["type"] != "closed":
