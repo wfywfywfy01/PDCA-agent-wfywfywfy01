@@ -31,8 +31,9 @@ MAX_TRANSCRIPT_SEGMENTS = 400
 MAX_TRANSCRIPT_CHARS = 24000
 VOICE_CAPACITY_WARN_SEGMENTS = 320
 VOICE_CAPACITY_END_SEGMENTS = 360
-VOICE_CAPACITY_WARN_CHARS = 14000
-VOICE_CAPACITY_END_CHARS = 16000
+# The next accepted utterance and two in-flight 4000-char tail segments must fit 24000.
+VOICE_CAPACITY_WARN_CHARS = 9000
+VOICE_CAPACITY_END_CHARS = 12000
 
 
 def voice_capacity_level(segments: int, chars: int) -> int:
@@ -650,6 +651,8 @@ def submit_turn(
     segments = session_segments(db, row.id)
     if failed_turn_job(db, row, segments):
         raise HTTPException(409, "上一轮对手回复失败，请重试该轮回复")
+    if voice_capacity_level(len(segments), sum(len(part.text) for part in segments)) >= 2:
+        raise HTTPException(409, "本场逐字稿接近上限，请结束并复盘后重新开练")
     # Leave one segment and the maximum reply length for the queued opponent turn.
     if (len(segments) + 2 > MAX_TRANSCRIPT_SEGMENTS
             or sum(len(part.text) for part in segments) + len(body.text) + 4000 > MAX_TRANSCRIPT_CHARS):

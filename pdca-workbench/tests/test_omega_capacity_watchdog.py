@@ -1,5 +1,6 @@
 """Bound realtime capacity and duration across rooms and stalled transports."""
 import asyncio
+import base64
 import json
 import time
 import unittest
@@ -109,9 +110,9 @@ class RealtimeCapacityTests(unittest.TestCase):
             _transcript({"transcript": [utterance] * 401})
         self.assertEqual(denied.exception.status_code, 413)
 
-    def test_text_turn_reserves_space_for_opponent_reply(self):
+    def test_text_turn_rejects_voice_capacity_reached(self):
         with Session(self.engine) as db:
-            for seq in range(1, 400):
+            for seq in range(1, 361):
                 db.add(OmegaSegment(session_id=self.session_id, seq=seq,
                                     speaker="sales" if seq % 2 else "counterparty",
                                     text="test", provider_event_id=f"text-{seq}"))
@@ -120,7 +121,27 @@ class RealtimeCapacityTests(unittest.TestCase):
                 submit_turn(self.session_id,
                             TurnRequest(request_key="capacity-text", text="stock risk"),
                             self.user, db)
-        self.assertEqual(denied.exception.status_code, 413)
+        self.assertEqual(denied.exception.status_code, 409)
+
+    def test_character_stop_reserves_two_maximum_tail_segments(self):
+        job_id, token, _ = _acquire(self.engine, self.user, self.session_id)
+        with Session(self.engine) as db:
+            for seq, size in enumerate((4000, 4000, 3999), 1):
+                db.add(OmegaSegment(session_id=self.session_id, seq=seq,
+                                    speaker="sales" if seq % 2 else "counterparty",
+                                    text="x" * size, provider_event_id=f"headroom-{seq}"))
+            db.commit()
+        control = VoiceControl(self.engine, self.session_id, job_id, token, confirmed=True)
+        _append(self.engine, self.session_id, job_id, token, "counterparty", "y" * 4000,
+                capacity_control=control)
+        self.assertEqual(control.capacity_level, 2)
+        _append(self.engine, self.session_id, job_id, token, "sales", "z" * 4000,
+                capacity_control=control)
+        last = _append(self.engine, self.session_id, job_id, token,
+                       "counterparty", "w" * 4000, capacity_control=control)
+        self.assertEqual(last["seq"], 6)
+        with self.assertRaisesRegex(ValueError, "逐字稿上限"):
+            _append(self.engine, self.session_id, job_id, token, "sales", "too late")
 
     def test_capacity_warning_and_orderly_end_before_hard_cap(self):
         class Browser:
@@ -178,6 +199,104 @@ class RealtimeCapacityTests(unittest.TestCase):
             self.assertFalse(ended["report_partial"])
 
         asyncio.run(exercise())
+
+    def test_capacity_watchdog_drains_provider_and_queues_full_report(self):
+        class Provider:
+            def __init__(self):
+                self.events = asyncio.Queue()
+                self.input_seen = self.flushed = False
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                pass
+
+            async def send(self, raw):
+                event = json.loads(raw)
+                if event["type"] == "session.create":
+                    self.events.put_nowait(json.dumps({"type": "session.created"}))
+                elif event["type"] == "input_audio_buffer.append":
+                    if any(base64.b64decode(event["audio"])):
+                        self.input_seen = True
+                    elif self.input_seen and not self.flushed:
+                        self.flushed = True
+                        for item in (
+                            {"type": "conversation.item.input_audio_transcription.started",
+                             "item_id": "final-sales"},
+                            {"type": "conversation.item.input_audio_transcription.completed",
+                             "item_id": "final-sales", "text": "最后确认交期。"},
+                            {"type": "response.output_text.done", "response_id": "final-reply",
+                             "question_id": "final-sales", "text": "交期已确认。"},
+                            {"type": "response.output_audio.done", "response_id": "final-reply",
+                             "question_id": "final-sales"},
+                        ):
+                            self.events.put_nowait(json.dumps(item))
+                elif event["type"] == "session.close":
+                    self.events.put_nowait(json.dumps({"type": "session.closed"}))
+
+            async def recv(self):
+                return await self.events.get()
+
+        class Browser:
+            def __init__(self):
+                self.cookies = {}
+                self.incoming = asyncio.Queue()
+                self.events = []
+
+            async def accept(self):
+                pass
+
+            async def close(self, **_):
+                pass
+
+            async def receive(self):
+                return await self.incoming.get()
+
+            async def send_json(self, event):
+                self.events.append(event["type"])
+                if event["type"] == "ready":
+                    for payload in (b"\x01\x00" * 320, b"\x00\x00" * 320):
+                        self.incoming.put_nowait({"type": "websocket.receive", "bytes": payload})
+
+            async def send_bytes(self, *_):
+                pass
+
+        async def authorize(*_):
+            return self.user
+
+        with Session(self.engine) as db:
+            for seq in range(1, 359):
+                db.add(OmegaSegment(session_id=self.session_id, seq=seq,
+                                    speaker="sales" if seq % 2 else "counterparty",
+                                    text="test", provider_event_id=f"prior-{seq}"))
+            db.commit()
+
+        async def exercise():
+            browser = Browser()
+            provider = Provider()
+            with Session(self.engine) as db, \
+                 patch("app.omega.realtime.is_enabled", return_value=True), \
+                 patch("app.omega.realtime._trusted_origin", return_value=True), \
+                 patch("app.omega.realtime.ws_user", side_effect=authorize), \
+                 patch("app.omega.realtime.connect", return_value=provider), \
+                 patch.dict("os.environ", {"PDCA_OMEGA_REALTIME_PROVIDER": "doubao",
+                                         "PDCA_DOUBAO_REALTIME_API_KEY": "synthetic-no-network"}):
+                await asyncio.wait_for(realtime_session(browser, self.session_id, db), 6)
+            self.assertIn("ending", browser.events)
+            self.assertIn("closed", browser.events)
+
+        asyncio.run(exercise())
+        with Session(self.engine) as db:
+            job = db.exec(select(OmegaJob).where(OmegaJob.kind == "realtime")).one()
+            self.assertEqual(job.status, "succeeded")
+            self.assertEqual(job.error, "")
+            self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 360)
+            ended = finish_session(self.session_id, OperationRequest(request_key="capacity-report"),
+                                   self.user, db)
+            self.assertEqual(ended["status"], "ended")
+            self.assertTrue(ended["pending_job_id"])
+            self.assertFalse(ended["report_partial"])
 
     def test_watchdog_starts_drain_before_hard_deadline(self):
         class Browser:
