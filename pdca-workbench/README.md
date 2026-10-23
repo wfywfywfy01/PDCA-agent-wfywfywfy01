@@ -245,6 +245,9 @@ docker compose up -d
 
 见 `.env.example`。必填：`PDCA_DATABASE_URL`、`PDCA_SECRET_KEY`。
 
+`PDCA_VERTU_SELLIN_DEPARTMENTS` 未设置时，实时 Sell-in、月度目标查询和销售排行统一查询经销商一至五部。
+显式配置仍可覆盖并去重；留空不等于恢复默认范围，实时 Sell-in 会拒绝查询。此配置不扩大账号数据权限，也不改订单快照同步范围。
+
 安全相关默认值：
 - `PDCA_TRUST_PROXY_HEADERS=1` 时还必须配置 `PDCA_TRUSTED_PROXY_IPS`，否则代理身份头不会被采信。
 - `X-VPS-User-Role` 默认不信任；确需由 SSO 代理写入角色时再显式设置 `PDCA_TRUST_PROXY_ROLE_HEADER=1`。

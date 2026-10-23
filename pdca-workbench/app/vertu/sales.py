@@ -11,9 +11,17 @@ from datetime import date as _date, datetime, timedelta
 from app.vertu.client import run_vertu_json, run_vertu_sync_json
 
 
+DEFAULT_SELL_IN_DEPARTMENTS = "经销商一部,经销商二部,经销商三部,经销商四部,经销商五部"
+
+
+def _sell_in_departments() -> list[str]:
+    configured = os.environ.get("PDCA_VERTU_SELLIN_DEPARTMENTS", DEFAULT_SELL_IN_DEPARTMENTS)
+    return list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+
+
 # Sell-in is requested on every workbench visit. Keep a short, explicitly
-# timestamped cache so repeated visits do not start three identical CLI
-# processes. Failed refreshes never overwrite the last successful fact.
+# timestamped cache so repeated visits do not duplicate department CLI
+# queries. Failed refreshes never overwrite the last successful fact.
 _SELL_IN_CACHE: dict[tuple, dict] = {}
 _SELL_IN_LOCKS: dict[tuple, asyncio.Lock] = {}
 
@@ -92,11 +100,7 @@ async def _headline(start: str, end: str, department: str = "") -> dict:
 async def fetch_sell_in(date_text: str, period: str = "day") -> dict:
     """Sell-in KPI：按配置的经销商部门聚合 vertu-cli 销售口径。"""
     start, end = _date_range(date_text, period)
-    configured = os.environ.get(
-        "PDCA_VERTU_SELLIN_DEPARTMENTS",
-        "经销商一部,经销商二部,经销商三部",
-    )
-    departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+    departments = _sell_in_departments()
     if not departments:
         raise RuntimeError("目标数据不完整：未配置经销商部门")
     dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
@@ -305,11 +309,7 @@ async def _dept_target_async(month_start: str, month_end: str) -> float:
     vertu-cli sales +target-achievement 的 target_amount 按窗口天数折算，
     因此这里传整月窗口（月初~月末）拿到全月目标。
     """
-    configured = os.environ.get(
-        "PDCA_VERTU_SELLIN_DEPARTMENTS",
-        "经销商一部,经销商二部,经销商三部",
-    )
-    departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+    departments = _sell_in_departments()
     dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
     total = 0.0
     for department in departments:
@@ -359,11 +359,7 @@ async def fetch_salesperson_breakdown(month: str) -> dict:
     """
     period = _trend_months(month)[-1]
     end = min(_date.fromisoformat(period["end"]), _date.today())
-    configured = os.environ.get(
-        "PDCA_VERTU_SELLIN_DEPARTMENTS",
-        "经销商一部,经销商二部,经销商三部",
-    )
-    departments = list(dict.fromkeys(item.strip() for item in configured.split(",") if item.strip()))
+    departments = _sell_in_departments()
     dept_l1 = os.environ.get("PDCA_VERTU_DEPT_L1", "海外渠道").strip()
 
     async def fetch_department(department: str = "") -> dict:

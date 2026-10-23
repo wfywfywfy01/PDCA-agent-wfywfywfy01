@@ -135,6 +135,7 @@ const taskPanel = ref<TaskPanel | null>(null)
 const dealer = ref<SellinSummary | null>(null)
 
 const loading = ref(true)
+const sellInLoading = ref(true)
 const dealerLoading = ref(true)
 const sectionErrors = ref<Record<string, string>>({})
 const syncing = ref(false)
@@ -192,6 +193,7 @@ function errText(err: unknown, fallback: string): string {
 
 // ── 新鲜度 / 徽标 ─────────────────────────────────────────────────────
 const STATE_LABELS: Record<string, string> = {
+  loading: '加载中',
   live: '实时',
   available: '已核验',
   stale: '数据过期',
@@ -229,20 +231,17 @@ function priorityPill(priority?: string): string {
 // ── 顶部指标卡（全部取接口真实字段，缺失即 N/A） ──────────────────────
 const sellInCard = computed(() => {
   const payload = sellIn.value
-  const fallbackWan = overview.value?.sellInWan ?? null
-  const wan = payload?.wan ?? fallbackWan
-  const usedFallback = payload?.wan == null && fallbackWan != null
+  const pending = sellInLoading.value
+  const wan = payload?.wan ?? null
   // 兜底：个别数据源只给 amount（元）不给 wan，避免显示成 N/A。
   const amountYuan = wan == null && payload?.amount != null ? Number(payload.amount) : null
-  const state = payload?.state || overview.value?.dataState?.sellIn
-  const base = payload?.note || overview.value?.sellInSub || '当前周期没有可验证的 Sell-in 数据'
   return {
-    value: wan != null ? fmtNum(wan) + ' 万' : amountYuan != null ? '¥ ' + fmtNum(amountYuan) : 'N/A',
+    value: pending ? '…' : wan != null ? fmtNum(wan) + ' 万' : amountYuan != null ? '¥ ' + fmtNum(amountYuan) : 'N/A',
     unit: wan != null || amountYuan != null ? 'CNY' : '',
-    state,
-    note: usedFallback ? '实时接口无数据，使用总览批次快照 · ' + base : (sectionErrors.value.sellIn || base),
-    source: payload?.source || overview.value?.dataSource?.sellIn || '',
-    asOf: payload?.as_of || overview.value?.dataAsOf || null,
+    state: pending ? 'loading' : payload?.state,
+    note: pending ? 'Sell-in 加载中…' : sectionErrors.value.sellIn || payload?.note || '当前周期没有可验证的 Sell-in 数据',
+    source: payload?.source || '',
+    asOf: payload?.as_of || null,
     failed: Boolean(sectionErrors.value.sellIn),
   }
 })
@@ -371,6 +370,8 @@ async function loadOverview(token = requestToken) {
 
 async function loadSellIn(token = requestToken) {
   clearSection('sellIn')
+  sellInLoading.value = true
+  sellIn.value = null
   try {
     const result = await apiGet<KpiPayload>(`/api/dashboard/sell-in?${qs()}`)
     if (token !== requestToken) return
@@ -379,6 +380,8 @@ async function loadSellIn(token = requestToken) {
     if (token !== requestToken) return
     sellIn.value = null
     fail('sellIn', err, 'Sell-in 数据加载失败，请重试')
+  } finally {
+    if (token === requestToken) sellInLoading.value = false
   }
 }
 
