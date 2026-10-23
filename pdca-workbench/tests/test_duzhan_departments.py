@@ -94,7 +94,7 @@ class DepartmentCheckins(TestCase):
         self.rows[2]["mto_count"] = None
         text = self.render(20)[0]["text"]
         line = next(line for line in text.splitlines() if line.startswith("MTO核验"))
-        self.assertIn("采集数待确认", line)
+        self.assertIn("已识别待确认", line)
         self.assertIn("待核：王宇彤", line)
 
     def test_missing_or_failed_history_provenance_keeps_mto_and_closure_pending(self):
@@ -103,7 +103,7 @@ class DepartmentCheckins(TestCase):
                 self.rows[0]["history_ok"] = state
                 text = self.render(20)[0]["text"]
                 mto = next(line for line in text.splitlines() if line.startswith("MTO核验"))
-                self.assertIn("采集数待确认", mto)
+                self.assertIn("已识别待确认", mto)
                 self.assertIn("待核：杨晶晶", mto)
                 self.assertIn("闭环核对：待确认：杨晶晶", text)
 
@@ -232,7 +232,7 @@ class DepartmentCheckins(TestCase):
         self.rows[0]["mto_count"] = 0
         self.rows[0]["mto_quotes"] = [dict(wan=20, qualifies=False, raw_ok=True) for _ in range(4)]
         line = next(line for line in self.render(20)[0]["text"].splitlines() if line.startswith("MTO核验"))
-        self.assertIn("采集数4条", line)
+        self.assertIn("已识别4款", line)
         self.assertIn("已核达标0款", line)
 
     def test_mto_unread_amount_or_incomplete_qualification_stays_pending(self):

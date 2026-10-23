@@ -447,3 +447,93 @@ class MtoCollectionSchedulingTests(TestCase):
         self.assertIsNone(reviewed["owner-b"][0])
         self.assertEqual(len(reviewed["owner-b"][2]), 4)
         self.assertEqual(reviewed["owner-c"][0], 4)
+
+
+class MtoRenderingTests(TestCase):
+    def test_individual_renderers_filter_receipts_and_keep_partial_mto_facts(self):
+        from app.duzhan import _mto_summary, _mto_text, _mto_wrapup_line
+
+        person = {
+            "mto_count": None,
+            "mto_daily_goal": 4,
+            "mto_min_wan": 30,
+            "mto_quotes": [
+                {
+                    "document_type": "mto_quote",
+                    "model": "Synthetic MTO",
+                    "wan": 40,
+                    "qualifies": True,
+                    "raw_ok": True,
+                },
+                {
+                    "document_type": "payment_receipt",
+                    "wan": None,
+                    "qualifies": False,
+                    "raw_ok": False,
+                },
+            ],
+        }
+
+        for render in (_mto_summary, _mto_wrapup_line, _mto_text):
+            with self.subTest(render=render.__name__):
+                text = render(person, "zh")
+                self.assertIn("已识别1款", text)
+                self.assertIn("1款达标", text.replace(" ", ""))
+                self.assertIn("其余待核", text)
+                self.assertNotIn("读不出金额", text)
+        self.assertNotIn("已交", _mto_text(person, "zh"))
+
+    def test_qualified_count_is_not_presented_as_submission_count(self):
+        from app.duzhan import _mto_text
+
+        quotes = [
+            {"document_type": "mto_quote", "model": f"MTO {index}", "wan": wan,
+             "qualifies": index == 0, "raw_ok": True}
+            for index, wan in enumerate((40, 20, 10))
+        ]
+        text = _mto_text(
+            {"mto_count": 1, "mto_daily_goal": 4, "mto_min_wan": 30, "mto_quotes": quotes},
+            "zh",
+        )
+
+        self.assertIn("已识别3款，其中1款达标", text)
+        self.assertNotIn("已交1/4", text)
+
+    def test_department_summary_keeps_known_partial_count_and_filters_receipt(self):
+        from app.duzhan_departments import _mto_summary
+
+        rows = [
+            (
+                "成员A",
+                {
+                    "history_ok": True,
+                    "mto_count": None,
+                    "mto_quotes": [
+                        {"document_type": "mto_quote", "wan": 40, "qualifies": True, "raw_ok": True},
+                        {"document_type": "payment_receipt", "wan": None, "qualifies": False},
+                    ],
+                },
+            ),
+            ("成员B", {"history_ok": False, "mto_count": None, "mto_quotes": []}),
+        ]
+
+        text = _mto_summary(rows, False, daily_count=4, min_wan=30)
+
+        self.assertIn("已识别至少1款", text)
+        self.assertIn("已核达标1款", text)
+        self.assertIn("待核：成员A、成员B", text)
+        self.assertNotIn("2条", text)
+
+    def test_department_summary_does_not_invent_verified_details_from_legacy_count(self):
+        from app.duzhan_departments import _mto_summary
+
+        text = _mto_summary(
+            [("成员A", {"history_ok": True, "mto_count": 4, "mto_quotes": []})],
+            False,
+            daily_count=4,
+            min_wan=30,
+        )
+
+        self.assertIn("已识别待确认", text)
+        self.assertIn("已核达标0款", text)
+        self.assertIn("待核：成员A", text)

@@ -887,7 +887,7 @@ class DuzhanLedgerTests(LongFormatMixin, unittest.TestCase):
         self.assertIn("战役：本月海外目标：1328万", text)
         self.assertIn("滚动日目标：", text)
         self.assertNotIn("今日目标：1300万战役", text)
-        self.assertIn("已交8/4（达标）：share-image.webp、share-image2.webp", text)
+        self.assertIn("已核达标8/4（已达目标）：share-image.webp、share-image2.webp", text)
         self.assertIn("VPS 留痕：IM发送56条 | Agent轮数2（本周累计，工时按日均×6分钟）", text)
         self.assertIn("WhatsApp 沟通户数：0（已同步下限） 户", text)
         self.assertIn("工时（对照标准8h）：6.6h / 标准8h｜近满勤｜WA 3.0h + MTO 1.33h + 催收跟进 1.5h + 会议 0.77h + VPS 0.0h｜缺口 1.4h；WA窗口 09:01–15:40（跨度≠工时）", text)
@@ -3830,7 +3830,7 @@ class DuzhanSlotStructureTests(LongFormatMixin, unittest.TestCase):
             ]
         )
         text = render_brief(group, 20, now, self._ledger(person), self._ledger(person))
-        self.assertIn("• MTO 今日达标：1/3 款达标（VertuAlphafold 63.3万）", text)
+        self.assertIn("• MTO 今日达标：已识别3款，其中1 款达标（VertuAlphafold 63.3万）", text)
         self.assertIn("1 款未满 30 万（VertuQuantum 20.2万）", text)
         self.assertIn("1 张读不出金额", text)
 

@@ -158,26 +158,33 @@ def _tasks(rows: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
 
 
 def _mto_summary(rows: list[tuple[str, dict]], english: bool, *, daily_count: int = 4, min_wan: float = 30) -> str:
-    captured, counts, pending = [], [], []
+    from app.mto_ocr import quote_document_type
+
+    identified, counts, pending = 0, [], []
     for name, row in rows:
-        quotes = row.get("mto_quotes")
+        raw_quotes = row.get("mto_quotes")
         source_count = row.get("mto_count")  # OCR returns qualified count, not submissions.
-        quotes_known = isinstance(quotes, list) and all(isinstance(quote, dict) for quote in quotes)
-        quotes = quotes if quotes_known else []
+        quotes_known = isinstance(raw_quotes, list) and all(isinstance(quote, dict) for quote in raw_quotes)
+        quotes = ([quote for quote in raw_quotes if quote_document_type(quote) == "mto_quote"]
+                  if quotes_known else [])
         checked = [quote for quote in quotes if _finite_number(quote.get("wan"))
                    and isinstance(quote.get("qualifies"), bool) and quote.get("raw_ok") is not False]
-        qualified = sum(quote["qualifies"] and quote["wan"] >= min_wan for quote in checked)
-        counts.append(qualified)
+        detail_qualified = sum(quote["qualifies"] and quote["wan"] >= min_wan for quote in checked)
         source_known = row.get("history_ok") is True and _finite_number(source_count) and source_count >= 0
-        captured.append((name, {"count": len(quotes)
-                                if quotes_known and source_known and source_count <= len(quotes) else None}))
-        if not source_known or not quotes_known or len(checked) != len(quotes) or source_count != qualified:
+        counts.append(detail_qualified)
+        if quotes_known:
+            identified += len(quotes)
+        if not source_known or not quotes_known or len(checked) != len(quotes) or source_count != detail_qualified:
             pending.append(name)
-    seen = total(captured, "count")
-    seen_text = ("pending" if english else "待确认") if seen is None else f"{seen:g}" + (" records" if english else "条")
+    if pending:
+        seen_text = (f"at least {identified}" if english else f"至少{identified}款") if identified else (
+            "pending" if english else "待确认"
+        )
+    else:
+        seen_text = f"{identified}" if english else f"{identified}款"
     qualified_members = sum(count >= daily_count for count in counts)
-    text = (f"MTO: captured {seen_text} | verified {sum(counts)} qualified | {qualified_members}/{len(rows)} members at {daily_count} each (≥ CNY {min_wan * 10:g}k each)"
-            if english else f"MTO核验：采集数{seen_text}｜已核达标{sum(counts)}款｜达标成员{qualified_members}/{len(rows)}（每人{daily_count}款，单款≥{min_wan:g}万）")
+    text = (f"MTO: identified {seen_text} | verified {sum(counts)} qualified | {qualified_members}/{len(rows)} members at {daily_count} each (≥ CNY {min_wan * 10:g}k each)"
+            if english else f"MTO核验：已识别{seen_text}｜已核达标{sum(counts)}款｜达标成员{qualified_members}/{len(rows)}（每人{daily_count}款，单款≥{min_wan:g}万）")
     return text + (("; pending: " if english else "；待核：") + "、".join(pending) if pending else "")
 
 
