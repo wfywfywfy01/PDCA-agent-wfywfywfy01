@@ -1133,6 +1133,11 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                           (active_question if kind and kind.startswith("response.output_") else ""))
         item_id = str(event.get("item_id") or "")
         input_id = item_id or str(event.get("question_id") or "")
+        if control and kind == "conversation.item.input_audio_transcription.started" and item_id:
+            question_alias = control.input_aliases.get(str(event.get("question_id") or ""))
+            if question_alias and control.input_aliases.get(item_id) != question_alias:
+                control.tail_incomplete = True
+                raise ValueError(_tail_error)
         if control and kind in {"conversation.item.input_audio_transcription.delta",
                                 "conversation.item.input_audio_transcription.completed"}:
             item_alias = control.input_aliases.get(item_id)

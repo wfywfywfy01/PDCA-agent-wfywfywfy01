@@ -166,6 +166,8 @@ class TranscriptionTests(unittest.TestCase):
             events = iter([
                 {"type": "conversation.item.input_audio_transcription.started",
                  "item_id": "started-item", "question_id": "same-question"},
+                {"type": "conversation.item.input_audio_transcription.started",
+                 "item_id": "started-item", "question_id": "same-question"},
                 {"type": "conversation.item.input_audio_transcription.completed",
                  "item_id": "alternate-final", "question_id": "same-question",
                  "text": "Synthetic final speech"},
@@ -291,3 +293,38 @@ class TranscriptionTests(unittest.TestCase):
         self.assertEqual(control.active_inputs, {"item-a", "item-b"})
         with Session(self.engine) as db:
             self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
+
+    def test_receiver_rejects_new_started_item_reusing_completed_question(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+        control.sent_audio(b"\x01\x00")
+
+        class Browser:
+            async def send_json(self, event):
+                pass
+
+        class Provider:
+            events = iter([
+                {"type": "conversation.item.input_audio_transcription.started",
+                 "item_id": "item-a", "question_id": "question-q"},
+                {"type": "conversation.item.input_audio_transcription.completed",
+                 "item_id": "item-a", "question_id": "question-q", "text": "Same synthetic speech"},
+                {"type": "conversation.item.input_audio_transcription.started",
+                 "item_id": "item-b", "question_id": "question-q"},
+                {"type": "conversation.item.input_audio_transcription.completed",
+                 "item_id": "item-b", "question_id": "question-q", "text": "Same synthetic speech"},
+                {"type": "session.closed"},
+            ])
+
+            async def recv(self):
+                event = next(self.events)
+                if event.get("item_id") == "item-b" and event["type"].endswith(".started"):
+                    control.sent_audio(b"\x01\x00")
+                return json.dumps(event)
+
+        with self.assertRaisesRegex(ValueError, "语音尾稿未完成"):
+            asyncio.run(_receive_doubao_audio(Browser(), Provider(), self.engine,
+                self.session_id, self.job_id, self.token, control=control))
+        self.assertTrue(control.tail_incomplete)
+        with Session(self.engine) as db:
+            self.assertEqual([part.text for part in db.exec(select(OmegaSegment)).all()],
+                             ["Same synthetic speech"])
