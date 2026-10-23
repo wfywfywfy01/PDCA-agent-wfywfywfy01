@@ -72,6 +72,11 @@ const quickScenarios = [
 const safeTrainingLimit = '未经确认，不承诺价格、付款日期或交期。'
 const outcomeNames: Record<string, string> = { achieved: '达成目标', partial: '部分达成',
   not_achieved: '未达成', unverified: '证据不足' }
+function reportSavedNotice(result: Report): string {
+  if (result.content.evidence_status === 'incomplete') return '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。'
+  return result.content.score?.total == null
+    ? '复盘已生成；评分证据不足，暂无总分。' : '复盘已生成，对话和评分已保存。'
+}
 
 const router = useRouter()
 const demoMode = import.meta.env.MODE === 'omega-demo'
@@ -765,8 +770,7 @@ async function finishSession() {
     await loadLists()
     if (ended.latest_report_id) {
       report.value = await apiGet<Report>(`/api/omega/reports/${ended.latest_report_id}`)
-      notice.value = report.value.content.evidence_status === 'incomplete'
-        ? '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。' : '复盘已生成，对话和评分已保存。'
+      notice.value = reportSavedNotice(report.value)
     } else if (!ended.report_blocked && (ended.pending_job_id || textReady.value && ended.segments?.length)) {
       activeJob.value = ended.pending_job_id
         ? await apiGet<Job>(`/api/omega/jobs/${ended.pending_job_id}`)
@@ -801,8 +805,7 @@ async function pollJob() {
         const result = await apiGet<Report>(`/api/omega/reports/${job.result_id}`)
         if (chosenSession.value?.id !== sessionId) return
         report.value = result
-        notice.value = result.content.evidence_status === 'incomplete'
-          ? '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。' : '复盘已生成，对话和评分已保存。'
+        notice.value = reportSavedNotice(result)
       }
       await refreshSession()
       if (job.result_id) await loadLists()
@@ -1561,7 +1564,14 @@ onBeforeUnmount(() => {
             </div>
             <template v-else>
             <p v-if="report.content.hints_used?.length" class="sub">本场使用了 {{ report.content.hints_used.length }} 次教练建议。评分仍依据本场原话。</p>
-            <div class="omega-score-summary"><strong>{{ report.content.score?.total == null ? '证据不足' : `${report.content.score.total} 分` }}</strong><span>{{ report.content.score?.total == null ? `已获 ${report.content.score?.earned ?? 0} 分／可评分 ${report.content.score?.available ?? 0} 分，暂不折算总分` : '本场综合评分 · 满分 100' }}</span></div>
+            <div class="omega-score-summary">
+              <strong v-if="report.content.score?.total != null">{{ report.content.score.total }} 分</strong>
+              <strong v-else-if="report.content.score?.available">已评分项 {{ report.content.score.earned }} / {{ report.content.score.available }} 分</strong>
+              <strong v-else>证据不足</strong>
+              <span v-if="report.content.score?.total != null">本场综合评分 · 满分 100</span>
+              <span v-else-if="report.content.score?.available">仅已观察维度，覆盖 {{ report.content.score.available }}/100；暂无综合总分</span>
+              <span v-else>无可评分项，暂无综合总分</span>
+            </div>
             <p class="sub">AI 评分用于训练建议。主管需核对原话与结论，再用于正式评价。</p>
             <p class="omega-report-result"><strong>{{ outcomeLabel }}</strong>　{{ report.content.outcome?.reason }}</p>
             <div v-if="strengthPoint" class="omega-report-strength"><span>做得好 · {{ dimensionNames[strengthPoint.key] || strengthPoint.key }}</span><p>{{ strengthPoint.reason }}</p><blockquote v-if="strengthPoint.quotes[0]"><button type="button" class="omega-quote-link" @click="showQuote(strengthPoint.quotes[0])">“{{ strengthPoint.quotes[0].text }}” <small>查看第 {{ quoteNumber(strengthPoint.quotes[0]) }} 条原话</small></button></blockquote></div>
