@@ -43,8 +43,10 @@ class DashboardUiTests(unittest.IsolatedAsyncioTestCase):
                             context = await browser.new_context(
                                 viewport={'width': width, 'height': 900}, timezone_id='Asia/Shanghai')
                             page = await context.new_page()
-                            errors, unexpected = [], []
+                            errors, console_messages, unexpected = [], [], []
                             page.on('pageerror', lambda error: errors.append(str(error)))
+                            page.on('console', lambda message: console_messages.append(message.text)
+                                    if message.type in {'error', 'warning'} else None)
                             release = asyncio.Event()
                             overview_sent = asyncio.Event()
 
@@ -103,6 +105,7 @@ class DashboardUiTests(unittest.IsolatedAsyncioTestCase):
                                 await expect(kpi.locator('.stat-value')).to_have_text('1,166.32 万 CNY')
                                 self.assertFalse(await page.evaluate('document.documentElement.scrollWidth > innerWidth'))
                                 self.assertEqual(errors, [])
+                                self.assertEqual(console_messages, [])
                                 self.assertEqual(unexpected, [])
                                 if evidence:
                                     await page.screenshot(path=str(Path(evidence) / f'ready-{width}.png'))
