@@ -1133,15 +1133,20 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                           (active_question if kind and kind.startswith("response.output_") else ""))
         item_id = str(event.get("item_id") or "")
         input_id = item_id or str(event.get("question_id") or "")
+        unconfirmed_input = bool(control and (control.active_inputs or
+            control.pending_input is not None and control.pending_nonzero))
         if control and kind == "conversation.item.input_audio_transcription.started" and item_id:
             question_alias = control.input_aliases.get(str(event.get("question_id") or ""))
-            if question_alias and control.input_aliases.get(item_id) != question_alias:
+            if unconfirmed_input and question_alias and control.input_aliases.get(item_id) != question_alias:
                 control.tail_incomplete = True
                 raise ValueError(_tail_error)
         if control and kind in {"conversation.item.input_audio_transcription.delta",
                                 "conversation.item.input_audio_transcription.completed"}:
             item_alias = control.input_aliases.get(item_id)
             question_alias = control.input_aliases.get(str(event.get("question_id") or ""))
+            if not unconfirmed_input and question_alias and item_alias != question_alias:
+                # Stale or conflicting IDs cannot alter a finished turn without accepted PCM.
+                continue
             if item_alias and question_alias and item_alias != question_alias:
                 control.tail_incomplete = True
                 raise ValueError(_tail_error)
@@ -1164,11 +1169,14 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
             return
         if kind == "conversation.item.input_audio_transcription.failed":
             if control:
+                if not unconfirmed_input:
+                    continue
                 control.asr_failed += 1
                 control.tail_incomplete = True
             raise ValueError(_tail_error)
         if (control and kind == "conversation.item.input_audio_transcription.completed"
-                and not input_context and str(event.get("text") or event.get("transcript") or "").strip()):
+                and not input_context and str(event.get("text") or event.get("transcript") or "").strip()
+                and unconfirmed_input):
             control.tail_incomplete = True
             raise ValueError(_tail_error)
         if control and control.paused:
@@ -1201,7 +1209,7 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                     raise ValueError("销售音频缺少可验证的输入标识")
                 if input_context:
                     continue
-                if control.pending_input is None:
+                if control.pending_input is None or not unconfirmed_input:
                     # A resumed stream needs newly accepted browser PCM before any new input identity.
                     continue
                 if control.paused:
