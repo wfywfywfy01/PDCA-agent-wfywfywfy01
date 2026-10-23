@@ -486,6 +486,7 @@ def session_view(db: Session, row: OmegaSession) -> dict:
     segments = session_segments(db, row.id)
     failed_turn = failed_turn_job(db, row, segments)
     blocked_message = voice_tail_error(db, row)
+    voice_tail_unrecoverable = bool(blocked_message)
     unanswered = unanswered_turn_job(db, row, segments)
     partial_report = bool(latest_report and json.loads(latest_report.content_json).get("evidence_status") == "incomplete")
     partial_report = partial_report or bool(row.status == "ended" and blocked_message and segments and not unanswered)
@@ -509,6 +510,7 @@ def session_view(db: Session, row: OmegaSession) -> dict:
         "failed_turn_job_id": failed_turn.id if failed_turn else "",
         "report_blocked": bool(blocked_message),
         "report_blocked_message": blocked_message,
+        "voice_tail_unrecoverable": voice_tail_unrecoverable,
         "report_partial": partial_report,
         "report_warning": report_warning,
         "segments": [
@@ -615,6 +617,8 @@ def submit_turn(
         return job_view(existing)
     if row.status != "active":
         raise HTTPException(409, "演练已经结束")
+    if voice_tail_error(db, row):
+        raise HTTPException(409, "语音尾稿未确认，请结束本场并查看部分复盘")
     live = db.exec(select(OmegaJob).where(
         OmegaJob.session_id == row.id, OmegaJob.kind == "realtime",
         OmegaJob.status == "running", OmegaJob.lease_until > utcnow(),
@@ -687,6 +691,8 @@ def retry_failed_turn(
                   .with_for_update().execution_options(populate_existing=True)).one()
     if row.status != "active" or row.revision != job.session_revision:
         raise HTTPException(409, "该轮已变化，无法重试")
+    if voice_tail_error(db, row):
+        raise HTTPException(409, "语音尾稿未确认，请结束本场并查看部分复盘")
     if job.status in {"queued", "running"}:
         return job_view(job)
     failed = failed_turn_job(db, row, session_segments(db, row.id))

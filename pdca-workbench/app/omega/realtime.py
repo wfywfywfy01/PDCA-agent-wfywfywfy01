@@ -40,6 +40,8 @@ _doubao_url = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
 _lease_seconds = 15
 _auth_interval_seconds = 4
 _max_connection_seconds = 30 * 60
+_watchdog_warning_seconds = 2 * 60
+_watchdog_drain_grace_seconds = 30
 _drain_timeout_seconds = 20
 _resume_timeout_seconds = 50
 _tail_error = VOICE_TAIL_INCOMPLETE
@@ -517,8 +519,9 @@ def _acquire(engine, user: User, session_id: str,
         require_session_owner(actor, game)
         if game.mode not in {"rehearsal", "training"} or game.status != "active":
             raise HTTPException(409, "仅进行中的模拟演练支持实时语音")
-        if voice_tail_error(db, game) == VOICE_STREAM_ORPHANED:
-            raise HTTPException(409, VOICE_STREAM_ORPHANED)
+        tail_error = voice_tail_error(db, game)
+        if tail_error:
+            raise HTTPException(409, tail_error)
         pending = db.exec(select(OmegaJob).where(
             OmegaJob.session_id == session_id,
             OmegaJob.kind == "turn",
@@ -899,18 +902,35 @@ async def _watch_connection(ws: WebSocket, engine, session_id: str,
                             job_id: str, token: str, control: VoiceControl) -> None:
     """Expire and reauthorize independently of provider and browser I/O."""
     loop = asyncio.get_running_loop()
+    # Leave room for the 20s ASR/close drain and 1s browser notice before the cap.
+    drain_at = control.deadline - min(_watchdog_drain_grace_seconds, _max_connection_seconds / 2)
+    warn_at = (control.deadline - _watchdog_warning_seconds
+               if _max_connection_seconds > _watchdog_warning_seconds + _watchdog_drain_grace_seconds
+               else None)
+    warned = False
     while True:
-        remaining = control.deadline - loop.time()
+        now = loop.time()
+        remaining = drain_at - now
         if remaining <= 0:
             control.ending = True
             try:
                 await asyncio.wait_for(ws.send_json({"type": "ending",
-                    "message": "本次通话已达时长上限，请结束复盘后重新开练"}), 1)
-            except TimeoutError:
+                    "message": "本次通话接近时长上限，正在保存逐字稿；结束复盘后可重新开练"}), 1)
+            except (TimeoutError, RuntimeError, WebSocketDisconnect):
                 pass
             return
-        await asyncio.sleep(min(_auth_interval_seconds, remaining))
-        if loop.time() < control.deadline:
+        if warn_at is not None and not warned and now >= warn_at:
+            warned = True
+            try:
+                await asyncio.wait_for(ws.send_json({"type": "ending_soon",
+                    "seconds_remaining": _watchdog_warning_seconds,
+                    "message": "距离通话时长上限约 2 分钟，请尽快收尾并复盘"}), 1)
+            except (TimeoutError, RuntimeError, WebSocketDisconnect):
+                pass
+            continue
+        next_event = min(drain_at, warn_at) if warn_at is not None and not warned else drain_at
+        await asyncio.sleep(min(_auth_interval_seconds, next_event - now))
+        if loop.time() < drain_at:
             _renew(engine, session_id, job_id, token)
 
 
@@ -1254,6 +1274,7 @@ async def realtime_session(ws: WebSocket, session_id: str,
         await ws.close(code=1008)
         return
     failed = True
+    provider = None
     await ws.accept()
     try:
         if name == "doubao":
@@ -1328,7 +1349,15 @@ async def realtime_session(ws: WebSocket, session_id: str,
     except (WebSocketDisconnect, asyncio.CancelledError):
         failed = False
     except Exception as exc:
-        logger.warning("Omega realtime stream ended: {}", type(exc).__name__)
+        phase = getattr(provider, "boundary_phase", "stream")
+        if phase not in {"asr_tail", "silence_stop", "close_ack", "transport_close",
+                         "reconnect", "handshake", "ready"}:
+            phase = "stream"
+        category = ("tail_incomplete" if isinstance(exc, ValueError) and str(exc) == _tail_error
+                    else "timeout" if isinstance(exc, TimeoutError)
+                    else "provider_status" if isinstance(exc, InvalidStatus)
+                    else "validation" if isinstance(exc, ValueError) else "stream_error")
+        logger.warning("Omega realtime stream ended: category={} phase={}", category, phase)
         try:
             denied = (name == "doubao" and isinstance(exc, InvalidStatus)
                       and b"requested resource not granted" in exc.response.body)
