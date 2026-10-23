@@ -355,7 +355,8 @@ test('partial voice report preserves saved quotes but has no score or supervisor
     incomplete_reason: '语音尾稿未完成', saved_quotes: [quote], score: { total: null, earned: 0, available: 0 },
     outcome: { status: 'unverified', reason: '逐字稿不完整', quotes: [] }, dimensions: [] } }
   const rendered = await html()
-  assert.match(rendered, /部分复盘，证据不完整，不能评分\/达标/)
+  assert.match(rendered, /<h3[^>]*id="omega-report-title"[^>]*>已保存的部分对话记录<\/h3>/)
+  assert.match(rendered, /已保存部分对话记录，无法生成可评分复盘/)
   assert.match(rendered, /语音尾稿未完成/)
   assert.match(rendered, /我们再核对库存风险。/)
   assert.match(rendered, /查看第 1 条原话/)
@@ -367,7 +368,7 @@ test('ending a voice session opens its saved partial report without the text mod
   const posts = []
   const partial = { id: 'partial-1', reviews: [], content: { evidence_status: 'incomplete',
     incomplete_reason: '语音尾稿未完成', saved_quotes: [], score: { total: null, earned: 0, available: 0 } } }
-  const { page } = mountReview(async (path) => {
+  const { page, html } = mountReview(async (path) => {
     reads.push(path)
     if (path === '/api/omega/reports/partial-1') return partial
     if (['/api/omega/cases', '/api/omega/sessions', '/api/omega/assignments'].includes(path)) return []
@@ -382,13 +383,21 @@ test('ending a voice session opens its saved partial report without the text mod
   const previousWindow = globalThis.window
   globalThis.window = { speechSynthesis: { cancel() {} } }
   try {
+    const navigation = []
+    assert.ok(page.reportHeading, 'report heading is focusable after finishing')
+    page.reportHeading.value = {
+      scrollIntoView(options) { navigation.push(['scroll', options.block]) },
+      focus(options) { navigation.push(['focus', options.preventScroll]) },
+    }
     page.chosenSession.value = { id: 'voice-1', owner_id: 1, status: 'active', segments: [] }
     page.textReady.value = false
     await page.finishSession()
     assert.equal(page.report.value?.id, 'partial-1')
     assert.deepEqual(posts, ['/api/omega/sessions/voice-1/finish'])
     assert.ok(reads.includes('/api/omega/reports/partial-1'))
-    assert.match(page.notice.value, /部分复盘/)
+    assert.match(page.notice.value, /已保存部分原话.*无法生成可评分复盘/)
+    assert.deepEqual(navigation, [['scroll', 'center'], ['focus', true]])
+    assert.match(await html(), /<h3[^>]*id="omega-report-title"[^>]*tabindex="-1"/)
   } finally { globalThis.window = previousWindow }
 })
 
@@ -418,6 +427,7 @@ test('a normal report without full score coverage does not claim a saved total',
     assert.match(page.notice.value, /证据不足.*暂无总分/)
     assert.doesNotMatch(page.notice.value, /评分已保存/)
     const rendered = await html()
+    assert.match(rendered, /<h3[^>]*id="omega-report-title"[^>]*>复盘报告<\/h3>/)
     assert.match(rendered, /已评分项 8 \/ 12 分/)
     assert.match(rendered, /仅已观察维度，覆盖 12\/100；暂无综合总分/)
 
@@ -449,6 +459,12 @@ test('an older ended voice session can generate its partial report without the t
   globalThis.setTimeout = () => 1
   globalThis.clearTimeout = () => {}
   try {
+    const navigation = []
+    assert.ok(page.reportHeading, 'polled report has a focusable heading')
+    page.reportHeading.value = {
+      scrollIntoView(options) { navigation.push(['scroll', options.block]) },
+      focus(options) { navigation.push(['focus', options.preventScroll]) },
+    }
     page.chosenSession.value = { id: 'legacy-voice', owner_id: 1, status: 'ended', report_partial: true,
       report_blocked: false, report_warning: '语音尾稿未完成', case_snapshot: page.blankDraft(),
       segments: [{ id: 'saved-1', speaker: 'sales', text: '已保存的原话' }] }
@@ -460,6 +476,7 @@ test('an older ended voice session can generate its partial report without the t
     assert.deepEqual(posts, ['/api/omega/sessions/legacy-voice/reports'])
     await page.pollJob()
     assert.equal(page.report.value?.id, 'partial-legacy')
+    assert.deepEqual(navigation, [['scroll', 'center'], ['focus', true]])
   } finally {
     globalThis.setTimeout = previousSetTimeout
     globalThis.clearTimeout = previousClearTimeout

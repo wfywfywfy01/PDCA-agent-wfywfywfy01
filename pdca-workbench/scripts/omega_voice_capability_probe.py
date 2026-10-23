@@ -18,6 +18,35 @@ from websockets.asyncio.client import connect
 
 URL = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
 MODEL = "1.2.6.1"
+_ASR_SETTLE_SECONDS = 8
+
+
+def _asr_probe_passed(events):
+    """Accept only finalized, identifiable ASR inputs from the probe window."""
+    pending = []
+    started = False
+    completed = False
+    failed = False
+    prefix = "conversation.item.input_audio_transcription."
+    for event in events:
+        kind = event.get("type")
+        if kind not in {prefix + "started", prefix + "completed", prefix + "failed"}:
+            continue
+        identifiers = {str(event[key]) for key in ("item_id", "question_id") if event.get(key)}
+        if kind == prefix + "started":
+            started = True
+            pending.append(identifiers)
+        elif kind == prefix + "completed":
+            completed = True
+            matches = [index for index, known in enumerate(pending)
+                       if known.intersection(identifiers)]
+            if len(matches) == 1:
+                pending.pop(matches[0])
+            else:
+                failed = True
+        else:
+            failed = True
+    return started and completed and not pending and not failed
 
 
 async def probe_asr(args):
@@ -45,7 +74,6 @@ async def probe_asr(args):
             first = json.loads(await asyncio.wait_for(ws.recv(), 10))
             if first.get("type") != "session.created":
                 raise RuntimeError("handshake")
-            completed = asyncio.Event()
             async def receive():
                 while True:
                     event = json.loads(await ws.recv())
@@ -55,10 +83,6 @@ async def probe_asr(args):
                         "question_id": event.get("question_id"), "response_id": event.get("response_id"),
                         "text_characters": len(text),
                         "text_sha256": hashlib.sha256(text.encode()).hexdigest() if text else ""})
-                    if event.get("type") == "conversation.item.input_audio_transcription.completed":
-                        completed.set()
-                    if event.get("type") == "response.output_audio.started":
-                        await ws.send(json.dumps({"type": "response.cancel"}))
                     if event.get("type") == "session.closed":
                         return
             receiving = asyncio.create_task(receive())
@@ -77,11 +101,10 @@ async def probe_asr(args):
                     await ws.send(json.dumps({"type": "input_audio_mute.commit"}))
                     await ws.send(json.dumps({"type": "session.update", "session": {
                         "instructions": "这是固定合成音频的暂停排空测试。只回复测试完成。"}}))
-                await asyncio.wait_for(completed.wait(), 8)
-                await asyncio.sleep(.5)
-                result["status"] = "passed"
+                await asyncio.sleep(_ASR_SETTLE_SECONDS)
                 await ws.send(json.dumps({"type": "session.close"}))
                 await asyncio.wait_for(receiving, 3)
+                result["status"] = "passed" if _asr_probe_passed(result["events"]) else "failed"
             finally:
                 if not receiving.done():
                     receiving.cancel()

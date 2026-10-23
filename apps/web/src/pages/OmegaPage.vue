@@ -73,7 +73,7 @@ const safeTrainingLimit = '未经确认，不承诺价格、付款日期或交�
 const outcomeNames: Record<string, string> = { achieved: '达成目标', partial: '部分达成',
   not_achieved: '未达成', unverified: '证据不足' }
 function reportSavedNotice(result: Report): string {
-  if (result.content.evidence_status === 'incomplete') return '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。'
+  if (result.content.evidence_status === 'incomplete') return '已保存部分原话；语音尾稿未确认，无法生成可评分复盘。'
   return result.content.score?.total == null
     ? '复盘已生成；评分证据不足，暂无总分。' : '复盘已生成，对话和评分已保存。'
 }
@@ -101,6 +101,7 @@ const assignDueDate = ref('')
 const chosenCase = ref<CaseRow | null>(null)
 const chosenSession = ref<SessionRow | null>(null)
 const report = ref<Report | null>(null)
+const reportHeading = ref<HTMLElement | null>(null)
 const focusedQuoteId = ref('')
 const activeJob = ref<Job | null>(null)
 const textInput = ref('')
@@ -521,6 +522,15 @@ async function run(action: () => Promise<void>) {
   notice.value = ''
   try { await action() } catch (err) { error.value = detail(err) } finally { busy.value = false }
 }
+async function showReadyReport(result: Report, sessionId: string | undefined) {
+  if (!sessionId || chosenSession.value?.id !== sessionId) return
+  report.value = result
+  notice.value = reportSavedNotice(result)
+  await nextTick()
+  if (chosenSession.value?.id !== sessionId || report.value?.id !== result.id) return
+  reportHeading.value?.scrollIntoView({ block: 'center' })
+  reportHeading.value?.focus({ preventScroll: true })
+}
 async function saveCase() {
   if (materialBusy.value) return
   await run(async () => {
@@ -769,8 +779,7 @@ async function finishSession() {
     activeJob.value = null
     await loadLists()
     if (ended.latest_report_id) {
-      report.value = await apiGet<Report>(`/api/omega/reports/${ended.latest_report_id}`)
-      notice.value = reportSavedNotice(report.value)
+      await showReadyReport(await apiGet<Report>(`/api/omega/reports/${ended.latest_report_id}`), sessionId)
     } else if (!ended.report_blocked && (ended.pending_job_id || textReady.value && ended.segments?.length)) {
       activeJob.value = ended.pending_job_id
         ? await apiGet<Job>(`/api/omega/jobs/${ended.pending_job_id}`)
@@ -804,8 +813,7 @@ async function pollJob() {
       if (job.result_id) {
         const result = await apiGet<Report>(`/api/omega/reports/${job.result_id}`)
         if (chosenSession.value?.id !== sessionId) return
-        report.value = result
-        notice.value = reportSavedNotice(result)
+        await showReadyReport(result, sessionId)
       }
       await refreshSession()
       if (job.result_id) await loadLists()
@@ -1556,9 +1564,9 @@ onBeforeUnmount(() => {
             </template>
           </form>
           <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ chosenSession.report_blocked ? '本场无法评分' : activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : chosenSession.report_partial ? '可生成部分复盘' : '查看本场复盘' }}</strong><p v-if="chosenSession.report_blocked">{{ chosenSession.report_blocked_message || '本场对话不完整，无法评分。' }}已保存的原话仍可查看。</p><p v-else-if="chosenSession.report_partial">{{ chosenSession.report_warning || '语音尾稿未确认' }}。逐字稿可能缺失，部分复盘不能评分或达标。</p><p v-else-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="!chosenSession.report_blocked && canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="(!textReady && !chosenSession.report_partial) || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : chosenSession.report_partial ? '生成部分复盘' : '生成复盘' }}</button></div>
-          <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
+          <section v-if="report" class="card pad omega-report"><h3 id="omega-report-title" ref="reportHeading" tabindex="-1">{{ report.content.evidence_status === 'incomplete' ? '已保存的部分对话记录' : '复盘报告' }}</h3>
             <div v-if="report.content.evidence_status === 'incomplete'" class="omega-partial-report">
-              <div role="alert"><strong>部分复盘，证据不完整，不能评分/达标</strong>
+              <div role="alert"><strong>已保存部分对话记录，无法生成可评分复盘</strong>
                 <p>{{ report.content.incomplete_reason || chosenSession.report_warning || '语音尾稿未完成' }}。逐字稿可能缺失，不能确认谈判成果。已保存的发言可在上方逐字稿核对。</p></div>
               <h4>已保存原话</h4>
               <blockquote v-for="quote in report.content.saved_quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote>

@@ -255,6 +255,15 @@ class CoachingTests(unittest.TestCase):
         with Session(self.engine) as db:
             self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
 
+    def test_paused_receiver_ignores_private_asr_failure_without_public_input(self):
+        self.pause()
+        self.run_controlled_receiver([
+            {"type": "conversation.item.input_audio_transcription.failed", "item_id": "private-asr"},
+            {"type": "session.closed"},
+        ])
+        with Session(self.engine) as db:
+            self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
+
     def test_failed_coach_keeps_pause_and_reconnect_preserves_mute(self):
         self.pause()
         with Session(self.engine) as db:
@@ -504,7 +513,7 @@ class CoachingTests(unittest.TestCase):
             class Browser:
                 def __init__(self):
                     self.events, self.audio = [], []
-                    self.messages = iter([{"type": "websocket.receive", "bytes": b"\0\0"},
+                    self.messages = iter([{"type": "websocket.receive", "bytes": b"\0\x20"},
                         {"type": "websocket.receive", "text": json.dumps({"type": "control", "action": "pause",
                          "request_key": "delayed-asr-pause", "audio_epoch": 2})},
                         {"type": "websocket.receive", "text": "stop"}])
@@ -764,12 +773,26 @@ class CoachingTests(unittest.TestCase):
                 ])
             async def recv(self):
                 return json.dumps(next(self.events))
-        asyncio.run(_receive_doubao_audio(Browser(), Provider(), self.engine, self.session_id,
-            self.job_id, self.token, control=control))
+        with self.assertRaisesRegex(ValueError, "语音尾稿未完成"):
+            asyncio.run(_receive_doubao_audio(Browser(), Provider(), self.engine, self.session_id,
+                self.job_id, self.token, control=control))
         self.assertEqual(control.final_pcm_frames, 0)
         self.assertTrue(control.pending_nonzero)
+        self.assertTrue(control.tail_incomplete)
         with Session(self.engine) as db:
             self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
+
+    def test_input_tail_settles_continuous_non_speech_pcm_after_a_final(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+        control.sent_audio(b"\x01\x00")
+        control.final_pcm_frames = control.sent_pcm_frames
+        control.pending_nonzero = False
+        control.asr_completed = 1
+        control.input_final.set()
+        control.sent_audio(b"\x01\x00")
+        asyncio.run(control.wait_input_tail())
+        self.assertFalse(control.pending_nonzero)
+        self.assertFalse(control.tail_incomplete)
 
     def test_asr_after_resume_without_new_browser_pcm_cannot_create_a_turn(self):
         self.pause()
@@ -782,6 +805,16 @@ class CoachingTests(unittest.TestCase):
             {"type": "response.output_audio.done"}, {"type": "session.closed"},
         ])
         self.assertEqual(browser.audio, [])
+        with Session(self.engine) as db:
+            self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
+
+    def test_asr_failure_after_resume_without_new_browser_pcm_is_ignored(self):
+        self.pause()
+        self.run_controlled_receiver([
+            "resume",
+            {"type": "conversation.item.input_audio_transcription.failed", "item_id": "stale-asr"},
+            {"type": "session.closed"},
+        ])
         with Session(self.engine) as db:
             self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
 
