@@ -291,9 +291,10 @@ def main():
             page.evaluate('window.__testOscillator.stop();window.__testAudio.close()')
             page.get_by_role('button', name='结束并复盘').click()
             expect(page.get_by_role('heading', name='复盘报告')).to_be_visible(timeout=10000)
-            expect(page.get_by_text('复盘已生成，对话和评分已保存。', exact=True)).to_be_visible()
+            expect(page.get_by_text('复盘已生成；评分证据不足，暂无总分。', exact=True)).to_be_visible()
+            expect(page.get_by_text('已评分项 6 / 10 分', exact=True)).to_be_visible()
             expect(page.get_by_text('对话已保存，正在生成复盘。', exact=True)).to_have_count(0)
-            expect(page.get_by_text('已获 6 分／可评分 10 分，暂不折算总分')).to_be_visible()
+            expect(page.get_by_text('仅已观察维度，覆盖 10/100；暂无综合总分')).to_be_visible()
             expect(page.get_by_role('button', name='确认并更新档案')).to_be_visible(timeout=10000)
             before = fixture.client.get('/api/omega/profiles?kind=sales&subject_id=1').json()
             assert before['entries'] == [], 'pending memory already effective'
