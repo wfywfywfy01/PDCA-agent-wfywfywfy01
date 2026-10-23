@@ -1634,7 +1634,6 @@ onBeforeUnmount(() => {
         <button v-else-if="voiceConnected" class="btn btn-primary omega-coach-button" type="button" :disabled="voiceClosing || voiceRecoveryBlocked || !['coaching', 'error'].includes(voicePhase)" @click="resumeVoice">{{ voiceRecoveryBlocked ? '本场无法恢复' : voicePhase === 'resuming' ? '正在恢复…' : voicePhase === 'error' ? '重试恢复' : '继续演练' }}</button>
         <label for="omega-call-volume">对手音量 <span>{{ Math.round(voiceVolume * 100) }}%</span></label>
         <input id="omega-call-volume" v-model.number="voiceVolume" type="range" min="1" max="2.5" step="0.1" aria-label="对手音量">
-        <p class="omega-media-volume-help">安卓手机没声音？按音量键并展开面板，调高“媒体”音量（不是“通话”音量）。网页音量无法覆盖系统静音。</p>
         <button class="btn omega-call-hangup" type="button" :disabled="voiceClosing" @click="exitVoice">{{ voiceClosing ? '结束中…' : voiceConnecting ? '取消连接' : '结束通话' }}</button>
       </div>
     </div>
@@ -1808,7 +1807,6 @@ onBeforeUnmount(() => {
 .omega-call-caption { display: -webkit-box; overflow: hidden; max-width: 520px; margin-top: 28px !important; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: 1.6; }
 .omega-call-bottom { width: min(100%, 420px); margin: 0 auto; }
 .omega-call-bottom label { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
-.omega-media-volume-help { display: none; }
 .omega-call-bottom input { width: 100%; min-height: 44px; margin: 4px 0 16px; accent-color: var(--blue); }
 .omega-call-hangup { width: 100%; min-height: 52px; border-color: rgba(244, 63, 94, .36); color: #ff7188; }
 @keyframes omega-breathe { 50% { transform: scale(1.09); box-shadow: 0 0 0 12px rgba(78, 158, 245, .07), 0 0 95px rgba(78, 158, 245, .4); } }
@@ -1830,7 +1828,6 @@ onBeforeUnmount(() => {
   .omega-quick-card { min-height: 64px; flex-direction: row; align-items: center; }
 }
 @media (max-width: 640px) {
-  .omega-media-volume-help { display: block; margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
   .omega.is-setup .omega-head > div:first-child { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .omega.is-setup .omega-head { margin-bottom: 12px; }
   .omega-side-toggle { display: inline-flex; }
