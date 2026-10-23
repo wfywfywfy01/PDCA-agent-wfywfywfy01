@@ -782,6 +782,18 @@ class CoachingTests(unittest.TestCase):
         with Session(self.engine) as db:
             self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
 
+    def test_input_tail_settles_continuous_non_speech_pcm_after_a_final(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+        control.sent_audio(b"\x01\x00")
+        control.final_pcm_frames = control.sent_pcm_frames
+        control.pending_nonzero = False
+        control.asr_completed = 1
+        control.input_final.set()
+        control.sent_audio(b"\x01\x00")
+        asyncio.run(control.wait_input_tail())
+        self.assertFalse(control.pending_nonzero)
+        self.assertFalse(control.tail_incomplete)
+
     def test_asr_after_resume_without_new_browser_pcm_cannot_create_a_turn(self):
         self.pause()
         browser = self.run_controlled_receiver([

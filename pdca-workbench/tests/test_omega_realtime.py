@@ -486,7 +486,7 @@ class RealtimeSessionTests(unittest.TestCase):
         self.assertEqual(provider.sent[0]["session"]["model"], "1.2.6.1")
         self.assertEqual(provider.sent[0]["session"]["audio"]["output"]["format"]["type"],
                          "pcm_s16le")
-        self.assertNotIn("input_audio_buffer.commit", [item["type"] for item in provider.sent])
+        self.assertIn("input_audio_buffer.commit", [item["type"] for item in provider.sent])
         self.assertEqual(provider.sent[-1]["type"], "session.close")
         with Session(self.engine) as db:
             self.assertEqual(len(db.exec(select(OmegaSegment)).all()), 2)
@@ -599,7 +599,7 @@ class RealtimeSessionTests(unittest.TestCase):
                 socket.send_bytes(b"\x00\x20" * 320)
                 socket.close()
                 self.assertTrue(closed.wait(5), "Provider must drain after browser disconnect")
-        self.assertNotIn("input_audio_buffer.commit", provider.sent)
+        self.assertIn("input_audio_buffer.commit", provider.sent)
         self.assertEqual(provider.sent[-1], "session.close")
         with Session(self.engine) as db:
             self.assertEqual([part.speaker for part in db.exec(select(OmegaSegment)
@@ -614,7 +614,42 @@ class RealtimeSessionTests(unittest.TestCase):
     def test_stop_tracks_pcm_accepted_while_previous_asr_is_active(self):
         self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True)
 
-    def _stop_with_delayed_native_tail(self, *, delayed_started, two_utterances=False):
+    def test_stop_waits_for_second_asr_started_after_three_seconds(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True,
+                                            second_start_delay=3.4, second_final_delay=.2)
+
+    def test_stop_waits_for_second_asr_started_after_four_seconds(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True,
+                                            second_start_delay=4.2, second_final_delay=.2)
+
+    def test_stop_waits_for_pcm_sent_after_first_asr_final(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True,
+                                            first_final_before_second_pcm=True,
+                                            second_start_delay=3.4, second_final_delay=.2)
+
+    def test_stop_allows_non_speech_pcm_without_following_asr(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True,
+                                            first_final_before_second_pcm=True,
+                                            omit_second_asr=True)
+
+    def test_stop_waits_for_late_first_final_then_second_asr(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True,
+                                            first_final_delay=4.5,
+                                            second_start_delay=3.4, second_final_delay=3)
+
+    def test_stop_accepts_one_asr_for_multiple_pcm_frames(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, extra_pcm_while_active=True)
+
+    def test_disconnect_tracks_pcm_accepted_while_previous_asr_is_active(self):
+        self._stop_with_delayed_native_tail(delayed_started=True, two_utterances=True,
+                                            disconnect=True)
+
+    def _stop_with_delayed_native_tail(self, *, delayed_started, two_utterances=False,
+                                       extra_pcm_while_active=False, disconnect=False,
+                                       first_final_before_second_pcm=False, first_final_delay=0,
+                                       second_start_delay=.1, second_final_delay=3,
+                                       omit_second_asr=False):
+        closed = Event()
         class Provider:
             def __init__(self):
                 self.queue, self.tail, self.frames = asyncio.Queue(), None, 0
@@ -631,21 +666,31 @@ class RealtimeSessionTests(unittest.TestCase):
                 elif kind == "input_audio_buffer.append":
                     if any(base64.b64decode(event["audio"])):
                         self.frames += 1
-                        if not delayed_started or two_utterances and self.frames == 1:
+                        if not delayed_started or (two_utterances or extra_pcm_while_active) and self.frames == 1:
                             self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.started",
                                 "item_id": "first-input" if two_utterances else "slow-tail"}))
+                        if two_utterances and first_final_before_second_pcm and self.frames == 1:
+                            self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.completed",
+                                "item_id": "first-input", "text": "First accepted public sentence"}))
                         return
                     if not self.frames or self.tail:
                         return
-                    if two_utterances:
+                    if two_utterances and not first_final_delay and not first_final_before_second_pcm:
                         self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.completed",
                             "item_id": "first-input", "text": "First accepted public sentence"}))
+                    if omit_second_asr:
+                        self.tail = asyncio.create_task(asyncio.sleep(0))
+                        return
                     async def finish():
-                        if delayed_started:
-                            await asyncio.sleep(.1)
+                        if two_utterances and first_final_delay:
+                            await asyncio.sleep(first_final_delay)
+                            self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.completed",
+                                "item_id": "first-input", "text": "First accepted public sentence"}))
+                        if delayed_started and not extra_pcm_while_active:
+                            await asyncio.sleep(second_start_delay)
                             self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.started",
                                                                "item_id": "slow-tail"}))
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(second_final_delay)
                         self.queue.put_nowait(json.dumps({"type": "conversation.item.input_audio_transcription.completed",
                             "item_id": "slow-tail", "text": "Accepted final public sentence"}))
                     self.tail = asyncio.create_task(finish())
@@ -653,6 +698,7 @@ class RealtimeSessionTests(unittest.TestCase):
                     if self.tail:
                         self.tail.cancel()
                     self.queue.put_nowait(json.dumps({"type": "session.closed"}))
+                    closed.set()
             async def recv(self):
                 return await self.queue.get()
         async def authorize(*_):
@@ -666,17 +712,29 @@ class RealtimeSessionTests(unittest.TestCase):
                                                 headers={"Origin": "http://testserver"}) as socket:
                 socket.receive_json()
                 socket.send_bytes(b"\0\x20")
-                if two_utterances:
+                if first_final_before_second_pcm:
+                    while socket.receive_json()["type"] != "segment":
+                        pass
+                    socket.send_bytes(b"\0\x40")
+                elif two_utterances or extra_pcm_while_active:
                     self.assertEqual(socket.receive_json()["type"], "interrupt")
                     socket.send_bytes(b"\0\x40")
-                socket.send_text("stop")
-                while socket.receive_json()["type"] != "closed":
-                    pass
+                if disconnect:
+                    socket.close()
+                    self.assertTrue(closed.wait(8), "Provider must drain after browser disconnect")
+                else:
+                    socket.send_text("stop")
+                    while socket.receive_json()["type"] != "closed":
+                        pass
         with Session(self.engine) as db:
             texts = [part.text for part in db.exec(select(OmegaSegment).order_by(OmegaSegment.seq)).all()]
-            self.assertEqual(texts, (["First accepted public sentence"] if two_utterances else [])
-                             + ["Accepted final public sentence"])
-            self.assertEqual(db.exec(select(OmegaJob)).one().status, "succeeded")
+            if omit_second_asr:
+                self.assertEqual(texts, ["First accepted public sentence"])
+                self.assertEqual(db.exec(select(OmegaJob)).one().status, "succeeded")
+            else:
+                self.assertEqual(texts, (["First accepted public sentence"] if two_utterances else [])
+                                 + ["Accepted final public sentence"])
+                self.assertEqual(db.exec(select(OmegaJob)).one().status, "succeeded")
 
     def test_doubao_reply_completed_before_asr_is_saved_after_sales(self):
         job_id, token, _ = _acquire(self.engine, self.user, self.session_id)

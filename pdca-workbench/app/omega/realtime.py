@@ -43,7 +43,8 @@ _auth_interval_seconds = 4
 _max_connection_seconds = 30 * 60
 _watchdog_warning_seconds = 2 * 60
 _watchdog_drain_grace_seconds = 30
-_drain_timeout_seconds = 20
+_drain_timeout_seconds = 30
+_pcm_quiet_seconds = 6
 _resume_timeout_seconds = 50
 _tail_error = VOICE_TAIL_INCOMPLETE
 _multi_voices = ("zh_female_vv_uranus_bigtts", "zh_male_yunzhou_jupiter_bigtts",
@@ -84,6 +85,7 @@ class VoiceControl:
         self.boundary_unverified = False
         self.pending_input = None
         self.pending_nonzero = False
+        self.overlap_pcm = False
         self.sent_pcm_frames = 0
         self.final_pcm_frames = 0
         self.input_activity = 0
@@ -104,6 +106,9 @@ class VoiceControl:
             self.capacity_event.set()
 
     def sent_audio(self, chunk=None):
+        nonzero = chunk is None or any(chunk)
+        if self.active_inputs and nonzero:
+            self.overlap_pcm = True
         self.sent_pcm_frames += 1
         self.input_activity += 1
         if self.pending_input is None or self.pending_input[1] != self.epoch:
@@ -111,14 +116,31 @@ class VoiceControl:
             self.pending_nonzero = False
             self.input_final.clear()
         if self.pending_input is not None:
-            self.pending_nonzero = self.pending_nonzero or chunk is None or any(chunk)
+            self.pending_nonzero = self.pending_nonzero or nonzero
+
+    def settle_quiet_pcm(self):
+        # A quiet boundary can settle unrecognized microphone noise. Only PCM
+        # that overlapped a completed ASR can advance its confirmed frame count.
+        if self.overlap_pcm:
+            self.final_pcm_frames = self.sent_pcm_frames
+        self.pending_nonzero = False
+        self.overlap_pcm = False
+
+    def unfinalized_pcm(self):
+        return bool(self.pending_input is not None and self.pending_nonzero
+                    and self.final_pcm_frames < self.sent_pcm_frames)
 
     async def wait_input_tail(self):
         deadline = asyncio.get_running_loop().time() + 8
+        seen_activity = self.input_activity
+        quiet_since = None
         while True:
-            needs_final = (self.active_inputs or self.pending_input and self.pending_nonzero
-                           and self.final_pcm_frames < self.sent_pcm_frames)
-            if needs_final:
+            if self.tail_incomplete:
+                raise ValueError(_tail_error)
+            if self.input_activity != seen_activity:
+                seen_activity = self.input_activity
+                deadline = asyncio.get_running_loop().time() + 8
+            if self.active_inputs:
                 try:
                     _renew(self.engine, self.session_id, self.job_id, self.token)
                     remaining = deadline - asyncio.get_running_loop().time()
@@ -129,13 +151,18 @@ class VoiceControl:
                     self.tail_incomplete = True
                     raise ValueError(_tail_error) from None
             activity = self.input_activity
-            # Commit has no input/offset identity. Require a final plus one quiet second;
-            # exact zero PCM alone needs no invented transcript or arbitrary VAD threshold.
+            # Commit has no input/offset identity. Wait longer when PCM may belong
+            # to another ASR; exact zero PCM needs no invented transcript.
+            if (self.overlap_pcm or self.unfinalized_pcm()) and quiet_since is None:
+                quiet_since = asyncio.get_running_loop().time()
             await asyncio.sleep(1)
             if self.active_inputs or self.input_activity != activity:
+                quiet_since = None
                 continue
-            if self.pending_input and self.pending_nonzero and self.final_pcm_frames < self.sent_pcm_frames:
+            if (self.overlap_pcm or self.unfinalized_pcm()) and (
+                    asyncio.get_running_loop().time() - quiet_since < _pcm_quiet_seconds):
                 continue
+            self.settle_quiet_pcm()
             self.pending_input = None
             self.input_final.set()
             return
@@ -143,8 +170,13 @@ class VoiceControl:
     async def wait_asr_tail(self):
         """Drain identified speech; raw microphone samples aren't ASR identities."""
         deadline = asyncio.get_running_loop().time() + 8
+        seen_activity = self.input_activity
+        quiet_since = None
         while True:
             _renew(self.engine, self.session_id, self.job_id, self.token)
+            if self.input_activity != seen_activity:
+                seen_activity = self.input_activity
+                deadline = asyncio.get_running_loop().time() + 8
             if self.active_inputs:
                 try:
                     remaining = deadline - asyncio.get_running_loop().time()
@@ -155,9 +187,16 @@ class VoiceControl:
                     self.tail_incomplete = True
                     raise ValueError(_tail_error) from None
             activity = self.input_activity
+            if (self.overlap_pcm or self.unfinalized_pcm()) and quiet_since is None:
+                quiet_since = asyncio.get_running_loop().time()
             await asyncio.sleep(1)
-            if not self.active_inputs and self.input_activity == activity:
-                return
+            if self.active_inputs or self.input_activity != activity:
+                quiet_since = None
+                continue
+            if (self.overlap_pcm or self.unfinalized_pcm()) and (
+                    asyncio.get_running_loop().time() - quiet_since < _pcm_quiet_seconds):
+                continue
+            return
 
     @property
     def paused(self):
@@ -344,7 +383,7 @@ class DoubaoStream:
         control.boundary_failed = True
         control.boundary_unverified = True
         self.boundary_phase = "asr_tail"
-        if control.active_inputs:
+        if control.active_inputs or control.overlap_pcm or control.unfinalized_pcm():
             # EndASR asks the provider to finalize accepted speech. Its commit ACK
             # cannot substitute for the matching ASREnded checked below.
             await self.provider.send(json.dumps({"type": "input_audio_buffer.commit"}))
@@ -367,6 +406,7 @@ class DoubaoStream:
         # A later reconnect failure must not mislabel its completed tail as missing.
         control.pending_input = None
         control.pending_nonzero = False
+        control.overlap_pcm = False
         control.input_final.set()
         with Session(control.engine) as db:
             game = _locked_session(db, control.session_id)
@@ -1220,6 +1260,7 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                     if control.pending_input:
                         control.pending_input = input_context
                 control.active_inputs.add(input_id)
+                control.overlap_pcm = False
                 control.input_aliases[input_id] = input_id
                 if event.get("question_id"):
                     control.input_aliases[str(event["question_id"])] = input_id
@@ -1272,8 +1313,8 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                 _renew(engine, session_id, job_id, token)
             # ASREnded may carry only an identity; closing it does not invent speech.
             if control:
-                if (input_context[1] == control.epoch or control.pending_input
-                        and input_context[1] == control.pending_input[1]):
+                if (not control.overlap_pcm and (input_context[1] == control.epoch or control.pending_input
+                        and input_context[1] == control.pending_input[1])):
                     control.final_pcm_frames = control.sent_pcm_frames
                     control.pending_nonzero = False
                 control.input_activity += 1

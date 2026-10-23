@@ -197,10 +197,42 @@ class VoiceBoundaryTests(unittest.TestCase):
                     self.assertIn('Accepted old public speech', transports[1].roles[0])
         self.assertTrue(all(p.closed for p in transports))
         self.assertTrue(all('response.cancel' not in p.sent for p in transports))
-        self.assertEqual(sum(p.sent.count('input_audio_buffer.commit') for p in transports), int(commit_required))
+        self.assertEqual(sum(p.sent.count('input_audio_buffer.commit') for p in transports), 1)
 
     def test_stop_commits_identified_speech_and_saves_final_before_close(self):
         asyncio.run(self.exercise(commit_required=True, stop_only=True))
+
+    def test_stop_commits_overlap_pcm_after_first_asr_final(self):
+        async def exercise():
+            control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+            control.sent_audio(b"\x01\x00")
+            control.active_inputs.add("first-input")
+            control.sent_audio(b"\x02\x00")
+            control.active_inputs.clear()
+            self.assertTrue(control.overlap_pcm)
+
+            stream = DoubaoStream(lambda: None)
+
+            class Provider:
+                def __init__(self):
+                    self.sent = []
+
+                async def send(self, raw):
+                    kind = json.loads(raw)["type"]
+                    self.sent.append(kind)
+                    if kind == "session.close":
+                        stream.closed.set()
+
+            stream.provider = Provider()
+
+            async def settled_tail():
+                pass
+
+            with patch.object(control, "wait_asr_tail", side_effect=settled_tail):
+                await stream.finish_input(control)
+            self.assertEqual(stream.provider.sent, ["input_audio_buffer.commit", "session.close"])
+
+        asyncio.run(exercise())
 
     def test_resume_commits_identified_speech_before_opening_new_stream(self):
         asyncio.run(self.exercise(commit_required=True))
