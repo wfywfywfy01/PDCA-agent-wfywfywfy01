@@ -891,7 +891,7 @@ def _full_person_body(
             "2. Core collection (progress % + expected payment time):\n"
             f"{core}\n"
             f"3. Daily {daily_count} MTO luxury proposals (≥ CNY {min_wan * 10:g}k):\n"
-            f"   • Submitted: {mto}\n"
+            f"   • Review: {mto}\n"
             "   • Reach: WhatsApp screenshot pending unless posted in-group\n"
             "4. Today's activity and hours:\n"
             f"   • VPS trace: {vps}\n"
@@ -927,11 +927,21 @@ def _full_person_body(
     )
 
 
+def _mto_quotes(person: dict) -> list[dict]:
+    from app.mto_ocr import quote_document_type
+
+    return [
+        quote
+        for quote in (person.get("mto_quotes") or [])
+        if isinstance(quote, dict) and quote_document_type(quote) == "mto_quote"
+    ]
+
+
 def _mto_summary(person: dict | None, lang: str) -> str:
     """MTO 摘要行（老板 2026-09-22 要求）：N 款达标 + 型号/金额，读不出写待确认。"""
     person = person or {}
     min_wan = person.get("mto_min_wan", 30)
-    quotes = [q for q in (person.get("mto_quotes") or []) if isinstance(q, dict)]
+    quotes = _mto_quotes(person)
     if not quotes:
         count = person.get("mto_count")
         if count is None:
@@ -948,17 +958,22 @@ def _mto_summary(person: dict | None, lang: str) -> str:
             continue
         money = f"{wan:g} wan" if lang == "en" else f"{wan:g}万"
         (ok if q.get("qualifies") else near).append(f"{label} {money}")
-    parts = []
-    if ok:
-        parts.append((f"{len(ok)} qualified: " if lang == "en" else f"{len(ok)} 款达标：") + "、".join(ok[:3]))
-    elif lang == "zh":
-        parts.append("0 款达标")
+    if lang == "en":
+        parts = [
+            f"Identified {len(quotes)}; {len(ok)} qualified"
+            + ((": " + ", ".join(ok[:3])) if ok else "")
+        ]
     else:
-        parts.append("0 qualified")
+        parts = [
+            f"已识别{len(quotes)}款，其中{len(ok)} 款达标"
+            + (("：" + "、".join(ok[:3])) if ok else "")
+        ]
     if near:
         parts.append((f"{len(near)} under {min_wan * 10:g}k" if lang == "en" else f"{len(near)} 款未满 {min_wan:g} 万") + "（" + "、".join(near[:2]) + "）")
     if unread:
         parts.append(f"{unread} " + ("unreadable" if lang == "en" else "张读不出金额"))
+    if person.get("mto_count") is None:
+        parts.append("remaining pending" if lang == "en" else "其余待核")
     return "｜".join(parts)
 
 
@@ -970,12 +985,12 @@ def _mto_wrapup_line(person: dict | None, lang: str) -> str:
     """
     person = person or {}
     min_wan = person.get("mto_min_wan", 30)
-    quotes = [q for q in (person.get("mto_quotes") or []) if isinstance(q, dict)]
+    quotes = _mto_quotes(person)
     if not quotes:
         count = person.get("mto_count")
         if count is None:
             return "pending" if lang == "en" else "待确认"
-        return f"{count} " + ("proposal(s) recorded" if lang == "en" else "款")
+        return f"{count} " + ("qualified" if lang == "en" else "款达标")
     ok: list[str] = []
     near: list[str] = []
     unread = 0
@@ -991,7 +1006,8 @@ def _mto_wrapup_line(person: dict | None, lang: str) -> str:
         (ok if quote.get("qualifies") else near).append(f"{label} {money}")
     if lang == "en":
         parts = [
-            f"{len(ok)}/{len(quotes)} qualified" + ((" (" + ", ".join(ok[:3]) + ")") if ok else "")
+            f"Identified {len(quotes)}; {len(ok)} qualified"
+            + ((" (" + ", ".join(ok[:3]) + ")") if ok else "")
         ]
         if near:
             parts.append(f"{len(near)} under {min_wan * 10:g}k (" + ", ".join(near[:2]) + ")")
@@ -999,12 +1015,15 @@ def _mto_wrapup_line(person: dict | None, lang: str) -> str:
             parts.append(f"{unread} unreadable")
     else:
         parts = [
-            f"{len(ok)}/{len(quotes)} 款达标" + (("（" + "、".join(ok[:3]) + "）") if ok else "")
+            f"已识别{len(quotes)}款，其中{len(ok)} 款达标"
+            + (("（" + "、".join(ok[:3]) + "）") if ok else "")
         ]
         if near:
             parts.append(f"{len(near)} 款未满 {min_wan:g} 万（" + "、".join(near[:2]) + "）")
         if unread:
             parts.append(f"{unread} 张读不出金额")
+    if person.get("mto_count") is None:
+        parts.append("remaining pending" if lang == "en" else "其余待核")
     return "｜".join(parts)
 
 
@@ -1572,26 +1591,35 @@ def _changes_text(person: dict | None, prev_person: dict | None, lang: str) -> s
 
 
 def _mto_text(person: dict | None, lang: str) -> str:
-    if not person or person.get("mto_count") is None:
+    if not person:
         return "pending" if lang == "en" else "待确认"
-    count = int(person.get("mto_count") or 0)
     goal, min_wan = person.get("mto_daily_goal", 4), person.get("mto_min_wan", 30)
-    quotes = [item for item in (person.get("mto_quotes") or []) if isinstance(item, dict)]
-    ocr_on = bool(quotes) and any(item.get("raw_ok") for item in quotes)
+    quotes = _mto_quotes(person)
     names = [str(item) for item in (person.get("mto_names") or []) if item]
     shown = "; ".join(names[:4]) if lang == "en" else "、".join(names[:4])
     extra = f": {shown}" if lang == "en" and shown else (f"：{shown}" if shown else "")
+    if quotes:
+        qualified = sum(item.get("qualifies") is True for item in quotes)
+        pending = person.get("mto_count") is None
+        if lang == "en":
+            text = (
+                f"Identified {len(quotes)}; {qualified} qualified "
+                f"(goal {goal}, each ≥CNY{min_wan * 10:g}k){extra}"
+            )
+            return text + ("; remaining pending" if pending else "")
+        text = (
+            f"已识别{len(quotes)}款，其中{qualified}款达标"
+            f"（目标{goal}款，单款≥{min_wan:g}万）{extra}"
+        )
+        return text + ("；其余待核" if pending else "")
+    if person.get("mto_count") is None:
+        return "pending" if lang == "en" else "待确认"
+    count = int(person.get("mto_count") or 0)
     if lang == "en":
-        if ocr_on:
-            tag = f"met {goal} quotes ≥CNY{min_wan * 10:g}k" if count >= goal else f"under {goal} qualifying quotes"
-        else:
-            tag = f"met {goal}" if count >= goal else f"under {goal}"
-        return f"{count}/{goal} ({tag}){extra}"
-    if ocr_on:
-        tag = "达标" if count >= goal else f"未满{goal}款≥{min_wan:g}万"
-    else:
-        tag = "达标" if count >= goal else f"未满{goal}款"
-    return f"已交{count}/{goal}（{tag}）{extra}"
+        tag = "goal met" if count >= goal else f"goal {goal}, each ≥CNY{min_wan * 10:g}k"
+        return f"Qualified {count}/{goal} ({tag}){extra}"
+    tag = "已达目标" if count >= goal else f"目标{goal}款，单款≥{min_wan:g}万"
+    return f"已核达标{count}/{goal}（{tag}）{extra}"
 
 
 def _vps_text(person: dict | None, lang: str) -> str:
