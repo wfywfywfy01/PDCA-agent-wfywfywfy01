@@ -5,6 +5,7 @@ import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -12,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.auth.models import User
 from app.omega.models import OmegaJob, OmegaSession
-from app.omega.realtime import _acquire, _release, realtime_session
+from app.omega.realtime import _acquire, _release, _watch_connection, realtime_session
 from tests import test_omega_realtime as realtime_fixture
 
 
@@ -83,6 +84,75 @@ class RealtimeCapacityTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as denied:
                 _acquire(self.engine, self.user, self.session_id)
         self.assertEqual(denied.exception.status_code, 503)
+
+    def test_watchdog_starts_drain_before_hard_deadline(self):
+        class Browser:
+            def __init__(self):
+                self.events = []
+
+            async def send_json(self, event):
+                self.events.append(event)
+
+        async def exercise():
+            loop = asyncio.get_running_loop()
+            control = SimpleNamespace(deadline=loop.time() + .25, ending=False)
+            browser = Browser()
+            started = loop.time()
+            with patch("app.omega.realtime._max_connection_seconds", .25), \
+                 patch("app.omega.realtime._watchdog_drain_grace_seconds", .1, create=True), \
+                 patch("app.omega.realtime._auth_interval_seconds", .5):
+                await _watch_connection(browser, self.engine, self.session_id,
+                                        "synthetic-job", "synthetic-token", control)
+            elapsed = loop.time() - started
+            self.assertTrue(control.ending)
+            self.assertEqual(browser.events[0]["type"], "ending")
+            self.assertIn("接近时长上限", browser.events[0]["message"])
+            self.assertGreater(elapsed, .1)
+            self.assertLess(elapsed, .22, "The old hard deadline leaves no tail-drain grace")
+
+        asyncio.run(exercise())
+
+    def test_watchdog_warns_once_before_automatic_end(self):
+        class Browser:
+            def __init__(self):
+                self.events = []
+
+            async def send_json(self, event):
+                self.events.append(event)
+
+        async def exercise():
+            loop = asyncio.get_running_loop()
+            control = SimpleNamespace(deadline=loop.time() + .25, ending=False)
+            browser = Browser()
+            with patch("app.omega.realtime._max_connection_seconds", .25), \
+                 patch("app.omega.realtime._watchdog_warning_seconds", .16, create=True), \
+                 patch("app.omega.realtime._watchdog_drain_grace_seconds", .04), \
+                 patch("app.omega.realtime._renew"), \
+                 patch("app.omega.realtime._auth_interval_seconds", .5):
+                await _watch_connection(browser, self.engine, self.session_id,
+                                        "synthetic-job", "synthetic-token", control)
+            self.assertEqual([event["type"] for event in browser.events],
+                             ["ending_soon", "ending"])
+            self.assertEqual(browser.events[0]["seconds_remaining"], .16)
+
+        asyncio.run(exercise())
+
+    def test_watchdog_still_drains_if_browser_cannot_receive_ending(self):
+        class Browser:
+            async def send_json(self, event):
+                raise RuntimeError("browser closed")
+
+        async def exercise():
+            loop = asyncio.get_running_loop()
+            control = SimpleNamespace(deadline=loop.time() + .08, ending=False)
+            with patch("app.omega.realtime._max_connection_seconds", .08), \
+                 patch("app.omega.realtime._watchdog_drain_grace_seconds", .04), \
+                 patch("app.omega.realtime._auth_interval_seconds", .5):
+                await _watch_connection(Browser(), self.engine, self.session_id,
+                                        "synthetic-job", "synthetic-token", control)
+            self.assertTrue(control.ending)
+
+        asyncio.run(exercise())
 
     def test_stalled_provider_still_closes_with_incomplete_tail(self):
         owner = self
@@ -156,6 +226,6 @@ class RealtimeCapacityTests(unittest.TestCase):
             with Session(self.engine) as db:
                 job = db.exec(select(OmegaJob).where(OmegaJob.kind == "realtime")).one()
                 self.assertEqual(job.status, "failed")
-                self.assertTrue(job.error)
+                self.assertIn("语音尾稿未完成", job.error)
 
         asyncio.run(exercise())
