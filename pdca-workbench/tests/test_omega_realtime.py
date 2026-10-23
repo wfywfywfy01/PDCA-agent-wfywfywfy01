@@ -211,7 +211,7 @@ class RealtimeSessionTests(unittest.TestCase):
         self.assertNotIn("private coaching", role)
         _release(self.engine, job_id, token, failed=False)
 
-    def test_authenticated_stop_releases_stream_before_reconnect(self):
+    def test_authenticated_stop_marks_unknown_tail_and_blocks_reconnect(self):
         first_job, _, _ = _acquire(self.engine, self.user, self.session_id)
         url = f"/api/omega/sessions/{self.session_id}/realtime/stop"
         app.dependency_overrides[get_current_user] = lambda: User(
@@ -228,6 +228,13 @@ class RealtimeSessionTests(unittest.TestCase):
             stopped = db.get(OmegaJob, first_job)
             self.assertEqual(stopped.status, "failed")
             self.assertEqual(stopped.error, "语音尾稿未完成，请检查逐字稿后重新演练")
+        with self.assertRaises(HTTPException) as rejected:
+            _acquire(self.engine, self.user, self.session_id)
+        self.assertEqual(rejected.exception.status_code, 409)
+
+    def test_cleanly_closed_stream_can_reconnect(self):
+        first_job, token, _ = _acquire(self.engine, self.user, self.session_id)
+        _release(self.engine, first_job, token, failed=False)
         second_job, _, _ = _acquire(self.engine, self.user, self.session_id)
         self.assertNotEqual(first_job, second_job)
 

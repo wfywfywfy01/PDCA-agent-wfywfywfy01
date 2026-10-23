@@ -45,7 +45,7 @@ type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer
 }
 type CaseRow = { id: string; kind?: string; title: string; team_key?: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
 type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; asr_original?: string; seq: number }
-type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string; report_partial?: boolean; report_warning?: string }
+type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string; report_partial?: boolean; report_warning?: string; voice_tail_unrecoverable?: boolean }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
@@ -715,7 +715,8 @@ async function importMeeting() {
   })
 }
 async function sendTurn() {
-  if (!chosenSession.value || !textReady.value || voiceConnecting.value || voiceConnected.value || !textInput.value.trim()
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+      || !textReady.value || voiceConnecting.value || voiceConnected.value || !textInput.value.trim()
       || activeJob.value?.kind === 'turn' && activeJob.value.status === 'failed') return
   const sessionId = chosenSession.value.id
   await run(async () => {
@@ -731,7 +732,8 @@ async function sendTurn() {
   })
 }
 async function retryTurn() {
-  if (!chosenSession.value || activeJob.value?.kind !== 'turn' || activeJob.value.status !== 'failed') return
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+      || activeJob.value?.kind !== 'turn' || activeJob.value.status !== 'failed') return
   const sessionId = chosenSession.value.id
   const jobId = activeJob.value.id
   await run(async () => {
@@ -1079,7 +1081,8 @@ function exitVoice() {
   else void hangupVoice()
 }
 async function startVoice() {
-  if (!chosenSession.value || !realtimeReady.value || !voiceAllowed.value || voiceConnecting.value || voiceConnected.value || voiceClosing.value) return
+  if (!chosenSession.value || chosenSession.value.status !== 'active' || chosenSession.value.voice_tail_unrecoverable
+      || !realtimeReady.value || !voiceAllowed.value || voiceConnecting.value || voiceConnected.value || voiceClosing.value) return
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
     error.value = '浏览器不支持实时语音，请使用文字或短句录音'
     return
@@ -1130,6 +1133,10 @@ async function startVoice() {
           if (!voiceClosing.value) { voiceInterrupted.value = true; stopVoice() }
           return
         }
+        if (message.type === 'ending_soon') {
+          voiceEndNotice.value = message.message || '距离通话时长上限约 2 分钟，请尽快收尾并复盘'
+          return
+        }
         if (message.type === 'ending') {
           voiceEndNotice.value = message.message || '本次通话已达时长上限'
           if (!voiceClosing.value) void hangupVoice()
@@ -1138,6 +1145,7 @@ async function startVoice() {
         if (message.type === 'closed') {
           if (!voiceClosing.value) voiceInterrupted.value = true
           stopVoice()
+          void refreshSession().catch(() => {})
           return
         }
         if (message.type === 'audio') { packetEpoch = message.audio_epoch ?? 0; currentSpeakerId.value = message.speaker_id || currentSpeakerId.value; return }
@@ -1210,6 +1218,7 @@ async function startVoice() {
       if (voiceSocket !== socket || token !== voiceToken) return
       if (!voiceClosing.value) voiceInterrupted.value = true
       stopVoice()
+      void refreshSession().catch(() => {})
     }
   } catch (err) { if (token === voiceToken) { error.value = detail(err); stopVoice() } }
 }
@@ -1504,6 +1513,11 @@ onBeforeUnmount(() => {
             <div v-if="!voiceConnected && chosenSession.segments?.length" class="omega-transcript-tools"><button class="btn btn-sm btn-ghost" type="button" @click="speakLastReply">播放最新回复</button></div>
           </section>
           <form v-if="chosenSession.status === 'active' && chosenSession.owner_id === me?.id" class="card omega-practice-controls" @submit.prevent="sendTurn">
+            <div v-if="chosenSession.voice_tail_unrecoverable" class="omega-tail-recovery" role="alert">
+              <div><strong>本场语音尾稿未确认</strong><p>逐字稿可能缺失，不能继续发言或评分。上方可核对已保存的原话。</p></div>
+              <button class="btn btn-primary omega-voice-button" type="button" :disabled="busy || callOpen" @click="finishSession">结束并查看部分复盘</button>
+            </div>
+            <template v-else>
             <div v-if="realtimeReady" class="omega-voice-panel" :class="{ 'is-live': voiceConnected }">
               <div><p class="omega-kicker">{{ participants.length > 1 ? '可打断的多角色演练' : '实时语音' }}</p><strong>{{ voiceConnected ? '正在对话' : voiceConnecting ? '正在连接' : '像通话一样练习' }}</strong><p role="status">{{ voiceClosing ? '正在结束实时对话…' : voiceConnecting ? '正在连接语音…' : voiceConnected ? '边说边听，可随时打断对手' : participants.length > 1 ? '每次一位对手发言，角色切换可能稍有等待' : '连接后开始说话，双方原话自动保存' }}</p></div>
               <div class="omega-voice-actions"><button v-if="!voiceConnected && !voiceConnecting && !voiceClosing" class="btn btn-primary omega-voice-button" type="button" :disabled="!voiceAllowed || busy || activeJob?.kind === 'turn' && activeJob?.status === 'failed' || !!activeJob && ['queued', 'running'].includes(activeJob.status)" @click="startVoice">{{ voiceInterrupted ? '继续实时对话' : '开始实时对话' }}</button>
@@ -1517,6 +1531,7 @@ onBeforeUnmount(() => {
             <div v-if="textReady" class="omega-text-panel"><label for="omega-turn">文字发言</label><textarea id="omega-turn" v-model="textInput" rows="3" maxlength="4000" required placeholder="输入你想对客户说的话…"></textarea><p v-if="voiceOriginal" class="sub">语音原转写：{{ voiceOriginal }}</p><div class="omega-actions"><button class="btn btn-primary" type="submit" :disabled="busy || asrBusy || voiceConnecting || voiceConnected || voiceClosing || activeJob?.kind === 'turn' && activeJob?.status === 'failed' || !!activeJob && ['queued', 'running'].includes(activeJob.status)">发送</button><button class="btn btn-ghost" type="button" :disabled="asrBusy || voiceConnecting || voiceConnected || voiceClosing" @click="toggleRecording">{{ recording ? '停止录音' : '语音输入' }}</button></div></div>
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
             <div v-if="!realtimeReady" class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy" @click="finishSession">{{ activeJob?.kind === 'turn' && activeJob.status !== 'succeeded' ? '结束本场（不评分）' : '结束并复盘' }}</button></div>
+            </template>
           </form>
           <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ chosenSession.report_blocked ? '本场无法评分' : activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : chosenSession.report_partial ? '可生成部分复盘' : '查看本场复盘' }}</strong><p v-if="chosenSession.report_blocked">{{ chosenSession.report_blocked_message || '本场对话不完整，无法评分。' }}已保存的原话仍可查看。</p><p v-else-if="chosenSession.report_partial">{{ chosenSession.report_warning || '语音尾稿未确认' }}。逐字稿可能缺失，部分复盘不能评分或达标。</p><p v-else-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="!chosenSession.report_blocked && canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="(!textReady && !chosenSession.report_partial) || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : chosenSession.report_partial ? '生成部分复盘' : '生成复盘' }}</button></div>
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
@@ -1624,6 +1639,7 @@ onBeforeUnmount(() => {
         <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting, 'is-paused': voicePhase !== 'live' }" aria-hidden="true"></div>
         <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'error' ? '演练已暂停' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>
         <p>{{ voiceClosing ? voiceEndNotice || '正在保存语音尾稿…' : voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : ['pausing', 'resuming'].includes(voicePhase) ? '正在保存上一句语音并确认状态，可能需要约 50 秒，请保持页面。' : voicePhase === 'coaching' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
+        <p v-if="voiceEndNotice && !voiceClosing" class="omega-call-warning" role="status">{{ voiceEndNotice }}</p>
         <div v-if="participants.length > 1" class="omega-participants" aria-label="对手参会人"><span v-for="person in participants" :key="person.id" :class="{ active: voiceSpeaking && currentSpeakerId === person.id }">{{ person.name }} · {{ person.role }}</span></div>
         <div v-if="voicePhase === 'coaching'" class="omega-private-coach" role="status"><p>{{ coachBusy ? '教练正在看本场对话…' : coachText || '可向教练求助，也可直接继续演练。' }}</p><button v-if="!coachBusy" class="btn btn-sm btn-ghost" type="button" @click="requestCoach">再给一条建议</button></div>
         <p v-if="coachError" class="omega-call-error" role="alert">{{ coachError }}</p>
@@ -1736,6 +1752,9 @@ onBeforeUnmount(() => {
 .omega-live-caption, .omega-responding { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; background: var(--blue-soft); color: var(--text); font-size: 13px; }
 .omega-transcript-tools { display: flex; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 8px; }
 .omega-practice-controls { padding: 16px 20px 12px; }
+.omega-tail-recovery { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 12px 4px; }
+.omega-tail-recovery strong { color: var(--red); font-size: 17px; }
+.omega-tail-recovery p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
 .omega-voice-panel, .omega-complete-controls { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .omega-voice-panel { padding: 6px 4px 18px; }
 .omega-voice-panel strong, .omega-complete-controls strong { font-size: 17px; }
@@ -1757,6 +1776,7 @@ onBeforeUnmount(() => {
 .omega-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .omega-alert, .omega-notice { padding: 12px 14px; border-radius: 8px; }
 .omega-alert { color: var(--red); background: rgba(239, 68, 68, .12); }
+.omega-call-center > p.omega-call-warning { margin-top: 12px; color: var(--amber); font-weight: 600; }
 .omega-notice { color: var(--blue); background: var(--blue-soft); }
 .omega-report { margin-top: 2px; }
 .omega-partial-report { padding: 16px; border: 1px solid var(--red); border-radius: 10px; background: rgba(239, 68, 68, .08); }
@@ -1842,6 +1862,7 @@ onBeforeUnmount(() => {
   .omega-main > .card.pad, .omega-session-summary, .omega-conversation, .omega-practice-controls, .omega-complete-controls { padding: 16px; }
   .omega-session-heading h2 { font-size: 20px; }
   .omega-voice-panel, .omega-complete-controls { align-items: stretch; flex-direction: column; }
+  .omega-tail-recovery { align-items: stretch; flex-direction: column; }
   .omega-voice-actions { flex-direction: column; }
   .omega-voice-button, .omega-complete-controls .btn { width: 100%; }
   .omega-session-footer { align-items: stretch; flex-direction: column; }

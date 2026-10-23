@@ -519,8 +519,9 @@ def _acquire(engine, user: User, session_id: str,
         require_session_owner(actor, game)
         if game.mode not in {"rehearsal", "training"} or game.status != "active":
             raise HTTPException(409, "仅进行中的模拟演练支持实时语音")
-        if voice_tail_error(db, game) == VOICE_STREAM_ORPHANED:
-            raise HTTPException(409, VOICE_STREAM_ORPHANED)
+        tail_error = voice_tail_error(db, game)
+        if tail_error:
+            raise HTTPException(409, tail_error)
         pending = db.exec(select(OmegaJob).where(
             OmegaJob.session_id == session_id,
             OmegaJob.kind == "turn",

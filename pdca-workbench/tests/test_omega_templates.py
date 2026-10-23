@@ -62,6 +62,7 @@ class OmegaTemplateTests(unittest.TestCase):
             request_key='scenario-card-start-001', overrides={'stage_summary': '销售刚提出小批量试单，代理仍担心库存。'}))
         self.assertEqual(response.status_code, 201, response.text)
         game = self.client.get(f"/api/omega/sessions/{response.json()['session_id']}").json()
+        self.assertIs(game['voice_tail_unrecoverable'], False)
         self.assertEqual(game['case_snapshot']['stage_summary'], '销售刚提出小批量试单，代理仍担心库存。')
         self.assertEqual(game['case_snapshot']['buyer_objections'], card['draft']['buyer_objections'])
         self.assertEqual(game['case_snapshot']['participants'], card['draft']['participants'])
@@ -317,6 +318,28 @@ class OmegaTemplateTests(unittest.TestCase):
         ended = self.client.post(f'/api/omega/sessions/{game_id}/finish', json={'request_key': 'tail-finish-001'})
         self.assertEqual(ended.status_code, 200, ended.text)
         self.assertTrue(ended.json()['pending_job_id'])
+
+    def test_active_incomplete_voice_tail_exposes_recovery_state_and_blocks_text(self):
+        template = self.template()
+        game_id = self.client.post('/api/omega/template-starts', json=self.start_body(template)).json()['session_id']
+        with Session(self.engine) as db:
+            db.add(OmegaJob(session_id=game_id, kind='realtime', request_key='timed-out-tail',
+                            request_hash='0' * 64, status='failed',
+                            error='语音尾稿未完成，请检查逐字稿后重新演练'))
+            db.add(OmegaSegment(session_id=game_id, seq=1, speaker='sales', text='已经保存的提问。'))
+            db.commit()
+        path = f'/api/omega/sessions/{game_id}'
+        current = self.client.get(path)
+        self.assertEqual(current.status_code, 200, current.text)
+        self.assertEqual(current.json()['status'], 'active')
+        self.assertIs(current.json()['voice_tail_unrecoverable'], True)
+        self.assertEqual([part['text'] for part in current.json()['segments']], ['已经保存的提问。'])
+        rejected = self.client.post(path + '/turns', json={
+            'request_key': 'turn-after-tail-failed', 'text': '我们继续谈。'})
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        with Session(self.engine) as db:
+            self.assertEqual(len(db.exec(select(OmegaSegment).where(
+                OmegaSegment.session_id == game_id)).all()), 1)
 
     def test_incomplete_voice_tail_gets_unscored_partial_report_after_later_success(self):
         template = self.template()

@@ -206,6 +206,63 @@ test('unknown voice tail explains why an ended session cannot be scored', async 
   assert.doesNotMatch(rendered, /生成复盘/)
 })
 
+test('active session with unrecoverable voice tail only offers ending for partial review', async () => {
+  const posts = []
+  const { page, html } = mountReview(() => {}, async (path) => { posts.push(path); return {} })
+  page.chosenSession.value = { id: 'timed-out-voice', owner_id: 1, status: 'active',
+    voice_tail_unrecoverable: true, case_snapshot: page.blankDraft(),
+    segments: [{ id: 'saved-1', speaker: 'sales', text: '已经保存的原话' }] }
+  page.realtimeReady.value = true
+  page.textReady.value = true
+  page.textInput.value = '继续谈判'
+  const rendered = await html()
+  assert.match(rendered, /结束并查看部分复盘/)
+  assert.match(rendered, /已保存的原话/)
+  assert.doesNotMatch(rendered, /开始实时对话|继续实时对话|文字发言|重试对手回复/)
+  await page.sendTurn()
+  await page.startVoice()
+  assert.deepEqual(posts, [])
+})
+
+test('two-minute voice warning stays visible without ending the call', async () => {
+  const { page, html } = mountReview()
+  page.chosenSession.value = { id: 'voice-1', owner_id: 1, status: 'active',
+    case_snapshot: page.blankDraft(), segments: [] }
+  page.realtimeReady.value = true
+  const previous = Object.fromEntries(['navigator', 'window', 'AudioContext', 'WebSocket', 'location']
+    .map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
+  let socket
+  try {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true,
+      value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [] }) } } })
+    globalThis.window = { AudioWorkletNode: class {} }
+    globalThis.location = { protocol: 'https:', host: 'testserver' }
+    globalThis.AudioContext = class {
+      destination = {}
+      async resume() {}
+      async close() {}
+      createGain() { return { gain: { value: 1 }, connect: () => ({ connect() {} }) } }
+      createDynamicsCompressor() { return { threshold: {}, knee: {}, ratio: {} } }
+    }
+    globalThis.WebSocket = class {
+      constructor() { socket = this }
+      close() {}
+    }
+    await page.startVoice()
+    await socket.onmessage({ data: JSON.stringify({ type: 'ending_soon', seconds_remaining: 120,
+      message: '距离通话时长上限约 2 分钟，请尽快收尾并复盘' }) })
+    assert.equal(page.voiceClosing.value, false)
+    assert.equal(page.voiceConnecting.value, true)
+    assert.match(await html(), /距离通话时长上限约 2 分钟/)
+    page.stopVoice()
+  } finally {
+    for (const [name, descriptor] of Object.entries(previous)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor)
+      else delete globalThis[name]
+    }
+  }
+})
+
 test('partial voice report preserves saved quotes but has no score or supervisor outcome confirmation', async () => {
   const { page, html } = mountReview()
   const quote = { segment_id: 'saved-1', speaker: 'sales', start: 0, end: 9, text: '我们再核对库存风险。' }
