@@ -1,5 +1,10 @@
 # Progress
 
+## 2026-10-23: Correct synthetic Doubao ASR probe verdict
+
+- The opt-in `--case asr` probe no longer sends `response.cancel` when the model starts replying. An isolated native A/B test with the same fixed 4.61-second synthetic phrase twice per arm found an unfinalized second ASR start only in the cancel arm; neither another audio commit nor mute/close acknowledged it as a final. That artifact does not establish the cause of a production call's missing tail.
+- The probe now observes the full eight-second tail window and passes only after at least one ASR start, a matching final for every started input, no ASR failure, and the session-close acknowledgement. Offline regression first failed with three missing-implementation errors, then passed two tests in 0.201 seconds; the final focused run passed two tests. One post-fix real-provider run with the fixed synthetic phrase and `--pause-after-input` passed: one ASR start, one final, zero failures, zero response cancels, one audio-commit acknowledgement, and one session-close acknowledgement. Its local evidence JSON remains under `D:/opencode/temp/omega-asr-probe-fixed-20261023/` and contains no key or transcript text. No production speech, database, or microphone was used.
+
 ## 2026-10-23: Omega meeting practice reliability and release gate
 
 - Scenario cards now warn before discarding unsaved meeting topics, extracted materials, or custom drafts; a session-specific setup can be saved for later. Saving locks the setup and parent navigation until the request resolves. Quick practice opens its new session after one discard confirmation. Preset dealer opportunities survive card selection, and saved presets remain visible in their card group. Mobile history, custom drafting, and report polling retain recoverable state.
