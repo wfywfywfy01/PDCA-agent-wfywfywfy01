@@ -28,7 +28,7 @@ def _group_by_person() -> dict[str, list[PdcaTask]]:
     aliases = settings.todo_owner_aliases
     grouped: dict[str, list[PdcaTask]] = defaultdict(list)
     with Session(get_engine()) as session:
-        rows = list(session.exec(select(PdcaTask)).all())
+        rows = list(session.exec(select(PdcaTask).where(PdcaTask.source != "heiwu_group_task")).all())
     for row in rows:
         parts: list[str] = []
         for part in split_owners(row.owner):

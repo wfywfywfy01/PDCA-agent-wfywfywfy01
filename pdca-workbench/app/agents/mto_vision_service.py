@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 import time
 from datetime import datetime, timezone
@@ -34,6 +35,11 @@ def utcnow() -> datetime:
 
 def _sha256_of(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _messages_fingerprint(messages: list | None) -> str:
+    payload = json.dumps(messages or [], ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return _sha256_of(payload.encode("utf-8"))
 
 
 def _owner_metrics(owner_name: str, day: str) -> dict:
@@ -96,7 +102,7 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         messages_on_day,
         parse_mto_images,
     )
-    from app.mto_ocr import review_mto_images
+    from app.mto_ocr import quote_document_type, review_mto_images
 
     owner = next((item for item in OWNERS if item.display == owner_name), None)
     if owner is None:
@@ -105,12 +111,7 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         return {"owner": owner_name, "day": day, "error": "该负责人缺少 IM user_id，无法定位图片"}
 
     metrics = _owner_metrics(owner_name, day)
-    cache_key = f"detail:{owner_name}:{day}"
     now_mono = time.monotonic()
-    with _cache_lock:
-        cached = _cache.get(cache_key)
-        if cached and not force and now_mono - cached[0] < 3600:
-            return _detail_with_metrics(cached[1], metrics)
 
     result: dict = {
         "owner": owner_name,
@@ -123,7 +124,8 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         "under_threshold": 0,
         "unread": 0,
         "goal": MTO_DAILY_GOAL,
-        "goal_met": False,
+        "goal_met": None,
+        "complete": False,
     }
     try:
         # 与督战采集同源：达标群 + 跟进群（_history_ids）全部拉取后合并，
@@ -132,15 +134,24 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         result["channel_ids"] = channel_ids
         raw_messages: list = []
         for channel_id in channel_ids:
-            raw_messages.extend(fetch_channel_history(channel_id, day, "300"))
+            history = fetch_channel_history(channel_id, day, "300")
+            if history is None:
+                raise RuntimeError("群历史来源不可用")
+            raw_messages.extend(history)
         messages = messages_on_day(raw_messages, day, owner_group_timezone(owner))
+        cache_key = f"detail:{owner_name}:{day}:{_messages_fingerprint(messages)}"
+        with _cache_lock:
+            cached = _cache.get(cache_key)
+            if cached and not force and now_mono - cached[0] < 3600:
+                return _detail_with_metrics(cached[1], metrics)
         image_count, file_names = parse_mto_images(messages, owner.im_user_id)
         quote_count, _names, quotes = review_mto_images(messages, owner.im_user_id,
             max_images=max(int(getattr(get_settings(), "mto_ocr_max_images", 8) or 8), metrics["mto_daily_count"]))
+        quotes = [quote for quote in quotes if quote_document_type(quote) == "mto_quote"]
     except Exception as exc:  # noqa: BLE001 — 单源失败写待确认，不抛
         logger.warning("MTO 明细核对失败 owner={} day={}: {}", owner_name, day, exc)
         result["error"] = f"采集失败: {str(exc)[:200]}"
-        return result
+        return _detail_with_metrics(result, metrics)
 
     result["complete"] = quote_count is not None
     for index, quote in enumerate(quotes or []):
@@ -150,7 +161,7 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
         qualifies = quote.get("qualifies")
         model_text = str(quote.get("model") or "").strip()
         row = {
-            "file": file_names[index] if index < len(file_names or []) else "",
+            "file": quote.get("file") or (file_names[index] if index < len(file_names or []) else ""),
             # 型号是硬要求（老板 2026-09-19）：读不出就显式标红，别写“VERTU”糊弄
             "model": model_text or "型号读不出",
             "model_missing": (not model_text) or bool(quote.get("model_missing")),
@@ -177,8 +188,9 @@ def review_owner_detail(owner_name: str, day: str, *, force: bool = False) -> di
             result["unread"] += 1
     result["images"] = image_count if image_count is not None else len(result["rows"])
     result["goal_met"] = result["qualified"] >= MTO_DAILY_GOAL
-    with _cache_lock:
-        _cache[cache_key] = (now_mono, result)
+    if result["complete"]:
+        with _cache_lock:
+            _cache[cache_key] = (now_mono, result)
     return _detail_with_metrics(result, metrics)
 
 
@@ -230,10 +242,10 @@ def review_owner_images(
     无视觉密钥时（settings.qwen_api_key 为空）张数仍可统计，
     金额达标写“待确认”（qualifies=None）。
     """
-    from app.mto_ocr import review_mto_images, summarize_quotes
+    from app.mto_ocr import quote_document_type, review_mto_images, summarize_quotes
 
     metrics = _owner_metrics(owner, day)
-    cache_key = f"{owner}:{day}"
+    cache_key = f"{owner}:{day}:{_messages_fingerprint(messages)}"
     now_mono = time.monotonic()
     with _cache_lock:
         cached = _cache.get(cache_key)
@@ -242,6 +254,7 @@ def review_owner_images(
     try:
         count, names, quotes = review_mto_images(messages, sender_id,
             max_images=max(int(getattr(get_settings(), "mto_ocr_max_images", 8) or 8), metrics["mto_daily_count"]))
+        quotes = [quote for quote in quotes if quote_document_type(quote) == "mto_quote"]
     except Exception as exc:  # noqa: BLE001 — 单源失败写待确认
         logger.warning("MTO 视觉采集失败 owner={}: {}", owner, exc)
         count, names, quotes = None, [], []
@@ -267,8 +280,9 @@ def review_owner_images(
         event_key=f"mto:review:{owner}:{day}",
         payload=payload,
     )
-    with _cache_lock:
-        _cache[cache_key] = (now_mono, payload)
+    if payload.get("count") is not None:
+        with _cache_lock:
+            _cache[cache_key] = (now_mono, payload)
     return payload
 
 

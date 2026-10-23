@@ -416,8 +416,11 @@ class CollectLedgerWiringTests(unittest.TestCase):
             key = subject.get("employee_id")
             return (f"reach-{key}", f"ops-{key}", f"customers-{key}")
 
-        def fake_ocr(messages, sender_id, **kwargs):
-            return (sender_id, [f"img-{sender_id}"], [])
+        def fake_ocr(inputs, **kwargs):
+            return {
+                display: (sender_id, [f"img-{sender_id}"], [])
+                for display, _messages, sender_id in inputs
+            }
 
         okr_rows = [{"salesperson": "于冰", "sales_amount": 2_000_000}]
         vemory_rows = [{"name": "于冰", "meetings": 2}]
@@ -438,9 +441,7 @@ class CollectLedgerWiringTests(unittest.TestCase):
             dl, "parse_intent_count", lambda payload: payload
         ), mock.patch.object(
             dl, "parse_wa_hour_chats", lambda payload: []
-        ), mock.patch(
-            "app.mto_ocr.review_mto_images", fake_ocr
-        ):
+        ), mock.patch.object(dl, "_review_mto_inputs", fake_ocr):
             ledger = dl.collect_ledger("2026-09-18")
 
         rows = {row["display"]: row for row in ledger["people"]}

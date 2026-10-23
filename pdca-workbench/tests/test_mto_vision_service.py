@@ -78,6 +78,29 @@ class MtoVisionTests(unittest.TestCase):
         self.assertFalse(payload["goal_met"])  # 1 款 < 4 款目标
         self.assertTrue(event_mock.called)
 
+    def test_review_does_not_show_payment_evidence_as_mto(self):
+        settings = _SettingsStub(qwen_key="has-key")
+        payment = {
+            "document_type": "payment_receipt",
+            "performance_amount": 45000,
+            "performance_currency": "USD",
+            "performance_basis": "paid_not_received",
+            "visible_text": "Payment sent",
+            "raw_ok": False,
+            "wan": None,
+        }
+        with patch(
+            "app.agents.mto_vision_service.get_settings", return_value=settings
+        ), patch(
+            "app.mto_ocr.review_mto_images", return_value=(0, [], [payment])
+        ), patch(
+            "app.agents.mto_vision_service.write_event", MagicMock()
+        ):
+            payload = review_owner_images("于冰", [{"id": "payment-image"}], 123, day="2026-09-17")
+
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(payload["quotes"], [])
+
     def test_no_key_amount_unknown(self):
         settings = _SettingsStub(qwen_key="")
         with patch(

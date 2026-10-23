@@ -152,6 +152,9 @@ def recheck_row(row: dict, metrics: dict) -> dict:
     quotes = row.get("mto_quotes")
     if not isinstance(quotes, list) or any(not isinstance(quote, dict) for quote in quotes):
         return {**result, "mto_count": None}
+    from app.mto_ocr import quote_document_type, summarize_quotes
+
+    quotes = [quote for quote in quotes if quote_document_type(quote) == "mto_quote"]
     result["mto_quotes"] = [dict(quote, qualifies=_amount(quote.get("wan"))
                                   and quote.get("raw_ok") is not False
                                   and quote["wan"] >= metrics["mto_min_wan"]) for quote in quotes]
@@ -160,8 +163,6 @@ def recheck_row(row: dict, metrics: dict) -> dict:
         quote["verdict"] = ("达标" if quote["qualifies"] else
                             f"未满{metrics['mto_min_wan']:g}万" if _amount(quote.get("wan"))
                             and quote.get("raw_ok") is not False else "金额待确认")
-    from app.mto_ocr import summarize_quotes
-
     _, result["mto_names"] = summarize_quotes(result["mto_quotes"], min_wan=metrics["mto_min_wan"])
     source_count = row.get("mto_count")
     source_known = (row.get("history_ok") is True and _amount(source_count)

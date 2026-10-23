@@ -113,6 +113,20 @@ class TaskOnlyScope(TestCase):
 
         owners = tuple(owner for owner in dl.OWNERS if owner.display in ("冯磊", "刘春梅", "付汪阳"))
         self.assertEqual(len(owners), 3)
+        messages = [
+            {
+                "id": f"message-{owner.im_user_id}",
+                "message_type": "image",
+                "sender_user_id": owner.im_user_id,
+                "created_at": "2026-10-21T02:00:00Z",
+                "attachments": [{
+                    "id": f"image-{owner.im_user_id}",
+                    "attachment_type": "image",
+                    "url": f"/synthetic/{owner.im_user_id}.jpg",
+                }],
+            }
+            for owner in owners
+        ]
         with patch.object(dl, "OWNERS", owners), \
              patch.object(dl, "get_settings", return_value=SimpleNamespace(todo_group_channel_id="report")), \
              patch.object(dl, "fetch_personal_okr", return_value=[]), \
@@ -120,10 +134,10 @@ class TaskOnlyScope(TestCase):
              patch.object(dl, "fetch_vemory_day", return_value=[]), \
              patch.object(dl, "load_month_targets", return_value={}), \
              patch.object(dl, "warn_target_fallback"), \
-             patch.object(dl, "fetch_channel_history", return_value=[]), \
+             patch.object(dl, "fetch_channel_history", return_value=messages), \
              patch.object(dl, "_subject", return_value={"employee_id": 1}), \
              patch.object(dl, "_mcp_bundle") as mcp, \
-             patch.object(dl, "parse_performance_buckets") as buckets, \
+             patch.object(dl, "parse_performance_buckets", return_value={"slip": [], "intent": []}) as buckets, \
              patch.object(dl, "match_daily_report", return_value={"submitted": True, "item_count": 1}), \
              patch.object(dl, "parse_owner_reports", return_value=([dict(title="确认合同", status="planned")], [], [])) as parse, \
              patch("app.meeting_todos.block_for_group", return_value=""), \
@@ -133,7 +147,8 @@ class TaskOnlyScope(TestCase):
         self.assertTrue(all(row["collections"][0]["title"] == "确认合同" and row["history_ok"] for row in rows))
         ocr.assert_not_called()
         mcp.assert_not_called()
-        buckets.assert_not_called()
+        self.assertEqual(buckets.call_count, 3)
+        self.assertTrue(all("群图片1张待核（未计入系统已录单业绩）" in row["evidence"] for row in rows))
         self.assertTrue(all(not any(str(item).startswith("海外日报已交") for item in row["evidence"]) for row in rows))
 
     def test_ai_cache_includes_task_only_roles(self):

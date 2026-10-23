@@ -115,6 +115,13 @@ def load_open_tasks(
     from app.models.pdca_task import PdcaTask
 
     statement = select(PdcaTask)
+    # 学习任务只属于来源群，不能因负责人同名进入其他群或全局督战。
+    if channel_id:
+        statement = statement.where(
+            (PdcaTask.source != "heiwu_group_task") | (PdcaTask.group_channel_id == channel_id)
+        )
+    else:
+        statement = statement.where(PdcaTask.source != "heiwu_group_task")
     if not include_done:
         statement = statement.where(~PdcaTask.status.in_(["done", "completed", "complete"]))
     with Session(get_engine()) as session:

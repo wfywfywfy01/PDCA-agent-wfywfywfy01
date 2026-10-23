@@ -87,6 +87,7 @@ def list_pending_tasks(today: str) -> list[PdcaTask]:
             .where(
                 PdcaTask.task_date <= today,
                 PdcaTask.owner != "",
+                PdcaTask.source != "heiwu_group_task",  # Dedicated group scheduler owns these reminders.
             )
             .order_by(PdcaTask.task_date.asc(), PdcaTask.id.asc()),
         ).all()

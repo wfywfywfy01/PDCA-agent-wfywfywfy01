@@ -114,7 +114,7 @@ def fetch_okr_catalog() -> list[dict]:
     aliases = settings.todo_owner_aliases
     people = set()
     with Session(get_engine()) as session:
-        for row in session.exec(select(PdcaTask)).all():
+        for row in session.exec(select(PdcaTask).where(PdcaTask.source != "heiwu_group_task")).all():
             for part in split_owners(row.owner):
                 name = apply_alias(part, aliases)
                 if name.casefold() not in skip and name:
@@ -241,7 +241,7 @@ def link_tasks_and_projects(dry_run: bool = False) -> dict:
     task_linked = 0
     project_linked = 0
     with Session(get_engine()) as session:
-        tasks = list(session.exec(select(PdcaTask)).all())
+        tasks = list(session.exec(select(PdcaTask).where(PdcaTask.source != "heiwu_group_task")).all())
         projects = list(session.exec(select(TodoProject)).all())
         settings = get_settings()
         skip = {n.strip().casefold() for n in settings.todo_remind_skip_owners if n.strip()}
