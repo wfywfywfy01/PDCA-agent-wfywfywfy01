@@ -276,6 +276,15 @@ class Settings:
         except ValueError:
             heiwu_minutes = 5
         self.heiwu_poll_minutes = min(60, max(1, heiwu_minutes))
+        # 管理员派发的学习任务独立于开单祝贺；未配置发布人时不采集、不催办。
+        self.heiwu_tasks_enabled = _env_flag("PDCA_HEIWU_TASKS_ENABLED", "0")
+        self.heiwu_task_publisher_user_ids = tuple(
+            int(value.strip()) for value in os.environ.get("PDCA_HEIWU_TASK_PUBLISHER_USER_IDS", "").split(",")
+            if value.strip().isdigit() and int(value.strip()) > 0
+        )
+        self.heiwu_task_morning_time = os.environ.get("PDCA_HEIWU_TASK_MORNING_TIME", "10:00").strip()
+        self.heiwu_task_evening_time = os.environ.get("PDCA_HEIWU_TASK_EVENING_TIME", "20:00").strip()
+        self.heiwu_task_lookback_days = min(90, max(7, _env_int("PDCA_HEIWU_TASK_LOOKBACK_DAYS", "21")))
         # @海外渠道督战官 才回；默认跟督战开关走，1 分钟轮询。
         # 三档只出总结性内容（明细走每天 08:00 的证据 HTML）；=0 回到长版
         self.duzhan_compact = _env_flag("PDCA_DUZHAN_COMPACT", "1")

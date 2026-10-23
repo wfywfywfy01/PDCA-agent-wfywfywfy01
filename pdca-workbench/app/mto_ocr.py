@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 import httpx
@@ -16,10 +18,20 @@ from app.config import get_settings
 
 RATE_CNY = 7.1
 THRESHOLD_WAN = 30.0
+OCR_CONTRACT_VERSION = 2
+_OCR_RESULT_CACHE: dict[str, dict] = {}
+_OCR_RESULT_CACHE_LOCK = threading.Lock()
+_OCR_RESULT_CACHE_MAX = 512
 PROMPT = (
-    "这是 VERTU MTO 报价截图。只根据图上可见文字填 JSON，不要编造。"
-    "字段：model, total_usd, delivery, sku, target_customer。"
-    "model 必填且要完整：抄图上的机型/型号原文，连系列名和配置后缀一起抄"
+    "判断图片类型并只根据图上可见文字填 JSON，不要编造。"
+    "字段：document_type, model, total_usd, delivery, sku, target_customer, "
+    "performance_amount, performance_currency, performance_basis, visible_text。"
+    "document_type 只能是 mto_quote/payment_receipt/sales_report/other/unknown；"
+    "performance_basis 只能是 paid_not_received/received/booked_sales/intent/unknown。"
+    "只有 MTO 报价才填写 model/total_usd；付款凭证或业绩报表不要把金额填进 total_usd。"
+    "业绩金额必须同时看见金额和币种才填写 performance_amount/performance_currency；"
+    "visible_text 逐字摘录支持类型、金额和状态判断的短句，没有就空字符串。"
+    "document_type=mto_quote 时 model 必填且要完整：抄图上的机型/型号原文，连系列名和配置后缀一起抄"
     "（例：Vertu Signature S+、Vertu Alphafold、Vertu Quantum、Vertu Aster、"
     "Vertu Metavertu 2、机械表型号等）；中文机型名就原样抄中文。"
     "只写“VERTU”不算，必须写到具体型号；确实没有型号字样才留空字符串。"
@@ -84,6 +96,24 @@ def parse_quote_text(raw: str) -> dict:
     delivery = str(payload.get("delivery") or "").strip()
     target = str(payload.get("target_customer") or "").strip()
     usd = _usd(payload.get("total_usd"))
+    performance_amount = _usd(payload.get("performance_amount"))
+    performance_currency = str(payload.get("performance_currency") or "").strip().upper()
+    performance_currency = {"RMB": "CNY", "CNH": "CNY", "US$": "USD", "$": "USD"}.get(
+        performance_currency, performance_currency
+    )
+    if performance_currency not in {"USD", "CNY", "EUR", "GBP", "AED", "SAR"}:
+        performance_currency = None
+    if performance_amount is None or performance_currency is None:
+        performance_amount = performance_currency = None
+    performance_basis = str(payload.get("performance_basis") or "unknown").strip().lower()
+    performance_basis = {
+        "paid": "paid_not_received",
+        "payment": "paid_not_received",
+        "booked": "booked_sales",
+    }.get(performance_basis, performance_basis)
+    if performance_basis not in {"paid_not_received", "received", "booked_sales", "intent"}:
+        performance_basis = None
+    visible_text = re.sub(r"\s+", " ", str(payload.get("visible_text") or "")).strip()[:240] or None
     # Markdown 兜底：推理模型常忽略“只输出 JSON”，输出机型/金额/交付日期的正文。
     if not model:
         model_match = _MD_MODEL_RE.search(text)
@@ -101,20 +131,55 @@ def parse_quote_text(raw: str) -> dict:
         delivery_match = _MD_DELIVERY_RE.search(text)
         if delivery_match:
             delivery = delivery_match.group(1)
+    document_type = _document_type(payload.get("document_type"), model=model, usd=usd)
     wan = round(usd * RATE_CNY / 10000, 1) if usd is not None else None
+    performance_wan = None
+    if performance_amount is not None and performance_currency == "USD":
+        performance_wan = round(performance_amount * RATE_CNY / 10000, 1)
+    elif performance_amount is not None and performance_currency == "CNY":
+        performance_wan = round(performance_amount / 10000, 1)
     qualifies = wan is not None and wan >= THRESHOLD_WAN
     return {
+        "ocr_contract_version": OCR_CONTRACT_VERSION,
+        "document_type": document_type,
         "model": model,
         "sku": sku,
         "delivery": delivery,
         "target_customer": target,
         "usd": usd,
         "wan": wan,
+        "performance_amount": performance_amount,
+        "performance_currency": performance_currency,
+        "performance_wan": performance_wan,
+        "performance_basis": performance_basis,
+        "visible_text": visible_text,
         "qualifies": qualifies,
         "raw_ok": bool(model or usd is not None),
         # 型号是硬要求（老板 2026-09-19）：读不出要单独标出来，便于二次追问。
         "model_missing": not bool(model),
     }
+
+
+_DOCUMENT_TYPES = {"mto_quote", "payment_receipt", "sales_report", "other", "unknown"}
+
+
+def _document_type(value: object, *, model: str = "", usd: float | None = None) -> str:
+    text = str(value or "").strip().lower()
+    if text in _DOCUMENT_TYPES:
+        return text
+    # 兼容旧模型/旧缓存：没有 document_type 时维持原 MTO 判定口径。
+    return "mto_quote" if model or usd is not None else "unknown"
+
+
+def quote_document_type(quote: dict) -> str:
+    """显式分类优先；旧缓存没有分类时按既有报价字段兼容。"""
+    if "document_type" not in quote:
+        return "mto_quote"
+    return _document_type(
+        quote.get("document_type"),
+        model=str(quote.get("model") or "").strip(),
+        usd=quote.get("usd") if quote.get("usd") is not None else quote.get("wan"),
+    )
 
 
 _MODEL_CUT_RE = re.compile(
@@ -142,15 +207,15 @@ def _clean_model(value: object) -> str:
 
 
 def _usd(value: object) -> float | None:
-    if value is None or value == "":
+    if value is None or value == "" or isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).replace(",", "").replace("$", "").strip()
     try:
-        return float(text)
-    except ValueError:
+        number = float(value) if isinstance(value, (int, float)) else float(
+            str(value).replace(",", "").replace("$", "").strip()
+        )
+    except (TypeError, ValueError):
         return None
+    return number if math.isfinite(number) and number >= 0 else None
 
 
 def summarize_quotes(quotes: list[dict], *, min_wan: float = THRESHOLD_WAN) -> tuple[int, list[str]]:
@@ -158,6 +223,8 @@ def summarize_quotes(quotes: list[dict], *, min_wan: float = THRESHOLD_WAN) -> t
     names: list[str] = []
     qualify_n = 0
     for item in quotes:
+        if quote_document_type(item) != "mto_quote":
+            continue
         if not item.get("raw_ok"):
             names.append("未读出报价")
             continue
@@ -239,14 +306,24 @@ def ocr_image_bytes(content: bytes, mime: str = "image/jpeg") -> dict:
         choice = (data.get("choices") or [{}])[0]
         text = choice["message"]["content"] or ""
         row = parse_quote_text(text)
-        if row.get("model_missing"):
+        truncated = choice.get("finish_reason") == "length"
+        if (
+            row.get("model_missing")
+            and (
+                row.get("document_type") == "mto_quote"
+                or (row.get("document_type") == "unknown" and truncated)
+            )
+        ):
             # 型号是硬要求：再定向问一次（只抄型号），仍读不出才留空并标记。
             row = _retry_model_only(payload, url, key, row)
         # 截断重试一次：追加“直接输出 JSON”引导，避免 reasoning 吃满预算。
         # 触发条件除了 raw_ok=False，还要覆盖「型号读出来了但金额丢了」——
         # 那正是 finish_reason=length 的典型后果，漏了它会把达标款写成「未满30万」。
-        truncated = choice.get("finish_reason") == "length"
-        if truncated and (not row["raw_ok"] or row.get("usd") is None):
+        if (
+            truncated
+            and row.get("document_type") in {"mto_quote", "unknown"}
+            and (not row["raw_ok"] or row.get("usd") is None)
+        ):
             payload["messages"] = payload["messages"] + [{
                 "role": "user",
                 "content": "请直接输出结果 JSON，不要任何说明。",
@@ -451,6 +528,116 @@ def cleanup_temp_files(max_age_hours: float = 6.0) -> dict:
     return {"removed": removed, "freed_bytes": freed}
 
 
+def select_mto_attachments(
+    messages: list | None, sender_id: int | None, max_images: int | None = None
+) -> tuple[list[dict], bool]:
+    """选出本轮可核验的图片，并标记是否因上限而截断。"""
+    settings = get_settings()
+    limit = max_images
+    if limit is None:
+        try:
+            limit = int(getattr(settings, "mto_ocr_max_images", 8))
+        except (TypeError, ValueError):
+            limit = 8
+    limit = max(1, limit)
+    from app.duzhan_ledger import iter_mto_image_attachments
+
+    attachments = list(iter_mto_image_attachments(messages, sender_id))
+    truncated = len(attachments) > limit
+    if truncated:
+        logger.info("MTO 图片超过每人 {} 张上限，多出的不再 OCR: sender={}", limit, sender_id)
+    return attachments[:limit], truncated
+
+
+def review_mto_attachment(att: dict) -> dict | None:
+    """核验一张 MTO 图片；成功结果按附件身份在进程内复用。"""
+    url = str(att.get("url") or "")
+    if not url or not get_settings().qwen_api_key:
+        return None
+    cache_key = next(
+        (
+            f"{field}:{att[field]}"
+            for field in ("sha256", "id", "storage_key", "url")
+            if att.get(field)
+        ),
+        "",
+    )
+    cached = None
+    if cache_key:
+        with _OCR_RESULT_CACHE_LOCK:
+            cached = _OCR_RESULT_CACHE.get(cache_key)
+    if cached is not None:
+        cached, reusable = _upgrade_legacy_result(cached)
+        if not reusable:
+            cached = None
+    if cached is not None:
+        quote, current_contract = dict(cached), True
+    else:
+        quote, current_contract = _upgrade_legacy_result(download_ocr_delete(url))
+    if cached is None and cache_key and current_contract and _quote_complete(quote):
+        with _OCR_RESULT_CACHE_LOCK:
+            if len(_OCR_RESULT_CACHE) >= _OCR_RESULT_CACHE_MAX:
+                _OCR_RESULT_CACHE.pop(next(iter(_OCR_RESULT_CACHE)), None)
+            _OCR_RESULT_CACHE[cache_key] = dict(quote)
+    return quote
+
+
+def _upgrade_legacy_result(quote: dict) -> tuple[dict, bool]:
+    """复用旧完整 MTO；旧模糊图片必须按新分类契约重识别。"""
+    result = dict(quote)
+    if result.get("ocr_contract_version") == OCR_CONTRACT_VERSION:
+        return result, True
+    explicit_type = str(result.get("document_type") or "").strip()
+    if explicit_type in _DOCUMENT_TYPES - {"unknown"}:
+        result["ocr_contract_version"] = OCR_CONTRACT_VERSION
+        return result, True
+    if str(result.get("model") or "").strip() and result.get("wan") is not None:
+        result["document_type"] = "mto_quote"
+        result["ocr_contract_version"] = OCR_CONTRACT_VERSION
+        return result, True
+    return result, False
+
+
+def _quote_complete(quote: object) -> bool:
+    """MTO 要能判金额；明确识别为非 MTO 的图片也算完成分类。"""
+    if not isinstance(quote, dict):
+        return False
+    document_type = quote_document_type(quote)
+    if document_type in {"payment_receipt", "sales_report", "other"}:
+        return True
+    return document_type == "mto_quote" and bool(quote.get("raw_ok")) and quote.get("wan") is not None
+
+
+def finalize_mto_review(
+    attachments: list[dict], results: list[dict | None], truncated: bool, *, qwen_enabled: bool
+) -> tuple[int | None, list[str], list[dict]]:
+    """合并单图结果；任何缺页、超时或截断都保持“待确认”。"""
+    if not attachments and not truncated:
+        return 0, [], []
+    if qwen_enabled:
+        quotes = []
+        for attachment, item in zip(attachments, results):
+            if not isinstance(item, dict):
+                continue
+            quote = dict(item)
+            quote["file"] = str(quote.get("file") or attachment.get("name") or "image")
+            quote["source_attachment_id"] = str(attachment.get("id") or "")
+            quote["source_message_id"] = str(attachment.get("message_id") or "")
+            quotes.append(quote)
+        qualify_n, names = summarize_quotes(quotes)
+        complete = (
+            not truncated
+            and len(quotes) == len(attachments)
+            and all(_quote_complete(quote) for quote in quotes)
+        )
+        return qualify_n if complete else None, names, quotes
+    # 没配密钥 = 没读图：第一返回值语义是「信息完整报价数」，绝不能拿图片张数顶替，
+    # 否则下游（MTO N/4 达标、工时加分）会把截图数当成达标款数。返回 None 让渲染写「待确认」。
+    names = [str(item.get("name") or "image") for item in attachments][:6]
+    logger.warning("未配置 QWEN 密钥，MTO 只登记了 {} 张图片、未读图", len(attachments))
+    return None, names, []
+
+
 def review_mto_images(
     messages: list | None, sender_id: int | None, max_images: int | None = None
 ) -> tuple[int | None, list[str], list[dict]]:
@@ -461,64 +648,11 @@ def review_mto_images(
     不读图，避免拖过整点推送窗口。
     """
     settings = get_settings()
-    limit = max_images
-    if limit is None:
-        try:
-            limit = int(getattr(settings, "mto_ocr_max_images", 8))
-        except (TypeError, ValueError):
-            limit = 8
-    limit = max(1, limit)
-    quotes: list[dict] = []
-    truncated = [False]
-    from app.duzhan_ledger import DUZHAN_BOT_ID
-
-    for msg in messages or []:
-        if not isinstance(msg, dict) or msg.get("revoked_at"):
-            continue
-        if str(msg.get("sender_bot_id") or "") == DUZHAN_BOT_ID:
-            continue
-        if str(msg.get("message_type") or "") != "image":
-            continue
-        if sender_id is not None and msg.get("sender_user_id") != sender_id:
-            continue
-        for att in msg.get("attachments") or []:
-            if not isinstance(att, dict):
-                continue
-            if str(att.get("attachment_type") or "") not in ("image", ""):
-                continue
-            url = str(att.get("url") or "")
-            if not url:
-                continue
-            if len(quotes) >= limit:
-                if not truncated[0]:
-                    truncated[0] = True
-                    logger.info(
-                        "MTO 图片超过每人 {} 张上限，多出的不再 OCR: sender={}", limit, sender_id
-                    )
-                continue
-            if settings.qwen_api_key:
-                quotes.append(download_ocr_delete(url))
-            else:
-                name = str(att.get("name") or "image")
-                quotes.append(
-                    {
-                        "model": "",
-                        "model_missing": True,
-                        "file": name,
-                        "sku": "",
-                        "delivery": "",
-                        "target_customer": "",
-                        "usd": None,
-                        "wan": None,
-                        "qualifies": False,
-                        "raw_ok": False,
-                    }
-                )
-    if settings.qwen_api_key:
-        qualify_n, names = summarize_quotes(quotes)
-        return None if truncated[0] else qualify_n, names, quotes
-    # 没配密钥 = 没读图：第一返回值语义是「信息完整报价数」，绝不能拿图片张数顶替，
-    # 否则下游（MTO N/4 达标、工时加分）会把截图数当成达标款数。返回 None 让渲染写「待确认」。
-    names = [str(item.get("file") or "image") for item in quotes][:6]
-    logger.warning("未配置 QWEN 密钥，MTO 只登记了 {} 张图片、未读图", len(quotes))
-    return None, names, []
+    attachments, truncated = select_mto_attachments(messages, sender_id, max_images)
+    results = [review_mto_attachment(att) for att in attachments] if settings.qwen_api_key else []
+    return finalize_mto_review(
+        attachments,
+        results,
+        truncated,
+        qwen_enabled=bool(settings.qwen_api_key),
+    )

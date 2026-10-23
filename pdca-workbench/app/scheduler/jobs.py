@@ -1064,6 +1064,17 @@ def heiwu_poll_job() -> None:
         logger.info("小黑屋本轮已祝贺 {}", result["replied"])
 
 
+def heiwu_task_job(round_name: str) -> None:
+    """同步管理员派单；早提醒，晚按群内交付证据核对后催办。"""
+    from app.heiwu_tasks import run_round
+
+    result = run_round(round_name)
+    logger.info("小黑屋任务轮次 {}：{}", round_name, {
+        key: result.get(key) for key in ("skipped", "tasks", "submitted", "pending", "reminded", "failed")
+        if key in result
+    })
+
+
 def duzhan_at_poll_job() -> None:
     """每分钟扫达标群：只有 @海外渠道督战官 才回复。"""
     from app.duzhan import poll_at_mentions
@@ -1392,6 +1403,25 @@ def start_scheduler() -> BackgroundScheduler | None:
             coalesce=True,
         )
         logger.info("小黑屋祝贺机器人已注册：每 {} 分钟扫一轮", getattr(settings, "heiwu_poll_minutes", 5))
+
+    if getattr(settings, "heiwu_tasks_enabled", False) and getattr(settings, "heiwu_task_publisher_user_ids", ()):
+        from app.duzhan_blocks import normalize_time_slot
+        from zoneinfo import ZoneInfo
+
+        clocks = {
+            "morning": normalize_time_slot(getattr(settings, "heiwu_task_morning_time", "10:00")),
+            "evening": normalize_time_slot(getattr(settings, "heiwu_task_evening_time", "20:00")),
+        }
+        if all(clocks.values()):
+            for round_name, clock in clocks.items():
+                hour, minute = map(int, clock.split(":"))
+                _scheduler.add_job(
+                    heiwu_task_job, args=[round_name], trigger="cron", hour=hour, minute=minute,
+                    timezone=ZoneInfo("Asia/Shanghai"), id=f"heiwu_tasks_{round_name}",
+                    max_instances=1, coalesce=True, misfire_grace_time=900,
+                )
+        else:
+            logger.error("小黑屋任务时间无效，早晚任务均未注册：请设置 HH:MM")
 
     if duzhan_enabled and not config_from_db:
         from zoneinfo import ZoneInfo

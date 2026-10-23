@@ -594,7 +594,11 @@ def parse_performance_buckets(
     if not sender_id:
         return buckets
     for msg in messages or []:
-        if not isinstance(msg, dict) or msg.get("revoked_at"):
+        if (
+            not isinstance(msg, dict)
+            or msg.get("revoked_at")
+            or str(msg.get("message_type") or "").lower() == "recall"
+        ):
             continue
         if msg.get("sender_user_id") != sender_id:
             continue
@@ -700,6 +704,77 @@ def _perf_amount(text: str) -> dict:
             return {"text": "", "wan": None, "usd": None}
         return {"text": num_text(yuan) + "元", "wan": round(yuan / 10000, 2), "usd": None}
     return {"text": "", "wan": None, "usd": None}
+
+
+def image_performance_facts(quotes: list[dict], day: str) -> tuple[list[dict], list[dict], list[str]]:
+    """把同次图片 OCR 的业绩事实列为待核证据；绝不叠加正式已录单业绩。"""
+    from app.mto_ocr import quote_document_type
+
+    slips: list[dict] = []
+    intents: list[dict] = []
+    pending: list[str] = []
+    for quote in quotes or []:
+        if not isinstance(quote, dict):
+            continue
+        document_type = quote_document_type(quote)
+        basis = str(quote.get("performance_basis") or "unknown")
+        visible = re.sub(r"\s+", " ", str(quote.get("visible_text") or "")).strip()[:160]
+        amount = quote.get("performance_amount")
+        currency = str(quote.get("performance_currency") or "")
+        amount_text = ""
+        if (
+            isinstance(amount, (int, float))
+            and not isinstance(amount, bool)
+            and math.isfinite(amount)
+            and amount >= 0
+            and currency
+        ):
+            amount_text = ("$" + num_text(amount)) if currency == "USD" else f"{num_text(amount)} {currency}"
+        else:
+            amount = None
+        source_message_id = str(quote.get("source_message_id") or "")
+        source_attachment_id = str(quote.get("source_attachment_id") or "")
+        source_ref = source_message_id or source_attachment_id
+        item = {
+            "amount_text": amount_text,
+            "wan": quote.get("performance_wan"),
+            "usd": amount if currency == "USD" else None,
+            "snippet": "图片识别待核：" + (visible or "业务凭证"),
+            "source": f"im-image:{day}" + (f":{source_ref}" if source_ref else ""),
+            "source_message_id": source_message_id,
+            "source_attachment_id": source_attachment_id,
+            "document_type": document_type,
+            "performance_basis": basis,
+            "review_status": "pending",
+        }
+        # 纯金额不足以证明水单/意向；必须有明确类型、业务阶段和可见原文。
+        if document_type == "payment_receipt" and basis == "paid_not_received" and visible:
+            slips.append(item)
+        elif basis == "intent" and visible:
+            intents.append(item)
+        elif document_type in {"payment_receipt", "sales_report"} or basis in {
+            "paid_not_received", "received", "booked_sales", "intent"
+        }:
+            label = "付款/水单" if document_type == "payment_receipt" else "业绩"
+            pending.append(f"群图片{label}证据待核（未计入系统已录单业绩）")
+    return slips[:10], intents[:10], pending[:6]
+
+
+def pending_group_image_count(messages: list | None, sender_id: int | None, quotes: list[dict]) -> int:
+    """未完成 OCR 或仍无法分类的图片数；用于显式保留待核证据。"""
+    from app.mto_ocr import quote_document_type
+
+    total, _ = parse_mto_images(messages, sender_id)
+    accounted = 0
+    for quote in quotes or []:
+        if not isinstance(quote, dict):
+            continue
+        document_type = quote_document_type(quote)
+        if document_type in {"payment_receipt", "sales_report", "other"}:
+            accounted += 1
+        elif document_type == "mto_quote" and quote.get("raw_ok") and quote.get("wan") is not None:
+            accounted += 1
+    return max(total - accounted, 0)
 
 
 def target_entries(day: str) -> list[dict]:
@@ -914,26 +989,60 @@ def parse_intent_count(payload: dict | None) -> int | None:
     return int(value)
 
 
-def parse_mto_images(messages: list | None, sender_id: int | None = None) -> tuple[int, list[str]]:
-    """群历史里非机器人、未撤回的图片。给了 sender_id 则只计本人。"""
-    names: list[str] = []
-    for msg in messages or []:
-        if not isinstance(msg, dict):
-            continue
-        if msg.get("revoked_at"):
+def iter_mto_image_attachments(messages: list | None, sender_id: int | None = None):
+    """遍历本人发送或引用的图片附件，并按附件身份去重。"""
+    seen: set[tuple] = set()
+    for msg_index, msg in enumerate(messages or []):
+        if not isinstance(msg, dict) or msg.get("revoked_at"):
             continue
         if str(msg.get("sender_bot_id") or "") == DUZHAN_BOT_ID:
             continue
-        if str(msg.get("message_type") or "") != "image":
-            continue
         if sender_id is not None and msg.get("sender_user_id") != sender_id:
             continue
-        for att in msg.get("attachments") or []:
-            if not isinstance(att, dict):
+        nodes = [msg]
+        snapshot = msg.get("quote_snapshot")
+        if isinstance(snapshot, dict):
+            nodes.append(snapshot)
+        for node_index, node in enumerate(nodes):
+            if node.get("revoked_at") or str(node.get("message_type") or "").lower() == "recall":
                 continue
-            if str(att.get("attachment_type") or "") != "image":
+            if str(node.get("sender_bot_id") or "") == DUZHAN_BOT_ID:
                 continue
-            names.append(str(att.get("name") or "image"))
+            node_sender = node.get("sender_user_id")
+            if node is not msg and sender_id is not None and node_sender is not None and node_sender != sender_id:
+                continue
+            attachments = [item for item in (node.get("attachments") or []) if isinstance(item, dict)]
+            for key in ("attachment", "image"):
+                item = node.get(key)
+                if isinstance(item, dict):
+                    attachments.append(item)
+            for att_index, att in enumerate(attachments):
+                attachment_type = str(att.get("attachment_type") or "").lower()
+                mime_type = str(att.get("mime_type") or "").lower()
+                if attachment_type != "image" and not mime_type.startswith("image/"):
+                    continue
+                identity = next(
+                    (
+                        (key, str(att[key]))
+                        for key in ("sha256", "storage_key", "id", "url")
+                        if att.get(key)
+                    ),
+                    None,
+                )
+                if identity is None:
+                    identity = ("position", msg_index, node_index, att_index)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                enriched = dict(att)
+                if not enriched.get("message_id"):
+                    enriched["message_id"] = node.get("id") or msg.get("id") or ""
+                yield enriched
+
+
+def parse_mto_images(messages: list | None, sender_id: int | None = None) -> tuple[int, list[str]]:
+    """群历史里非机器人、未撤回的图片。给了 sender_id 则只计本人。"""
+    names = [str(att.get("name") or "image") for att in iter_mto_image_attachments(messages, sender_id)]
     return len(names), names
 
 
@@ -2482,7 +2591,7 @@ def parse_owner_reports(
 
 
 def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list[dict] | None:
-    """拉昨日中午到现在的群消息，避免漏掉晚间更新。"""
+    """拉昨日中午到现在的完整群消息；任一分页失败则按来源不可用处理。"""
     from datetime import date, timedelta
 
     from app.vertu.client import run_vertu_sync_json
@@ -2490,22 +2599,49 @@ def fetch_channel_history(channel_id: str, day: str, limit: str = "120") -> list
     if not channel_id:
         return None
     prev = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
-    payload = run_vertu_sync_json(
-        [
-            "im",
-            "+history",
-            "--channel-id",
-            channel_id,
-            "--date-from",
-            f"{prev}T12:00:00+08:00",
-            "--limit",
-            limit,
-        ],
-        timeout=40.0,
-    )
-    if not isinstance(payload, dict) or not isinstance(payload.get("messages"), list):
-        return None
-    return [item for item in payload["messages"] if isinstance(item, dict)]
+    try:
+        page_size = min(max(int(limit), 1), 200)
+    except (TypeError, ValueError):
+        page_size = 120
+    messages: list[dict] = []
+    seen_pages: set[tuple] = set()
+    offset = 0
+    for _page in range(100):
+        payload = run_vertu_sync_json(
+            [
+                "im",
+                "+history",
+                "--channel-id",
+                channel_id,
+                "--date-from",
+                f"{prev}T12:00:00+08:00",
+                "--limit",
+                str(page_size),
+                "--offset",
+                str(offset),
+            ],
+            timeout=40.0,
+        )
+        if (
+            not isinstance(payload, dict)
+            or payload.get("ok") is False
+            or not isinstance(payload.get("messages"), list)
+        ):
+            logger.warning("督战官群历史分页失败 channel={} offset={}", channel_id, offset)
+            return None
+        raw_page = payload["messages"]
+        page = [item for item in raw_page if isinstance(item, dict)]
+        signature = tuple(str(item.get("id") or "") for item in page)
+        if raw_page and signature in seen_pages:
+            logger.warning("督战官群历史分页未推进 channel={} offset={}", channel_id, offset)
+            return None
+        seen_pages.add(signature)
+        messages.extend(page)
+        if len(raw_page) < page_size:
+            return messages
+        offset += len(raw_page)
+    logger.warning("督战官群历史超过分页上限 channel={}", channel_id)
+    return None
 
 
 def messages_on_day(messages: list[dict], day: str, tz_name: str) -> list[dict]:
@@ -3279,6 +3415,63 @@ def _mcp_bundle(subject: dict, period: dict) -> tuple:
     return reach, ops, customers
 
 
+def _review_mto_inputs(
+    inputs: list[tuple],
+    *,
+    quota_by_owner: dict[str, int],
+    max_images: int,
+    workers: int,
+    budget: int,
+    qwen_enabled: bool,
+) -> dict[str, tuple[int | None, list[str], list[dict]]]:
+    """按人轮转单图任务，共享全局并发与预算，避免大批图片独占工作线程。"""
+    from app.mto_ocr import (
+        finalize_mto_review,
+        review_mto_attachment,
+        select_mto_attachments,
+    )
+
+    selected: dict[str, tuple[list[dict], bool]] = {}
+    for display, messages, sender_id in inputs:
+        limit = max(int(max_images or 8), int(quota_by_owner.get(display) or 0), 1)
+        selected[display] = select_mto_attachments(messages, sender_id, limit)
+
+    if not qwen_enabled:
+        return {
+            display: finalize_mto_review(attachments, [], truncated, qwen_enabled=False)
+            for display, (attachments, truncated) in selected.items()
+        }
+
+    queue: list[tuple[str, int, dict]] = []
+    largest = max((len(attachments) for attachments, _truncated in selected.values()), default=0)
+    for index in range(largest):
+        for display, (attachments, _truncated) in selected.items():
+            if index < len(attachments):
+                queue.append((display, index, attachments[index]))
+    reviewed = _parallel_map_deadline(
+        lambda item: review_mto_attachment(item[2]),
+        queue,
+        workers,
+        "督战官 MTO OCR",
+        budget,
+    )
+    grouped: dict[str, list[dict | None]] = {
+        display: [None] * len(attachments)
+        for display, (attachments, _truncated) in selected.items()
+    }
+    for item, result in zip(queue, reviewed):
+        grouped[item[0]][item[1]] = result
+    return {
+        display: finalize_mto_review(
+            attachments,
+            grouped[display],
+            truncated,
+            qwen_enabled=True,
+        )
+        for display, (attachments, truncated) in selected.items()
+    }
+
+
 def collect_ledger(day: str) -> dict:
     """踩点采集：达标群+跟进群+日报群、WhatsApp MCP、Vemory、VPS、回款。失败字段留空。"""
     ledger = empty_ledger(day)
@@ -3380,23 +3573,16 @@ def collect_ledger(day: str) -> dict:
     monthly_by_group = {group: metrics_for_owner(group, day) for group in {owner.group for owner in OWNERS}}
     quota_by_owner = {owner.display: monthly_by_group[owner.group]["mto_daily_count"] for owner in OWNERS}
 
-    def _ocr_one(item: tuple):
-        from app.mto_ocr import review_mto_images
-
-        return review_mto_images(item[1], item[2], max_images=max(int(ocr_max_images or 8), quota_by_owner[item[0]]))
-
-    # OCR 单独给时间预算：超时未读完的按「待确认」，绝不拖过整点推送（见 _parallel_map_deadline）。
-    ocr_results = _parallel_map_deadline(
-        _ocr_one,
+    # OCR 单独给时间预算：图片按负责人轮转进入同一队列；超时的人保留已核明细，
+    # 总数仍写「待确认」，绝不把部分结果当完整结果。
+    ocr_cache = _review_mto_inputs(
         ocr_inputs,
-        ocr_workers,
-        "督战官 MTO OCR",
-        ocr_budget,
+        quota_by_owner=quota_by_owner,
+        max_images=ocr_max_images,
+        workers=ocr_workers,
+        budget=ocr_budget,
+        qwen_enabled=bool(getattr(settings, "qwen_api_key", "")),
     )
-    ocr_cache: dict[str, tuple] = {
-        item[0]: (result or (None, [], []))
-        for item, result in zip(ocr_inputs, ocr_results)
-    }
     people: list[PersonRow] = []
     for owner in OWNERS:
         row = PersonRow(
@@ -3446,12 +3632,22 @@ def collect_ledger(day: str) -> dict:
                 )
                 # 业绩三关键词：到账（系统已录单）/ 水单（已付款未到账）/ 意向
                 row.perf_arrived_wan = row.mtd_wan
-                if not is_task_only(owner.group, owner.display):
-                    buckets = parse_performance_buckets(
-                        msgs, owner.im_user_id, arrived_wan=row.mtd_wan
-                    )
-                    row.perf_slip = buckets.get("slip") or []
-                    row.perf_intent = buckets.get("intent") or []
+                task_only = is_task_only(owner.group, owner.display)
+                buckets = parse_performance_buckets(
+                    msgs, owner.im_user_id, arrived_wan=row.mtd_wan
+                )
+                if not task_only:
+                    image_slips, image_intents, image_pending = image_performance_facts(row.mto_quotes, day)
+                    row.perf_slip = list(buckets.get("slip") or []) + image_slips
+                    row.perf_intent = list(buckets.get("intent") or []) + image_intents
+                    for evidence_text in image_pending:
+                        _push_evidence(row.evidence, evidence_text)
+                    pending_images = pending_group_image_count(msgs, owner.im_user_id, row.mto_quotes)
+                    if pending_images:
+                        _push_evidence(
+                            row.evidence,
+                            f"群图片{pending_images}张待核（未计入系统已录单业绩）",
+                        )
                     for item in (row.perf_slip + row.perf_intent)[:4]:
                         if item.get("amount_text"):
                             _push_evidence(row.evidence, item["amount_text"])
@@ -3463,6 +3659,22 @@ def collect_ledger(day: str) -> dict:
                             "海外日报已交"
                             f"{row.daily_report.get('item_count', 0)}项/"
                             f"{row.daily_report.get('spent_hours', 0)}h",
+                        )
+                else:
+                    # 三位仅追待办成员仍计正式 OKR 业绩；群内水单/意向只留待核证据，
+                    # 不进入 MTO/日报/WhatsApp 专项催办。
+                    for key, label in (("slip", "水单"), ("intent", "意向")):
+                        for item in list(buckets.get(key) or [])[:4]:
+                            amount_text = str(item.get("amount_text") or "金额待核")
+                            _push_evidence(
+                                row.evidence,
+                                f"群内{label}证据待核（未计入系统已录单业绩）：{amount_text}",
+                            )
+                    pending_images = pending_group_image_count(msgs, owner.im_user_id, [])
+                    if pending_images:
+                        _push_evidence(
+                            row.evidence,
+                            f"群图片{pending_images}张待核（未计入系统已录单业绩）",
                         )
             else:
                 row.mto_count, row.mto_names, row.mto_quotes = None, [], []

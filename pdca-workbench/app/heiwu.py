@@ -12,7 +12,7 @@
 规则来自群公告：开单奖金 18.8 元；销售金额 ≥1W 可退出小黑屋，
 红包 ≥1W 18.8 / ≥5W 38.8 / ≥10W 68.8；月底仍未开单扣 100（新人首月保护）。
 
-没配 PDCA_HEIWU_BOT_APP_ID / PDCA_HEIWU_BOT_APP_SECRET 时整条链路安静跳过（不报错、不发消息）。
+专用机器人凭证走推送接口；平台通知身份须另行显式配置，不能由 App ID 推定。
 """
 from __future__ import annotations
 
@@ -59,12 +59,11 @@ def bot_credentials() -> tuple[str, str]:
 def bot_credentials_effective() -> tuple[str, str]:
     """实际使用的机器人凭证：小黑屋专用优先，没配就回退到现有督战官机器人。
 
-    老板 2026-09-30："你自己现有的不能祝贺吗" —— 能，只要那个机器人已在群里
-    （vps-work im +add-bot）。等拿到「小黑屋管理员」的 App Secret，配上
-    PDCA_HEIWU_BOT_APP_ID/SECRET 就自动切过去。
+    显式专用 App ID 优先；专用凭证不完整时不切换到其他机器人。
+    未设置专用 App ID 才回退原督战官凭证。
     """
     app_id, app_secret = bot_credentials()
-    if app_id and app_secret:
+    if app_id:
         return app_id, app_secret
     return (
         os.environ.get("PDCA_DUZHAN_BOT_APP_ID", "").strip(),
@@ -74,7 +73,7 @@ def bot_credentials_effective() -> tuple[str, str]:
 
 def configured() -> bool:
     app_id, app_secret = bot_credentials_effective()
-    return bool(app_id and app_secret)
+    return bool((app_id and app_secret) or os.environ.get("PDCA_HEIWU_NOTIFY_AGENT_SLUG", "").strip())
 
 
 def _data_dir() -> Path:
@@ -254,6 +253,34 @@ def _reply(body: str, parent_message_id: str, idempotency_key: str) -> bool:
     from app.vps_im_push import push_as_bot
 
     app_id, app_secret = bot_credentials_effective()
+    notify_slug = os.environ.get("PDCA_HEIWU_NOTIFY_AGENT_SLUG", "").strip()
+    if notify_slug and not all(bot_credentials()):
+        # This platform notification identity is configured separately from the
+        # user robot App ID. Never silently switch to a human sender.
+        from app.todos.service import _send_with_body_file
+
+        bot_name = os.environ.get("PDCA_HEIWU_NOTIFY_BOT_NAME", "小黑屋任务督战官").strip()
+        args = ["im", "+agent-notify", "--agent-slug", notify_slug,
+                "--bot-key", notify_slug, "--bot-name", bot_name,
+                "--channel-id", channel_id(), "--target", "im",
+                "--event-id", idempotency_key, "--client-message-id", idempotency_key,
+                "--idempotency-key", idempotency_key]
+        if parent_message_id:
+            args += ["--parent-message-id", parent_message_id]
+        code, stdout, _stderr = _send_with_body_file(args, body, timeout=30.0)
+        try:
+            result = json.loads(stdout)
+        except (ValueError, TypeError):
+            result = {}
+        ok = code == 0 and isinstance(result, dict) and result.get("ok") is True
+        if ok:
+            message = result.get("message") or {}
+            logger.info("小黑屋发送成功 message_id={} dedupe_key={} channel={}",
+                        message.get("id", ""), idempotency_key, channel_id())
+        else:
+            logger.warning("小黑屋发送失败 exit_code={} dedupe_key={} channel={}",
+                           code, idempotency_key, channel_id())
+        return ok
     return push_as_bot(
         body,
         channel_id(),

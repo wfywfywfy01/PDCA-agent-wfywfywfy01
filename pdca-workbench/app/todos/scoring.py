@@ -96,7 +96,9 @@ def run_scoring(today: Optional[str] = None, dry_run: bool = False) -> dict:
     with Session(get_engine()) as session:
         rows = list(
             session.exec(
-                select(PdcaTask).where(PdcaTask.owner != "")
+                select(PdcaTask).where(
+                    PdcaTask.owner != "", PdcaTask.source != "heiwu_group_task"
+                )
             ).all()
         )
         project_name_by_id = {

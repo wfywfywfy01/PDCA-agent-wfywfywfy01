@@ -88,6 +88,13 @@ class TodoReminderTests(unittest.TestCase):
         self.assertEqual(round_label_for_time("16:30"), "afternoon")
         self.assertEqual(round_label_for_time("10:00"), "auto-1000")
 
+    def test_heiwu_tasks_stay_out_of_general_reminders_and_group_notice(self):
+        with Session(self.engine) as session:
+            _seed(session, title="普通待办", source="manual")
+            _seed(session, title="小黑屋学习作业", source="heiwu_group_task")
+        rows = list_pending_tasks(datetime.now().strftime("%Y-%m-%d"))
+        self.assertEqual([row.title for row in rows], ["普通待办"])
+
     def test_match_user_exact_and_ambiguous(self):
         users = [
             {"user_id": 1, "name": "何海文"},

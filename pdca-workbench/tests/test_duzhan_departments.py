@@ -127,7 +127,7 @@ class DepartmentCheckins(TestCase):
                      patch.object(dl, "fetch_channel_history", side_effect=fetch), \
                      patch.object(dl, "_mcp_bundle", return_value=(None, None, None)), \
                      patch("app.meeting_todos.block_for_group", return_value=""), \
-                     patch("app.mto_ocr.review_mto_images", return_value=(0, [], [])) as ocr:
+                     patch("app.mto_ocr.review_mto_attachment") as ocr:
                     row = dl.collect_ledger("2026-10-20")["people"][0]
                 self.assertEqual(row["history_ok"], not failed)
                 if failed:
@@ -135,7 +135,7 @@ class DepartmentCheckins(TestCase):
                     ocr.assert_not_called()
                 else:
                     self.assertEqual(row["mto_count"], 0)
-                    ocr.assert_called_once()
+                    ocr.assert_not_called()
 
     def test_invalid_history_response_remains_unavailable(self):
         from app.duzhan_ledger import fetch_channel_history

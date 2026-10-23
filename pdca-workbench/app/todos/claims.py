@@ -119,6 +119,7 @@ def collect_group_claims(today: str, dry_run: bool = False) -> dict:
             rows = list(
                 session.exec(
                     select(PdcaTask).where(
+                        PdcaTask.source != "heiwu_group_task",
                         (
                             (PdcaTask.owner == name)
                             | func.lower(PdcaTask.owner).in_(

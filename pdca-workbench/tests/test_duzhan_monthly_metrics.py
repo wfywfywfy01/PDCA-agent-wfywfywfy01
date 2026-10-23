@@ -127,25 +127,33 @@ class MonthlyMetricsTests(unittest.TestCase):
 
     def test_collection_ocr_limit_covers_the_saved_quota(self):
         from app import duzhan_ledger as dl
+        from app import mto_ocr
 
         self.assertEqual(self.save(mto_daily_count=10).status_code, 200)
         owner = next(owner for owner in dl.OWNERS if owner.display == "于冰")
-        quotes = [dict(wan=50, raw_ok=True, qualifies=True) for _ in range(10)]
+        quotes = [dict(model="Synthetic MTO", wan=50, raw_ok=True, qualifies=True) for _ in range(10)]
+        messages = [dict(message_type="image", sender_user_id=owner.im_user_id,
+                         created_at="2026-10-21T10:00:00+08:00",
+                         attachments=[dict(id=f"image-{index}", url=f"/image/{index}", attachment_type="image")])
+                    for index in range(10)]
         with patch("app.database.get_engine", return_value=self.engine), \
              patch.object(dl, "OWNERS", (owner,)), \
-             patch.object(dl, "get_settings", return_value=SimpleNamespace(todo_group_channel_id="report", mto_ocr_max_images=8)), \
+             patch.object(dl, "get_settings", return_value=SimpleNamespace(todo_group_channel_id="report", mto_ocr_max_images=8,
+                                                                            qwen_api_key="unit-test")), \
              patch.object(dl, "fetch_personal_okr", return_value=[]), \
              patch.object(dl, "load_vps_activity", return_value={}), \
              patch.object(dl, "fetch_vemory_day", return_value=[]), \
              patch.object(dl, "load_month_targets", return_value={}), \
              patch.object(dl, "warn_target_fallback"), \
              patch.object(dl, "_history_ids", return_value=["main"]), \
-             patch.object(dl, "fetch_channel_history", return_value=[]), \
+             patch.object(dl, "fetch_channel_history", side_effect=lambda channel, *_args: messages if channel == "main" else []), \
              patch.object(dl, "_mcp_bundle", return_value=(None, None, None)), \
              patch("app.meeting_todos.block_for_group", return_value=""), \
-             patch("app.mto_ocr.review_mto_images", return_value=(10, [], quotes)) as ocr:
+             patch.object(mto_ocr, "select_mto_attachments", wraps=mto_ocr.select_mto_attachments) as select, \
+             patch.object(mto_ocr, "review_mto_attachment", side_effect=quotes) as ocr:
             row = dl.collect_ledger("2026-10-21")["people"][0]
-        self.assertEqual(ocr.call_args.kwargs["max_images"], 10)
+        self.assertEqual(select.call_args.args[2], 10)
+        self.assertEqual(ocr.call_count, 10)
         self.assertEqual(row["mto_count"], 10)
 
     def test_truncated_ocr_is_pending_rather_than_a_shortfall(self):
@@ -163,6 +171,30 @@ class MonthlyMetricsTests(unittest.TestCase):
         detail = _detail_with_metrics({"rows": quotes, "qualified": 2, "complete": False},
                                       {"mto_daily_count": 3, "mto_min_wan": 30})
         self.assertIsNone(detail["goal_met"])
+
+    def test_saved_policy_excludes_explicit_non_mto_image_facts(self):
+        from app.duzhan_monthly_metrics import recheck_row
+
+        checked = recheck_row(
+            {
+                "history_ok": True,
+                "mto_count": 1,
+                "mto_quotes": [
+                    {"model": "Legacy MTO", "wan": 40, "raw_ok": True},
+                    {
+                        "document_type": "payment_receipt",
+                        "wan": 999,
+                        "raw_ok": True,
+                        "performance_amount": 45000,
+                        "performance_currency": "USD",
+                    },
+                ],
+            },
+            {"mto_daily_count": 4, "mto_min_wan": 30},
+        )
+
+        self.assertEqual(checked["mto_count"], 1)
+        self.assertEqual(len(checked["mto_quotes"]), 1)
 
     def test_vision_keeps_all_qualified_facts_for_large_quotas_and_cache(self):
         from app.agents import mto_vision_service as vision
@@ -210,9 +242,11 @@ class MonthlyMetricsTests(unittest.TestCase):
         self.assertEqual(self.save().status_code, 200)
         cached = dict(owner="于冰", day="2026-10-21", qualified=0, rows=[dict(wan=25, raw_ok=True,
                       qualifies=False, model="Real quote")], under_threshold=1, images=1, unread=0)
+        cache_key = f"detail:于冰:2026-10-21:{vision._messages_fingerprint([])}"
         with patch("app.duzhan_admin.runtime.using_db", return_value=True), \
              patch("app.database.get_engine", return_value=self.engine), \
-             patch.dict(vision._cache, {"detail:于冰:2026-10-21": (time.monotonic(), cached)}, clear=True), \
+             patch.dict(vision._cache, {cache_key: (time.monotonic(), cached)}, clear=True), \
+             patch("app.duzhan_ledger.fetch_channel_history", return_value=[]), \
              patch("app.mto_ocr.review_mto_images", side_effect=AssertionError("must reuse OCR")):
             detail = vision.review_owner_detail("于冰", "2026-10-21")
             self.assertEqual(detail["qualified"], 1)

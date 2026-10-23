@@ -113,7 +113,9 @@ def sync_pdca_tasks_from_csv(date_text: str) -> int:
         reader = csv.DictReader(fh)
         # 一次性拉取当日已有记录，避免逐行 SELECT（N+1 → 1）
         existing_rows = session.exec(
-            select(PdcaTask).where(PdcaTask.task_date == date_text)
+            select(PdcaTask).where(
+                PdcaTask.task_date == date_text, PdcaTask.source != "heiwu_group_task"
+            )
         ).all()
         existing_map: dict[str, PdcaTask] = {r.title: r for r in existing_rows}
         for row in reader:
