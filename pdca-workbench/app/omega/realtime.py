@@ -88,9 +88,12 @@ class VoiceControl:
         self.final_pcm_frames = 0
         self.input_activity = 0
         self.active_inputs: set[str] = set()
+        self.input_aliases: dict[str, str] = {}
         self.input_final = asyncio.Event()
         self.input_final.set()
         self.tail_incomplete = False
+        self.asr_started = self.asr_completed = self.asr_failed = 0
+        self.stop_reason = ""
         self.capacity_event = asyncio.Event()
         self.capacity_level = 0
 
@@ -859,6 +862,7 @@ async def _send_audio(ws: WebSocket, provider, engine, session_id: str,
         if now >= deadline:
             if control:
                 control.ending = True
+                control.stop_reason = "deadline"
             await asyncio.wait_for(ws.send_json({"type": "ending",
                 "message": "本次通话已达时长上限，请结束复盘后重新开练"}), 1)
             return frames
@@ -875,12 +879,14 @@ async def _send_audio(ws: WebSocket, provider, engine, session_id: str,
         except WebSocketDisconnect:
             if control:
                 control.ending = True
+                control.stop_reason = "disconnect"
             if browser_gone:
                 browser_gone.set()
             return frames
         if message["type"] == "websocket.disconnect":
             if control:
                 control.ending = True
+                control.stop_reason = "disconnect"
             if browser_gone:
                 browser_gone.set()
             return frames
@@ -889,6 +895,7 @@ async def _send_audio(ws: WebSocket, provider, engine, session_id: str,
             if message.get("text") == "stop":
                 if control:
                     control.ending = True
+                    control.stop_reason = "stop"
                 return frames
             if control:
                 try:
@@ -934,6 +941,8 @@ async def _watch_connection(ws: WebSocket, engine, session_id: str,
         capacity_level = getattr(control, "capacity_level", 0)
         if remaining <= 0 or capacity_level >= 2:
             control.ending = True
+            control.stop_reason = control.stop_reason or (
+                "capacity" if capacity_level >= 2 else "deadline")
             try:
                 await asyncio.wait_for(ws.send_json({"type": "ending",
                     "message": ("本次通话接近逐字稿上限，正在保存发言；结束复盘后可重新开练"
@@ -1123,6 +1132,10 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
         question_id = str(event.get("question_id") or
                           (active_question if kind and kind.startswith("response.output_") else ""))
         input_id = str(event.get("item_id") or event.get("question_id") or "")
+        if control and kind in {"conversation.item.input_audio_transcription.delta",
+                                "conversation.item.input_audio_transcription.completed"}:
+            input_id = control.input_aliases.get(input_id,
+                control.input_aliases.get(str(event.get("question_id") or ""), input_id))
         input_context = question_turns.get(input_id) or question_turns.get(str(event.get("question_id") or ""))
         blocked = response_id in interrupted or question_id in interrupted_questions
         if control and kind == "session.updated":
@@ -1131,7 +1144,14 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
         if kind == "error":
             raise RuntimeError("豆包实时语音处理失败")
         if kind == "session.closed":
+            if control and not control.stop_reason:
+                control.stop_reason = "provider_closed"
             return
+        if kind == "conversation.item.input_audio_transcription.failed":
+            if control:
+                control.asr_failed += 1
+                control.tail_incomplete = True
+            raise ValueError(_tail_error)
         if control and control.paused:
             if response_id:
                 control.blocked.add(response_id)
@@ -1173,6 +1193,10 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                     if control.pending_input:
                         control.pending_input = input_context
                 control.active_inputs.add(input_id)
+                control.input_aliases[input_id] = input_id
+                if event.get("question_id"):
+                    control.input_aliases[str(event["question_id"])] = input_id
+                control.asr_started += 1
                 control.input_activity += 1
                 control.input_final.clear()
                 question_turns[input_id] = input_context
@@ -1195,6 +1219,8 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                 await emit_json({"type": "caption", "speaker": "sales",
                                  "text": sales_text[item_id]})
         elif kind == "conversation.item.input_audio_transcription.completed":
+            if control:
+                control.asr_completed += 1
             item_id = input_id
             hypothesis = sales_text.pop(item_id, "")
             raw_content = str(event.get("text") or event.get("transcript") or hypothesis)
@@ -1399,7 +1425,11 @@ async def realtime_session(ws: WebSocket, session_id: str,
                     else "timeout" if isinstance(exc, TimeoutError)
                     else "provider_status" if isinstance(exc, InvalidStatus)
                     else "validation" if isinstance(exc, ValueError) else "stream_error")
-        logger.warning("Omega realtime stream ended: category={} phase={}", category, phase)
+        logger.warning("Omega realtime stream ended: category={} phase={} stop={} duration_s={} asr_open={} asr_started={} asr_completed={} asr_failed={}",
+                       category, phase, control.stop_reason or "unknown",
+                       round(asyncio.get_running_loop().time() - acquired_at, 1),
+                       len(control.active_inputs), control.asr_started, control.asr_completed,
+                       control.asr_failed)
         try:
             denied = (name == "doubao" and isinstance(exc, InvalidStatus)
                       and b"requested resource not granted" in exc.response.body)

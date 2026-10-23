@@ -153,3 +153,85 @@ class TranscriptionTests(unittest.TestCase):
     def test_receiver_rejects_conflicting_raw_for_same_provider_id(self):
         with self.assertRaisesRegex(ValueError, "重复事件"):
             self.receive_replayed_final("今天不急着订首单。")
+
+    def test_receiver_matches_final_question_alias_to_started_item(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+        control.sent_audio(b"\x01\x00")
+
+        class Browser:
+            async def send_json(self, event):
+                pass
+
+        class Provider:
+            events = iter([
+                {"type": "conversation.item.input_audio_transcription.started",
+                 "item_id": "started-item", "question_id": "same-question"},
+                {"type": "conversation.item.input_audio_transcription.completed",
+                 "question_id": "same-question", "text": "Synthetic final speech"},
+                {"type": "conversation.item.input_audio_transcription.completed",
+                 "item_id": "started-item", "text": "Synthetic final speech"},
+                {"type": "session.closed"},
+            ])
+
+            async def recv(self):
+                return json.dumps(next(self.events))
+
+        asyncio.run(_receive_doubao_audio(Browser(), Provider(), self.engine,
+            self.session_id, self.job_id, self.token, control=control))
+        self.assertFalse(control.active_inputs)
+        with Session(self.engine) as db:
+            saved = db.exec(select(OmegaSegment)).all()
+            self.assertEqual([part.text for part in saved], ["Synthetic final speech"])
+
+    def test_receiver_marks_explicit_asr_failure_without_inventing_transcript(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+        control.sent_audio(b"\x01\x00")
+        control._save("coaching")
+
+        class Browser:
+            async def send_json(self, event):
+                pass
+
+        class Provider:
+            events = iter([
+                {"type": "conversation.item.input_audio_transcription.started",
+                 "item_id": "failed-item", "question_id": "failed-question"},
+                {"type": "conversation.item.input_audio_transcription.failed",
+                 "question_id": "failed-question"},
+                {"type": "session.closed"},
+            ])
+
+            async def recv(self):
+                return json.dumps(next(self.events))
+
+        with self.assertRaisesRegex(ValueError, "语音尾稿未完成"):
+            asyncio.run(_receive_doubao_audio(Browser(), Provider(), self.engine,
+                self.session_id, self.job_id, self.token, control=control))
+        self.assertTrue(control.tail_incomplete)
+        with Session(self.engine) as db:
+            self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
+
+    def test_receiver_does_not_clear_active_input_for_unknown_final_id(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
+        control.sent_audio(b"\x01\x00")
+
+        class Browser:
+            async def send_json(self, event):
+                pass
+
+        class Provider:
+            events = iter([
+                {"type": "conversation.item.input_audio_transcription.started", "item_id": "known-item"},
+                {"type": "conversation.item.input_audio_transcription.completed",
+                 "item_id": "unknown-item", "text": "Unverified final"},
+                {"type": "session.closed"},
+            ])
+
+            async def recv(self):
+                return json.dumps(next(self.events))
+
+        asyncio.run(_receive_doubao_audio(Browser(), Provider(), self.engine,
+            self.session_id, self.job_id, self.token, control=control))
+        self.assertEqual(control.active_inputs, {"known-item"})
+        with Session(self.engine) as db:
+            self.assertEqual(db.exec(select(OmegaSegment)).all(), [])

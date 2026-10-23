@@ -163,7 +163,7 @@ class VoiceBoundaryTests(unittest.TestCase):
              patch.dict('os.environ', {'PDCA_OMEGA_REALTIME_PROVIDER': 'doubao', 'PDCA_DOUBAO_REALTIME_API_KEY': 'synthetic-no-network'}):
             await asyncio.wait_for(realtime_session(browser, self.session_id, db), 20)
         if commit_ack_only:
-            self.assertIn(('tail_incomplete', 'asr_tail'), [call.args[1:] for call in logged.call_args_list
+            self.assertIn(('tail_incomplete', 'asr_tail'), [call.args[1:3] for call in logged.call_args_list
                 if call.args and str(call.args[0]).startswith('Omega realtime stream ended')])
         with Session(self.engine) as db:
             job = db.get(OmegaJob, self.job_id)
