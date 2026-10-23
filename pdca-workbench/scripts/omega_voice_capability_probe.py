@@ -38,7 +38,12 @@ def _asr_probe_passed(events):
             pending.append(identifiers)
         elif kind == prefix + "completed":
             completed = True
-            pending = [known for known in pending if not known.intersection(identifiers)]
+            matches = [index for index, known in enumerate(pending)
+                       if known.intersection(identifiers)]
+            if len(matches) == 1:
+                pending.pop(matches[0])
+            else:
+                failed = True
         else:
             failed = True
     return started and completed and not pending and not failed

@@ -32,6 +32,11 @@ class ASRProbeTests(unittest.IsolatedAsyncioTestCase):
             {"type": COMPLETED, "question_id": "alias"},
         ]))
         self.assertFalse(capability._asr_probe_passed([
+            {"type": STARTED, "item_id": "one", "question_id": "shared"},
+            {"type": STARTED, "item_id": "two", "question_id": "shared"},
+            {"type": COMPLETED, "question_id": "shared"},
+        ]))
+        self.assertFalse(capability._asr_probe_passed([
             {"type": STARTED, "item_id": "one"},
             {"type": FAILED, "item_id": "one"},
         ]))
