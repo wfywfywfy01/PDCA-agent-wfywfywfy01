@@ -45,11 +45,11 @@ type ExtractedDraft = Partial<Omit<CaseDraft, 'goal' | 'score_weights' | 'dealer
 }
 type CaseRow = { id: string; kind?: string; title: string; team_key?: string; owner_id: number; revision: number; current_version: number; draft_confirmed: boolean; draft: CaseDraft }
 type Segment = { id: string; speaker: string; speaker_id?: string; source_speaker?: string; text: string; asr_original?: string; seq: number }
-type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string }
+type SessionRow = { id: string; case_id: string; team_key?: string; owner_id: number; assignment_id?: string | null; status: string; mode: string; created_at?: string; goal_timing?: string; case_version?: number; case_version_id?: string; case_snapshot?: CaseDraft; segments?: Segment[]; latest_report_id?: string; pending_job_id?: string; failed_turn_job_id?: string; report_blocked?: boolean; report_blocked_message?: string; report_partial?: boolean; report_warning?: string }
 type Job = { id: string; status: string; result_id: string; error: string; kind: string }
 type Quote = { segment_id: string; speaker: string; text: string; start: number; end: number }
 type Fact = { description?: string; reason?: string; quotes: Quote[] }
-type Report = { id: string; content: { outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; score_weights?: Record<string, number>; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string; outcome_verdict?: 'confirmed' | 'rejected' | null } }> }
+type Report = { id: string; content: { evidence_status?: 'incomplete'; incomplete_reason?: string; saved_segment_count?: number; saved_quotes?: Quote[]; outcome?: { status: string; reason: string; quotes: Quote[] }; dimensions?: Array<{ key: string; score: number | null; reason: string; quotes: Quote[] }>; score?: { earned: number; available: number; total: number | null }; score_weights?: Record<string, number>; commitments?: Fact[]; concession_costs?: Fact[]; hard_limit_findings?: Fact[]; next_practice?: string | Record<string, unknown>; hints_used?: Array<{ id: string }> }; reviews: Array<{ content: { comment: string; next_practice: string; outcome_verdict?: 'confirmed' | 'rejected' | null } }> }
 type DimensionResult = { score: number; maximum: number; percent: number; report_id: string } | null
 type Assignment = { id: string; case_id: string; team_key?: string; assignee_id: number; source_report_id: string | null; source_session_id: string | null; target_dimension: string; pass_percent: number; instructions: string; due_at: string | null; baseline: DimensionResult; baseline_quote: string | null; baseline_reason: string; attempts: Array<{ session_id: string; status: string; result: DimensionResult; passed: boolean; outcome_review?: 'confirmed' | 'rejected' | null }>; status: 'pending' | 'in_progress' | 'passed' }
 
@@ -761,18 +761,22 @@ async function finishSession() {
     chosenSession.value = ended
     activeJob.value = null
     await loadLists()
-    if (!ended.report_blocked && (ended.pending_job_id || textReady.value && ended.segments?.length)) {
+    if (ended.latest_report_id) {
+      report.value = await apiGet<Report>(`/api/omega/reports/${ended.latest_report_id}`)
+      notice.value = report.value.content.evidence_status === 'incomplete'
+        ? '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。' : '复盘已生成，对话和评分已保存。'
+    } else if (!ended.report_blocked && (ended.pending_job_id || textReady.value && ended.segments?.length)) {
       activeJob.value = ended.pending_job_id
         ? await apiGet<Job>(`/api/omega/jobs/${ended.pending_job_id}`)
         : await apiPost<Job>(`/api/omega/sessions/${sessionId}/reports`, { request_key: key() })
       schedulePoll()
-      notice.value = '对话已保存，正在生成复盘。'
+      notice.value = ended.report_partial ? '已保存可确认的对话，正在打开部分复盘；本场不能评分或达标。' : '对话已保存，正在生成复盘。'
     } else notice.value = ended.report_blocked ? ended.report_blocked_message || '本场对话不完整，无法评分；请新开一场。'
       : ended.segments?.length ? '对话已保存，可稍后生成复盘。' : '演练已结束，本场没有可复盘的对话。'
   })
 }
 async function makeReport() {
-  if (!chosenSession.value || !textReady.value || chosenSession.value.report_blocked) return
+  if (!chosenSession.value || chosenSession.value.report_blocked || (!textReady.value && !chosenSession.value.report_partial)) return
   await run(async () => {
     activeJob.value = await apiPost<Job>(`/api/omega/sessions/${chosenSession.value!.id}/reports`, { request_key: key() })
     schedulePoll()
@@ -795,7 +799,8 @@ async function pollJob() {
         const result = await apiGet<Report>(`/api/omega/reports/${job.result_id}`)
         if (chosenSession.value?.id !== sessionId) return
         report.value = result
-        notice.value = '复盘已生成，对话和评分已保存。'
+        notice.value = result.content.evidence_status === 'incomplete'
+          ? '部分复盘已保存；语音尾稿不完整，本场不能评分或达标。' : '复盘已生成，对话和评分已保存。'
       }
       await refreshSession()
       if (job.result_id) await loadLists()
@@ -823,7 +828,7 @@ async function reviewReport() {
   const reportId = report.value.id
   const comment = reviewText.value
   const practice = nextPractice.value
-  const verdict = outcomeVerdictInput.value
+  const verdict = report.value.content.evidence_status === 'incomplete' ? '' : outcomeVerdictInput.value
   await run(async () => {
     await apiPost(`/api/omega/reports/${reportId}/reviews`, { comment, next_practice: practice,
       ...(verdict ? { outcome_verdict: verdict } : {}) })
@@ -971,7 +976,7 @@ function controlVoice(action: 'pause' | 'resume') {
     if (voicePhase.value === 'pausing' || voicePhase.value === 'resuming') {
       failVoiceControl('状态确认超时，麦克风保持暂停。请重试恢复或结束通话。')
     }
-  }, 15000)
+  }, 55000)
   try { socket.send(JSON.stringify({ type: 'control', action, request_key: pendingControlKey, audio_epoch: voiceEpoch.value })) }
   catch (err) { failVoiceControl(`语音控制发送失败，麦克风保持暂停：${detail(err)}`) }
 }
@@ -1513,8 +1518,19 @@ onBeforeUnmount(() => {
             <p v-if="!realtimeReady && !textReady" class="omega-unavailable">当前未配置可用的语音或文字模型。</p>
             <div v-if="!realtimeReady" class="omega-session-footer"><span>结束后自动生成有原话证据的复盘。</span><button class="btn btn-ghost" type="button" :disabled="busy" @click="finishSession">{{ activeJob?.kind === 'turn' && activeJob.status !== 'succeeded' ? '结束本场（不评分）' : '结束并复盘' }}</button></div>
           </form>
-          <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ chosenSession.report_blocked ? '本场无法评分' : activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : '查看本场复盘' }}</strong><p v-if="chosenSession.report_blocked">{{ chosenSession.report_blocked_message || '本场对话不完整，无法评分。' }}已保存的原话仍可查看。</p><p v-else-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="!chosenSession.report_blocked && canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="!textReady || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : '生成复盘' }}</button></div>
+          <div v-if="chosenSession.status === 'ended' && !report" class="card omega-complete-controls"><div><p class="omega-kicker">本场已结束</p><strong>{{ chosenSession.report_blocked ? '本场无法评分' : activeJob && ['queued', 'running'].includes(activeJob.status) ? '复盘生成中…' : chosenSession.report_partial ? '可生成部分复盘' : '查看本场复盘' }}</strong><p v-if="chosenSession.report_blocked">{{ chosenSession.report_blocked_message || '本场对话不完整，无法评分。' }}已保存的原话仍可查看。</p><p v-else-if="chosenSession.report_partial">{{ chosenSession.report_warning || '语音尾稿未确认' }}。逐字稿可能缺失，部分复盘不能评分或达标。</p><p v-else-if="!textReady">复盘服务暂不可用。</p><p v-else>报告会引用本场对话原话。</p></div><button v-if="!chosenSession.report_blocked && canWrite(chosenSession.owner_id) && !(activeJob && ['queued', 'running'].includes(activeJob.status))" class="btn btn-primary" type="button" :disabled="(!textReady && !chosenSession.report_partial) || busy || !chosenSession.segments?.length" @click="makeReport">{{ activeJob?.status === 'failed' ? '重试复盘' : chosenSession.report_partial ? '生成部分复盘' : '生成复盘' }}</button></div>
           <section v-if="report" class="card pad omega-report"><h3>复盘报告</h3>
+            <div v-if="report.content.evidence_status === 'incomplete'" class="omega-partial-report">
+              <div role="alert"><strong>部分复盘，证据不完整，不能评分/达标</strong>
+                <p>{{ report.content.incomplete_reason || chosenSession.report_warning || '语音尾稿未完成' }}。逐字稿可能缺失，不能确认谈判成果。已保存的发言可在上方逐字稿核对。</p></div>
+              <h4>已保存原话</h4>
+              <blockquote v-for="quote in report.content.saved_quotes || []" :key="quote.segment_id + quote.start"><button type="button" class="omega-quote-link" @click="showQuote(quote)">“{{ quote.text }}” <small>查看第 {{ quoteNumber(quote) }} 条原话</small></button></blockquote>
+              <p v-if="!report.content.saved_quotes?.length">本场没有可引用的原话，请查看上方逐字稿。</p>
+              <button v-if="canWrite(chosenSession.owner_id)" class="btn btn-primary" type="button" :disabled="busy" @click="repeatPractice">再练一轮</button>
+              <h4>主管点评</h4><p v-for="(item, index) in report.reviews" :key="index">{{ item.content.comment }} <small>{{ item.content.next_practice }}</small></p>
+              <form v-if="['manager', 'admin'].includes(me?.role || '')" @submit.prevent="reviewReport"><label>点评<textarea v-model.trim="reviewText" minlength="5" required></textarea></label><label>下次练习<input v-model.trim="nextPractice"></label><button class="btn" type="submit" :disabled="busy">追加点评</button></form>
+            </div>
+            <template v-else>
             <p v-if="report.content.hints_used?.length" class="sub">本场使用了 {{ report.content.hints_used.length }} 次教练建议。评分仍依据本场原话。</p>
             <div class="omega-score-summary"><strong>{{ report.content.score?.total == null ? '证据不足' : `${report.content.score.total} 分` }}</strong><span>{{ report.content.score?.total == null ? `已获 ${report.content.score?.earned ?? 0} 分／可评分 ${report.content.score?.available ?? 0} 分，暂不折算总分` : '本场综合评分 · 满分 100' }}</span></div>
             <p class="sub">AI 评分用于训练建议。主管需核对原话与结论，再用于正式评价。</p>
@@ -1561,6 +1577,7 @@ onBeforeUnmount(() => {
               <button class="btn" type="submit" :disabled="busy">指派针对性练习</button>
             </form>
             </details>
+            </template>
           </section>
         </div>
         <div v-else-if="!setupOpen && chosenCase" class="card pad omega-case-detail">
@@ -1606,7 +1623,7 @@ onBeforeUnmount(() => {
       <div class="omega-call-center">
         <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting, 'is-paused': voicePhase !== 'live' }" aria-hidden="true"></div>
         <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'error' ? '演练已暂停' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>
-        <p>{{ voiceClosing ? voiceEndNotice || '正在保存语音尾稿…' : voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : voicePhase !== 'live' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
+        <p>{{ voiceClosing ? voiceEndNotice || '正在保存语音尾稿…' : voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : ['pausing', 'resuming'].includes(voicePhase) ? '正在保存上一句语音并确认状态，可能需要约 50 秒，请保持页面。' : voicePhase === 'coaching' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
         <div v-if="participants.length > 1" class="omega-participants" aria-label="对手参会人"><span v-for="person in participants" :key="person.id" :class="{ active: voiceSpeaking && currentSpeakerId === person.id }">{{ person.name }} · {{ person.role }}</span></div>
         <div v-if="voicePhase === 'coaching'" class="omega-private-coach" role="status"><p>{{ coachBusy ? '教练正在看本场对话…' : coachText || '可向教练求助，也可直接继续演练。' }}</p><button v-if="!coachBusy" class="btn btn-sm btn-ghost" type="button" @click="requestCoach">再给一条建议</button></div>
         <p v-if="coachError" class="omega-call-error" role="alert">{{ coachError }}</p>
@@ -1742,6 +1759,9 @@ onBeforeUnmount(() => {
 .omega-alert { color: var(--red); background: rgba(239, 68, 68, .12); }
 .omega-notice { color: var(--blue); background: var(--blue-soft); }
 .omega-report { margin-top: 2px; }
+.omega-partial-report { padding: 16px; border: 1px solid var(--red); border-radius: 10px; background: rgba(239, 68, 68, .08); }
+.omega-partial-report [role="alert"] strong { color: var(--red); }
+.omega-partial-report p { line-height: 1.6; }
 .omega-report-result { line-height: 1.6; }
 .omega-outcome-review { margin: 16px 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; }
 .omega-outcome-review legend { padding: 0 6px; font-weight: 600; }

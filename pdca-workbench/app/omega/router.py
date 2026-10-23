@@ -486,7 +486,13 @@ def session_view(db: Session, row: OmegaSession) -> dict:
     segments = session_segments(db, row.id)
     failed_turn = failed_turn_job(db, row, segments)
     blocked_message = voice_tail_error(db, row)
-    if not blocked_message and unanswered_turn_job(db, row, segments):
+    unanswered = unanswered_turn_job(db, row, segments)
+    partial_report = bool(latest_report and json.loads(latest_report.content_json).get("evidence_status") == "incomplete")
+    partial_report = partial_report or bool(row.status == "ended" and blocked_message and segments and not unanswered)
+    report_warning = blocked_message if partial_report else ""
+    if partial_report:
+        blocked_message = ""
+    if not blocked_message and unanswered:
         blocked_message = "最后一轮对手未回复；本场不能评分，请重新开练"
     return {
         "id": row.id, "case_id": row.case_id, "team_key": row.team_key, "mode": row.mode,
@@ -503,6 +509,8 @@ def session_view(db: Session, row: OmegaSession) -> dict:
         "failed_turn_job_id": failed_turn.id if failed_turn else "",
         "report_blocked": bool(blocked_message),
         "report_blocked_message": blocked_message,
+        "report_partial": partial_report,
+        "report_warning": report_warning,
         "segments": [
             {"id": segment.id, "seq": segment.seq, "speaker": segment.speaker,
              "text": segment.text, "source": segment.source,
@@ -718,7 +726,6 @@ def finish_session(
     row = db.exec(select(OmegaSession).where(OmegaSession.id == row.id)
                   .with_for_update().execution_options(populate_existing=True)).one()
     require_session_owner(user, row)
-    tail_error = voice_tail_error(db, row)
     realtime = db.exec(select(OmegaJob).where(
         OmegaJob.session_id == row.id, OmegaJob.kind == "realtime", OmegaJob.status == "running",
     ).with_for_update()).first()
@@ -732,11 +739,10 @@ def finish_session(
         realtime.lease_token = ""
         realtime.updated_at = utcnow()
         row.voice_state = "error"
-        tail_error = VOICE_STREAM_ORPHANED
     segments = session_segments(db, row.id)
     unanswered = unanswered_turn_job(db, row, segments)
     if row.status == "ended":
-        if segments and not tail_error and not unanswered:
+        if segments and not unanswered:
             enqueue_report(db, row)
             db.commit()
         elif realtime:
@@ -753,7 +759,7 @@ def finish_session(
     row.revision += 1
     row.ended_at = utcnow()
     row.transcript_hash = transcript_digest(segments)
-    if segments and not tail_error and not unanswered:
+    if segments and not unanswered:
         enqueue_report(db, row)
     db.commit()
     return session_view(db, row)
@@ -769,15 +775,10 @@ def voice_tail_error(db: Session, row: OmegaSession) -> str:
     return ""
 
 
-def require_complete_voice_tail(db: Session, row: OmegaSession) -> None:
-    if error := voice_tail_error(db, row):
-        raise HTTPException(409, error)
-
-
 def enqueue_report(db: Session, row: OmegaSession, request_key: str | None = None) -> OmegaJob:
     """Caller holds the session lock and commits with transcript/state changes."""
-    require_complete_voice_tail(db, row)
-    if unanswered_turn_job(db, row, session_segments(db, row.id)):
+    segments = session_segments(db, row.id)
+    if unanswered_turn_job(db, row, segments):
         raise HTTPException(409, "对手回复未完成，本场不能评分")
     from app.omega.coaching import report_hints_metadata
     from app.omega.memory import session_snapshot
@@ -785,7 +786,11 @@ def enqueue_report(db: Session, row: OmegaSession, request_key: str | None = Non
     if "report_hints_used" not in snapshot:
         snapshot["report_hints_used"] = report_hints_metadata(db, row)
         row.context_snapshot_json = canonical(snapshot)
-    request_hash = report_input_hash(row)
+    tail_error = voice_tail_error(db, row)
+    request_hash = (digest([row.id, row.transcript_hash, row.case_version_id,
+                            row.goal_timing, row.context_snapshot_json,
+                            row.context_source_session_ids_json, tail_error, "partial-v1"])
+                    if tail_error else report_input_hash(row))
     request_key = request_key or "auto-report-" + request_hash
     existing = db.exec(select(OmegaJob).where(
         OmegaJob.session_id == row.id, OmegaJob.kind == "report", OmegaJob.request_key == request_key,
@@ -800,6 +805,41 @@ def enqueue_report(db: Session, row: OmegaSession, request_key: str | None = Non
     ).order_by(OmegaJob.created_at.desc()).limit(1)).first()
     if same_input:
         return same_input
+    if tail_error:
+        # Later healthy streams cannot prove an earlier ASR tail was saved.
+        weights = snapshot.get("score_weights") or WEIGHTS
+        saved_quotes = []
+        for part in segments[-3:]:
+            excerpt = part.text[:160]
+            if excerpt:
+                quote = {"segment_id": part.id, "speaker": part.speaker,
+                         "start": 0, "end": len(excerpt), "text": excerpt}
+                if part.speaker_id:
+                    quote["speaker_id"] = part.speaker_id
+                saved_quotes.append(quote)
+        content = {
+            "evidence_status": "incomplete", "incomplete_reason": tail_error,
+            "saved_segment_count": len(segments), "saved_quotes": saved_quotes,
+            "goal_timing": row.goal_timing,
+            "outcome": {"status": "unverified", "reason": "语音尾稿未确认，本场可能缺少发言；无法判断目标是否达成。", "quotes": []},
+            "dimensions": [{"key": key, "score": None, "reason": "本场逐字稿可能缺失，无法评分。", "quotes": []}
+                           for key in weights],
+            "score_weights": weights,
+            "score": {"earned": 0, "available": 0, "coverage_percent": 0, "total": None},
+            "commitments": [], "concession_costs": [], "hard_limit_findings": [],
+            "next_practice": "核对已保存的逐字稿，重新练习可能缺失的关键环节后再评分。",
+            "hints_used": snapshot["report_hints_used"],
+        }
+        report = OmegaReport(session_id=row.id, input_hash=request_hash,
+                             content_json=canonical(content), rubric_version="partial-v1",
+                             prompt_version="none")
+        db.add(report)
+        job = OmegaJob(session_id=row.id, kind="report", request_key=request_key,
+                       request_hash=request_hash, input_hash=request_hash,
+                       session_revision=row.revision, priority=1,
+                       status="succeeded", result_id=report.id)
+        db.add(job)
+        return job
     job = OmegaJob(session_id=row.id, kind="report", request_key=request_key,
                    request_hash=request_hash, input_hash=request_hash,
                    session_revision=row.revision, priority=1)
