@@ -941,7 +941,7 @@ async def _watch_connection(ws: WebSocket, engine, session_id: str,
         capacity_level = getattr(control, "capacity_level", 0)
         if remaining <= 0 or capacity_level >= 2:
             control.ending = True
-            control.stop_reason = control.stop_reason or (
+            control.stop_reason = getattr(control, "stop_reason", "") or (
                 "capacity" if capacity_level >= 2 else "deadline")
             try:
                 await asyncio.wait_for(ws.send_json({"type": "ending",
@@ -1131,11 +1131,21 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
                           (active_response if kind and kind.startswith("response.output_") else ""))
         question_id = str(event.get("question_id") or
                           (active_question if kind and kind.startswith("response.output_") else ""))
-        input_id = str(event.get("item_id") or event.get("question_id") or "")
+        item_id = str(event.get("item_id") or "")
+        input_id = item_id or str(event.get("question_id") or "")
         if control and kind in {"conversation.item.input_audio_transcription.delta",
                                 "conversation.item.input_audio_transcription.completed"}:
-            input_id = control.input_aliases.get(input_id,
-                control.input_aliases.get(str(event.get("question_id") or ""), input_id))
+            item_alias = control.input_aliases.get(item_id)
+            question_alias = control.input_aliases.get(str(event.get("question_id") or ""))
+            if item_alias and question_alias and item_alias != question_alias:
+                control.tail_incomplete = True
+                raise ValueError(_tail_error)
+            input_id = item_alias or question_alias or input_id
+            if item_alias or question_alias:
+                if item_id:
+                    control.input_aliases.setdefault(item_id, input_id)
+                if event.get("question_id"):
+                    control.input_aliases.setdefault(str(event["question_id"]), input_id)
         input_context = question_turns.get(input_id) or question_turns.get(str(event.get("question_id") or ""))
         blocked = response_id in interrupted or question_id in interrupted_questions
         if control and kind == "session.updated":
@@ -1151,6 +1161,10 @@ async def _receive_doubao_audio(ws: WebSocket, provider, engine, session_id: str
             if control:
                 control.asr_failed += 1
                 control.tail_incomplete = True
+            raise ValueError(_tail_error)
+        if (control and kind == "conversation.item.input_audio_transcription.completed"
+                and not input_context and str(event.get("text") or event.get("transcript") or "").strip()):
+            control.tail_incomplete = True
             raise ValueError(_tail_error)
         if control and control.paused:
             if response_id:
