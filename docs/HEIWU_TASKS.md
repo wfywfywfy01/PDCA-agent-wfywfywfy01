@@ -19,6 +19,8 @@
 PDCA_HEIWU_TASKS_ENABLED=1
 PDCA_HEIWU_CHANNEL_ID=<目标群ID>
 PDCA_HEIWU_TASK_PUBLISHER_USER_IDS=<管理员用户ID，多个以逗号分隔>
+PDCA_HEIWU_TASK_EXCLUDED_NAMES=<排除的完整姓名，英文逗号分隔>
+PDCA_HEIWU_TASK_EXCLUDED_USER_IDS=<排除的用户ID，英文逗号分隔>
 PDCA_HEIWU_TASK_MORNING_TIME=10:00
 PDCA_HEIWU_TASK_EVENING_TIME=20:00
 PDCA_HEIWU_TASK_LOOKBACK_DAYS=21
@@ -30,6 +32,13 @@ PDCA_HEIWU_TASK_LOOKBACK_DAYS=21
 2. 平台通知机器人：配置已经验证的 `PDCA_HEIWU_NOTIFY_AGENT_SLUG` 与 `PDCA_HEIWU_NOTIFY_BOT_NAME`，通过已认证 CLI 的 `im +agent-notify --target im` 发送。此身份与原用户机器人不是同一对象；首次使用新 slug 时平台可能注册通知机器人，投产前须确认实际 sender ID。
 
 任务开关独立于旧的 `PDCA_HEIWU_ENABLED` 开单祝贺开关，不因启用任务跟进而自动开启祝贺。
+
+排除名单只作用于小黑屋任务：全员、点名派单均跳过，早晚发送前再次检查。
+姓名按完整名称或群内别名精确匹配，不做子串、同音或繁简转换；建议同时配置已核实的用户 ID，
+以覆盖改名、退群及尚未入群的账号。配置变更需重启服务。
+下一次同步或证据核对会将排除人员的未关闭任务停止为 `complete/excluded`，
+追加 `owner_exclusion` 事件，保留原派单、提交证据及催办次数；这表示不再跟进，不能视为完成交付。
+已终结任务不改写。即使群消息或成员采集失败，已有任务仍按排除名单停止，不发催办。
 
 ## 采集与业绩口径
 

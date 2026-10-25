@@ -282,6 +282,14 @@ class Settings:
             int(value.strip()) for value in os.environ.get("PDCA_HEIWU_TASK_PUBLISHER_USER_IDS", "").split(",")
             if value.strip().isdigit() and int(value.strip()) > 0
         )
+        self.heiwu_task_excluded_names = tuple(
+            value.strip() for value in os.environ.get("PDCA_HEIWU_TASK_EXCLUDED_NAMES", "").split(",")
+            if value.strip()
+        )
+        self.heiwu_task_excluded_user_ids = tuple(
+            int(value.strip()) for value in os.environ.get("PDCA_HEIWU_TASK_EXCLUDED_USER_IDS", "").split(",")
+            if value.strip().isdigit() and int(value.strip()) > 0
+        )
         self.heiwu_task_morning_time = os.environ.get("PDCA_HEIWU_TASK_MORNING_TIME", "10:00").strip()
         self.heiwu_task_evening_time = os.environ.get("PDCA_HEIWU_TASK_EVENING_TIME", "20:00").strip()
         self.heiwu_task_lookback_days = min(90, max(7, _env_int("PDCA_HEIWU_TASK_LOOKBACK_DAYS", "21")))
