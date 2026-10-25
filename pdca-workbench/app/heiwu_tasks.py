@@ -84,6 +84,23 @@ def _date_window(text: str, created: datetime, tz: ZoneInfo) -> tuple[date, date
     return start, due_local.astimezone(timezone.utc)
 
 
+def _owner_excluded(user_id: int | str | None, *names: str) -> bool:
+    """仅小黑屋任务使用；账号 ID 或完整姓名匹配，不做模糊/繁简匹配。"""
+    from app.config import get_settings
+
+    settings = get_settings()
+    excluded_ids = {str(value) for value in getattr(settings, "heiwu_task_excluded_user_ids", ())}
+    excluded_names = {
+        str(value).strip().lstrip("@").strip().casefold()
+        for value in getattr(settings, "heiwu_task_excluded_names", ())
+        if str(value).strip()
+    }
+    return bool(
+        str(user_id or "").strip() in excluded_ids
+        or any(str(name or "").strip().lstrip("@").strip().casefold() in excluded_names for name in names)
+    )
+
+
 def active_group_members(members: list[dict], publisher_user_id: int | str) -> list[dict]:
     """把群成员规范成真实用户；排除机器人、退群用户、发布管理员和无名用户。"""
     publisher = str(publisher_user_id)
@@ -107,6 +124,8 @@ def active_group_members(members: list[dict], publisher_user_id: int | str) -> l
             or ""
         ).strip()
         if not name:
+            continue
+        if _owner_excluded(user_id, name):
             continue
         seen_ids.add(user_id)
         result.append({"user_id": user_id, "name": name, "raw": raw})
@@ -323,6 +342,22 @@ def _cancel_row(row, *, reason: str, evidence_type: str, now: datetime) -> bool:
     return True
 
 
+def _exclude_row(row, *, now: datetime) -> bool:
+    """停止排除人员的未关闭任务，保留交付证据和催办历史。"""
+    owner_id = _assignment_record(row.evidence_json).get("owner_user_id")
+    if not _owner_excluded(owner_id, row.owner) or row.status in {"done", "complete", "completed"}:
+        return False
+    evidence = _evidence_items(row)
+    evidence.append({"evidence_type": "owner_exclusion", "recorded_at": now.isoformat()})
+    row.status = "complete"
+    row.verification_status = "excluded"
+    row.blocked_reason = "人员在排除名单内，不参与小黑屋任务跟进"
+    row.closed_at = now
+    row.updated_at = now
+    row.evidence_json = json.dumps(evidence, ensure_ascii=False)
+    return True
+
+
 def sync_assignment_messages(
     messages: list[dict],
     members: list[dict],
@@ -351,6 +386,9 @@ def sync_assignment_messages(
         by_ref = {row.source_ref: row for row in rows}
         by_message: dict[str, list] = {}
         for row in rows:
+            if _exclude_row(row, now=now):
+                session.add(row)
+                result["cancelled"] += 1
             by_message.setdefault(_source_message_id(row), []).append(row)
 
         for message in messages or []:
@@ -442,6 +480,8 @@ def sync_assignment_messages(
 
             for row in current_rows:
                 if row.source_ref in desired_refs:
+                    continue
+                if _owner_excluded(_assignment_record(row.evidence_json).get("owner_user_id"), row.owner):
                     continue
                 if _cancel_row(
                     row,
@@ -746,6 +786,9 @@ def reconcile_task_evidence(
             ).all()
         )
         for row in rows:
+            if _exclude_row(row, now=current):
+                session.add(row)
+                continue
             task = _task_from_row(row)
             decision = evaluate_task_evidence(
                 task,
@@ -1003,7 +1046,7 @@ def _round_groups(decisions: dict[str, list[dict]], *, round_name: str, current:
             if not _started(task, current, tz) or _reminded_today(task, round_name, current, tz):
                 continue
             owner_id = str(task.get("owner_user_id") or "")
-            if not owner_id:
+            if not owner_id or _owner_excluded(owner_id, task.get("owner", "")):
                 continue
             group = grouped.setdefault(owner_id, {"owner_user_id": owner_id, "owner": task["owner"], "tasks": []})
             group["tasks"].append((task, state))

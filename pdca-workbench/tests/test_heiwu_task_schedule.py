@@ -5,6 +5,24 @@ from unittest.mock import patch
 
 
 class HeiwuTaskScheduleTests(unittest.TestCase):
+    def test_exclusion_configuration_is_explicit_and_empty_by_default(self):
+        from app.config import Settings
+
+        with patch.dict(os.environ, {
+            "PDCA_HEIWU_TASK_EXCLUDED_NAMES": " 成员甲,成员乙 ,,",
+            "PDCA_HEIWU_TASK_EXCLUDED_USER_IDS": "101, 102,invalid,0,-1",
+        }):
+            settings = Settings()
+        self.assertEqual(settings.heiwu_task_excluded_names, ("成员甲", "成员乙"))
+        self.assertEqual(settings.heiwu_task_excluded_user_ids, (101, 102))
+        with patch.dict(os.environ, {
+            "PDCA_HEIWU_TASK_EXCLUDED_NAMES": "",
+            "PDCA_HEIWU_TASK_EXCLUDED_USER_IDS": "",
+        }):
+            settings = Settings()
+        self.assertEqual(settings.heiwu_task_excluded_names, ())
+        self.assertEqual(settings.heiwu_task_excluded_user_ids, ())
+
     def test_defaults_are_separate_from_congratulations(self):
         from app.config import Settings
 

@@ -29,6 +29,41 @@ def _members() -> list[dict]:
 
 
 class AssignmentParsingTests(unittest.TestCase):
+    def test_exclusions_cover_named_collective_names_and_ids_without_fuzzy_matching(self):
+        settings = SimpleNamespace(
+            heiwu_task_excluded_names=("销售甲", "王偉"),
+            heiwu_task_excluded_user_ids=(102,),
+        )
+        members = _members() + [
+            {"member_type": "user", "user_id": 106, "employee_name": "王偉"},
+            {"member_type": "user", "user_id": 107, "employee_name": "王伟"},
+            {"member_type": "user", "user_id": 108, "employee_name": "销售甲乙"},
+        ]
+        notice = {
+            "id": "exclude-notice", "sender_user_id": 100,
+            "created_at": "2026-10-25T01:00:00Z",
+            "body": "@所有人 今天完成客户复盘作业并提交",
+        }
+        with patch("app.config.get_settings", return_value=settings):
+            tasks = heiwu_tasks.parse_assignment_message(notice, members, publisher_user_id=100)
+            named = heiwu_tasks.parse_assignment_message(
+                dict(notice, body="销售甲：今天完成客户回访\n销售乙：今天完成客户复盘"),
+                members, publisher_user_id=100,
+            )
+        self.assertEqual({task["owner"] for task in tasks}, {"王伟", "销售甲乙"})
+        self.assertEqual(named, [])
+
+    def test_exclusion_name_uses_the_same_canonical_owner_as_existing_tasks(self):
+        members = [
+            {"member_type": "user", "user_id": 201, "employee_name": "正式姓名", "remark": "群别名"},
+            {"member_type": "user", "user_id": 202, "nickname": "群别名"},
+        ]
+        with patch("app.config.get_settings", return_value=SimpleNamespace(heiwu_task_excluded_names=("群别名",))):
+            roster = heiwu_tasks.active_group_members(members, 100)
+        self.assertEqual([(row["user_id"], row["name"]) for row in roster], [("201", "正式姓名")])
+        with patch("app.config.get_settings", return_value=SimpleNamespace(heiwu_task_excluded_user_ids=(201,202))):
+            self.assertEqual(heiwu_tasks.active_group_members(members, 100), [])
+
     def test_collective_notice_expands_active_users_except_publisher(self):
         message = {
             "id": "notice-1",
@@ -158,6 +193,74 @@ class AssignmentPersistenceTests(unittest.TestCase):
         }
         row.update(changes)
         return row
+
+    def test_exclusion_retires_existing_tasks_without_losing_evidence_or_crossing_scope(self):
+        notice = self._notice("今天产品卖点视频作业，请大家完成并提交群内")
+        heiwu_tasks.sync_assignment_messages(
+            [notice], _members(), channel_id="group-1", publisher_user_id=100
+        )
+        with Session(self.engine) as session:
+            row = session.exec(select(PdcaTask).where(PdcaTask.owner == "销售甲")).one()
+            original_evidence = json.loads(row.evidence_json)
+            original_evidence.append({"evidence_type": "im_message", "message_id": "delivered-video"})
+            row.evidence_json = json.dumps(original_evidence, ensure_ascii=False)
+            row.status = "evidence_submitted"
+            row.verification_status = "partial"
+            row.remind_count = 3
+            session.add(row)
+            for source, channel, status in (
+                ("meeting", "group-1", "pending"),
+                (heiwu_tasks.SOURCE, "group-2", "pending"),
+                (heiwu_tasks.SOURCE, "group-1", "done"),
+            ):
+                session.add(PdcaTask(task_date="2026-10-23", title="保留记录", owner="销售甲",
+                                     source=source, group_channel_id=channel, status=status,
+                                     verification_status="verified" if status == "done" else "unverified"))
+            session.commit()
+        settings = SimpleNamespace(heiwu_task_excluded_names=("销售甲",))
+        with patch("app.config.get_settings", return_value=settings):
+            first = heiwu_tasks.sync_assignment_messages(
+                [], [], channel_id="group-1", publisher_user_id=100
+            )
+            second = heiwu_tasks.sync_assignment_messages(
+                [notice], _members(), channel_id="group-1", publisher_user_id=100
+            )
+        self.assertEqual(first["cancelled"], 1)
+        self.assertEqual(second["cancelled"], 0)
+        self.assertEqual(second["created"], 0)
+        self.assertEqual(second["updated"], 0)
+        rows = self._rows()
+        excluded = next(row for row in rows if row.source_ref and row.owner == "销售甲")
+        self.assertEqual(excluded.status, "complete")
+        self.assertEqual(excluded.verification_status, "excluded")
+        self.assertIn("排除", excluded.blocked_reason)
+        self.assertEqual(excluded.remind_count, 3)
+        self.assertIsNotNone(excluded.closed_at)
+        evidence = json.loads(excluded.evidence_json)
+        self.assertEqual(evidence[:-1], original_evidence)
+        self.assertEqual(evidence[-1]["evidence_type"], "owner_exclusion")
+        self.assertEqual([row.status for row in rows if row.title == "保留记录"], ["pending", "pending", "done"])
+        self.assertEqual(next(row.verification_status for row in rows if row.status == "done"), "verified")
+
+    def test_incomplete_reconciliation_still_retires_excluded_owner_by_stable_id(self):
+        heiwu_tasks.sync_assignment_messages(
+            [self._notice("今天产品卖点视频作业，请大家完成并提交群内")],
+            _members(), channel_id="group-1", publisher_user_id=100,
+        )
+        with Session(self.engine) as session:
+            row = session.exec(select(PdcaTask).where(PdcaTask.owner == "销售甲")).one()
+            row.owner = "修改后的显示名"
+            session.add(row)
+            session.commit()
+        with patch("app.config.get_settings", return_value=SimpleNamespace(heiwu_task_excluded_user_ids=(101,))):
+            result = heiwu_tasks.reconcile_task_evidence(
+                [], channel_id="group-1", history_complete=False,
+                now=datetime(2026, 10, 25, 2, tzinfo=timezone.utc),
+            )
+        self.assertEqual({task["owner"] for items in result.values() for task in items}, {"销售乙"})
+        excluded = next(row for row in self._rows() if row.owner == "修改后的显示名")
+        self.assertEqual(excluded.verification_status, "excluded")
+        self.assertEqual(excluded.status, "complete")
 
     def test_repeat_is_idempotent_and_edit_reassigns_without_duplicate(self):
         collective = self._notice("今天产品卖点视频作业，请大家完成并提交群内")
@@ -545,6 +648,48 @@ class SourceFetchTests(unittest.TestCase):
 
 
 class RunRoundTests(AssignmentPersistenceTests):
+    def test_source_failure_still_stops_excluded_tasks_without_sending(self):
+        heiwu_tasks.sync_assignment_messages(
+            [self._notice("今天产品卖点视频作业，请大家完成并提交群内")],
+            _members(), channel_id="group-1", publisher_user_id=100,
+        )
+        settings = self._settings()
+        settings.heiwu_task_excluded_user_ids = (101,)
+        with patch("app.config.get_settings", return_value=settings), \
+             patch("app.heiwu.channel_id", return_value="group-1"), \
+             patch.object(heiwu_tasks, "fetch_group_history", return_value={
+                 "messages": [], "complete": False, "error": "upstream_error"}), \
+             patch.object(heiwu_tasks, "fetch_group_members", return_value={
+                 "members": [], "complete": False, "error": "upstream_error"}), \
+             patch("app.scheduler.run_ledger.claim_run", return_value=True), \
+             patch("app.scheduler.run_ledger.finish_run"), \
+             patch("app.heiwu._reply") as reply:
+            result = heiwu_tasks.run_round(
+                "morning", now=datetime(2026, 10, 25, 2, tzinfo=timezone.utc)
+            )
+        reply.assert_not_called()
+        self.assertEqual(result["reminded"], 0)
+        self.assertEqual(result["failed"], "upstream_error")
+        excluded = next(row for row in self._rows() if row.owner == "销售甲")
+        self.assertEqual(excluded.status, "complete")
+        self.assertEqual(excluded.verification_status, "excluded")
+        self.assertTrue(all(row.last_reminded_at is None for row in self._rows()))
+
+    def test_send_grouping_rechecks_exclusions_for_both_rounds(self):
+        decisions = {"submitted": [], "missing": [
+            {"owner": "销售甲", "owner_user_id": "101", "start_date": "2026-10-23"},
+            {"owner": "销售乙", "owner_user_id": "102", "start_date": "2026-10-23"},
+            {"owner": "销售丙", "owner_user_id": "103", "start_date": "2026-10-23"},
+        ], "progress": [], "pending": []}
+        settings = SimpleNamespace(heiwu_task_excluded_names=("销售甲",), heiwu_task_excluded_user_ids=(102,))
+        with patch("app.config.get_settings", return_value=settings):
+            for round_name in ("morning", "evening"):
+                groups = heiwu_tasks._round_groups(
+                    decisions, round_name=round_name,
+                    current=datetime(2026, 10, 25, 2, tzinfo=timezone.utc), tz=heiwu_tasks.LOCAL_TZ,
+                )
+                self.assertEqual([group["owner"] for group in groups], ["销售丙"])
+
     def _settings(self):
         return SimpleNamespace(
             heiwu_tasks_enabled=True,
