@@ -125,7 +125,7 @@ def active_group_members(members: list[dict], publisher_user_id: int | str) -> l
         ).strip()
         if not name:
             continue
-        if _owner_excluded(user_id, *_member_aliases({"name": name, "raw": raw})):
+        if _owner_excluded(user_id, name):
             continue
         seen_ids.add(user_id)
         result.append({"user_id": user_id, "name": name, "raw": raw})

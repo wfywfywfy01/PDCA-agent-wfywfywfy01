@@ -29,13 +29,13 @@ def _members() -> list[dict]:
 
 
 class AssignmentParsingTests(unittest.TestCase):
-    def test_exclusions_cover_named_collective_aliases_and_ids_without_fuzzy_matching(self):
+    def test_exclusions_cover_named_collective_names_and_ids_without_fuzzy_matching(self):
         settings = SimpleNamespace(
             heiwu_task_excluded_names=("销售甲", "王偉"),
             heiwu_task_excluded_user_ids=(102,),
         )
         members = _members() + [
-            {"member_type": "user", "user_id": 106, "employee_name": "新显示名", "remark": "王偉"},
+            {"member_type": "user", "user_id": 106, "employee_name": "王偉"},
             {"member_type": "user", "user_id": 107, "employee_name": "王伟"},
             {"member_type": "user", "user_id": 108, "employee_name": "销售甲乙"},
         ]
@@ -52,6 +52,17 @@ class AssignmentParsingTests(unittest.TestCase):
             )
         self.assertEqual({task["owner"] for task in tasks}, {"王伟", "销售甲乙"})
         self.assertEqual(named, [])
+
+    def test_exclusion_name_uses_the_same_canonical_owner_as_existing_tasks(self):
+        members = [
+            {"member_type": "user", "user_id": 201, "employee_name": "正式姓名", "remark": "群别名"},
+            {"member_type": "user", "user_id": 202, "nickname": "群别名"},
+        ]
+        with patch("app.config.get_settings", return_value=SimpleNamespace(heiwu_task_excluded_names=("群别名",))):
+            roster = heiwu_tasks.active_group_members(members, 100)
+        self.assertEqual([(row["user_id"], row["name"]) for row in roster], [("201", "正式姓名")])
+        with patch("app.config.get_settings", return_value=SimpleNamespace(heiwu_task_excluded_user_ids=(201,202))):
+            self.assertEqual(heiwu_tasks.active_group_members(members, 100), [])
 
     def test_collective_notice_expands_active_users_except_publisher(self):
         message = {
