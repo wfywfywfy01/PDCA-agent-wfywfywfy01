@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>增长飞轮</title>
+<link rel="stylesheet" href="/shared/partner-traffic.css">
 <style>
   body{font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif;margin:0;background:#f5f6f8;color:#222}
   header{background:#111;color:#e8c77a;padding:14px 24px;font-size:18px;font-weight:600}
-  main{max-width:1200px;margin:0 auto;padding:16px;display:grid;gap:16px}
-  section{background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  main{max-width:1200px;margin:0 auto;padding:16px;display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+  section{background:#fff;border-radius:8px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);min-width:0;overflow:auto}
   h2{margin:0 0 12px;font-size:16px}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
   input,select,textarea{font:inherit;padding:6px 8px;border:1px solid #ccd;border-radius:4px}
@@ -90,6 +91,12 @@
     <div class="muted">修改建议会抓取选中文章全文 + 你的流量表，给出标题/meta/结构/关键词的可执行改法；生成结果见下方「内容列表」，可推审核群。</div>
   </section>
 
+  <section aria-label="第五路径Partner页面流量">
+    <div class="row"><button id="partnerLoad" class="sec" onclick="loadPartnerTraffic()">载入 Partner 流量</button><button id="partnerRefresh" class="sec" onclick="loadPartnerTraffic(true)">同步 GA4</button></div>
+    <p id="partnerStatus" class="muted" role="status">第5路径 · SEO / GEO：读取正式站点的招募入口与Partner内容文章。</p>
+    <div id="partnerTraffic"></div>
+  </section>
+
   <section>
     <h2>5. 内容列表</h2>
     <div class="row"><select id="fKind" onchange="loadContents()"><option value="">全部</option>
@@ -100,11 +107,25 @@
   </section>
 </main>
 <div id="msg"></div>
+<script src="/shared/partner-traffic.js"></script>
 <script>
 const KIND = {seo:'SEO', geo:'GEO', email:'开发信', ad:'投流', seo_fix:'SEO修改建议', seo_idea:'SEO新选题',
   product:'产品', service:'服务', dealer:'经销商', dossier:'背调'};
 const STATUS = {draft:'草稿', pushed:'已推审核', sent:'已发送', paused:'已止损暂停'};
 const contentActions = new Set();
+
+async function loadPartnerTraffic(refresh=false) {
+  const button=document.getElementById('partnerLoad'),sync=document.getElementById('partnerRefresh');
+  if(button.disabled)return;
+  button.disabled=sync.disabled=true;
+  const status=document.getElementById('partnerStatus');status.textContent=refresh?'正在同步GA4…':'正在读取Partner流量…';
+  try {
+    const report=await api('/seo/partner-traffic'+(refresh?'?refresh=true':''));
+    window.PartnerTraffic.mount(document.getElementById('partnerTraffic'),report);
+    status.textContent=report.error?'同步失败，保留原日期快照：'+report.error:'已载入第5路径流量；统计周期见报表，不计为客户或成交。';
+  } catch(error) {status.textContent='Partner流量 N/A：'+error.message+'；已有报表保留原日期。';}
+  finally {button.disabled=sync.disabled=false;}
+}
 
 /**
  * 调用后端 API，失败抛出带后端 detail 的错误。

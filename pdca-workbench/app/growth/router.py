@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlmodel import Session, func, select
@@ -118,6 +118,19 @@ async def seo_posts(_: Manager, limit: int = 200):
     """vertu.com 海外站文章清单（钉 CDN IP 直连，只读）。"""
     from app.growth import fetcher
     return await asyncio.to_thread(fetcher.list_posts, min(max(limit, 1), 500))
+
+
+@router.get("/seo/partner-traffic")
+async def partner_traffic(_: Manager, days: int = Query(28, ge=1, le=90), refresh: bool = False):
+    """Route-5 page traffic. Authentication stays on the backend; no customer attribution."""
+    from app.growth import ga4, partner_traffic as traffic
+
+    if not ga4.configured() and not os.environ.get(traffic.SNAPSHOT_ENV):
+        raise HTTPException(503, "Partner流量未配置：需要GA4服务账号或已核报表快照")
+    try:
+        return await asyncio.to_thread(traffic.briefing, days, force=refresh)
+    except ga4.Ga4Error as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.post("/seo/review")
