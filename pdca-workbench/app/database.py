@@ -155,6 +155,7 @@ def init_db(apply_patches: bool = True) -> None:
     from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
     from app.models.scheduled_job_run import ScheduledJobRun  # noqa: F401
     from app.growth import models as growth_models  # noqa: F401
+    from app.customer_lifecycle import models as customer_lifecycle_models  # noqa: F401
     from app.agents.models import (  # noqa: F401
         AgentDraft,
         AgentEvent,

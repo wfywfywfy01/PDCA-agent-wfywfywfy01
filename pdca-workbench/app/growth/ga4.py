@@ -76,6 +76,8 @@ def _post(url: str, body: bytes, content_type: str, token: str = "") -> dict:
 def _access_token(account: dict) -> str:
     from jose import jwt
 
+    if account.get("type") != "service_account" or account.get("token_uri") != "https://oauth2.googleapis.com/token":
+        raise Ga4Error("服务账号类型或Google令牌端点不匹配")
     now = int(time.time())
     claims = {
         "iss": account["client_email"],

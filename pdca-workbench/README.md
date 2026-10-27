@@ -27,6 +27,24 @@ python run.py
 
 本地回归不会发送真实邮件。PostgreSQL 并发测试只在显式提供本机隔离测试库 `PDCA_TEST_POSTGRES_URL` 时运行，每项使用独立 schema；不要指向生产库。
 
+## Partner 页面流量（第 5 路径 SEO / GEO）
+
+`/growth` 的 Partner 流量区使用 `GET /api/growth/seo/partner-traffic`（manager/admin）。复用 GA4 服务账号的 `analytics.readonly` 权限，通过 OAuth JWT 和 Google Analytics Data API `runReport` 只读取数。密钥只保存在后端；测量 ID 本身不能代替服务账号授权。
+
+- 默认取 GA4 属性时区 `Asia/Hong_Kong` 下最近 28 个完整自然日；`days` 支持 1–90。正式主机限定 `vertu.com` / `www.vertu.com`。招募页 `/partners` 及语言版本与 `/news/partners` 文章分别查询，其他仅包含 partner 字样的页面不纳入。
+- 主报告排除媒介 `qa` 或来源 `codex_prod_canary` / `codex_release_test`。原始及已标记 QA 总量单独查询供核对；不能用用户数相减。未标记内部访问仍可能存在，保留来源明细供核查。
+- PV、会话、活跃用户、互动会话分别展示；SEO 以 GA4 `Organic Search` 渠道识别，可识别 AI 来源白名单仅作 GEO 观察，不能覆盖来源丢失或搜索内 AI 结果。两个范围、每日、页面和来源的用户数/会话不相加为总数。
+- 全部分页和独立汇总查询成功后才原子替换快照。缺行显示 `N/A`，抽样/阈值/高基数警告保留。获取时间及实际业务日期始终展示，超过 24 小时或日期落后标为过期；刷新失败保留兼容快照及原日期，不能制造新数据。
+- 流量不会创建客户、变更生命周期或计为线索、订单、回款。表单与客户的可靠关联尚未接入。
+
+在可访问 Google 的机器上运行（路径仅为占位）：
+
+```bash
+python scripts/sync_partner_traffic.py --credentials-zip /secure/ga4-credentials.zip --output /private/partner-traffic.json
+```
+
+脚本只在内存中读取压缩包内的配置和服务账号，不解压或执行附带脚本。也可省略 `--credentials-zip`，复用后端 `PDCA_GROWTH_GA4_PROPERTY_ID` 与 `PDCA_GROWTH_GA4_SA_FILE`。可用 `--end-date YYYY-MM-DD` 重取已结束的历史日期范围。配置 `PDCA_GROWTH_PARTNER_GA4_SNAPSHOT` 指向生成文件后，页面默认读快照；“同步 GA4”会重新查询并在成功后更新文件。这里没有自动定时同步。凭据、真实报告、截图均不得提交 Git。
+
 ## 首次管理员
 
 系统不再创建固定密码账号。首次建库时，在 `.env` 中临时设置：

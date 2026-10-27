@@ -44,6 +44,7 @@ from app.export.router import router as export_router
 from app.todos.router import router as todos_router
 from app.walkin.router import router as walkin_router
 from app.acquisition.router import router as acquisition_router
+from app.customer_lifecycle.router import router as customer_lifecycle_router
 from app.knowledge.router import router as knowledge_router
 from app.knowledge.mcp import knowledge_mcp, knowledge_mcp_app
 from app.mcp_five_kit import five_kit_mcp, five_kit_mcp_app
@@ -330,6 +331,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 app.include_router(auth_router)
 app.include_router(acquisition_router)
+app.include_router(customer_lifecycle_router)
 app.include_router(knowledge_router)
 app.include_router(dashboard_router)
 app.include_router(walkin_router)

@@ -28,6 +28,7 @@ from app.models.im_replies import ImRemindSend, TodoReply  # noqa: F401
 from app.models.scheduled_job_run import ScheduledJobRun  # noqa: F401
 from app.omega import models as omega_models  # noqa: F401
 from app.omega import memory_models, coaching_models  # noqa: F401
+from app.customer_lifecycle import models as customer_lifecycle_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

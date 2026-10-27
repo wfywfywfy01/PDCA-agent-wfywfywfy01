@@ -605,6 +605,18 @@ async def growth_page(
     return _html_file(html_path)
 
 
+@router.get("/customer-lifecycle")
+@router.get("/customer-lifecycle/")
+async def customer_lifecycle_page(
+    user: Annotated[User, Depends(get_current_user)] = None,
+):
+    """Serve the customer workspace under the standard PDCA login checks."""
+    html_path = get_settings().frontend_dir / "customer-lifecycle.html"
+    if not html_path.is_file():
+        raise HTTPException(status_code=404, detail="customer-lifecycle.html 缺失")
+    return _html_file(html_path)
+
+
 @router.get("/dealer-sellin")
 @router.get("/dealer-sellin/")
 async def dealer_sellin_page(

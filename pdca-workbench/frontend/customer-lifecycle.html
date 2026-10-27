@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>客户全生命周期 · PDCA</title>
+  <link rel="stylesheet" href="/shared/shell.css">
+  <style>
+    :root{color-scheme:light;--ink:#252c28;--muted:#677268;--line:#dfe5dd;--paper:#fff;--canvas:#f5f6f3;--gold:#9b783d;--gold-soft:#f6f0e2;--blue:#315db5;--danger:#a44036;--green:#35684e;font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+    *{box-sizing:border-box}body{margin:0;min-width:320px;background:var(--canvas);color:var(--ink);font-size:13px;line-height:1.6}button,input,select,textarea{font:inherit}button,select{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.5}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}button,input,select,textarea,a{outline-offset:3px}:focus-visible{outline:2px solid var(--blue)}[hidden]{display:none!important}h1,h2,h3,p{margin:0}h1{font-size:27px;line-height:1.4;letter-spacing:-.5px}h2{font-size:16px}h3{font-size:13px}.mono{font-variant-numeric:tabular-nums}.muted{color:var(--muted)}.small{font-size:12px}.eyebrow{font-size:10px;letter-spacing:1.3px;color:var(--gold);font-weight:650}.skip{position:fixed;left:15px;top:10px;z-index:200;background:#fff;padding:9px;transform:translateY(-200%)}.skip:focus{transform:none}
+    .module-header{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:65px;padding:12px 30px;background:#242b25;border-bottom:2px solid #b4955d;color:#f0eadc}.module-brand{display:flex;align-items:center;gap:14px}.module-brand strong{font:24px Georgia,serif;letter-spacing:3px}.module-brand span{border-left:1px solid #626c5b;padding-left:14px;font-size:13px;color:#d4dacd}.module-header nav{display:flex;gap:9px}.module-header a{font-size:12px;color:#e8e5d9;border:1px solid #65715c;border-radius:5px;padding:7px 10px}.workspace{width:min(1380px,100%);margin:auto;padding:28px 30px 40px}.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:18px}.page-head .eyebrow{margin-bottom:6px}.page-head p{margin-top:7px;color:var(--muted)}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:7px 13px;border:1px solid var(--line);border-radius:5px;background:#fff;color:#43553b;text-decoration:none;font-size:12px}.button:hover{background:#f3f6ed}.button.primary{background:#2d3b2c;border-color:#2d3b2c;color:#fff}.button.danger{color:var(--danger);border-color:#d9b3ad}.button.link{border:0;background:transparent;padding:4px 0;min-height:28px;color:var(--blue);text-align:left}.icon-button{display:grid;place-items:center;border:1px solid transparent;border-radius:4px;width:32px;height:32px;background:transparent;font-size:21px;color:#64735c}.icon-button:hover{background:#f1f5eb}
+    .connection-strip{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 15px;border:1px solid #d9dece;border-radius:6px;background:#fcfdf9;font-size:12px}.connection-strip strong{display:flex;align-items:center;gap:7px;font-weight:600}.connection-strip strong::before{content:"";width:6px;height:6px;flex:0 0 auto;border-radius:50%;background:#8e9b83}.connection-strip.ok strong::before{background:#4a8060}.connection-strip.error{border-color:#e1beb7;background:#fcf3ef}.connection-strip.error strong{color:#9b4437}.connection-strip.error strong::before{background:#a45443}.connection-strip p{font-size:11px;color:var(--muted);margin-top:4px;max-width:900px}.connection-strip .retry{flex:0 0 auto}.context-notes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:17px 0;color:var(--muted);font-size:11px}.context-notes strong{color:#526148;font-weight:600}.panel{border:1px solid var(--line);background:#fff;border-radius:7px;min-width:0;overflow:hidden}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:17px 20px;border-bottom:1px solid var(--line)}.panel-head p{color:var(--muted);font-size:11px;margin-top:3px}.count{font-size:11px;color:var(--muted);margin-left:8px;font-weight:400}.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:0 17px}.tab{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);padding:13px 12px;font-size:12px}.tab[aria-selected="true"]{color:#755d33;border-bottom-color:#ad8b4f;font-weight:650}.tab .pill{margin-left:6px}
+    .filters{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;padding:17px 20px}.filter{display:grid;gap:5px;font-size:10px;color:var(--muted);min-width:125px}.filter.search{flex:1;min-width:200px}.filter input,.filter select{height:35px;width:100%;font-size:12px;padding:6px 9px;border:1px solid #d3dccd;border-radius:4px;background:#fff;color:var(--ink)}.filter-meta{padding:0 20px 12px;color:var(--muted);font-size:11px}.table-wrap{overflow-x:auto;width:100%;overscroll-behavior-x:contain}table{width:100%;border-collapse:collapse;text-align:left;min-width:880px;font-size:12px}th{font-weight:500;font-size:11px;color:#6d7965;padding:11px 15px;background:#f7f9f3;border-block:1px solid #e7ecdf;white-space:nowrap}td{padding:14px 15px;border-bottom:1px solid #ecf0e6;vertical-align:top;max-width:280px;overflow-wrap:anywhere}th:first-child,td:first-child{padding-left:20px}tr:last-child td{border-bottom:0}tbody tr:hover{background:#fafcf7}.customer-link{display:block;border:0;background:transparent;color:#405a31;padding:0;text-align:left;font-size:12px;font-weight:650}.customer-link:hover{text-decoration:underline}td small{display:block;margin-top:4px;color:var(--muted);font-size:10px}.pill{display:inline-block;padding:3px 6px;font-size:10px;line-height:1.5;border-radius:3px;background:#f1f3ed;color:#65725c;white-space:nowrap}.pill.gold{background:#f8f0de;color:#86672f}.pill.blue{background:#edf2fb;color:#486ca6}.pill.green{background:#edf6eb;color:#4a7541}.pill.red{background:#fbede7;color:#a35d48}.route-pills{display:flex;align-items:center;flex-wrap:wrap;gap:4px}.empty{display:grid;justify-items:center;gap:7px;padding:52px 22px;text-align:center;color:var(--muted);font-size:12px}.empty strong{color:#57684c;font-size:15px;font-weight:550}.empty .empty-icon{font:32px Georgia,serif;color:#a4af95;margin-bottom:6px}.pagination{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap;padding:13px 20px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}.pagination .actions{gap:10px}.pagination .button{min-height:28px;padding:3px 9px;font-size:11px}.notice{padding:11px 13px;border:1px solid #dae1d3;border-left:3px solid #97ab82;border-radius:3px;background:#f7faf1;font-size:12px;line-height:1.8;color:#5f7250}.notice.error{background:#fcf1ed;border-color:#ebcdc3;border-left-color:#b8735c;color:#9d4839}.notice.success{background:#f0f7ed;border-color:#d2e2c5;color:#436d31}.notice + .notice{margin-top:8px}.notice a{font-weight:600}.page-notice{margin:15px 0}.footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--muted);padding-top:20px}.footer span:first-child{letter-spacing:.6px}
+    dialog{color:var(--ink);background:#fff;border:1px solid var(--line);padding:0}dialog::backdrop{background:#19231577;backdrop-filter:blur(2px)}.drawer{position:fixed;inset:0 0 0 auto;margin:0;width:620px;max-width:100vw;height:100dvh;max-height:100dvh;border:0;border-left:1px solid #d2ddc6;overflow-y:auto;box-shadow:-10px 0 60px #14230d22}.dialog-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:63px;padding:14px 24px;background:#ffffffed;border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}.dialog-head .eyebrow{color:#7d896f}.drawer-content{padding:24px;overflow-wrap:anywhere}.detail-title{font-size:23px;color:#3e552f;line-height:1.45;margin:9px 0}.detail-meta{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-size:11px;color:var(--muted)}.detail-section{border-top:1px solid var(--line);padding-top:22px;margin-top:23px}.detail-section h3{margin-bottom:12px;color:#516745}.detail-section > p{font-size:12px;color:var(--muted);margin:8px 0;line-height:1.85}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px 18px}.field{display:grid;align-content:start;gap:6px;margin:0;font-size:11px;color:#69785e;font-weight:500;min-width:0}.field.full{grid-column:1/-1}.field input,.field select,.field textarea{min-width:0;width:100%;font-size:12px;padding:9px 10px;border:1px solid #cfd9c7;background:#fff;color:var(--ink);border-radius:4px}.field textarea{min-height:80px;resize:vertical}.field input:disabled,.field textarea:disabled,.field select:disabled{background:#f5f7f1;color:#78866e}.field small{font-weight:400;color:var(--muted);font-size:10px}.form-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}.form-status{font-size:11px;color:var(--muted);line-height:1.7}.field-value{font-size:12px;color:#425b32;font-weight:550;overflow-wrap:anywhere}.detail-summary{margin:20px 0}.detail-summary .field{padding:11px;border:1px solid #e2e9d8;border-radius:4px;background:#fafcf6}.timeline{display:grid}.timeline-item{position:relative;display:flex;gap:12px;padding:0 0 21px;font-size:12px}.timeline-item::before{content:"";position:absolute;left:4px;top:8px;bottom:0;width:1px;background:#dbe6d0}.timeline-item:last-child::before{display:none}.timeline-dot{position:relative;z-index:1;flex:0 0 auto;width:9px;height:9px;margin-top:5px;border:2px solid #a7be91;border-radius:50%;background:#fff}.timeline-copy{flex:1;min-width:0}.timeline-copy strong{font-weight:600;color:#4e693c}.timeline-copy p{font-size:11px;margin:4px 0;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}.timeline-copy small{display:block;font-size:10px;color:var(--muted);margin-top:5px}.evidence{margin-top:9px;padding:10px 12px;border:1px solid #e1e8d7;border-radius:4px;background:#f8faf5;font-size:11px;color:#66775a;line-height:1.85;overflow-wrap:anywhere}.evidence strong{display:block;color:#586d4a;font-weight:550}.evidence a{overflow-wrap:anywhere}.evidence .quote{white-space:pre-wrap;border-left:2px solid #c1d1ad;padding-left:9px;margin-top:6px}.proposal{border:1px solid #dfe6d6;border-radius:5px;padding:15px;margin-bottom:12px}.proposal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.proposal h3{font-size:13px;color:#4d663a}.proposal p{font-size:12px;white-space:pre-wrap;margin:9px 0;color:var(--muted);line-height:1.8}.proposal small{display:block;color:var(--muted);font-size:10px;margin:5px 0}.proposal .actions{margin-top:12px}.queue-content{padding:20px}.queue-content > .empty{padding:35px 18px}.queue-note{margin-bottom:15px}.readonly-note{font-size:11px;color:#85682e;padding:9px 11px;background:#faf5e7;border:1px solid #e9ddc1;border-radius:4px;margin-top:14px}.compact-dialog{width:min(630px,calc(100vw - 26px));max-height:calc(100dvh - 30px);border-radius:7px;overflow:auto;box-shadow:0 18px 80px #14230d33}.dialog-body{padding:22px}.checkbox-label{display:flex;align-items:flex-start;gap:9px;font-size:12px;color:#5b6d4d;font-weight:400;margin-top:16px}.checkbox-label input{width:16px;height:16px;padding:0;margin:3px 0 0;flex:0 0 16px}.financial-note{margin:11px 0;color:#8c6b35;font-size:11px;line-height:1.85}.toast{position:fixed;bottom:23px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);border:1px solid #526447;border-radius:6px;background:#2d3d26;color:#f0f4e7;padding:11px 18px;z-index:200;font-size:12px}.sr-only{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+    @media(max-width:760px){.module-header{padding:12px 17px;align-items:flex-start}.module-brand strong{font-size:22px}.module-brand span{font-size:11px;max-width:110px}.module-header nav a:first-child{display:none}.workspace{padding:23px 16px 32px}.page-head{align-items:flex-start;gap:12px}h1{font-size:23px}.page-head p{font-size:11px;max-width:220px}.page-head>.actions{flex-direction:column;align-items:stretch}.page-head>.actions .button{font-size:11px;min-height:33px;padding:6px 9px}.connection-strip{padding:11px 12px;gap:9px}.connection-strip strong{font-size:12px}.connection-strip p{font-size:10px}.context-notes{grid-template-columns:1fr;gap:8px;font-size:10px}.filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:15px}.filter{min-width:0}.filter.search{grid-column:1/-1;min-width:0}.filter-meta{padding-inline:15px;font-size:10px}.panel-head{padding:14px 15px;flex-wrap:wrap}.panel-head h2{font-size:14px}.tabs{padding-inline:6px}.tab{padding:12px 10px;font-size:11px}.pagination{padding:12px 15px}.pagination>span{font-size:10px}.drawer{width:100%;max-width:100vw}.dialog-head{padding-inline:19px}.drawer-content{padding:21px 18px}.field-grid{gap:13px 11px}.detail-title{font-size:21px}.field input,.field select,.field textarea{font-size:12px;padding:8px}.dialog-body{padding:18px}.form-actions{align-items:flex-start;flex-wrap:wrap}.queue-content{padding:16px}.footer{font-size:9px}.pdca-shell-bar{overflow-x:auto}.pdca-shell-user{flex:0 0 auto}.pdca-profile-dropdown{position:fixed;top:44px;right:12px}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main-content">跳到客户工作台</a>
+  <div id="pdca-shell-root"></div>
+  <header class="module-header"><div class="module-brand"><strong>VERTU</strong><span>PDCA · 客户全生命周期</span></div><nav aria-label="模块导航"><a href="/">经营首页</a><a href="/growth">增长工作台</a></nav></header>
+  <main id="main-content" class="workspace" tabindex="-1">
+    <div class="page-head"><div><p class="eyebrow">CUSTOMER LIFECYCLE</p><h1>每一段客户进展，都有依据</h1><p>本轮客户、下一步行动与阶段证据，沿用当前账号的数据权限。</p></div><div class="actions"><button id="refresh-button" class="button" type="button">刷新数据</button><button id="create-button" class="button primary" type="button" disabled>新建已核实客户</button></div></div>
+    <section id="connection-state" class="connection-strip" aria-label="连接状态" role="status"><div><strong id="connection-title">正在检查连接与账号权限</strong><p id="connection-description">仅从 PDCA 业务接口读取；接口未连接时不显示模拟客户或财务数据。</p></div><a id="login-link" href="/login" class="button retry" hidden>重新登录</a></section>
+    <div class="context-notes"><p><strong>本轮客户：</strong>单客户当前跟进周期。新一轮合作不能覆盖已确认历史阶段；多商机周期尚未开放。资料和研究名单不会自动变成客户。</p><p id="source-status"><strong>证据来源：</strong>正在检查证据接入配置。上游为独立的督战官系统与 AI 销售系统，候选建议确认后才更新业务进度。</p></div>
+    <div id="page-notice" class="notice page-notice" role="status" aria-live="polite" hidden></div>
+    <section class="panel">
+      <div class="tabs" role="tablist" aria-label="客户管理视图"><button id="customers-tab" class="tab" type="button" role="tab" aria-selected="true" aria-controls="customers-panel">本轮客户</button><button id="proposals-tab" class="tab" type="button" role="tab" aria-selected="false" aria-controls="proposals-panel">AI 建议待确认 <span id="pending-count" class="pill" hidden></span></button></div>
+      <div id="customers-panel" role="tabpanel" aria-labelledby="customers-tab">
+        <form id="filter-form" class="filters"><label class="filter search">客户主体名称<input id="search" type="search" maxlength="200" placeholder="搜索客户主体名称" autocomplete="off"></label><label class="filter">本轮阶段<select id="stage-filter"><option value="">全部阶段</option></select></label><label class="filter">当前负责人<select id="owner-filter"><option value="">全部负责人</option></select></label><label class="filter">主归属路径<select id="route-filter"><option value="">全部路径（含未归属）</option><option value="unknown">未归属</option></select></label><button class="button" type="submit">查询</button></form>
+        <div id="list-context" class="filter-meta">正在载入当前账号范围；原资料负责人和日期不作为当前派单与入池证据。</div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">客户主体</th><th scope="col">本轮阶段</th><th scope="col">当前负责人</th><th scope="col">下一步 / 截止</th><th scope="col">主归属 / 协同</th><th scope="col">最近更新</th></tr></thead><tbody id="customer-list"><tr><td colspan="6"><div class="empty"><span class="empty-icon" aria-hidden="true">◇</span><strong>正在连接客户服务</strong><p>成功读取后展示真实客户记录。</p></div></td></tr></tbody></table></div>
+        <div class="pagination"><span id="list-count">—</span><div class="actions"><button id="prev-page" class="button" type="button" disabled>上一页</button><span id="page-label" class="mono">—</span><button id="next-page" class="button" type="button" disabled>下一页</button></div></div>
+      </div>
+      <div id="proposals-panel" class="queue-content" role="tabpanel" aria-labelledby="proposals-tab" hidden><p class="notice queue-note">独立的督战官系统与 AI 销售系统可提供候选进展和建议。请先核对原始依据；接受后才写入客户档案，拒绝也保留记录。</p><div id="proposal-list"><div class="empty">选择客户后，读取该客户已入库的待确认建议。</div></div></div>
+    </section>
+    <footer class="footer"><span>PDCA · CUSTOMER LIFECYCLE</span><span>档案数不作为线索 / 业绩 · 财务进度须关联凭证</span></footer>
+  </main>
+  <dialog id="customer-dialog" class="drawer" aria-label="客户主档与生命周期"><div class="dialog-head"><span class="eyebrow">CUSTOMER RECORD</span><button id="close-customer" class="icon-button" type="button" aria-label="关闭客户主档">×</button></div><div id="customer-detail" class="drawer-content"></div></dialog>
+  <dialog id="create-dialog" class="compact-dialog" aria-labelledby="create-title"><form id="create-form"><div class="dialog-head"><div><p class="eyebrow">VERIFIED BUSINESS SUBJECT</p><h2 id="create-title">新建已核实客户</h2></div><button id="close-create" class="icon-button" type="button" aria-label="关闭新建客户">×</button></div><div class="dialog-body"><p class="notice">仅登记已核实的业务主体。研究名单、来源记录和未验证身份请留在资料待核区。</p><div id="create-fields" class="field-grid" style="margin-top:18px"></div><p id="create-error" class="form-status" role="status"></p><div class="form-actions"><span class="small muted">保存成功后才加入本轮客户。</span><button id="create-submit" class="button primary" type="submit">核实并创建</button></div></div></form></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/shared/shell.js"></script>
+  <script>
+  (() => {
+    'use strict';
+    const API = '/api/customer-lifecycle';
+    const $ = id => document.getElementById(id);
+    const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+    const routeNames = ['本地名单库','老客户激活','消费者转代理','高端品牌渠道','招募网站 SEO/GEO','广告获客','国家经理 / BD'];
+    const sourceNames = {manual:'人工登记',ai_sales:'AI销售系统',duzhan_im:'督战官系统（含群消息证据）'};
+    const changeNames = {entity_verified:'主体已核实',decision_maker:'决策人',need:'需求',next_action:'下一步',due_at:'截止时间'};
+    const proposalStates = {pending:'待确认',confirmed:'已接受',rejected:'已拒绝'};
+    const state = {user:null,meta:null,owners:[],customers:[],detail:null,page:0,pageSize:15,connected:false,queueCustomer:null,queueDetail:null,requestNumber:0,listRequest:0,queueRequest:0,decisionKeys:new Map(),financeKeys:new Map(),createUncertain:false,busy:new Set(),tab:'customers',filters:{q:'',stage:'',owner:'',route:''}};
+
+    function formatTime(value) {
+      if (!value) return 'N/A';
+      const time = new Date(value);
+      if (Number.isNaN(time.getTime())) return 'N/A';
+      return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(time) + ' 北京时间';
+    }
+    function inputTime(value) {
+      if (!value) return '';
+      const time = new Date(value);
+      if (Number.isNaN(time.getTime())) return '';
+      const local = new Date(time.getTime() - time.getTimezoneOffset() * 60000);
+      return local.toISOString().slice(0,16);
+    }
+    function isoTime(value) {
+      if (!value) return null;
+      const time = new Date(value);
+      if (Number.isNaN(time.getTime())) throw new Error('请填写有效日期与时间。');
+      return time.toISOString();
+    }
+    const stageName = value => state.meta?.stages?.find(stage => stage.value === value)?.label || value || '待确认';
+    const routeName = value => routeNames[Number(value)-1] || '未归属';
+    const writeRole = () => ['admin','manager','sales'].includes(state.user?.role);
+    const detailCanWrite = detail => state.connected && writeRole() && detail?.permissions?.can_write === true;
+    const option = (value,label,selected) => `<option value="${escapeHTML(value)}"${String(value) === String(selected ?? '') ? ' selected' : ''}>${escapeHTML(label)}</option>`;
+
+    async function request(path, options={}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(),20000);
+      try {
+        const response = await fetch(path.startsWith('/api/') ? path : API + path,{
+          credentials:'same-origin',...options,
+          headers:{'Accept':'application/json',...(options.body ? {'Content-Type':'application/json'} : {}),...options.headers},
+          signal:controller.signal,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          let detail = payload?.detail;
+          if (Array.isArray(detail)) detail = detail.map(item => item.msg || '字段校验失败').join('；');
+          if (detail && typeof detail === 'object') detail = detail.message || detail.error || JSON.stringify(detail);
+          const error = new Error(typeof detail === 'string' ? detail : `请求失败（HTTP ${response.status}）`);
+          error.status = response.status;
+          throw error;
+        }
+        if (payload === null) throw new Error('服务返回了无法识别的数据，请刷新后重试。');
+        return payload;
+      } catch (error) {
+        if (error.name === 'AbortError') throw new Error('请求超时，结果尚未确认。请先刷新记录，勿重复提交。');
+        throw error;
+      } finally { clearTimeout(timer); }
+    }
+    function toast(text) {
+      $('toast').textContent = text; $('toast').hidden = false;
+      clearTimeout(toast.timer); toast.timer = setTimeout(() => {$('toast').hidden=true;},4000);
+    }
+    function notice(text, kind='') {
+      $('page-notice').textContent=text; $('page-notice').className='notice page-notice '+kind; $('page-notice').hidden=!text;
+    }
+    function connection(ok, text, description='') {
+      state.connected=ok;
+      $('connection-state').className='connection-strip '+(ok?'ok':'error');
+      $('connection-title').textContent=text;
+      $('connection-description').textContent=description;
+      $('create-button').disabled=!ok || !writeRole();
+      if (!ok) document.querySelectorAll('[data-write]').forEach(control => {control.disabled=true;});
+    }
+    function reportError(error, fallback) {
+      if (error.status===401 || error.status===403) {
+        state.customers=[];state.detail=null;state.queueDetail=null;state.queueCustomer=null;
+        if ($('customer-dialog').open) $('customer-dialog').close();
+        emptyList('当前账号未获授权读取此处客户，请核对登录与数据权限。');
+        $('proposal-list').innerHTML='<div class="empty">当前账号的建议权限尚未确认。</div>';
+      }
+      if (error.status===401) {
+        $('login-link').hidden=false;
+        connection(false,'登录已失效','请重新登录 PDCA，再载入当前账号可见的客户。');
+      } else if (error.status===403) {
+        connection(false,'当前操作未获授权',error.message);
+      } else if (error.status===503) {
+        connection(false,'客户服务暂不可用',error.message);
+      }
+      notice((fallback?fallback+'：':'')+error.message,'error');
+    }
+    function routePills(customer) {
+      return `<div class="route-pills"><span class="pill">${escapeHTML(routeName(customer.route))}</span>${(customer.assisted_routes || []).map(route=>`<span class="pill blue">协同 ${escapeHTML(routeName(route))}</span>`).join('')}</div>`;
+    }
+    function ownerOptions(selected, empty='未分配') {
+      const owners=[...state.owners];
+      if (selected!=null && !owners.some(owner=>String(owner.id)===String(selected))) owners.push({id:selected,display_name:'当前负责人（不在可分配列表）'});
+      return option('',empty,selected)+owners.map(owner=>option(owner.id,owner.display_name || owner.id,selected)).join('');
+    }
+    function filteredCustomers() {
+      const filters=state.filters,query=filters.q.toLocaleLowerCase();
+      return state.customers.filter(customer=>(!query || String(customer.name||'').toLocaleLowerCase().includes(query))
+        && (!filters.stage || customer.stage===filters.stage)
+        && (!filters.owner || String(customer.owner_user_id)===filters.owner)
+        && (!filters.route || (filters.route==='unknown' ? customer.route==null : String(customer.route)===filters.route)));
+    }
+    function renderList() {
+      const rows=filteredCustomers(),pages=Math.max(1,Math.ceil(rows.length/state.pageSize));
+      state.page=Math.min(state.page,pages-1);
+      const batch=rows.slice(state.page*state.pageSize,(state.page+1)*state.pageSize);
+      $('customer-list').innerHTML=batch.length?batch.map(customer=>`<tr><td><button class="customer-link" type="button" data-customer="${escapeHTML(customer.id)}">${escapeHTML(customer.name)}</button><small>${escapeHTML(customer.country || '国家待补')} · ${customer.entity_verified?'主体已核实':'主体待核实'}</small></td><td><span class="pill ${customer.stage==='qualified'?'gold':customer.stage==='paid'?'green':''}">${escapeHTML(stageName(customer.stage))}</span></td><td>${escapeHTML(customer.owner_name || '未分配')}</td><td>${escapeHTML(customer.next_action || '下一步待补')}<small>${customer.due_at?formatTime(customer.due_at):'截止时间待补'}</small></td><td>${routePills(customer)}</td><td class="mono">${formatTime(customer.updated_at)}</td></tr>`).join(''):`<tr><td colspan="6"><div class="empty"><span class="empty-icon" aria-hidden="true">◇</span><strong>${state.customers.length?'没有符合筛选的客户':'当前账号范围暂无本轮客户'}</strong><p>${state.customers.length?'调整筛选后再查看。':'可以人工登记已核实主体；未核验资料不会自动导入。'}</p></div></td></tr>`;
+      $('list-count').textContent=`${rows.length} 份客户档案（含待核） · 当前账号范围`;
+      $('page-label').textContent=`${state.page+1} / ${pages} 页`;
+      $('prev-page').disabled=state.page===0; $('next-page').disabled=state.page>=pages-1;
+      $('list-context').textContent='按客户主档展示本轮进展；同一主体的不同来源通过身份映射关联，协同路径不重复计客户数。';
+      renderQueueSelector();
+    }
+    function emptyList(text) {
+      $('customer-list').innerHTML=`<tr><td colspan="6"><div class="empty"><strong>未能载入客户</strong><p>${escapeHTML(text)}</p></div></td></tr>`;
+      $('list-count').textContent='N/A · 数据尚未确认'; $('page-label').textContent='—';
+      $('prev-page').disabled=$('next-page').disabled=true;
+    }
+    async function loadCustomers() {
+      const requestNumber=++state.listRequest;
+      const payload=await request('/customers');
+      if (requestNumber!==state.listRequest) return;
+      if (!Array.isArray(payload.items)) throw new Error('客户列表格式不符合接口约定。');
+      state.customers=payload.items; renderList();
+    }
+    async function initialize() {
+      $('refresh-button').disabled=true; $('login-link').hidden=true; notice('');
+      try {
+        state.user=await request('/api/auth/me');
+        const [meta,owners]=await Promise.all([request('/meta'),request('/owners')]);
+        if (!Array.isArray(meta.stages) || !Array.isArray(owners.items)) throw new Error('客户服务配置尚未完整载入。');
+        state.meta=meta; state.owners=owners.items;
+        $('stage-filter').innerHTML=option('','全部阶段')+meta.stages.map(stage=>option(stage.value,stage.label)).join('');
+        $('owner-filter').innerHTML=ownerOptions(null,'全部负责人');
+        $('route-filter').innerHTML=option('','全部路径（含未归属）')+option('unknown','未归属')+routeNames.map((name,index)=>option(index+1,name)).join('');
+        $('stage-filter').value=state.filters.stage;$('owner-filter').value=state.filters.owner;$('route-filter').value=state.filters.route;
+        state.createUncertain=false;
+        await loadCustomers();
+        connection(true,'客户接口已连接',`当前登录：${state.user.display_name || state.user.username}。列表、详情和写操作均使用当前账号权限；刷新只重新读取已入库记录。`);
+        $('source-status').replaceChildren();
+        const label=document.createElement('strong');label.textContent='证据来源：';$('source-status').append(label);
+        $('source-status').append(document.createTextNode(meta.live_collection===true?'已启用结构化来源接入；候选进展仍须人工确认，财务阶段须独立核验。':'督战官系统与 AI销售系统的上游接口待开放，尚未自动采集；当前可人工维护与登记结构化证据。'));
+        if (state.tab==='proposals' && state.queueCustomer) await loadQueue(state.queueCustomer);
+      } catch (error) {
+        connection(false,'客户服务未连接',error.status===404?'当前客户模块未配置或接口不可用。':error.message);
+        if (!state.customers.length) emptyList(error.message);
+        else notice('刷新失败，当前列表为上次成功读取的记录；写操作已暂停。'+error.message,'error');
+        reportError(error,'连接失败');
+        $('source-status').textContent='证据来源：客户配置未能读取；尚未确认上游接入状态，没有使用模拟或备用客户数据。';
+        $('proposal-list').innerHTML=`<div class="empty">${escapeHTML(error.message)}。尚未确认是否存在待处理建议。</div>`;
+      } finally { $('refresh-button').disabled=false; }
+    }
+    function setTab(tab) {
+      state.tab=tab;
+      for (const value of ['customers','proposals']) {
+        $(value+'-tab').setAttribute('aria-selected',String(value===tab));
+        $(value+'-panel').hidden=value!==tab;
+      }
+      if (tab==='proposals') {
+        renderQueueSelector();
+        if (state.queueCustomer && state.connected) loadQueue(state.queueCustomer);
+      }
+    }
+    function renderQueueSelector() {
+      if ($('queue-customer')) {
+        $('queue-customer').innerHTML=option('','选择本轮客户')+state.customers.map(customer=>option(customer.id,customer.name,state.queueCustomer)).join('');
+        return;
+      }
+      const wrapper=document.createElement('label');wrapper.className='field';wrapper.style.marginBottom='17px';
+      wrapper.textContent='按客户查看待确认建议';
+      const select=document.createElement('select');select.id='queue-customer';
+      select.innerHTML=option('','选择本轮客户')+state.customers.map(customer=>option(customer.id,customer.name,state.queueCustomer)).join('');
+      select.addEventListener('change',()=>{state.queueCustomer=select.value || null;if(state.queueCustomer)loadQueue(state.queueCustomer);else{$('proposal-list').innerHTML='<div class="empty">选择一个客户，查看已入库的 AI 与督战建议。</div>';$('pending-count').hidden=true;}});
+      wrapper.appendChild(select);$('proposal-list').before(wrapper);
+    }
+    function renderQueueDetail(detail) {
+      const pending=(detail.proposals || []).filter(proposal=>proposal.status==='pending');
+      $('pending-count').hidden=false; $('pending-count').textContent=pending.length;
+      $('proposal-list').innerHTML=pending.length?pending.map(proposal=>proposalHTML(proposal,detail,'queue')).join(''):'<div class="empty"><strong>该客户没有待确认建议</strong><p>上游接口未开放时，不会生成模拟建议。</p></div>';
+    }
+    async function loadQueue(id) {
+      const requestNumber=++state.queueRequest;
+      $('proposal-list').innerHTML='<div class="empty">正在读取该客户的建议。</div>';
+      try {
+        const detail=await request('/customers/'+encodeURIComponent(id));
+        if (requestNumber!==state.queueRequest) return;
+        state.queueDetail=detail;
+        renderQueueDetail(detail);
+      } catch (error) {if(requestNumber===state.queueRequest)$('proposal-list').innerHTML=`<div class="empty">建议读取失败：${escapeHTML(error.message)}</div>`;reportError(error);}
+    }
+    function detailField(label,value) {return `<div class="field"><span>${escapeHTML(label)}</span><span class="field-value">${escapeHTML(value ?? 'N/A')}</span></div>`;}
+    function evidenceHTML(evidence) {
+      return `<div class="evidence"><strong>${escapeHTML(sourceNames[evidence.source_system] || evidence.source_system || '业务证据')}</strong><span>业务发生 ${formatTime(evidence.occurred_at)}</span>${evidence.ingested_at?`<br><span>采集 / 登记 ${formatTime(evidence.ingested_at)}</span>`:''}<div class="quote">${escapeHTML(evidence.summary || '未提供摘要')}</div>${evidence.source_channel_id?`<div>群编号：${escapeHTML(evidence.source_channel_id)}</div>`:''}${evidence.source_message_id?`<div>消息编号：${escapeHTML(evidence.source_message_id)}</div>`:''}<div>事件：${escapeHTML(evidence.event_id || evidence.id || 'N/A')}</div></div>`;
+    }
+    function verifiedLinks(detail, stage) {
+      const kind=stage==='paid'?'payment':'order',links=detail.business_links || [];
+      return links.filter(link=>String(link.customer_id)===String(detail.customer.id) && link.kind===kind && link.status==='verified' && link.verified_by
+        && (kind!=='payment' || links.some(order=>String(order.id)===String(link.order_link_id) && String(order.customer_id)===String(detail.customer.id) && order.kind==='order' && order.status==='verified')));
+    }
+    function businessLinkOptions(detail, stage, selected='') {
+      return option('','请选择本客户已核验凭证',selected)+verifiedLinks(detail,stage).map(link=>option(link.id,`${link.external_id} · ${link.amount} ${link.currency}`,selected)).join('');
+    }
+    function financialHTML(detail) {
+      const canWrite=detailCanWrite(detail),canVerify=canWrite && detail.permissions?.can_verify_finance===true;
+      const orders=verifiedLinks(detail,'ordered');
+      const links=(detail.business_links || []).filter(link=>String(link.customer_id)===String(detail.customer.id));
+      return `<section class="detail-section" id="financial-section"><h3>订单与收款凭证</h3><p>保留本客户的明确外键关联与逐条原币金额，不跨币种汇总。主管核验来自人工查验原凭证，尚未连接 ERP 自动验真。</p><p class="financial-note">进入“回款”仅代表已有收款凭证，可为部分回款，不表示全额到账或已结清。</p><div id="business-link-list">${links.map(link=>`<article class="evidence"><strong>${link.kind==='payment'?'收款凭证':'订单凭证'} · ${link.status==='verified'?'主管已人工核验':'待主管核验'}</strong>来源 ${escapeHTML(link.namespace)} · ${escapeHTML(link.external_id)}<br>金额 ${escapeHTML(link.amount ?? 'N/A')} ${escapeHTML(link.currency || '')}<br>业务发生 ${formatTime(link.occurred_at)}<br>原始凭证 ${escapeHTML(link.document_ref || 'N/A')}${link.order_link_id?'<br>对应订单关联 '+escapeHTML(link.order_link_id):''}${link.verified_at?'<br>核验时间 '+formatTime(link.verified_at):''}${link.verification_note?'<br>核验说明 '+escapeHTML(link.verification_note):''}${link.status==='pending'?(canVerify?`<form data-finance-review="${escapeHTML(link.id)}" style="margin-top:12px"><label class="field">人工核验说明<textarea name="note" minlength="5" maxlength="2000" required placeholder="核对原始凭证、客户、日期、币种和金额后填写结论" data-write></textarea></label><div class="form-actions"><span class="form-status">核验不代表 ERP 自动验真。</span><button class="button primary" type="submit" data-write>核验此凭证</button></div></form>`:'<p class="financial-note">等待主管人工核验，销售不能自行将该凭证改为已核验。</p>'):''}</article>`).join('') || '<p class="notice">暂无已登记业务凭证。没有收款核销依据时实收为 N/A，不按零处理。</p>'}</div><h3 style="margin-top:22px">登记订单 / 收款凭证</h3><form id="business-link-form"><div class="field-grid"><label class="field">凭证类型<select name="kind" data-write${canWrite?'':' disabled'}><option value="order">订单凭证</option><option value="payment"${orders.length?'':' disabled'}>收款凭证${orders.length?'':' · 先核验本客户订单'}</option></select></label><label class="field">原币种<input name="currency" maxlength="3" minlength="3" required placeholder="如 USD / EUR" data-write${canWrite?'':' disabled'}></label><label class="field">来源系统类型<input name="namespace" maxlength="100" required placeholder="来源系统明确的身份类型" data-write${canWrite?'':' disabled'}></label><label class="field">原始订单 / 收款编号<input name="external_id" maxlength="256" required data-write${canWrite?'':' disabled'}></label><label class="field">原币金额<input name="amount" type="text" inputmode="decimal" maxlength="21" required placeholder="正数，最多两位小数" data-write${canWrite?'':' disabled'}></label><label class="field">业务发生时间<input name="occurred_at" type="datetime-local" required data-write${canWrite?'':' disabled'}></label><label id="payment-order-label" class="field full" hidden>关联本客户已核验订单<select name="order_link_id" data-write${canWrite?'':' disabled'}>${businessLinkOptions(detail,'ordered')}</select></label><label class="field full">原始凭证引用<textarea name="document_ref" minlength="5" maxlength="1000" required placeholder="填写可追溯的原始凭证编号、受控文件引用或业务系统链接" data-write${canWrite?'':' disabled'}></textarea></label></div><div class="form-actions"><span class="form-status">登记后先待核验，不自动推进订单或回款阶段。</span><button class="button" type="submit" data-write${canWrite?'':' disabled'}>登记为待核验凭证</button></div></form></section>`;
+    }
+    function confirmationBarrier(proposal,detail) {
+      if (['ordered','paid'].includes(proposal.proposed_stage) && !verifiedLinks(detail,proposal.proposed_stage).some(link=>String(link.id)===String(proposal.business_link_id))) return '须先关联本客户对应类型、经主管人工核验的订单 / 收款凭证，才能确认此阶段。';
+      const customer={...detail.customer,...proposal.changes};
+      if (['qualified','ordered','paid'].includes(proposal.proposed_stage)) {
+        const missing=[!customer.entity_verified&&'主体核实',!customer.decision_maker&&'决策人',!customer.need&&'需求',!customer.next_action&&'下一步',!customer.due_at&&'截止时间'].filter(Boolean);
+        if (missing.length) return '成为合格商机前需补齐：'+missing.join('、')+'。';
+      }
+      return '';
+    }
+    function proposalHTML(proposal,detail,location) {
+      const evidence=(detail.evidence || []).find(item=>String(item.id)===String(proposal.evidence_id));
+      const barrier=confirmationBarrier(proposal,detail),canWrite=detailCanWrite(detail),pending=proposal.status==='pending';
+      const changes=Object.entries(proposal.changes || {}).map(([key,value])=>`${changeNames[key] || key}：${key==='due_at'?formatTime(value):typeof value==='boolean'?(value?'是':'否'):String(value ?? '清空')}`).join('\n');
+      return `<article class="proposal"><div class="proposal-head"><h3>${escapeHTML(proposal.proposed_stage?`建议阶段：${stageName(proposal.proposed_stage)}`:'建议更新客户跟进')}</h3><span class="pill ${pending?'gold':''}">${escapeHTML(proposalStates[proposal.status] || proposal.status)}</span></div>${changes?`<p>${escapeHTML(changes)}</p>`:''}${evidence?evidenceHTML(evidence):'<p>原始依据尚未载入，请刷新客户详情核对。</p>'}${barrier?`<p class="financial-note">${escapeHTML(barrier)}</p>`:''}${pending?`<label class="field" style="margin-top:12px">确认 / 拒绝原因<textarea data-decision-reason maxlength="2000" placeholder="可补充核对结论，保留在决定记录中" data-write${canWrite?'':' disabled'}></textarea></label><div class="actions"><button type="button" class="button primary" data-write data-decision="confirm" data-location="${location}" data-proposal="${escapeHTML(proposal.id)}" data-customer="${escapeHTML(detail.customer.id)}"${!canWrite || barrier || !evidence?' disabled':''}>接受并更新</button><button type="button" class="button danger" data-write data-decision="reject" data-location="${location}" data-proposal="${escapeHTML(proposal.id)}" data-customer="${escapeHTML(detail.customer.id)}"${!canWrite?' disabled':''}>拒绝建议</button></div>`:`<small>${proposal.reviewed_at?formatTime(proposal.reviewed_at):'决定已保留在服务器记录中'}</small>${proposal.reason?'<small>决定说明：'+escapeHTML(proposal.reason)+'</small>':''}`}</article>`;
+    }
+    function profileForm(customer,canWrite) {
+      const supportsAssist=Array.isArray(customer.assisted_routes);
+      return `<form id="profile-form"><div class="field-grid"><label class="field">当前负责人<select name="owner_user_id" required data-write${canWrite?'':' disabled'}>${ownerOptions(customer.owner_user_id)}</select></label><label class="field">国家地区<input name="country" maxlength="80" value="${escapeHTML(customer.country || '')}" data-write${canWrite?'':' disabled'}></label><label class="field full">决策人<input name="decision_maker" maxlength="256" value="${escapeHTML(customer.decision_maker || '')}" data-write${canWrite?'':' disabled'}></label><label class="field full">已确认需求<textarea name="need" maxlength="2000" data-write${canWrite?'':' disabled'}>${escapeHTML(customer.need || '')}</textarea></label><label class="field full">下一步动作<textarea name="next_action" maxlength="2000" data-write${canWrite?'':' disabled'}>${escapeHTML(customer.next_action || '')}</textarea></label><label class="field">下一步截止时间<input name="due_at" type="datetime-local" value="${inputTime(customer.due_at)}" data-write${canWrite?'':' disabled'}><small>按当前设备时区填写；展示时间为北京时间。</small></label><label class="field">主归属路径<select name="route" data-write${canWrite?'':' disabled'}>${option('','未归属',customer.route)}${routeNames.map((name,index)=>option(index+1,name,customer.route)).join('')}</select></label><label class="field full">归属依据（人工确认）<textarea name="source_note" maxlength="2000" data-write${canWrite?'':' disabled'}>${escapeHTML(customer.source_note || '')}</textarea><small>选主来源或协同路径时必填；尚未自动接上游，不能根据文件名或通讯工具推断。</small></label>${supportsAssist?`<div class="field full"><span>协同路径（不重复计客户数）</span><div class="route-pills">${routeNames.map((name,index)=>`<label class="checkbox-label" style="margin:0 12px 5px 0"><input type="checkbox" name="assisted_routes" value="${index+1}"${customer.assisted_routes.includes(index+1)?' checked':''} data-write${canWrite?'':' disabled'}>${escapeHTML(name)}</label>`).join('')}</div></div>`:'<p class="field full small muted">协同路径当前未配置写入字段；来源身份仍逐条保留，未自动合并。</p>'}</div><label class="checkbox-label"><input name="entity_verified" type="checkbox"${customer.entity_verified?' checked':''} data-write${canWrite?'':' disabled'}>主体身份已人工核实（不是仅有名单或邮箱）</label><div class="form-actions"><span id="profile-status" class="form-status" role="status">当前服务器版本 ${escapeHTML(customer.version)}，保存将校验版本。</span><button class="button primary" data-write type="submit"${canWrite?'':' disabled'}>保存跟进资料</button></div></form>`;
+    }
+    function stageProposalForm(detail,canWrite) {
+      const identities=detail.identities || [];
+      return `<form id="evidence-form"><div class="field-grid"><label class="field">证据来源<select id="evidence-source" name="source_system" data-write${canWrite?'':' disabled'}><option value="manual">人工登记</option><option value="ai_sales">AI销售系统证据</option><option value="duzhan_im">督战官系统（含群消息证据）</option></select></label><label class="field">建议阶段<select name="proposed_stage" data-write${canWrite?'':' disabled'}>${option(detail.customer.stage,'保留当前阶段，仅补业务证据',detail.customer.stage)}${state.meta.stages.filter(stage=>stage.value!==detail.customer.stage).map(stage=>`<option value="${escapeHTML(stage.value)}"${['ordered','paid'].includes(stage.value) && !verifiedLinks(detail,stage.value).length?' disabled':''}>${escapeHTML(stage.label)}${['ordered','paid'].includes(stage.value) && !verifiedLinks(detail,stage.value).length?' · 待本客户已核凭证':''}</option>`).join('')}</select></label><label id="proposal-business-label" class="field full"${['ordered','paid'].includes(detail.customer.stage)?'':' hidden'}>关联本客户已核验凭证<select name="business_link_id" data-write${canWrite?'':' disabled'}>${businessLinkOptions(detail,detail.customer.stage)}</select><small>只允许选择本客户、对应类型且经主管人工核验的记录。</small></label><label class="field">业务发生时间<input name="occurred_at" type="datetime-local" required data-write${canWrite?'':' disabled'}></label><label id="event-id-label" class="field" hidden>来源事件编号<input name="event_id" maxlength="256" data-write${canWrite?'':' disabled'}></label><label id="identity-select-label" class="field full" hidden>已关联的外部业务主体<select name="identity_index" data-write${canWrite?'':' disabled'}>${option('','选择已核实的外部身份')}${identities.map((identity,index)=>option(index,`${identity.namespace} · ${identity.external_id}`)).join('')}</select><small>AI销售系统与督战官系统证据必须与客户的精确外部身份对应，不能按相似名称认领。</small></label><label id="channel-id-label" class="field" hidden>来源群编号<input name="source_channel_id" maxlength="256" data-write${canWrite?'':' disabled'}></label><label id="message-id-label" class="field" hidden>来源消息编号<input name="source_message_id" maxlength="256" data-write${canWrite?'':' disabled'}></label><label class="field full">原始事实摘要 / 业务依据<textarea name="summary" minlength="3" maxlength="4000" required placeholder="描述实际发生的沟通或业务事实；不能把研究判断写成客户承诺。" data-write${canWrite?'':' disabled'}></textarea></label></div><p class="financial-note">登记后先生成待确认建议；接受才更新阶段。订单与回款须先在下方登记并由主管核验凭证，再选关联记录提交建议。回款可为部分款项，不表示结清。</p><div class="form-actions"><span id="evidence-status" class="form-status" role="status"></span><button class="button primary" type="submit" data-write${canWrite?'':' disabled'}>登记为待确认建议</button></div></form>`;
+    }
+    function renderDetail(detail) {
+      state.detail=detail;
+      const customer=detail.customer,canWrite=detailCanWrite(detail),proposals=detail.proposals || [],evidence=detail.evidence || [];
+      $('customer-detail').innerHTML=`<div class="detail-meta"><span class="pill ${customer.entity_verified?'green':'gold'}">${customer.entity_verified?'主体已核实':'主体待核实'}</span><span class="pill blue">${escapeHTML(stageName(customer.stage))}</span><span>本轮客户 · ${escapeHTML(customer.id)}</span></div><h2 class="detail-title">${escapeHTML(customer.name)}</h2>${routePills(customer)}<div id="detail-notice" class="notice" role="status" aria-live="polite" style="margin-top:15px" hidden></div>${!canWrite?'<p class="readonly-note">当前客户只读。写入权限由服务器按角色、负责人和数据范围决定。</p>':''}<div class="detail-summary field-grid">${detailField('阶段确认时间',formatTime(customer.last_stage_at))}${detailField('最近保存',formatTime(customer.updated_at))}</div><section class="detail-section"><h3>负责人、下一步与主归属</h3>${profileForm(customer,canWrite)}</section><section class="detail-section"><h3>来源身份与协同依据</h3><p>同一公司的其他来源须人工核实并关联；主归属只计一次，协同不重复增加客户数。</p><div>${(detail.identities || []).map(identity=>`<div class="evidence"><strong>${escapeHTML(identity.namespace)}</strong>${escapeHTML(identity.external_id)}</div>`).join('') || '<p class="small muted">尚未关联外部身份；不会自动认领群消息或按邮箱合并客户。</p>'}</div>${canWrite?'<form id="identity-form" style="margin-top:14px"><div class="field-grid"><label class="field">外部系统身份类型<input name="namespace" maxlength="100" pattern="[a-z0-9][a-z0-9_.:\\x2d]*" required placeholder="使用来源系统的明确身份类型" data-write></label><label class="field">外部业务对象编号<input name="external_id" maxlength="256" required data-write></label></div><div class="form-actions"><span id="identity-status" class="form-status" role="status"></span><button class="button" type="submit" data-write>关联已核实身份</button></div></form>':''}</section><section class="detail-section"><h3>阶段证据时间线</h3><div class="timeline">${[...evidence].sort((a,b)=>String(b.occurred_at).localeCompare(String(a.occurred_at))).map(item=>{const proposal=proposals.find(proposal=>String(proposal.evidence_id)===String(item.id));return `<div class="timeline-item"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-copy"><strong>${proposal?.status==='confirmed'?'已确认阶段：'+escapeHTML(stageName(proposal.proposed_stage)):'候选业务证据 · '+escapeHTML(proposalStates[proposal?.status] || '尚未确认')}</strong>${evidenceHTML(item)}${proposal?.reviewed_at?`<small>人工决定 ${formatTime(proposal.reviewed_at)}</small>`:''}</div></div>`;}).join('') || '<p class="small muted">尚无阶段证据。资料日期、研究结果和 SMTP 接受记录不会自动补作业务阶段。</p>'}</div></section><section class="detail-section"><h3>AI 与人工建议 · 确认后更新</h3><p>建议只保留候选事实和行动；阶段以人工确认及业务凭证为准。</p>${proposals.map(proposal=>proposalHTML(proposal,detail,'detail')).join('') || '<p class="small muted">当前没有已入库建议。</p>'}</section><section class="detail-section"><h3>登记候选业务进展</h3>${stageProposalForm(detail,canWrite)}</section>${financialHTML(detail)}`;
+    }
+    async function openCustomer(id) {
+      const requestNumber=++state.requestNumber;
+      state.detail=null;
+      $('customer-detail').innerHTML='<div class="empty"><strong>正在读取客户主档</strong><p>核对当前账号权限与最新业务版本。</p></div>';
+      if (!$('customer-dialog').open) $('customer-dialog').showModal();
+      try {
+        const detail=await request('/customers/'+encodeURIComponent(id));
+        if (requestNumber!==state.requestNumber || !$('customer-dialog').open) return;
+        renderDetail(detail);
+      } catch (error) {
+        if (requestNumber!==state.requestNumber) return;
+        $('customer-detail').innerHTML=`<div class="empty"><strong>客户详情读取失败</strong><p>${escapeHTML(error.message)}</p><button class="button" type="button" data-reload-customer="${escapeHTML(id)}">重新读取</button></div>`;
+        reportError(error);
+      }
+    }
+    function detailNotice(message,kind='') {
+      const element=$('detail-notice');if(!element)return;
+      element.textContent=message;element.className='notice '+kind;element.hidden=false;
+    }
+    async function mutateCustomer(id,operation,successMessage) {
+      if (!state.connected || state.busy.has(String(id))) return false;
+      state.busy.add(String(id));
+      document.querySelectorAll('[data-write]').forEach(control=>{control.disabled=true;});
+      try {
+        await operation();
+        const detail=await request('/customers/'+encodeURIComponent(id));
+        if (state.detail?.customer.id===detail.customer.id && $('customer-dialog').open) {renderDetail(detail);detailNotice(successMessage,'success');}
+        if (state.queueCustomer && String(state.queueCustomer)===String(id)) await loadQueue(id);
+        await loadCustomers();toast(successMessage);
+        return true;
+      } catch (error) {
+        if (error.status===409) {
+          try {
+            const detail=await request('/customers/'+encodeURIComponent(id));
+            if ($('customer-dialog').open && String(state.detail?.customer.id)===String(id)) renderDetail(detail);
+            if (state.queueCustomer && String(state.queueCustomer)===String(id)) await loadQueue(id);
+            await loadCustomers();
+            const text='记录已被其他操作更新，本次修改未保存。已重新读取服务器最新版本，请核对后再操作。';
+            detailNotice(text,'error');notice(text,'error');
+          } catch (refreshError) {detailNotice('版本冲突，且最新记录读取失败；未自动重试写入。请关闭后重新读取。','error');reportError(refreshError,'刷新最新版本失败');}
+        } else {
+          detailNotice('操作未确认成功：'+error.message,'error');reportError(error,'操作失败');
+        }
+        return false;
+      } finally {
+        state.busy.delete(String(id));
+        if (state.queueDetail && String(state.queueCustomer)===String(id)) renderQueueDetail(state.queueDetail);
+        if (state.detail && $('customer-dialog').open && !state.busy.has(String(state.detail.customer.id))) {
+          document.querySelectorAll('#customer-detail [data-write]').forEach(control=>{control.disabled=!detailCanWrite(state.detail);});
+          document.querySelectorAll('#customer-detail [data-decision="confirm"]').forEach(control=>{const proposal=state.detail.proposals?.find(item=>String(item.id)===control.dataset.proposal);if(proposal && (confirmationBarrier(proposal,state.detail) || !state.detail.evidence?.some(item=>String(item.id)===String(proposal.evidence_id))))control.disabled=true;});
+        }
+      }
+    }
+    async function saveProfile(form) {
+      if (!detailCanWrite(state.detail)) return;
+      const customer=state.detail.customer,data=new FormData(form);
+      const patch={owner_user_id:data.get('owner_user_id')?Number(data.get('owner_user_id')):null,country:String(data.get('country')||'').trim(),source_note:String(data.get('source_note')||'').trim(),entity_verified:data.has('entity_verified'),decision_maker:String(data.get('decision_maker')||'').trim(),need:String(data.get('need')||'').trim(),next_action:String(data.get('next_action')||'').trim(),due_at:isoTime(data.get('due_at')),route:data.get('route')?Number(data.get('route')):null,expected_version:customer.version};
+      if (Array.isArray(customer.assisted_routes)) patch.assisted_routes=data.getAll('assisted_routes').map(Number).filter(route=>route!==patch.route);
+      if ((patch.route || patch.assisted_routes?.length) && !patch.source_note) throw new Error('选择主来源或协同路径时，请填写人工确认的归属依据。');
+      await mutateCustomer(customer.id,()=>request('/customers/'+encodeURIComponent(customer.id),{method:'PATCH',body:JSON.stringify(patch)}),'客户跟进已保存');
+    }
+    async function addIdentity(form) {
+      if (!detailCanWrite(state.detail)) return;
+      const customer=state.detail.customer,data=new FormData(form);
+      await mutateCustomer(customer.id,()=>request('/customers/'+encodeURIComponent(customer.id)+'/identities',{method:'POST',body:JSON.stringify({namespace:String(data.get('namespace')||'').trim(),external_id:String(data.get('external_id')||'').trim()})}),'已关联外部身份');
+    }
+    async function addEvidence(form) {
+      if (!detailCanWrite(state.detail)) return;
+      const customer=state.detail.customer,data=new FormData(form),source=String(data.get('source_system'));
+      const identity=(state.detail.identities || [])[Number(data.get('identity_index'))];
+      if (source!=='manual' && (data.get('identity_index')==='' || !identity)) throw new Error('请先关联并选择该客户的精确外部身份。');
+      if (source!=='manual' && (!String(data.get('event_id')||'').trim() || !String(data.get('source_message_id')||'').trim())) throw new Error('上游系统证据须提供来源事件编号和消息编号。');
+      if (source==='duzhan_im' && !String(data.get('source_channel_id')||'').trim()) throw new Error('督战官系统的群消息证据须提供来源群编号。');
+      if (!form.dataset.eventId) form.dataset.eventId='manual:'+crypto.randomUUID();
+      const body={source_system:source,event_id:source==='manual'?form.dataset.eventId:String(data.get('event_id')).trim(),occurred_at:isoTime(data.get('occurred_at')),summary:String(data.get('summary')||'').trim(),source_channel_id:String(data.get('source_channel_id')||'').trim(),source_message_id:String(data.get('source_message_id')||'').trim(),external_namespace:source==='manual'?'':identity.namespace,external_id:source==='manual'?'':identity.external_id,proposed_stage:data.get('proposed_stage') || customer.stage,changes:{},business_link_id:['ordered','paid'].includes(data.get('proposed_stage'))?String(data.get('business_link_id')||''):null};
+      if (['ordered','paid'].includes(body.proposed_stage) && !verifiedLinks(state.detail,body.proposed_stage).some(link=>String(link.id)===body.business_link_id)) throw new Error('请选择本客户对应类型的已核验业务凭证。');
+      await mutateCustomer(customer.id,()=>request('/customers/'+encodeURIComponent(customer.id)+'/proposals',{method:'POST',body:JSON.stringify(body)}),'证据已登记，业务阶段等待人工确认');
+    }
+    async function addBusinessLink(form) {
+      if (!detailCanWrite(state.detail)) return;
+      const detail=state.detail,customer=detail.customer,data=new FormData(form),kind=String(data.get('kind'));
+      const amount=String(data.get('amount')||'').trim(),currency=String(data.get('currency')||'').trim().toUpperCase();
+      if (!/^(?:0|[1-9]\d{0,17})(?:\.\d{1,2})?$/.test(amount) || /^0(?:\.0{1,2})?$/.test(amount)) throw new Error('金额须为正数，最多两位小数；保留原币金额，不换算。');
+      if (!/^[A-Z]{3}$/.test(currency)) throw new Error('请填写凭证的三位原币种，例如 USD 或 EUR。');
+      const body={kind,namespace:String(data.get('namespace')||'').trim(),external_id:String(data.get('external_id')||'').trim(),amount,currency,document_ref:String(data.get('document_ref')||'').trim(),occurred_at:isoTime(data.get('occurred_at')),order_link_id:kind==='payment'?String(data.get('order_link_id')||''):null};
+      if (kind==='payment') {
+        const order=verifiedLinks(detail,'ordered').find(link=>String(link.id)===body.order_link_id);
+        if (!order) throw new Error('收款只能关联本客户已经主管核验的订单。');
+        if (order.currency!==currency) throw new Error('收款币种必须与关联订单一致，请核对原始凭证。');
+      }
+      await mutateCustomer(customer.id,()=>request('/customers/'+encodeURIComponent(customer.id)+'/business-links',{method:'POST',body:JSON.stringify(body)}),'凭证已登记，等待主管人工核验；业务阶段尚未改变');
+    }
+    async function verifyBusinessLink(form) {
+      if (!detailCanWrite(state.detail) || state.detail.permissions?.can_verify_finance!==true) return;
+      const detail=state.detail,id=form.dataset.financeReview;
+      const link=(detail.business_links || []).find(link=>String(link.id)===id && String(link.customer_id)===String(detail.customer.id) && link.status==='pending');
+      if (!link) throw new Error('该凭证不属于本客户或已处理，请刷新后核对。');
+      const note=String(new FormData(form).get('note')||'').trim();
+      if (note.length<5) throw new Error('请填写至少五个字的人工核验说明。');
+      const key=JSON.stringify([detail.customer.id,id,note]);
+      if (!state.financeKeys.has(key)) state.financeKeys.set(key,crypto.randomUUID());
+      await mutateCustomer(detail.customer.id,()=>request(`/customers/${encodeURIComponent(detail.customer.id)}/business-links/${encodeURIComponent(id)}/verify`,{method:'POST',body:JSON.stringify({request_key:state.financeKeys.get(key),note})}),'主管人工核验已记录；请登记并确认对应业务阶段建议');
+    }
+    async function decideProposal(button) {
+      const detail=button.dataset.location==='queue'?state.queueDetail:state.detail;
+      if (!detailCanWrite(detail)) return;
+      const proposal=detail.proposals?.find(item=>String(item.id)===button.dataset.proposal);
+      if (!proposal || proposal.status!=='pending') return;
+      if (button.dataset.decision==='confirm' && confirmationBarrier(proposal,detail)) return;
+      const decision=button.dataset.decision;
+      const reason=button.closest('.proposal').querySelector('[data-decision-reason]')?.value.trim() || (decision==='confirm'?'已人工核对原始业务依据':'人工拒绝该候选建议');
+      const key=JSON.stringify([detail.customer.id,proposal.id,decision,detail.customer.version,reason]);
+      if (!state.decisionKeys.has(key)) state.decisionKeys.set(key,crypto.randomUUID());
+      await mutateCustomer(detail.customer.id,()=>request(`/customers/${encodeURIComponent(detail.customer.id)}/proposals/${encodeURIComponent(proposal.id)}/${decision}`,{method:'POST',body:JSON.stringify({expected_version:detail.customer.version,request_key:state.decisionKeys.get(key),reason})}),decision==='confirm'?'建议已接受，客户档案已按确认结果更新':'建议已拒绝，原始依据与决定记录保留');
+    }
+    function showCreate() {
+      if (!state.connected || !writeRole()) return;
+      if (state.createUncertain) {notice('上次创建结果待核实，请先刷新客户列表后核对，避免重复建档。','error');return;}
+      $('create-submit').disabled=false;
+      $('create-error').textContent='';
+      $('create-fields').innerHTML=`<label class="field full">已核实客户主体名称<input name="name" maxlength="256" required></label><label class="field">当前负责人<select name="owner_user_id" required>${ownerOptions(state.owners.length===1?state.owners[0].id:null,'请选择当前负责人')}</select></label><label class="field">国家地区<input name="country" maxlength="80"></label><label class="field full">主归属路径<select name="route">${option('','未归属')}${routeNames.map((name,index)=>option(index+1,name)).join('')}</select><small>来源渠道不自动变成获客路径，尚未证实归属可留空。</small></label><div class="field full"><span>协同路径（不重复计客户数）</span><div class="route-pills">${routeNames.map((name,index)=>`<label class="checkbox-label" style="margin:0 12px 5px 0"><input type="checkbox" name="assisted_routes" value="${index+1}">${escapeHTML(name)}</label>`).join('')}</div></div><label class="field full">归属依据（人工确认）<textarea name="source_note" maxlength="2000"></textarea><small>选择主来源或协同路径时填写人工确认依据，未归属可留空。</small></label><label class="field">已确认决策人<input name="decision_maker" maxlength="256"></label><label class="field">下一步截止<input name="due_at" type="datetime-local"></label><label class="field full">已确认需求<textarea name="need" maxlength="2000"></textarea></label><label class="field full">下一步动作<textarea name="next_action" maxlength="2000"></textarea></label><label class="checkbox-label field full"><input name="entity_verified" type="checkbox" required>我已人工核实业务主体身份；不是仅有来源名单、研究报告或邮件收件人。</label>`;
+      $('create-dialog').showModal();
+    }
+    async function createCustomer(form) {
+      const data=new FormData(form),button=$('create-submit');let requested=false;
+      if (!data.has('entity_verified')) throw new Error('请先核实业务主体身份。');
+      button.disabled=true;
+      try {
+        const body={name:String(data.get('name')||'').trim(),owner_user_id:data.get('owner_user_id')?Number(data.get('owner_user_id')):null,route:data.get('route')?Number(data.get('route')):null,assisted_routes:data.getAll('assisted_routes').map(Number).filter(route=>route!==Number(data.get('route'))),country:String(data.get('country')||'').trim(),source_note:String(data.get('source_note')||'').trim(),entity_verified:true,decision_maker:String(data.get('decision_maker')||'').trim(),need:String(data.get('need')||'').trim(),next_action:String(data.get('next_action')||'').trim(),due_at:isoTime(data.get('due_at'))};
+        if ((body.route || body.assisted_routes.length) && !body.source_note) throw new Error('选择主来源或协同路径时，请填写人工确认的归属依据。');
+        requested=true;
+        const result=await request('/customers',{method:'POST',body:JSON.stringify(body)});
+        const customer=result.customer || result;
+        $('create-dialog').close();await loadCustomers();toast('客户主档已创建，业务阶段仍按证据确认');
+        if (customer.id!=null) await openCustomer(customer.id);
+      } catch (error) {
+        state.createUncertain=requested && (!error.status || error.status>=500);
+        $('create-error').textContent=(state.createUncertain?'创建结果待核实，请关闭并刷新客户列表，核对后再建档。':'创建失败：')+error.message;reportError(error,'创建未确认成功');
+      } finally {button.disabled=state.createUncertain;}
+    }
+    $('filter-form').addEventListener('submit',event=>{event.preventDefault();state.filters={q:$('search').value.trim(),stage:$('stage-filter').value,owner:$('owner-filter').value,route:$('route-filter').value};state.page=0;renderList();});
+    $('refresh-button').addEventListener('click',initialize);
+    $('customers-tab').addEventListener('click',()=>setTab('customers'));
+    $('proposals-tab').addEventListener('click',()=>setTab('proposals'));
+    document.querySelector('.tabs').addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();setTab(event.key==='Home'?'customers':event.key==='End'?'proposals':state.tab==='customers'?'proposals':'customers');$(state.tab+'-tab').focus();});
+    $('prev-page').addEventListener('click',()=>{state.page=Math.max(0,state.page-1);renderList();});
+    $('next-page').addEventListener('click',()=>{state.page++;renderList();});
+    $('close-customer').addEventListener('click',()=>$('customer-dialog').close());
+    $('customer-dialog').addEventListener('close',()=>{state.requestNumber++;state.detail=null;});
+    $('create-button').addEventListener('click',showCreate);
+    $('close-create').addEventListener('click',()=>$('create-dialog').close());
+    $('create-form').addEventListener('submit',event=>{event.preventDefault();createCustomer(event.target).catch(error=>{$('create-error').textContent=error.message;});});
+    document.addEventListener('click',event=>{
+      const button=event.target.closest('button');if(!button)return;
+      if (button.dataset.decision) {decideProposal(button).catch(error=>reportError(error,'建议处理失败'));return;}
+      if (button.dataset.reloadCustomer) {openCustomer(button.dataset.reloadCustomer);return;}
+      if (button.dataset.customer) openCustomer(button.dataset.customer);
+    });
+    $('customer-detail').addEventListener('submit',event=>{
+      event.preventDefault();
+      const operation=event.target.dataset.financeReview?verifyBusinessLink:event.target.id==='profile-form'?saveProfile:event.target.id==='identity-form'?addIdentity:event.target.id==='evidence-form'?addEvidence:event.target.id==='business-link-form'?addBusinessLink:null;
+      if(operation)operation(event.target).catch(error=>detailNotice(error.message,'error'));
+    });
+    $('customer-detail').addEventListener('change',event=>{
+      if (event.target.name==='proposed_stage') {
+        const stage=event.target.value,financial=['ordered','paid'].includes(stage);
+        $('proposal-business-label').hidden=!financial;
+        const select=$('evidence-form').elements.business_link_id;
+        select.required=financial;select.innerHTML=businessLinkOptions(state.detail,stage);
+        return;
+      }
+      if (event.target.name==='kind' && event.target.form?.id==='business-link-form') {
+        const payment=event.target.value==='payment',form=event.target.form;
+        $('payment-order-label').hidden=!payment;
+        form.elements.order_link_id.required=payment;
+        form.elements.currency.readOnly=payment;
+        if (payment) form.elements.currency.value='';
+        return;
+      }
+      if (event.target.name==='order_link_id') {
+        const order=verifiedLinks(state.detail,'ordered').find(link=>String(link.id)===event.target.value);
+        event.target.form.elements.currency.value=order?.currency || '';
+        return;
+      }
+      if(event.target.id!=='evidence-source')return;
+      const source=event.target.value;
+      $('event-id-label').hidden=source==='manual';$('identity-select-label').hidden=source==='manual';$('message-id-label').hidden=source==='manual';$('channel-id-label').hidden=source!=='duzhan_im';
+    });
+    initialize();
+  })();
+  </script>
+</body>
+</html>
