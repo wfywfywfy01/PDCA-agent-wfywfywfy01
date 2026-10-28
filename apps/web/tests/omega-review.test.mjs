@@ -483,6 +483,152 @@ test('an older ended voice session can generate its partial report without the t
   }
 })
 
+async function withVoiceBrowser(options, check) {
+  const { page } = mountReview()
+  page.chosenSession.value = { id: 'voice-capture', owner_id: 1, status: 'active',
+    case_snapshot: page.blankDraft(), segments: [] }
+  page.realtimeReady.value = true
+  const previous = Object.fromEntries(['navigator', 'window', 'AudioContext', 'AudioWorkletNode', 'WebSocket', 'location']
+    .map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
+  const track = { readyState: options.trackState || 'live', muted: !!options.muted,
+    stop() { this.readyState = 'ended' } }
+  let socket
+  let input
+  let modules = 0
+  try {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
+      mediaDevices: { getUserMedia: async () => ({ getAudioTracks: () => [track], getTracks: () => [track] }) },
+    } })
+    globalThis.window = { AudioWorkletNode: class {} }
+    globalThis.location = { protocol: 'https:', host: 'testserver', origin: 'https://testserver' }
+    globalThis.AudioContext = class {
+      constructor(config = {}) {
+        this.isInput = !!config.sampleRate
+        this.state = this.isInput ? 'suspended' : 'running'
+        this.resumeCount = 0
+        this.destination = {}
+        this.audioWorklet = { addModule: async () => { modules++ } }
+        if (this.isInput) input = this
+      }
+      async resume() {
+        this.resumeCount++
+        if (this.isInput) {
+          if (options.resumeGate) await options.resumeGate
+          if (options.inputRuns !== false) this.state = 'running'
+        } else if (options.outputGate) await options.outputGate
+      }
+      async close() { this.state = 'closed' }
+      createGain() { return { gain: { value: 1 }, connect: (target) => target } }
+      createDynamicsCompressor() { return { threshold: {}, knee: {}, ratio: {}, connect() {} } }
+      createMediaStreamSource() { return { connect: (target) => target } }
+    }
+    globalThis.AudioWorkletNode = class {
+      port = { onmessage: null }
+      connect(target) { return target }
+      disconnect() {}
+    }
+    globalThis.WebSocket = class {
+      static OPEN = 1
+      constructor() { socket = this; this.readyState = 1 }
+      send() {}
+      close() { this.readyState = 3 }
+    }
+    if (options.primed) page.prepareTemplateVoice()
+    const starting = page.startVoice()
+    if (options.afterStartCall) await options.afterStartCall({ input: () => input, page })
+    await starting
+    await check({ page, track, input: () => input, socket: () => socket, modules: () => modules })
+  } finally {
+    page.stopVoice()
+    for (const [name, descriptor] of Object.entries(previous)) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor)
+      else delete globalThis[name]
+    }
+  }
+}
+
+test('a suspended input context never presents the call as listening', async () => {
+  await withVoiceBrowser({ inputRuns: false }, async ({ page, socket }) => {
+    await socket().onmessage({ data: JSON.stringify({ type: 'ready', state: 'listening', audio_epoch: 0 }) })
+    assert.equal(page.voiceConnected.value, false)
+    assert.match(page.error.value, /麦克风音频未启动.*重试/)
+    assert.equal(page.callOpen.value, false)
+  })
+})
+
+test('normal and scene-card calls resume input before listening', async () => {
+  for (const primed of [false, true]) {
+    await withVoiceBrowser({ primed }, async ({ page, input, socket }) => {
+      await socket().onmessage({ data: JSON.stringify({ type: 'ready', state: 'listening', audio_epoch: 0 }) })
+      assert.equal(input().state, 'running')
+      assert.equal(page.voiceConnected.value, true)
+    })
+  }
+})
+
+test('an ended or muted microphone track cannot start a listening call', async () => {
+  for (const options of [{ trackState: 'ended' }, { muted: true }]) {
+    await withVoiceBrowser(options, async ({ page, socket }) => {
+      await socket().onmessage({ data: JSON.stringify({ type: 'ready', state: 'listening', audio_epoch: 0 }) })
+      assert.equal(page.voiceConnected.value, false)
+      assert.match(page.error.value, /麦克风.*重试/)
+    })
+  }
+})
+
+test('a cancelled call does not attach audio after input resume completes', async () => {
+  let releaseResume
+  const resumeGate = new Promise((resolve) => { releaseResume = resolve })
+  await withVoiceBrowser({ resumeGate }, async ({ page, socket, modules }) => {
+    const ready = socket().onmessage({ data: JSON.stringify({ type: 'ready', state: 'listening', audio_epoch: 0 }) })
+    await new Promise(setImmediate)
+    page.stopVoice()
+    releaseResume()
+    await ready
+    assert.equal(page.voiceConnected.value, false)
+    assert.equal(modules(), 0)
+  })
+})
+
+test('ordinary voice click primes input before the first async wait', async () => {
+  let releaseOutput
+  const outputGate = new Promise((resolve) => { releaseOutput = resolve })
+  await withVoiceBrowser({ outputGate, afterStartCall: ({ input }) => {
+    try {
+      assert.ok(input(), 'input AudioContext exists during the user tap')
+      assert.equal(input().resumeCount, 1)
+    } finally { releaseOutput() }
+  } }, async ({ page, socket }) => {
+    await socket().onmessage({ data: JSON.stringify({ type: 'ready', state: 'listening', audio_epoch: 0 }) })
+    assert.equal(page.voiceConnected.value, true)
+  })
+})
+
+test('a pending input unlock times out instead of leaving the call connecting', async () => {
+  const previousSetTimeout = globalThis.setTimeout
+  const previousClearTimeout = globalThis.clearTimeout
+  let expire
+  globalThis.setTimeout = (callback, delay) => {
+    if (delay === 5000) { expire = callback; return 999 }
+    return previousSetTimeout(callback, delay)
+  }
+  globalThis.clearTimeout = (id) => { if (id !== 999) previousClearTimeout(id) }
+  try {
+    await withVoiceBrowser({ resumeGate: new Promise(() => {}) }, async ({ page, socket }) => {
+      const ready = socket().onmessage({ data: JSON.stringify({ type: 'ready', state: 'listening', audio_epoch: 0 }) })
+      await new Promise(setImmediate)
+      assert.equal(typeof expire, 'function', 'input unlock has a finite wait')
+      expire()
+      await ready
+      assert.equal(page.callOpen.value, false)
+      assert.match(page.error.value, /麦克风音频未启动.*重试/)
+    })
+  } finally {
+    globalThis.setTimeout = previousSetTimeout
+    globalThis.clearTimeout = previousClearTimeout
+  }
+})
+
 test('voice pause waits for the backend control acknowledgement without a premature timeout', async () => {
   const { page, html } = mountReview()
   const previousWebSocket = globalThis.WebSocket

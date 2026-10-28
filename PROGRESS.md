@@ -564,3 +564,8 @@ Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deplo
 - 同步及证据核对会停止排除人员已有的未关闭任务，状态为 `complete/excluded`，追加一次 `owner_exclusion`。原派单、提交证据、催办历史及已终结任务保留；其他群和其他来源不受影响。采集失败仍执行排除且零发送。
 - 测试先行：原实现专项 **45 项中 8 项失败、1 项错误**，复现无法解析配置、仍然派单/催办、未停止旧任务。修复后含来源隔离、通知、调度及采集失败的相关 **74 项在 2.041 秒内通过**。完整后端、前端、Compose、独立复核与固定提交 CI 继续作为上线门禁。实际名单与生产核验另存私有交付记录，不写入源码。
 - 独立复核发现群别名只在新派单时过滤会造成旧任务口径不一致；已收口为正式姓名优先的规范负责人名称与稳定 ID，不推断其他别名。同一负责人名称回退及 ID 覆盖的新增回归通过，最终相关 **75 项在 2.132 秒内通过**。前端 **83/83**、类型检查、生产构建及默认/walkin 两份 Compose 占位配置校验通过；Python 编译和差异检查通过。固定提交 CI 仍须通过后才能部署。
+
+## 2026-10-28: Omega microphone audio context startup
+
+- A browser could show “正在听” after the voice WebSocket became ready while its input AudioContext remained suspended or its microphone track was ended or muted. Both input and output AudioContext resume calls now start during the user's tap. The page waits at most five seconds for each unlock, then checks that input audio is running and a live, unmuted track exists before attaching the worklet and showing listening. A cancelled call cannot attach the worklet after a late resume.
+- Six frontend regressions were run red before the fix for suspended input, normal and scene-card starts, unavailable tracks, cancellation, click-time priming, and a never-settling resume. Final frontend verification: **89/89 tests passed**, `npm run typecheck` and `npm run build` passed, and `git diff --check` passed. Production phone audio remains an exact-commit release check.
