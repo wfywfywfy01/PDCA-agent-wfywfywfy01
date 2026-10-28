@@ -55,11 +55,10 @@ Omega 通过独立 `pdca-omega-web` 容器提供 `/app/omega` 和 `/api/omega/*`
 
 ### 生产上线与故障回滚
 
-1. 记录当前主服务、`pdca-omega-worker`、独立 `pdca-omega-web` 的镜像 SHA 和健康状态；确认没有进行中的语音通话，数据库备份可用，目标完整 40 位 SHA 的 CI 成功且镜像已发布。存在不兼容迁移时，先制定数据回退办法，不直接回滚旧代码。
-2. 通过 SSH 更新主服务和 worker：`pwsh pdca-workbench/scripts/deploy_remote_docker.ps1 -Sha <目标40位SHA> -DockerHost ssh://<已配置的SSH主机> -EnvFile <未跟踪生产env文件>`。脚本不更新独立 Omega Web。核对公开 `/health` 的 `status=ok`、`database_connected=true`、`revision=<目标SHA>`，并核对 worker 容器运行且镜像 SHA 相同。不要依赖脚本的 Docker TCP 默认地址。
-3. 通过同一 SSH 主机更新独立 Omega Web：`python pdca-workbench/scripts/deploy_omega_web.py --docker-host ssh://<已配置的SSH主机> --revision <同一目标40位SHA>`。脚本在 PostgreSQL 事务锁内确认无活跃通话，并持续阻止新通话入库，直到旧 Web 停止；锁无法建立或发现活跃通话时停止发布。核对公开 `/omega-health` 为 200、`status=ok`、`revision=<目标SHA>`、`omega_worker.ok=true`，并再次核对 `/health` 的 SHA 相同。随后完成账号登录、文字回合与报告、实体手机麦克风豆包真实双向回合和插话测试；健康接口只验证应用、数据库及 worker 心跳，不能代替供应商接入或真实语音验收。
+1. 记录当前主服务、`pdca-omega-worker`、独立 `pdca-omega-web` 的镜像 SHA 和健康状态；确认没有排队或运行中的 Omega 任务，数据库备份可用，目标完整 40 位 SHA 的 CI 成功且镜像已发布。存在不兼容迁移时，先制定数据回退办法，不直接回滚旧代码。
+2. 通过 SSH 一次更新三者：`pwsh pdca-workbench/scripts/deploy_remote_docker.ps1 -Sha <目标40位SHA> -DockerHost ssh://<已配置的SSH主机> -EnvFile <未跟踪生产env文件>`。脚本在数据库 gate 内关闭旧 Web 和主站入口，随后依次切换 worker、主站与独立 Web；任意排队或运行中的 Omega 任务都会延期发布。核对公开 `/health` 与 `/omega-health` 均为 `status=ok`、`revision=<目标SHA>`，独立 Web 报告 `omega_worker.ok=true`，并完成账号登录、文字回合与报告、实体手机麦克风双向回合和插话测试。不要依赖脚本的 Docker TCP 默认地址。
 
-若第 2 步失败，部署脚本会尝试恢复旧主服务；仍须逐一确认主服务、worker 与独立 Web 回到记录的旧 SHA 且两条健康接口恢复。若第 3 步失败，独立 Web 脚本只恢复自己的旧容器；先确认没有进行中的语音通话，再把主服务和 worker 部署回旧 SHA，核对三个容器同版、登录和两条健康接口。发布后发现缺陷也按“停止新会话、确认无活跃语音、先回退主服务和 worker、再回退独立 Web”的顺序操作。回退失败或旧版与新数据不兼容时，停止继续切换，按数据库备份与迁移预案恢复。
+切换失败时脚本先关闭新 Web/主站，再恢复旧 worker、旧主站；只有旧 Web 的实际版本与旧主站、worker 一致，才重新开放旧 Web。若原本已混版或旧 worker 未恢复，Web 保持关闭并明确报错，待人工修复。发布后发现缺陷仍须先确认没有排队或运行中的 Omega 任务，再按同一顺序回退；旧版与新数据不兼容时按迁移与备份预案处理。
 
 ## 验证与边界
 

@@ -140,6 +140,9 @@ let controlTimer: ReturnType<typeof setTimeout> | undefined
 let pendingControlKey = ''
 let primedVoice = false
 let primedSessionId = ''
+type VoiceAudioPrime = { output: AudioContext; input: AudioContext;
+  outputReady: Promise<boolean>; inputReady: Promise<boolean> }
+let primedAudio: VoiceAudioPrime | undefined
 const participants = computed(() => chosenSession.value?.case_snapshot?.participants || [])
 const currentSpeakerName = computed(() => participants.value.find(row => row.id === currentSpeakerId.value)?.name || '对手')
 const voiceAllowed = computed(() => participants.value.length <= 1 || multiVoiceReady.value)
@@ -463,20 +466,29 @@ async function openSession(id: string, discardConfirmed = false) {
     if (['queued', 'running'].includes(job.status)) schedulePoll()
   }
 }
+function primeVoiceAudio(): VoiceAudioPrime {
+  const output = voiceOutput ||= new AudioContext()
+  const input = voiceInput ||= new AudioContext({ sampleRate: 16000 })
+  return { output, input, outputReady: output.resume().then(() => true, () => false),
+    inputReady: input.resume().then(() => true, () => false) }
+}
+function waitVoiceAudio(ready: Promise<boolean>): Promise<boolean> {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(false), 5000)
+    void ready.then(ok => { clearTimeout(timer); resolve(ok) })
+  })
+}
 function prepareTemplateVoice() {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) return
   try {
-    voiceOutput ||= new AudioContext()
-    voiceInput ||= new AudioContext({ sampleRate: 16000 })
+    primedAudio = primeVoiceAudio()
     primedVoice = true
-    // Unlock both contexts during the user's tap, before creating the session.
-    void voiceOutput.resume().catch(() => {})
-    void voiceInput.resume().catch(() => {})
   } catch { cancelTemplateVoice() }
 }
 function cancelTemplateVoice() {
   primedVoice = false
   primedSessionId = ''
+  primedAudio = undefined
   if (!voiceConnected.value && !voiceConnecting.value) stopVoice(true)
 }
 async function startedTemplate(result: TemplateStart, autoVoice = false) {
@@ -939,6 +951,7 @@ function stopVoice(intentional = false) {
     if (chosenSession.value?.id) rememberVoiceSession(chosenSession.value.id)
   }
   voiceToken++
+  primedAudio = undefined
   voiceSocket?.close()
   voiceSocket = undefined
   voiceWorklet?.disconnect()
@@ -1099,8 +1112,10 @@ async function startVoice() {
     return
   }
   stopCapture(true)
+  const prepared = primedVoice ? primedAudio : undefined
   primedVoice = false
   primedSessionId = ''
+  primedAudio = undefined
   const token = ++voiceToken
   const sessionId = chosenSession.value.id
   voiceConnecting.value = true
@@ -1115,15 +1130,17 @@ async function startVoice() {
   currentSpeakerId.value = participants.value.find(row => row.is_primary)?.id || ''
   error.value = ''
   try {
-    voiceOutput ||= new AudioContext()
-    await voiceOutput.resume()
-    voiceGain = voiceOutput.createGain()
+    // Both resume calls start during the user's tap, before the first await.
+    const audio = prepared || primeVoiceAudio()
+    if (!await waitVoiceAudio(audio.outputReady)) throw new Error('对手声音未启动，请重试实时对话。')
+    if (token !== voiceToken) return
+    voiceGain = audio.output.createGain()
     voiceGain.gain.value = voiceVolume.value
-    const limiter = voiceOutput.createDynamicsCompressor()
+    const limiter = audio.output.createDynamicsCompressor()
     limiter.threshold.value = -8
     limiter.knee.value = 0
     limiter.ratio.value = 12
-    voiceGain.connect(limiter).connect(voiceOutput.destination)
+    voiceGain.connect(limiter).connect(audio.output.destination)
     const captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
     if (token !== voiceToken || chosenSession.value?.id !== sessionId || chosenSession.value?.status !== 'active'
         || chosenSession.value?.voice_capacity_reached) {
@@ -1215,14 +1232,21 @@ async function startVoice() {
         if (['pausing', 'resuming', 'error'].includes(message.state || '')) {
           failVoiceControl(message.message || '上次暂停或恢复未完成，麦克风保持暂停。可重试恢复或结束通话。')
         }
-        voiceInput ||= new AudioContext({ sampleRate: 16000 })
-        await voiceInput.audioWorklet.addModule(new URL(`${import.meta.env.BASE_URL}omega-capture-worklet.js`, location.origin).toString())
+        const input = audio.input
+        if (!await waitVoiceAudio(audio.inputReady)) {
+          throw new Error('麦克风音频未启动，请检查浏览器权限或设备占用后重试。')
+        }
         if (token !== voiceToken || voiceSocket !== socket) return
-        const source = voiceInput.createMediaStreamSource(captured)
-        const worklet = new AudioWorkletNode(voiceInput, 'omega-capture')
-        const silent = voiceInput.createGain()
+        await input.audioWorklet.addModule(new URL(`${import.meta.env.BASE_URL}omega-capture-worklet.js`, location.origin).toString())
+        if (token !== voiceToken || voiceSocket !== socket) return
+        if (input.state !== 'running' || !captured.getAudioTracks().some(track => track.readyState === 'live' && !track.muted)) {
+          throw new Error('麦克风音频未启动，请检查浏览器权限或设备占用后重试。')
+        }
+        const source = input.createMediaStreamSource(captured)
+        const worklet = new AudioWorkletNode(input, 'omega-capture')
+        const silent = input.createGain()
         silent.gain.value = 0
-        source.connect(worklet).connect(silent).connect(voiceInput.destination)
+        source.connect(worklet).connect(silent).connect(input.destination)
         voiceWorklet = worklet
         worklet.port.onmessage = (packet: MessageEvent<ArrayBuffer>) => {
           if (socket.readyState !== WebSocket.OPEN || token !== voiceToken || voicePhase.value !== 'live') return
@@ -1675,7 +1699,7 @@ onBeforeUnmount(() => {
       <div class="omega-call-center">
         <div class="omega-call-orb" :class="{ 'is-speaking': voiceSpeaking, 'is-connecting': voiceConnecting, 'is-paused': voicePhase !== 'live' }" aria-hidden="true"></div>
         <h2 aria-live="polite">{{ voiceClosing ? '正在结束' : voiceConnecting ? '正在连接' : voicePhase === 'error' ? '演练已暂停' : voicePhase === 'coaching' ? '教练时间' : voicePhase === 'pausing' ? '正在暂停' : voicePhase === 'resuming' ? '正在恢复' : voiceSpeaking ? `${currentSpeakerName}正在说话` : '正在听' }}</h2>
-        <p>{{ voiceClosing ? voiceEndNotice || '正在保存语音尾稿…' : voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : ['pausing', 'resuming'].includes(voicePhase) ? '正在保存上一句语音并确认状态，可能需要约 50 秒，请保持页面。' : voicePhase === 'coaching' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
+        <p>{{ voiceClosing ? voiceEndNotice || '正在保存语音尾稿…' : voicePhase === 'error' ? '麦克风已暂停，请查看错误提示' : voicePhase === 'pausing' ? '正在保存上一句语音，保存后显示教练建议，请保持页面。' : voicePhase === 'resuming' ? '正在恢复语音，请保持页面。' : voicePhase === 'coaching' ? '麦克风已暂停，教练提示只对你可见' : voiceConnecting ? '正在连接语音，请稍候' : voiceSpeaking ? '可以随时开口打断' : '直接说话，对手会实时回应' }}</p>
         <p v-if="voiceEndNotice && !voiceClosing" class="omega-call-warning" role="status">{{ voiceEndNotice }}</p>
         <div v-if="participants.length > 1" class="omega-participants" aria-label="对手参会人"><span v-for="person in participants" :key="person.id" :class="{ active: voiceSpeaking && currentSpeakerId === person.id }">{{ person.name }} · {{ person.role }}</span></div>
         <div v-if="voicePhase === 'coaching'" class="omega-private-coach" role="status"><p>{{ coachBusy ? '教练正在看本场对话…' : coachText || '可向教练求助，也可直接继续演练。' }}</p><button v-if="!coachBusy" class="btn btn-sm btn-ghost" type="button" @click="requestCoach">再给一条建议</button></div>

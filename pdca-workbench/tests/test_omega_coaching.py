@@ -438,6 +438,7 @@ class CoachingTests(unittest.TestCase):
         class Provider:
             def __init__(self):
                 self.events = iter(events)
+                self.pause_task = None
             async def send(self, raw):
                 pass
             async def recv(self):
@@ -446,9 +447,18 @@ class CoachingTests(unittest.TestCase):
                     if event == "pcm":
                         control.sent_audio(b"\0\x20")
                         return await self.recv()
-                    await control.handle(browser, self, {"type": "control", "action": event,
-                        "request_key": f"receiver-{event}", "audio_epoch": control.epoch + 1})
+                    command = {"type": "control", "action": event,
+                        "request_key": f"receiver-{event}", "audio_epoch": control.epoch + 1}
+                    if event == "pause":
+                        self.pause_task = asyncio.create_task(control.handle(browser, self, command))
+                        await asyncio.sleep(0)
+                    else:
+                        if self.pause_task:
+                            await self.pause_task
+                        await control.handle(browser, self, command)
                     return await self.recv()
+                if event.get("type") == "session.closed" and self.pause_task:
+                    await self.pause_task
                 return json.dumps(event)
         asyncio.run(_receive_doubao_audio(browser, Provider(), self.engine, self.session_id,
             self.job_id, self.token, control=control))
@@ -509,7 +519,7 @@ class CoachingTests(unittest.TestCase):
     def test_pcm_sent_before_pause_authorizes_delayed_asr_started(self):
         async def exercise():
             control = VoiceControl(self.engine, self.session_id, self.job_id, self.token)
-            paused = asyncio.Event()
+            pausing = asyncio.Event()
             class Browser:
                 def __init__(self):
                     self.events, self.audio = [], []
@@ -521,8 +531,8 @@ class CoachingTests(unittest.TestCase):
                     return next(self.messages)
                 async def send_json(self, event):
                     self.events.append(event)
-                    if event.get("state") == "coaching":
-                        paused.set()
+                    if event.get("state") == "pausing":
+                        pausing.set()
                 async def send_bytes(self, chunk):
                     self.audio.append(chunk)
             class Provider:
@@ -535,7 +545,7 @@ class CoachingTests(unittest.TestCase):
                 async def send(self, raw):
                     self.sent.append(json.loads(raw))
                 async def recv(self):
-                    await paused.wait()
+                    await pausing.wait()
                     return json.dumps(next(self.events))
             browser, provider = Browser(), Provider()
             sent, _ = await asyncio.gather(_send_audio(browser, provider, self.engine, self.session_id,
@@ -567,6 +577,8 @@ class CoachingTests(unittest.TestCase):
                 async def send(self, raw):
                     event = json.loads(raw)
                     self.sent.append(event)
+                    if event["type"] == "input_audio_buffer.commit":
+                        return
                     if event["type"] != "input_audio_buffer.append":
                         raise AssertionError("Pause changed the provider ASR lifecycle")
                     self_audio = base64.b64decode(event["audio"])
@@ -588,6 +600,8 @@ class CoachingTests(unittest.TestCase):
                     await asyncio.Event().wait()
             browser, provider = Browser(), Provider()
             control.sent_audio(b"\0\x20")
+            with Session(self.engine) as db:
+                initial_lease = db.get(OmegaJob, self.job_id).lease_until
             receiving = asyncio.create_task(_receive_doubao_audio(browser, provider, self.engine,
                 self.session_id, self.job_id, self.token, control=control))
             try:
@@ -595,8 +609,19 @@ class CoachingTests(unittest.TestCase):
                     await control.handle(browser, provider, {"type": "control", "action": "pause",
                         "request_key": "confirmed-tail-pause", "audio_epoch": 2})
                 self.assertEqual(control.state, "coaching")
-                self.assertIsNotNone(control.pending_input)
-                await control.wait_input_tail()
+                self.assertFalse(control.pending_nonzero)
+                with Session(self.engine) as db:
+                    self.assertEqual(db.exec(select(OmegaSegment)).one().text,
+                                     "Public PCM accepted before pause")
+                    self.assertGreater(db.get(OmegaJob, self.job_id).lease_until, initial_lease)
+                    queue_hint(db, self.user, self.session_id, "confirmed-tail-coach")
+                prompts = []
+                def generate(kind, messages, limit):
+                    prompts.append(json.loads(messages[1]["content"]))
+                    return "Coach can use the accepted public utterance"
+                self.assertTrue(run_once(self.engine, generate=generate))
+                self.assertEqual(prompts[0]["transcript"][0]["text"],
+                                 "Public PCM accepted before pause")
                 silence_task = control.silence_task
                 await control.stop_silence()
                 self.assertTrue(silence_task.done())
@@ -609,14 +634,68 @@ class CoachingTests(unittest.TestCase):
                 receiving.cancel()
                 await asyncio.gather(receiving, return_exceptions=True)
             self.assertEqual(control.state, "coaching")
-            self.assertIsNone(control.pending_input)
+            self.assertFalse(control.pending_nonzero)
             self.assertFalse(control.active_inputs)
             self.assertEqual(browser.audio, [])
             self.assertTrue(zero_sent.is_set())
+            self.assertEqual(sum(event["type"] == "input_audio_buffer.commit" for event in provider.sent), 0)
             self.assertFalse(any(event["type"] in {"caption", "interrupt"} for event in browser.events))
             with Session(self.engine) as db:
                 self.assertEqual(db.exec(select(OmegaSegment)).one().text, "Public PCM accepted before pause")
         asyncio.run(exercise())
+
+    def test_pause_with_unfinished_asr_keeps_coach_closed(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token, confirmed=True)
+        control.sent_audio(b"\0\x20")
+        control.active_inputs.add("unfinished")
+        control.input_final.clear()
+        class Browser:
+            def __init__(self):
+                self.events = []
+            async def send_json(self, event):
+                self.events.append(event)
+        class Provider:
+            async def send(self, raw):
+                pass
+        async def timeout(coroutine, seconds):
+            coroutine.close()
+            raise TimeoutError
+        browser = Browser()
+        async def exercise():
+            with patch("app.omega.realtime.provider_name", return_value="doubao"), \
+                 patch("app.omega.realtime.asyncio.wait_for", side_effect=timeout):
+                await control.handle(browser, Provider(), {"type": "control", "action": "pause",
+                    "request_key": "unfinished-tail-pause", "audio_epoch": 2})
+            await control.stop_silence()
+        asyncio.run(exercise())
+        self.assertEqual(control.state, "error")
+        self.assertTrue(control.tail_incomplete)
+        self.assertNotIn("coaching", [event.get("state") for event in browser.events])
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(OmegaSession, self.session_id).voice_state, "error")
+            with self.assertRaises(HTTPException):
+                queue_hint(db, self.user, self.session_id, "unfinished-tail-coach")
+
+    def test_pause_after_only_zero_pcm_allows_coaching(self):
+        control = VoiceControl(self.engine, self.session_id, self.job_id, self.token, confirmed=True)
+        control.sent_audio(bytes(640))
+        class Browser:
+            async def send_json(self, event):
+                pass
+        class Provider:
+            async def send(self, raw):
+                pass
+        browser = Browser()
+        async def exercise():
+            with patch("app.omega.realtime.provider_name", return_value="doubao"):
+                await control.handle(browser, Provider(), {"type": "control", "action": "pause",
+                    "request_key": "zero-only-pause", "audio_epoch": 2})
+            await control.stop_silence()
+        asyncio.run(exercise())
+        self.assertEqual(control.state, "coaching")
+        self.assertFalse(control.tail_incomplete)
+        with Session(self.engine) as db:
+            self.assertEqual(db.exec(select(OmegaSegment)).all(), [])
 
     def test_confirmed_pause_blocks_private_pcm_and_resume_accepts_fresh_native_turn(self):
         owner = self
