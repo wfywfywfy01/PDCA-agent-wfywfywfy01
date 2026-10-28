@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { timeStage } from '@/api/duzhanBlocks'
 import { genericStarterBlocks, modeOf, cloneTemplate, stages, updateStageSlot, type GroupOptionsResponse } from '@/api/duzhanWorkspace'
 import DuzhanTaskPolicy from '@/components/DuzhanTaskPolicy.vue'
@@ -31,6 +31,7 @@ function todayInZone(zone: string): string {
   }).format(new Date())
 }
 
+const router = useRouter()
 const specs = ref<BlockTypeSpec[]>([])
 const agents = ref<DuzhanAgentItem[]>([])
 const selectedId = ref<number | null>(null)
@@ -59,7 +60,10 @@ const search = ref('')
 const metricsEditor = ref<InstanceType<typeof DuzhanMonthlyMetrics> | null>(null)
 const metricsDirty = ref(false)
 const step = ref(1)
-const draftBaseline = ref('')
+// Authentication may fail before load() initializes a draft; the untouched form is still clean.
+const draftBaseline = ref(JSON.stringify({ name: name.value, timezone: timezone.value, note: note.value, blocks: blocks.value }))
+const pendingLogin = ref('')
+let allowLogin = false
 const statusFilter = ref('all')
 const directory = ref<GroupOptionsResponse | null>(null)
 const directoryError = ref('')
@@ -489,9 +493,20 @@ async function saveAndPreview() {
 function beforeUnload(event: BeforeUnloadEvent) {
   if (unsaved.value) { event.preventDefault(); event.returnValue = '' }
 }
-onBeforeRouteLeave(() => {
-  if (!unsaved.value) return true
-  error.value = '当前有未保存的改动，请先保存再离开。'
+async function discardAndLogin() {
+  if (!pendingLogin.value) return
+  allowLogin = true
+  try { await router.replace(pendingLogin.value) }
+  finally { allowLogin = false }
+}
+onBeforeRouteLeave((to) => {
+  if (!unsaved.value || (allowLogin && to.name === 'login')) return true
+  if (to.name === 'login') {
+    pendingLogin.value = to.fullPath
+    error.value = ''
+  } else {
+    error.value = '当前有未保存的改动，请先保存再离开。'
+  }
   return false
 })
 onMounted(() => { window.addEventListener('beforeunload', beforeUnload); void load() })
@@ -508,6 +523,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 
     <p v-if="message" class="notice success" role="status">{{ message }}</p>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+    <div v-if="pendingLogin" class="notice warning" role="alert"><span>登录已过期。当前改动仍保留在此页；请先记录需要保留的内容，重新登录将放弃未保存的改动。</span><button class="btn" type="button" @click="discardAndLogin">放弃改动并重新登录</button></div>
     <div v-if="pendingTarget !== null" class="notice warning" role="alert"><span>当前配置有未保存的改动。</span><div class="actions"><button class="btn" type="button" @click="pendingTarget = null">继续编辑</button><button class="btn" type="button" @click="discardAndSwitch">放弃改动并切换</button></div></div>
 
     <div class="workspace">
