@@ -10,6 +10,15 @@ from scripts.deploy_omega_web import build_run_args, copy_environment, deploy, r
 
 
 class DeployOmegaWebTests(unittest.TestCase):
+    @staticmethod
+    def worker(revision):
+        return {"Config": {"Labels": {"com.vertu.pdca.revision": revision},
+                           "Env": [f"PDCA_RELEASE_SHA={revision}",
+                                   "PDCA_DATABASE_URL=postgresql://test:test@db/test",
+                                   "PDCA_SUPERVISOR_PROVIDER=https://api.deepseek.com",
+                                   "PDCA_SUPERVISOR_MODEL=deepseek-flash"]},
+                "State": {"Status": "running"}}
+
     def setUp(self):
         self.source = {
             "Config": {
@@ -17,6 +26,7 @@ class DeployOmegaWebTests(unittest.TestCase):
                 "Labels": {"com.vertu.pdca.revision": "abcdef0"},
                 "Env": [
                     "PDCA_SECRET_KEY=test-only-secret-12345678901234567890",
+                    "PDCA_RELEASE_SHA=abcdef0",
                     "PDCA_DATABASE_URL=postgresql://test:test@db/test",
                     "PDCA_REQUIRE_VERTU=1", "PDCA_SCHEDULER_ENABLED=1",
                     "PDCA_OMEGA_ENABLED=1", "PDCA_OMEGA_REALTIME_PROVIDER=doubao",
@@ -65,20 +75,30 @@ class DeployOmegaWebTests(unittest.TestCase):
 
     def test_exact_target_image_can_update_only_omega_web(self):
         revision = "b" * 40
+        self.source["Config"]["Labels"]["com.vertu.pdca.revision"] = revision
+        self.source["Config"]["Env"] = [f"PDCA_RELEASE_SHA={revision}" if line.startswith("PDCA_RELEASE_SHA=") else line
+                                        for line in self.source["Config"]["Env"]]
         target = f"ghcr.io/wfywfywfy01/pdca-workbench:{revision}"
         image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": revision}, "Env": []}}
         current = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1",
                                           "com.vertu.pdca.revision": revision},
                               "Env": [*(f"{k}={v}" for k, v in copy_environment(self.source).items())]},
-                   "State": {"Health": {"Status": "healthy"}}}
+                   "State": {"Health": {"Status": "healthy"}, "Running": True}}
 
         def fake_inspect(_host, name):
-            return {"pdca-workbench": self.source, target: image, "pdca-omega-web": current}.get(name)
+            return {"pdca-workbench": self.source, target: image, "pdca-omega-worker": self.worker(revision),
+                    "pdca-omega-web": current}.get(name)
 
         with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
               patch("scripts.deploy_omega_web.run_docker") as docker):
             self.assertEqual(deploy("ssh://test", target_revision=revision), revision)
             docker.assert_not_called()
+        current["State"]["Running"] = False
+        with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
+              patch("scripts.deploy_omega_web._write_environment", side_effect=RuntimeError("attempted deploy"))):
+            with self.assertRaisesRegex(RuntimeError, "attempted deploy"):
+                deploy("ssh://test", target_revision=revision)
+        current["State"]["Running"] = True
         args = build_run_args(self.source, "C:/Temp/omega-secret.env", image_name=target, revision=revision)
         self.assertEqual(args[-1], target)
         self.assertIn(f"com.vertu.pdca.revision={revision}", args)
@@ -94,18 +114,22 @@ class DeployOmegaWebTests(unittest.TestCase):
 
     def test_exact_target_image_is_pulled_when_missing(self):
         revision = "b" * 40
+        self.source["Config"]["Labels"]["com.vertu.pdca.revision"] = revision
+        self.source["Config"]["Env"] = [f"PDCA_RELEASE_SHA={revision}" if line.startswith("PDCA_RELEASE_SHA=") else line
+                                        for line in self.source["Config"]["Env"]]
         target = f"ghcr.io/wfywfywfy01/pdca-workbench:{revision}"
         image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": revision}, "Env": []}}
         current = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1",
                                           "com.vertu.pdca.revision": revision},
                               "Env": [*(f"{k}={v}" for k, v in copy_environment(self.source).items())]},
-                   "State": {"Health": {"Status": "healthy"}}}
+                   "State": {"Health": {"Status": "healthy"}, "Running": True}}
         pulled = False
 
         def fake_inspect(_host, name):
             if name == target:
                 return image if pulled else None
-            return {"pdca-workbench": self.source, "pdca-omega-web": current}.get(name)
+            return {"pdca-workbench": self.source, "pdca-omega-worker": self.worker(revision),
+                    "pdca-omega-web": current}.get(name)
 
         def fake_docker(_host, *args, **kwargs):
             nonlocal pulled
@@ -118,6 +142,101 @@ class DeployOmegaWebTests(unittest.TestCase):
               patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker)):
             self.assertEqual(deploy("ssh://test", target_revision=revision), revision)
         self.assertTrue(pulled)
+
+    def test_target_must_match_main_and_worker_even_on_healthy_web_early_return(self):
+        revision = "b" * 40
+        target = f"{omega_deploy.REGISTRY}:{revision}"
+        image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": revision}, "Env": []}}
+        current = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1",
+                                          "com.vertu.pdca.revision": revision},
+                              "Env": [*(f"{k}={v}" for k, v in copy_environment(self.source).items())]},
+                   "State": {"Health": {"Status": "healthy"}, "Running": True}}
+        worker = self.worker(revision)
+
+        def fake_inspect(_host, name):
+            return {"pdca-workbench": self.source, target: image,
+                    "pdca-omega-worker": worker, "pdca-omega-web": current}.get(name)
+
+        with patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect):
+            with self.assertRaisesRegex(ValueError, "main revision"):
+                deploy("ssh://test", target_revision=revision)
+            self.source["Config"]["Labels"]["com.vertu.pdca.revision"] = revision
+            self.source["Config"]["Env"] = [f"PDCA_RELEASE_SHA={revision}" if line.startswith("PDCA_RELEASE_SHA=") else line
+                                            for line in self.source["Config"]["Env"]]
+            worker["Config"]["Labels"]["com.vertu.pdca.revision"] = "a" * 40
+            with self.assertRaisesRegex(ValueError, "worker revision"):
+                deploy("ssh://test", target_revision=revision)
+            worker["Config"]["Labels"]["com.vertu.pdca.revision"] = revision
+            worker["Config"]["Env"][-1] = "PDCA_SUPERVISOR_MODEL=old-model"
+            with self.assertRaisesRegex(ValueError, "worker configuration"):
+                deploy("ssh://test", target_revision=revision)
+
+    def test_parent_controlled_failure_keeps_old_web_stopped(self):
+        old = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1"}},
+               "State": {"Health": {"Status": "unhealthy"}, "Running": True}}
+        image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": "abcdef0"}, "Env": []}}
+        worker = self.worker("abcdef0")
+        commands = []
+
+        def fake_inspect(_host, name):
+            return {"pdca-workbench": self.source, self.source["Config"]["Image"]: image,
+                    "pdca-omega-worker": worker, "pdca-omega-web": old}.get(name)
+
+        def fake_docker(_host, *args):
+            commands.append(args[0])
+            if args[0] == "stop":
+                old["State"]["Running"] = False
+            if args[0] == "rename":
+                raise RuntimeError("test rename failure")
+            return ""
+
+        with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
+              patch("scripts.deploy_omega_web._deployment_gate"),
+              patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker)):
+            with self.assertRaisesRegex(RuntimeError, "rename failure"):
+                deploy("ssh://test", keep_old_stopped_on_failure=True)
+        self.assertEqual(commands, ["stop", "rename"])
+        self.assertFalse(old["State"]["Running"])
+
+    def test_parent_controlled_candidate_failure_does_not_reopen_old_web(self):
+        old = {"Config": {"Labels": {"com.vertu.pdca.omega_web": "1"}},
+               "State": {"Health": {"Status": "unhealthy"}, "Running": True}}
+        image = {"Config": {"Labels": {"com.vertu.pdca.source_revision": "abcdef0"}, "Env": []}}
+        state = {"web": old, "rollback": None}
+        commands = []
+
+        def fake_inspect(_host, name):
+            return {"pdca-workbench": self.source, self.source["Config"]["Image"]: image,
+                    "pdca-omega-worker": self.worker("abcdef0"),
+                    "pdca-omega-web": state["web"]}.get(name, state["rollback"] if name.startswith(
+                        "pdca-omega-web-rollback-") else None)
+
+        def fake_docker(_host, *args):
+            commands.append(args[0])
+            if args[0] == "stop":
+                old["State"]["Running"] = False
+            elif args[0] == "rename":
+                if args[1] == "pdca-omega-web":
+                    state["rollback"], state["web"] = state["web"], None
+                else:
+                    state["web"], state["rollback"] = state["rollback"], None
+            elif args[0] == "run":
+                state["web"] = {"State": {"Running": True}}
+            elif args[0] == "rm":
+                state["web"] = None
+            elif args[0] == "start":
+                self.fail("old Web must stay stopped until parent restores all services")
+            return ""
+
+        with (patch("scripts.deploy_omega_web.inspect", side_effect=fake_inspect),
+              patch("scripts.deploy_omega_web._deployment_gate"),
+              patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker),
+              patch("scripts.deploy_omega_web._wait_healthy", side_effect=RuntimeError("candidate unhealthy"))):
+            with self.assertRaisesRegex(RuntimeError, "candidate unhealthy"):
+                deploy("ssh://test", keep_old_stopped_on_failure=True, retain_rollback=True)
+        self.assertIs(state["web"], old)
+        self.assertFalse(old["State"]["Running"])
+        self.assertEqual(commands, ["stop", "rename", "run", "rm", "rename"])
 
     def test_plaintext_docker_transport_is_refused_before_execution(self):
         with patch("scripts.deploy_omega_web.subprocess.run") as call:
@@ -145,6 +264,8 @@ class DeployOmegaWebTests(unittest.TestCase):
                 return self.source
             if name == self.source["Config"]["Image"]:
                 return image
+            if name == "pdca-omega-worker":
+                return self.worker("abcdef0")
             return old if name == "pdca-omega-web" else None
 
         def fake_docker(_host, *args):
@@ -177,6 +298,8 @@ class DeployOmegaWebTests(unittest.TestCase):
                 return self.source
             if name == self.source["Config"]["Image"]:
                 return image
+            if name == "pdca-omega-worker":
+                return self.worker("abcdef0")
             if name == "pdca-omega-web":
                 return state["web"]
             return state["rollback"] if name.startswith("pdca-omega-web-rollback-") else None
@@ -213,10 +336,11 @@ class DeployOmegaWebTests(unittest.TestCase):
               patch("scripts.deploy_omega_web.run_docker", side_effect=fake_docker),
               patch("scripts.deploy_omega_web._wait_healthy"),
               patch("scripts.deploy_omega_web._smoke")):
-            self.assertEqual(deploy("ssh://test"), "abcdef0")
+            self.assertEqual(deploy("ssh://test", retain_rollback=True), "abcdef0")
         self.assertLess(events.index("lock"), events.index("stop"))
         self.assertLess(events.index("stop"), events.index("unlock"))
         self.assertFalse(state["locked"])
+        self.assertIsNotNone(state["rollback"])
 
     def test_deployment_gate_uses_postgres_lock_over_ssh_and_rejects_live_call(self):
         class Pipe:
@@ -260,11 +384,12 @@ class DeployOmegaWebTests(unittest.TestCase):
         self.assertEqual(args[:5], ["docker", "-H", "ssh://test", "exec", "-i"])
         self.assertIn("pdca-workbench", args)
         self.assertIn("LOCK TABLE omega_jobs IN SHARE MODE", " ".join(args))
+        self.assertIn("status IN ('queued', 'running')", " ".join(args))
         self.assertEqual(process.stdin.writes, ["\n"])
 
         process = Process(1)
         with patch("scripts.deploy_omega_web.subprocess.Popen", return_value=process):
-            with self.assertRaisesRegex(RuntimeError, "active Omega realtime call"):
+            with self.assertRaisesRegex(RuntimeError, "queued/running Omega job"):
                 with omega_deploy._deployment_gate("ssh://test"):
                     self.fail("active call must block deployment")
         self.assertEqual(process.stdin.writes, ["\n"])

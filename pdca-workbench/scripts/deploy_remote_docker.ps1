@@ -146,15 +146,15 @@ function Invoke-Docker {
     return $result.StdOut
 }
 
-function Assert-NoActiveRealtimeCalls {
-    $code = 'from sqlalchemy import text; from app.database import get_engine; c=get_engine().connect(); print(c.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = ''realtime'' AND status = ''running''")).scalar_one()); c.close()'
+function Assert-NoPendingOmegaJobs {
+    $code = 'from sqlalchemy import text; from app.database import get_engine; c=get_engine().connect(); print(c.execute(text("SELECT count(*) FROM omega_jobs WHERE status IN (''queued'', ''running'')")).scalar_one()); c.close()'
     $result = (Invoke-Docker -DockerArgs @("exec", "pdca-workbench", "python", "-c", $code)).Trim()
     $count = 0
     if (-not [int]::TryParse($result, [ref]$count) -or $count -lt 0) {
-        throw "Unable to verify active Omega realtime calls; deployment blocked"
+        throw "Unable to verify pending Omega jobs; deployment blocked"
     }
     if ($count -gt 0) {
-        throw "Deployment blocked: $count active Omega realtime call(s); retry after calls end"
+        throw "Deployment blocked: $count queued/running Omega job(s); retry after they finish"
     }
 }
 
@@ -181,7 +181,7 @@ with get_engine().connect() as db:
     with db.begin():
         db.execute(text("SET LOCAL lock_timeout = '20s'"))
         db.execute(text("LOCK TABLE omega_jobs IN SHARE MODE"))
-        count = db.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = 'realtime' AND status = 'running'")).scalar_one()
+        count = db.execute(text("SELECT count(*) FROM omega_jobs WHERE status IN ('queued', 'running')")).scalar_one()
         print(count, flush=True)
         sys.stdin.readline()
 '@
@@ -207,10 +207,10 @@ with get_engine().connect() as db:
         if (-not $line.Wait(30000)) { throw "Timed out waiting for Omega deployment gate" }
         $count = 0
         if (-not [int]::TryParse($line.Result, [ref]$count) -or $count -lt 0) {
-            throw "Unable to verify active Omega realtime calls; deployment blocked"
+            throw "Unable to verify pending Omega jobs; deployment blocked"
         }
         if ($count -gt 0) {
-            throw "Deployment blocked: $count active Omega realtime call(s); retry after calls end"
+            throw "Deployment blocked: $count queued/running Omega job(s); retry after they finish"
         }
         $ready = $true
         return $gate
@@ -578,6 +578,7 @@ function Start-PdcaContainer {
         "PDCA_DATABASE_URL",        # 容器库地址由 compose 注入，透传会把容器指向生产库
         "PDCA_LOGISTICS_ADMIN_UPSTREAM", # 已迁移、探测并显式注入，不能被旧 .env 覆盖
         "PDCA_SECRET_KEY",          # 由 compose/密钥文件管理
+        "PDCA_RELEASE_SHA",         # 必须由精确镜像标签决定，不能被本机 .env 覆盖
         "PDCA_SUPERVISOR_API_KEY", "PDCA_QWEN_REALTIME_API_KEY", "PDCA_DOUBAO_REALTIME_API_KEY", # 通过临时密钥文件传入
         "PDCA_CUSTOMER_MGMT_ROOT",  # 以下都是本机路径/命令，容器里不存在
         "PDCA_COLLECT_XLSX", "PDCA_VN_XLSX", "PDCA_PG_DUMP_COMMAND"
@@ -612,50 +613,242 @@ function Start-OmegaWorker {
         [hashtable]$Agent
     )
     $name = "pdca-omega-worker"
-    if ((Read-OptionalDotEnvValue "PDCA_OMEGA_ENABLED") -ne "1") {
-        $existing = Invoke-DockerProcess -DockerArgs @("inspect", $name)
-        if ($existing.ExitCode -eq 0) {
-            Invoke-Docker -DockerArgs @("stop", "--time", "30", $name) | Out-Null
-            Invoke-Docker -DockerArgs @("rm", $name) | Out-Null
-        }
-        return
-    }
-    $provider = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_PROVIDER"
-    $model = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_MODEL"
-    if (-not ($provider -and $model -and $Secrets.PDCA_SUPERVISOR_API_KEY)) {
+    $enabled = (Read-OptionalDotEnvValue "PDCA_OMEGA_ENABLED") -eq "1"
+    $provider = if ($enabled) { Read-OptionalDotEnvValue "PDCA_SUPERVISOR_PROVIDER" } else { "" }
+    $model = if ($enabled) { Read-OptionalDotEnvValue "PDCA_SUPERVISOR_MODEL" } else { "" }
+    if ($enabled -and -not ($provider -and $model -and $Secrets.PDCA_SUPERVISOR_API_KEY)) {
         throw "Omega worker requires a configured text model"
     }
     $backupName = "$name-rollback-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     $existing = Invoke-DockerProcess -DockerArgs @("inspect", $name)
     $oldWorker = if ($existing.ExitCode -eq 0) { @($existing.StdOut | ConvertFrom-Json)[0] } else { $null }
-    $secretEnvFile = New-SecretEnvFile -Secrets $Secrets -Agent $Agent
+    $secretEnvFile = if ($enabled) { New-SecretEnvFile -Secrets $Secrets -Agent $Agent } else { "" }
     try {
         if ($oldWorker) {
-            Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldWorker.Id) | Out-Null
+            if ($oldWorker.State.Running) {
+                Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldWorker.Id) | Out-Null
+            }
             Invoke-Docker -DockerArgs @("rename", $oldWorker.Id, $backupName) | Out-Null
         }
-        Invoke-Docker -DockerArgs @(
-            "run", "-d", "--no-healthcheck", "--name", $name, "--restart", "unless-stopped",
-            "--label", "com.vertu.pdca.revision=$Revision",
-            "--network", $KnowledgeNetwork, "--env-file", $secretEnvFile,
-            "-e", "PDCA_ENV=production", "-e", "PDCA_OMEGA_ENABLED=1",
-            "-e", "PDCA_SUPERVISOR_PROVIDER=$provider", "-e", "PDCA_SUPERVISOR_MODEL=$model",
-            $Image, "python", "-m", "app.omega.worker"
-        ) | Out-Null
-        Start-Sleep -Seconds 3
-        $state = (Invoke-Docker -DockerArgs @("inspect", $name, "--format", "{{.State.Status}}" )).Trim()
-        if ($state -ne "running") { throw "Omega worker state: $state" }
-        if ($oldWorker) { Invoke-Docker -DockerArgs @("rm", $oldWorker.Id) | Out-Null }
+        if ($enabled) {
+            Invoke-Docker -DockerArgs @(
+                "run", "-d", "--no-healthcheck", "--name", $name, "--restart", "unless-stopped",
+                "--label", "com.vertu.pdca.revision=$Revision",
+                "--network", $KnowledgeNetwork, "--env-file", $secretEnvFile,
+                "-e", "PDCA_ENV=production", "-e", "PDCA_OMEGA_ENABLED=1",
+                "-e", "PDCA_SUPERVISOR_PROVIDER=$provider", "-e", "PDCA_SUPERVISOR_MODEL=$model",
+                $Image, "python", "-m", "app.omega.worker"
+            ) | Out-Null
+            Start-Sleep -Seconds 3
+            $candidate = ((Invoke-Docker -DockerArgs @("inspect", $name)) | ConvertFrom-Json)[0]
+            if ($candidate.State.Status -ne "running" -or
+                $candidate.Config.Labels.'com.vertu.pdca.revision' -ne $Revision) {
+                throw "Omega worker did not start at revision $Revision"
+            }
+        }
+        return $oldWorker
     } catch {
         $newWorker = Invoke-DockerProcess -DockerArgs @("inspect", $name)
-        if ($newWorker.ExitCode -eq 0) { Invoke-Docker -DockerArgs @("rm", "-f", $name) | Out-Null }
+        if ($newWorker.ExitCode -eq 0 -and
+            (-not $oldWorker -or (@($newWorker.StdOut | ConvertFrom-Json)[0]).Id -ne $oldWorker.Id)) {
+            Invoke-Docker -DockerArgs @("rm", "-f", $name) | Out-Null
+        }
         if ($oldWorker) {
-            Invoke-Docker -DockerArgs @("rename", $oldWorker.Id, $name) | Out-Null
-            Invoke-Docker -DockerArgs @("start", $oldWorker.Id) | Out-Null
+            $previous = ((Invoke-Docker -DockerArgs @("inspect", $oldWorker.Id)) | ConvertFrom-Json)[0]
+            if ($previous.Name -ne "/$name") {
+                Invoke-Docker -DockerArgs @("rename", $oldWorker.Id, $name) | Out-Null
+            }
+            if ($oldWorker.State.Running -and -not $previous.State.Running) {
+                Invoke-Docker -DockerArgs @("start", $oldWorker.Id) | Out-Null
+            }
         }
         throw
     } finally {
-        Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue
+        if ($secretEnvFile) { Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Stop-ExistingOmegaWeb {
+    param($OldWeb)
+    if ($OldWeb -and $OldWeb.State.Running) {
+        Invoke-Docker -DockerArgs @("stop", "--time", "30", $OldWeb.Id) | Out-Null
+    }
+}
+
+function Stop-CurrentOmegaWeb {
+    param($OldWeb)
+    $found = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-omega-web")
+    if ($found.ExitCode -ne 0) { return }
+    $current = @($found.StdOut | ConvertFrom-Json)[0]
+    if (-not $OldWeb -or $current.Id -ne $OldWeb.Id) {
+        Invoke-Docker -DockerArgs @("rm", "-f", $current.Id) | Out-Null
+    } elseif ($current.State.Running) {
+        Invoke-Docker -DockerArgs @("stop", "--time", "30", $current.Id) | Out-Null
+    }
+}
+
+function Stop-CurrentPdcaMain {
+    param($OldMain)
+    $found = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-workbench")
+    if ($found.ExitCode -ne 0) { return }
+    $current = @($found.StdOut | ConvertFrom-Json)[0]
+    if (-not $OldMain -or $current.Id -ne $OldMain.Id) {
+        Invoke-Docker -DockerArgs @("rm", "-f", $current.Id) | Out-Null
+    }
+}
+
+function Restore-OmegaWorker {
+    param($OldWorker)
+    $found = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-omega-worker")
+    if ($found.ExitCode -eq 0) {
+        $current = @($found.StdOut | ConvertFrom-Json)[0]
+        if (-not $OldWorker -or $current.Id -ne $OldWorker.Id) {
+            Invoke-Docker -DockerArgs @("rm", "-f", $current.Id) | Out-Null
+        }
+    }
+    if ($OldWorker) {
+        $previous = ((Invoke-Docker -DockerArgs @("inspect", $OldWorker.Id)) | ConvertFrom-Json)[0]
+        if ($previous.Name -ne "/pdca-omega-worker") {
+            Invoke-Docker -DockerArgs @("rename", $OldWorker.Id, "pdca-omega-worker") | Out-Null
+        }
+        if ($OldWorker.State.Running -and -not $previous.State.Running) {
+            Invoke-Docker -DockerArgs @("start", $OldWorker.Id) | Out-Null
+        }
+    }
+}
+
+function Restore-PdcaMain {
+    param($OldMain)
+    if (-not $OldMain) { return }
+    $previous = ((Invoke-Docker -DockerArgs @("inspect", $OldMain.Id)) | ConvertFrom-Json)[0]
+    if ($previous.Name -ne "/pdca-workbench") {
+        Invoke-Docker -DockerArgs @("rename", $OldMain.Id, "pdca-workbench") | Out-Null
+    }
+    if ($OldMain.State.Running -and -not $previous.State.Running) {
+        Invoke-Docker -DockerArgs @("start", $OldMain.Id) | Out-Null
+        Wait-ContainerHealthy
+    }
+}
+
+function Restore-OmegaWeb {
+    param($OldWeb)
+    if (-not $OldWeb) { return }
+    $previous = ((Invoke-Docker -DockerArgs @("inspect", $OldWeb.Id)) | ConvertFrom-Json)[0]
+    if ($previous.Name -ne "/pdca-omega-web") {
+        Invoke-Docker -DockerArgs @("rename", $OldWeb.Id, "pdca-omega-web") | Out-Null
+    }
+    if ($OldWeb.State.Running -and -not $previous.State.Running) {
+        Invoke-Docker -DockerArgs @("start", $OldWeb.Id) | Out-Null
+    }
+}
+
+function Assert-RollbackPairReady {
+    param([string]$MainRevision, [string]$WorkerRevision, $OldWeb)
+    if (-not $MainRevision -or -not $WorkerRevision) {
+        throw "Previous main/worker revisions are unknown"
+    }
+    $main = ((Invoke-Docker -DockerArgs @("inspect", "pdca-workbench")) | ConvertFrom-Json)[0]
+    $worker = ((Invoke-Docker -DockerArgs @("inspect", "pdca-omega-worker")) | ConvertFrom-Json)[0]
+    if (-not $main.State.Running -or $main.Config.Labels.'com.vertu.pdca.revision' -ne $MainRevision -or
+        -not $worker.State.Running -or $worker.Config.Labels.'com.vertu.pdca.revision' -ne $WorkerRevision) {
+        throw "Previous main/worker are not running at their original revisions"
+    }
+    if ((Get-PdcaEnvValue $main "PDCA_RELEASE_SHA") -ne $MainRevision -or
+        (Get-PdcaEnvValue $worker "PDCA_RELEASE_SHA") -ne $WorkerRevision -or
+        (Get-PdcaEnvValue $OldWeb "PDCA_RELEASE_SHA") -ne $MainRevision) {
+        throw "Previous Omega process release environment mismatch"
+    }
+    foreach ($name in @("PDCA_DATABASE_URL", "PDCA_SUPERVISOR_PROVIDER", "PDCA_SUPERVISOR_MODEL")) {
+        $expected = Get-PdcaEnvValue $main $name
+        if (-not $expected -or (Get-PdcaEnvValue $worker $name) -ne $expected -or
+            (Get-PdcaEnvValue $OldWeb $name) -ne $expected) {
+            throw "Previous Omega service configuration mismatch: $name"
+        }
+    }
+}
+
+function Test-PublicMain {
+    param([string]$Revision, [string]$BaseUrl)
+    $health = Invoke-RestMethod -Uri "$BaseUrl/health" -TimeoutSec 25
+    if ($health.status -ne "ok" -or -not $health.database_connected -or
+        -not $health.vertu_cli.ok -or $health.revision -ne $Revision) {
+        throw "Public health response is not fully healthy"
+    }
+}
+
+function Test-PublicPdca {
+    param([string]$Revision, [string]$BaseUrl)
+    Test-PublicMain $Revision $BaseUrl
+    $login = Invoke-WebRequest -Uri "$BaseUrl/login" -UseBasicParsing -TimeoutSec 20
+    if ($login.StatusCode -ne 200) { throw "Public login page smoke test failed" }
+    $spa = Invoke-WebRequest -Uri "$BaseUrl/app/" -UseBasicParsing -TimeoutSec 20
+    if ($spa.StatusCode -ne 200 -or $spa.Content -notmatch '/app/assets/[^"'']+\.js') {
+        throw "Public Vue application bundle is missing"
+    }
+    $asset = $Matches[0]
+    $bundle = Invoke-WebRequest -Uri "$BaseUrl$asset" -UseBasicParsing -TimeoutSec 20
+    if ($bundle.Headers['Content-Type'] -notmatch 'javascript') { throw "Public Vue asset returned the wrong content type" }
+}
+
+function Deploy-OmegaWeb {
+    param([string]$Revision)
+    $helper = Join-Path $PSScriptRoot "deploy_omega_web.py"
+    & python $helper --docker-host $DockerHost --revision $Revision --keep-old-stopped-on-failure --retain-rollback | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Independent Omega Web deployment failed" }
+}
+
+function Get-PdcaEnvValue {
+    param($Container, [string]$Name)
+    $entry = $Container.Config.Env | Where-Object { $_.StartsWith("$Name=", [StringComparison]::Ordinal) } |
+        Select-Object -Last 1
+    if (-not $entry) { return "" }
+    return $entry.Substring($Name.Length + 1)
+}
+
+function Assert-OmegaReleaseReady {
+    param([string]$Revision, [string]$BaseUrl, [bool]$OmegaEnabled)
+    $main = ((Invoke-Docker -DockerArgs @("inspect", "pdca-workbench")) | ConvertFrom-Json)[0]
+    if (-not $main.State.Running -or $main.Config.Labels.'com.vertu.pdca.revision' -ne $Revision) {
+        throw "PDCA main revision mismatch"
+    }
+    $workerFound = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-omega-worker")
+    $webFound = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-omega-web")
+    if (-not $OmegaEnabled) {
+        if ($workerFound.ExitCode -eq 0 -or ($webFound.ExitCode -eq 0 -and
+            (@($webFound.StdOut | ConvertFrom-Json)[0]).State.Running)) {
+            throw "Omega is disabled but an Omega service is still active"
+        }
+        return
+    }
+    if ($workerFound.ExitCode -ne 0 -or $webFound.ExitCode -ne 0) {
+        throw "Omega worker or independent Web is missing"
+    }
+    $worker = @($workerFound.StdOut | ConvertFrom-Json)[0]
+    $web = @($webFound.StdOut | ConvertFrom-Json)[0]
+    if ($worker.State.Status -ne "running" -or
+        $worker.Config.Labels.'com.vertu.pdca.revision' -ne $Revision -or
+        $web.State.Health.Status -ne "healthy" -or
+        $web.Config.Labels.'com.vertu.pdca.revision' -ne $Revision) {
+        throw "Omega worker/Web revision or health mismatch"
+    }
+    foreach ($container in @($main, $worker, $web)) {
+        if ((Get-PdcaEnvValue $container "PDCA_RELEASE_SHA") -ne $Revision) {
+            throw "Omega process release environment does not match its revision"
+        }
+    }
+    foreach ($name in @("PDCA_DATABASE_URL", "PDCA_SUPERVISOR_PROVIDER", "PDCA_SUPERVISOR_MODEL")) {
+        $expected = Get-PdcaEnvValue $main $name
+        if (-not $expected -or (Get-PdcaEnvValue $worker $name) -ne $expected -or
+            (Get-PdcaEnvValue $web $name) -ne $expected) {
+            throw "Omega main/worker/Web configuration mismatch: $name"
+        }
+    }
+    $mainHealth = Invoke-RestMethod -Uri "$BaseUrl/health" -TimeoutSec 25
+    $omegaHealth = Invoke-RestMethod -Uri "$BaseUrl/omega-health" -TimeoutSec 25
+    if ($mainHealth.status -ne "ok" -or $mainHealth.revision -ne $Revision -or
+        $omegaHealth.status -ne "ok" -or $omegaHealth.revision -ne $Revision -or
+        -not $omegaHealth.omega_worker.ok) {
+        throw "Public PDCA/Omega release health mismatch"
     }
 }
 
@@ -705,6 +898,94 @@ function Invoke-DatabaseMigration {
         ) -TimeoutSeconds 300 | Out-Null
     } finally {
         Remove-Item -LiteralPath $secretEnvFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-OmegaCutover {
+    param([hashtable]$Context)
+    if (-not $Context.OmegaEnabled -and $Context.OldWeb) {
+        throw "Cannot disable Omega while the production Caddy route requires independent Omega Web"
+    }
+    $gate = $null
+    $oldWorker = $null
+    $workerSwitched = $false
+    if ($Context.OldMain -and $Context.OldMain.State.Running -and
+        ($Context.OldOmegaEnabled -or $Context.OmegaEnabled -or
+         ($Context.OldWeb -and $Context.OldWeb.State.Running))) {
+        $gate = Start-OmegaDeploymentGate
+        if ($gate.HasExited) {
+            Stop-OmegaDeploymentGate $gate
+            throw "Omega deployment gate exited before old Web stopped"
+        }
+    }
+    try {
+        Stop-ExistingOmegaWeb $Context.OldWeb
+        if ($Context.OldMain) {
+            if ($Context.OldMain.State.Running) {
+                Invoke-Docker -DockerArgs @("stop", "--time", "30", $Context.OldMain.Id) | Out-Null
+            }
+            # A gate hosted by old main exits with that container; its lock must
+            # remain held until Docker confirms the old main has stopped.
+            if ($gate -and $Context.GateOnWorker -and $gate.HasExited) {
+                throw "Omega deployment gate exited before old main stopped"
+            }
+            if ($gate) {
+                Stop-OmegaDeploymentGate $gate
+                $gate = $null
+            }
+            Invoke-Docker -DockerArgs @("rename", $Context.OldMain.Id, $Context.RollbackName) | Out-Null
+        }
+        if ($gate) {
+            Stop-OmegaDeploymentGate $gate
+            $gate = $null
+        }
+        # Public Omega Web remains stopped while the worker and main change versions.
+        $oldWorker = Start-OmegaWorker $Context.Image $Context.Sha $Context.Secrets $Context.Agent
+        $workerSwitched = $true
+        Start-PdcaContainer $Context.Image $Context.ReleasePath $Context.Sha `
+            $Context.Secrets $Context.Agent $Context.LogisticsAdminUpstream
+        Wait-ContainerHealthy
+        Test-ActivationSource
+        Test-PublicMain $Context.Sha $Context.PublicUrl
+        if ($Context.OmegaEnabled) { Deploy-OmegaWeb $Context.Sha }
+        Test-PublicPdca $Context.Sha $Context.PublicUrl
+        Assert-OmegaReleaseReady $Context.Sha $Context.PublicUrl $Context.OmegaEnabled
+        # Rollback containers are retained until all three services pass acceptance.
+        if ($oldWorker) {
+            try { Invoke-Docker -DockerArgs @("rm", $oldWorker.Id) | Out-Null }
+            catch { Write-Warning "Old Omega worker needs manual cleanup" }
+        }
+        if ($Context.OldWeb) {
+            try { Invoke-Docker -DockerArgs @("rm", $Context.OldWeb.Id) | Out-Null }
+            catch { Write-Warning "Old Omega Web needs manual cleanup" }
+        }
+    } catch {
+        $failure = $_
+        if ($gate) {
+            Stop-OmegaDeploymentGate $gate
+            $gate = $null
+        }
+        try {
+            Stop-CurrentOmegaWeb $Context.OldWeb
+            Stop-CurrentPdcaMain $Context.OldMain
+            if ($workerSwitched) { Restore-OmegaWorker $oldWorker }
+            Restore-PdcaMain $Context.OldMain
+            # Only reopen the old public Omega entrance after worker and main restore.
+            if ($Context.OldWeb -and $Context.OldWeb.State.Running) {
+                Assert-RollbackPairReady $Context.OldMainRevision $Context.OldWorkerRevision $Context.OldWeb
+            }
+            if ($Context.OldWeb -and $Context.OldWeb.State.Running -and
+                ($Context.OldWeb.Config.Labels.'com.vertu.pdca.revision' -ne $Context.OldMainRevision -or
+                 $Context.OldWeb.Config.Labels.'com.vertu.pdca.revision' -ne $Context.OldWorkerRevision)) {
+                throw "Old Omega Web revision differs from restored main/worker; Omega Web remains closed"
+            }
+            Restore-OmegaWeb $Context.OldWeb
+        } catch {
+            throw "Deployment failed and rollback is incomplete; Omega Web remains closed: $($_.Exception.Message)"
+        }
+        throw $failure
+    } finally {
+        if ($gate) { Stop-OmegaDeploymentGate $gate }
     }
 }
 
@@ -767,6 +1048,25 @@ if ($workerExists -and $workerInspect.StdOut) {
     $workerRevision = $workerObject.Config.Labels.'com.vertu.pdca.revision'
 }
 $workerReady = if ($omegaEnabled) { $workerRunning -and $workerRevision -eq $Sha } else { -not $workerExists }
+$omegaWebInspect = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-omega-web")
+$oldOmegaWeb = if ($omegaWebInspect.ExitCode -eq 0 -and $omegaWebInspect.StdOut) {
+    @($omegaWebInspect.StdOut | ConvertFrom-Json)[0]
+} else { $null }
+if ($oldOmegaWeb -and $oldOmegaWeb.Config.Labels.'com.vertu.pdca.omega_web' -ne "1") {
+    throw "pdca-omega-web name belongs to another service"
+}
+$omegaWebReady = if ($omegaEnabled) {
+    $oldOmegaWeb -and $oldOmegaWeb.State.Running -and
+    $oldOmegaWeb.State.Health.Status -eq "healthy" -and
+    $oldOmegaWeb.Config.Labels.'com.vertu.pdca.revision' -eq $Sha
+} else { -not ($oldOmegaWeb -and $oldOmegaWeb.State.Running) }
+if ($omegaEnabled -and $omegaWebReady) {
+    try {
+        $omegaHealth = Invoke-RestMethod -Uri "$PublicUrl/omega-health" -TimeoutSec 20
+        $omegaWebReady = $omegaHealth.status -eq "ok" -and $omegaHealth.revision -eq $Sha -and
+            $omegaHealth.omega_worker.ok
+    } catch { $omegaWebReady = $false }
+}
 $webReady = $false
 if ($currentRevision -eq $Sha -and -not $Force) {
     try {
@@ -774,11 +1074,6 @@ if ($currentRevision -eq $Sha -and -not $Force) {
         $webReady = $health.status -eq "ok" -and $health.revision -eq $Sha
     } catch {
         Write-Warning "Public health check failed; continuing deployment"
-    }
-    if ($webReady -and $workerReady -and $webOmegaEnabled -eq $omegaEnabled) {
-        Write-Output "Already deployed and healthy: $Sha"
-        Complete-DeploymentRun -Status "success" -Message "Already deployed and healthy: $Sha"
-        exit 0
     }
 }
 if ($Force) { Write-Output "Force redeploy requested; recreating container with current env" }
@@ -919,7 +1214,7 @@ $sharedConfig = @{
     PDCA_SUPERVISOR_MODEL = Read-OptionalDotEnvValue "PDCA_SUPERVISOR_MODEL"
     PDCA_SUPERVISOR_API_KEY = $secrets.PDCA_SUPERVISOR_API_KEY
 }
-$webConfigMatches = $webOmegaEnabled
+$webConfigMatches = $webOmegaEnabled -eq $omegaEnabled
 if ($webConfigMatches) {
     foreach ($name in $sharedConfig.Keys) {
         if ($currentObject.Config.Env -cnotcontains "$name=$($sharedConfig[$name])") {
@@ -928,14 +1223,23 @@ if ($webConfigMatches) {
         }
     }
 }
-if ($webReady -and $webConfigMatches -and -not $workerReady -and -not $Force) {
-    Write-Output "Repairing Omega worker for $Sha"
-    Start-OmegaWorker $image $Sha $secrets $agent
-    Complete-DeploymentRun -Status "success" -Message "Omega worker repaired: $Sha"
-    exit 0
+if ($webReady -and $webConfigMatches -and $workerReady -and $omegaWebReady -and -not $Force) {
+    $releaseReady = $false
+    try {
+        Assert-OmegaReleaseReady $Sha $PublicUrl $omegaEnabled
+        $releaseReady = $true
+    } catch { Write-Warning "Omega release configuration drift found; repairing all services" }
+    if ($releaseReady) {
+        Write-Output "Already deployed and healthy: $Sha"
+        Complete-DeploymentRun -Status "success" -Message "Already deployed and healthy: $Sha"
+        exit 0
+    }
+}
+if ($omegaEnabled -and $DockerHost -notmatch '^ssh://') {
+    throw "Independent Omega Web deployment requires SSH Docker transport"
 }
 
-if ($currentObject -and $currentObject.State.Running -and $webOmegaEnabled) { Assert-NoActiveRealtimeCalls }
+if ($currentObject -and $currentObject.State.Running -and $webOmegaEnabled) { Assert-NoPendingOmegaJobs }
 
 Write-Output "Ensuring writable PDCA runtime directories"
 Initialize-RemoteRuntimeDirectories -ReleasePath $releasePath
@@ -980,81 +1284,17 @@ if ($oldExists) {
     if ($candidateRelease) { $oldRelease = $candidateRelease }
 }
 
-$omegaGate = $null
-if ($oldExists -and $oldObject.State.Running -and $webOmegaEnabled) {
-    $omegaGate = Start-OmegaDeploymentGate
-    if ($omegaGate.HasExited) {
-        Stop-OmegaDeploymentGate $omegaGate
-        throw "Omega deployment gate exited before the old container was stopped"
-    }
+$cutover = @{
+    Sha = $Sha; Image = $image; ReleasePath = $releasePath
+    Secrets = $secrets; Agent = $agent; LogisticsAdminUpstream = $logisticsAdminUpstream
+    PublicUrl = $PublicUrl; OldMain = if ($oldExists) { $oldObject } else { $null }
+    OldWeb = $oldOmegaWeb; OldOmegaEnabled = [bool]$webOmegaEnabled
+    OmegaEnabled = [bool]$omegaEnabled; GateOnWorker = [bool]$workerRunning
+    RollbackName = $rollbackName
+    OldWorkerRevision = $workerRevision; OldMainRevision = $oldRevision
 }
-try {
-    if ($oldExists) {
-        # Include stop/rename in recovery; a timeout may still complete remotely.
-        Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldObject.Id) | Out-Null
-        Stop-OmegaDeploymentGate $omegaGate
-        $omegaGate = $null
-        Invoke-Docker -DockerArgs @("rename", $oldObject.Id, $rollbackName) | Out-Null
-    }
-    Write-Output "Starting PDCA container for $Sha"
-    Start-PdcaContainer $image $releasePath $Sha $secrets $agent $logisticsAdminUpstream
-    Write-Output "Waiting for container health"
-    Wait-ContainerHealthy
-    Write-Output "Validating activation source through the legacy fallback"
-    Test-ActivationSource
-    Write-Output "Running public health and login smoke checks"
-    $health = Invoke-RestMethod -Uri "$PublicUrl/health" -TimeoutSec 25
-    if ($health.status -ne "ok" -or -not $health.database_connected -or -not $health.vertu_cli.ok -or $health.revision -ne $Sha) {
-        throw "Public health response is not fully healthy"
-    }
-    $login = Invoke-WebRequest -Uri "$PublicUrl/login" -UseBasicParsing -TimeoutSec 20
-    if ($login.StatusCode -ne 200) { throw "Public login page smoke test failed" }
-    $spa = Invoke-WebRequest -Uri "$PublicUrl/app/" -UseBasicParsing -TimeoutSec 20
-    if ($spa.StatusCode -ne 200 -or $spa.Content -notmatch '/app/assets/[^"'']+\.js') {
-        throw "Public Vue application bundle is missing"
-    }
-    $asset = $Matches[0]
-    $bundle = Invoke-WebRequest -Uri "$PublicUrl$asset" -UseBasicParsing -TimeoutSec 20
-    if ($bundle.Headers['Content-Type'] -notmatch 'javascript') { throw "Public Vue asset returned the wrong content type" }
-    Write-Output "Starting Omega worker"
-    Start-OmegaWorker $image $Sha $secrets $agent
-    Write-Output "Deployment healthy: $Sha"
-} catch {
-    try {
-        $failedLogs = Invoke-DockerProcess -DockerArgs @("logs", "--tail", "80", "pdca-workbench") `
-            -TimeoutSeconds ([Math]::Min($DockerCommandTimeoutSeconds, 30))
-        if ($failedLogs.StdOut) { Write-Output (Protect-DeploymentText $failedLogs.StdOut) }
-        if ($failedLogs.StdErr) {
-            [Console]::Error.WriteLine((Protect-DeploymentText $failedLogs.StdErr))
-        }
-    } catch {
-        Write-Warning "Unable to collect failed container logs: $($_.Exception.Message)"
-    }
-    try {
-        $failed = Invoke-DockerProcess -DockerArgs @("inspect", "pdca-workbench")
-        if ($failed.ExitCode -eq 0) {
-            $failedObject = ($failed.StdOut | ConvertFrom-Json)[0]
-            if ((-not $oldExists -or $failedObject.Id -ne $oldObject.Id) -and
-                $failedObject.Config.Labels.'com.vertu.pdca.revision' -eq $Sha) {
-                Invoke-Docker -DockerArgs @("rm", "-f", $failedObject.Id) | Out-Null
-            }
-        }
-    } catch {
-        Write-Warning "Unable to remove failed container: $($_.Exception.Message)"
-    }
-    if ($oldImage) {
-        Write-Warning "Deployment failed; rolling back to $oldImage"
-        $oldState = ((Invoke-Docker -DockerArgs @("inspect", $oldObject.Id)) | ConvertFrom-Json)[0]
-        if ($oldState.Name -ne "/pdca-workbench") {
-            Invoke-Docker -DockerArgs @("rename", $oldObject.Id, "pdca-workbench") | Out-Null
-        }
-        Invoke-Docker -DockerArgs @("start", $oldObject.Id) | Out-Null
-        Wait-ContainerHealthy
-    }
-    throw
-} finally {
-    Stop-OmegaDeploymentGate $omegaGate
-}
+Invoke-OmegaCutover -Context $cutover
+Write-Output "Deployment healthy: $Sha"
 
 try {
     Update-ServerCleanup -Image $image -Revision $Sha
