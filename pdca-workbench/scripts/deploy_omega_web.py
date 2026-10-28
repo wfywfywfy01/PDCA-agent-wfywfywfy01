@@ -21,7 +21,7 @@ REGISTRY = "ghcr.io/wfywfywfy01/pdca-workbench"
 PORT = 8771
 MOUNTS = {"/app/data", "/root/.vertu", "/root/.vertu/vps-service.json"}
 ENV_NAMES = {
-    "PDCA_SECRET_KEY", "PDCA_DATABASE_URL", "PDCA_CORS_ORIGINS", "PDCA_WORKBENCH_URL",
+    "PDCA_SECRET_KEY", "PDCA_DATABASE_URL", "PDCA_RELEASE_SHA", "PDCA_CORS_ORIGINS", "PDCA_WORKBENCH_URL",
     "PDCA_TOKEN_EXPIRE_MINUTES", "PDCA_LOG_LEVEL", "PDCA_ASR_ENABLED", "PDCA_ASR_PROVIDER",
     "PDCA_DOUBAO_REALTIME_API_KEY", "PDCA_SUPERVISOR_PROVIDER", "PDCA_SUPERVISOR_MODEL",
     "PDCA_SUPERVISOR_API_KEY", "PDCA_SUPERVISOR_TIMEOUT_SECONDS",
@@ -154,7 +154,7 @@ with get_engine().connect() as db:
     with db.begin():
         db.execute(text("SET LOCAL lock_timeout = '20s'"))
         db.execute(text("LOCK TABLE omega_jobs IN SHARE MODE"))
-        count = db.execute(text("SELECT count(*) FROM omega_jobs WHERE kind = 'realtime' AND status = 'running'")).scalar_one()
+        count = db.execute(text("SELECT count(*) FROM omega_jobs WHERE status IN ('queued', 'running')")).scalar_one()
         print(count, flush=True)
         sys.stdin.readline()
 """
@@ -174,7 +174,7 @@ with get_engine().connect() as db:
         if count < 0 or process.poll() is not None:
             raise RuntimeError("Omega deployment gate exited before admission check")
         if count:
-            raise RuntimeError(f"{count} active Omega realtime call(s); deployment deferred")
+            raise RuntimeError(f"{count} queued/running Omega job(s); deployment deferred")
         yield
         if process.poll() is not None:
             raise RuntimeError("Omega deployment gate exited before old Web stopped")
@@ -231,7 +231,9 @@ print('ok')"""
         raise RuntimeError("Omega web smoke check failed")
 
 
-def deploy(host: str, *, target_revision: str | None = None) -> str:
+def deploy(host: str, *, target_revision: str | None = None,
+           keep_old_stopped_on_failure: bool = False,
+           retain_rollback: bool = False) -> str:
     if target_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", target_revision):
         raise ValueError("Omega target revision must be an exact 40-character Git SHA")
     source = inspect(host, SOURCE)
@@ -250,11 +252,27 @@ def deploy(host: str, *, target_revision: str | None = None) -> str:
             raise ValueError("Omega image revision mismatch")
     else:
         revision = require_revision(source, image)
+    if (source.get("Config", {}).get("Labels") or {}).get("com.vertu.pdca.revision") != revision:
+        raise ValueError("Omega main revision mismatch")
+    source_env = dict(entry.split("=", 1) for entry in source["Config"].get("Env", []) if "=" in entry)
+    if source_env.get("PDCA_RELEASE_SHA") != revision:
+        raise ValueError("Omega main process release environment mismatch")
+    worker = inspect(host, "pdca-omega-worker")
+    if (not worker or worker.get("State", {}).get("Status") != "running" or
+            (worker.get("Config", {}).get("Labels") or {}).get("com.vertu.pdca.revision") != revision):
+        raise ValueError("Omega worker revision mismatch")
+    worker_env = dict(entry.split("=", 1) for entry in worker["Config"].get("Env", []) if "=" in entry)
+    if worker_env.get("PDCA_RELEASE_SHA") != revision or any(
+        not source_env.get(name) or worker_env.get(name) != source_env[name]
+        for name in ("PDCA_DATABASE_URL", "PDCA_SUPERVISOR_PROVIDER", "PDCA_SUPERVISOR_MODEL")
+    ):
+        raise ValueError("Omega worker configuration mismatch")
     env = copy_environment(source)
     current = inspect(host, NAME)
     if current and (current.get("Config", {}).get("Labels") or {}).get("com.vertu.pdca.omega_web") != "1":
         raise RuntimeError("Omega container name is already owned by another service")
-    if current and current["State"].get("Health", {}).get("Status") == "healthy" and (
+    if current and current["State"].get("Running") and (
+        current["State"].get("Health", {}).get("Status") == "healthy") and (
         current["Config"].get("Labels") or {}).get("com.vertu.pdca.revision") == revision:
         if same_environment(current, image, env):
             return revision
@@ -266,12 +284,13 @@ def deploy(host: str, *, target_revision: str | None = None) -> str:
         if current:
             try:
                 with _deployment_gate(host):
-                    run_docker(host, "stop", "--time", "30", NAME)
+                    if current["State"]["Running"]:
+                        run_docker(host, "stop", "--time", "30", NAME)
                 run_docker(host, "rename", NAME, old_name)
                 renamed = True
             except BaseException:
                 old = inspect(host, NAME)
-                if old and not old["State"]["Running"]:
+                if old and not old["State"]["Running"] and not keep_old_stopped_on_failure:
                     run_docker(host, "start", NAME)
                 raise
         try:
@@ -283,10 +302,11 @@ def deploy(host: str, *, target_revision: str | None = None) -> str:
                 run_docker(host, "rm", "-f", NAME)
             if renamed:
                 run_docker(host, "rename", old_name, NAME)
-                run_docker(host, "start", NAME)
-                _wait_healthy(host, NAME)
+                if not keep_old_stopped_on_failure:
+                    run_docker(host, "start", NAME)
+                    _wait_healthy(host, NAME)
             raise
-        if renamed:
+        if renamed and not retain_rollback:
             try:
                 run_docker(host, "rm", "-v", old_name)
             except RuntimeError:
@@ -300,8 +320,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker-host", default="ssh://pdca-docker-176")
     parser.add_argument("--revision", help="deploy this tested, exact Git SHA to Omega only")
+    parser.add_argument("--keep-old-stopped-on-failure", action="store_true",
+                        help="let a parent three-container transaction restore the old Web")
+    parser.add_argument("--retain-rollback", action="store_true",
+                        help="retain the stopped old Web until the parent transaction accepts all services")
     args = parser.parse_args()
-    revision = deploy(args.docker_host, target_revision=args.revision)
+    revision = deploy(args.docker_host, target_revision=args.revision,
+                      keep_old_stopped_on_failure=args.keep_old_stopped_on_failure,
+                      retain_rollback=args.retain_rollback)
     print(f"Omega web healthy: {revision}")
 
 

@@ -82,13 +82,27 @@ class InputValidationTests(unittest.TestCase):
         script = (
             Path(__file__).resolve().parents[1] / "scripts" / "deploy_remote_docker.ps1"
         ).read_text(encoding="utf-8")
-        self.assertIn("function Assert-NoActiveRealtimeCalls", script)
+        self.assertIn("function Assert-NoPendingOmegaJobs", script)
+        self.assertIn("function Start-OmegaDeploymentGate", script)
         self.assertIn("LOCK TABLE omega_jobs IN SHARE MODE", script)
-        stop = script.index('Invoke-Docker -DockerArgs @("stop", "--time", "30", $oldObject.Id)')
-        self.assertLess(
-            script.index("$omegaGate = Start-OmegaDeploymentGate", script.index("$oldExists =")),
-            stop,
-        )
+        self.assertIn("WHERE status IN ('queued', 'running')", script)
+        self.assertIn("if ($currentObject -and $currentObject.State.Running -and $webOmegaEnabled) { Assert-NoPendingOmegaJobs }", script)
+        cutover = script[script.index("function Invoke-OmegaCutover"):]
+        gate = cutover.index("$gate = Start-OmegaDeploymentGate")
+        stop_web = cutover.index("Stop-ExistingOmegaWeb $Context.OldWeb")
+        stop_main = cutover.index('Invoke-Docker -DockerArgs @("stop", "--time", "30", $Context.OldMain.Id)')
+        release_gate = cutover.index("Stop-OmegaDeploymentGate $gate", stop_main)
+        start_worker = cutover.index("Start-OmegaWorker $Context.Image $Context.Sha")
+        self.assertLess(gate, stop_web)
+        self.assertLess(stop_web, stop_main)
+        self.assertLess(stop_main, release_gate)
+        self.assertLess(release_gate, start_worker)
+        self.assertLess(cutover.index("Deploy-OmegaWeb $Context.Sha"),
+                        cutover.index("Assert-OmegaReleaseReady $Context.Sha"))
+        self.assertIn("Old Omega Web revision differs from restored main/worker; Omega Web remains closed", cutover)
+        self.assertIn("function Assert-OmegaReleaseReady", script)
+        self.assertIn("Omega worker/Web revision or health mismatch", script)
+        self.assertIn("Omega process release environment does not match its revision", script)
         release = (
             Path(__file__).resolve().parents[1] / "scripts" / "deploy_release.sh"
         ).read_text(encoding="utf-8")

@@ -163,8 +163,14 @@ class VoiceBoundaryTests(unittest.TestCase):
              patch.dict('os.environ', {'PDCA_OMEGA_REALTIME_PROVIDER': 'doubao', 'PDCA_DOUBAO_REALTIME_API_KEY': 'synthetic-no-network'}):
             await asyncio.wait_for(realtime_session(browser, self.session_id, db), 20)
         if commit_ack_only:
-            self.assertIn(('tail_incomplete', 'asr_tail'), [call.args[1:3] for call in logged.call_args_list
-                if call.args and str(call.args[0]).startswith('Omega realtime stream ended')])
+            voice_logs = [call.args for call in logged.call_args_list
+                if call.args and str(call.args[0]).startswith('Omega realtime stream ended')]
+            self.assertIn(('tail_incomplete', 'asr_tail'), [args[1:3] for args in voice_logs])
+            self.assertIn('exception_type={}', voice_logs[0][0])
+            self.assertIn('sent_pcm_frames={}', voice_logs[0][0])
+            self.assertIn('final_pcm_frames={}', voice_logs[0][0])
+            self.assertEqual(voice_logs[0][-3], 'ValueError')
+            self.assertTrue(all(type(value) is int for value in voice_logs[0][-2:]))
         with Session(self.engine) as db:
             job = db.get(OmegaJob, self.job_id)
             saved = list(db.exec(select(OmegaSegment).order_by(OmegaSegment.seq)))
@@ -197,7 +203,8 @@ class VoiceBoundaryTests(unittest.TestCase):
                     self.assertIn('Accepted old public speech', transports[1].roles[0])
         self.assertTrue(all(p.closed for p in transports))
         self.assertTrue(all('response.cancel' not in p.sent for p in transports))
-        self.assertEqual(sum(p.sent.count('input_audio_buffer.commit') for p in transports), 1)
+        self.assertEqual(sum(p.sent.count('input_audio_buffer.commit') for p in transports),
+                         0 if finalized_before_close else 1)
 
     def test_stop_commits_identified_speech_and_saves_final_before_close(self):
         asyncio.run(self.exercise(commit_required=True, stop_only=True))
@@ -234,7 +241,7 @@ class VoiceBoundaryTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
-    def test_resume_commits_identified_speech_before_opening_new_stream(self):
+    def test_pause_commits_identified_speech_before_coaching_and_resume(self):
         asyncio.run(self.exercise(commit_required=True))
 
     def test_commit_ack_without_identified_final_still_fails(self):

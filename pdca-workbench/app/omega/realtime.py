@@ -298,7 +298,10 @@ class VoiceControl:
                 # Recorder pause: keep native VAD draining accepted speech with zero PCM.
                 # Do not reset the stream or ASR identities while the recorder is paused.
                 if action == "pause":
+                    if self.active_inputs:
+                        await provider.send(json.dumps({"type": "input_audio_buffer.commit"}))
                     await self.start_silence(provider)
+                    await self.wait_asr_tail()
                 else:
                     if isinstance(provider, DoubaoStream):
                         # Close the old generation before opening a fresh upstream stream.
@@ -1493,11 +1496,12 @@ async def realtime_session(ws: WebSocket, session_id: str,
                     else "timeout" if isinstance(exc, TimeoutError)
                     else "provider_status" if isinstance(exc, InvalidStatus)
                     else "validation" if isinstance(exc, ValueError) else "stream_error")
-        logger.warning("Omega realtime stream ended: category={} phase={} stop={} duration_s={} asr_open={} asr_started={} asr_completed={} asr_failed={}",
+        logger.warning("Omega realtime stream ended: category={} phase={} stop={} duration_s={} asr_open={} asr_started={} asr_completed={} asr_failed={} exception_type={} sent_pcm_frames={} final_pcm_frames={}",
                        category, phase, control.stop_reason or "unknown",
                        round(asyncio.get_running_loop().time() - acquired_at, 1),
                        len(control.active_inputs), control.asr_started, control.asr_completed,
-                       control.asr_failed)
+                       control.asr_failed, type(exc).__name__, control.sent_pcm_frames,
+                       control.final_pcm_frames)
         try:
             denied = (name == "doubao" and isinstance(exc, InvalidStatus)
                       and b"requested resource not granted" in exc.response.body)
