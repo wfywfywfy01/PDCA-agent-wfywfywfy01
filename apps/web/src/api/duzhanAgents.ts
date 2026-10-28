@@ -3,6 +3,7 @@
  * 后端契约见 pdca-workbench/app/duzhan_admin/router.py。
  */
 import { apiGet, apiPost, apiPut, apiRequest } from '@/api/client'
+import type { GroupOptionsResponse } from '@/api/duzhanWorkspace'
 import type { Block, BlockTypeSpec, BlocksPayload } from '@/api/duzhanBlocks'
 
 export type { Block, BlockTypeSpec, BlockFieldSpec, BlocksPayload } from '@/api/duzhanBlocks'
@@ -25,6 +26,8 @@ export interface DuzhanAgentItem {
 }
 
 export interface DuzhanRuntimeStatus {
+  group_tasks_enabled?: boolean
+  group_tasks_schedule_live?: boolean
   source: 'code' | 'db'
   enabled: boolean
   ctob_enabled: boolean
@@ -152,4 +155,9 @@ export function seedFromCode(): Promise<{ created: DuzhanAgentItem[]; skipped: s
 export async function deleteAgent(id: number): Promise<{ deleted: number }> {
   const response = await apiRequest('/api/duzhan-agents/' + id, { method: 'DELETE', credentials: 'include' })
   return (await response.json()) as { deleted: number }
+}
+
+/** 固定督战机器人可读取的 VPS 群与成员。 */
+export function groupOptions(): Promise<GroupOptionsResponse> {
+  return apiGet('/api/duzhan-agents/group-options')
 }

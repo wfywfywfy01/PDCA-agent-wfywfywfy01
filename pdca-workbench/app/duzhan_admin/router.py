@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session, select
 
@@ -143,6 +144,8 @@ async def runtime_status(
         "department_rosters": service.department_rosters(),
         "department_task_only_rosters": service.department_rosters(task_only=True),
         "schedule_updates_require_restart": True,
+        "group_tasks_enabled": bool(settings.scheduler_enabled),
+        "group_tasks_schedule_live": True,
     }
 
 
@@ -153,7 +156,7 @@ def _get_agent(session: Session, agent_id: int) -> DuzhanAgent:
     return row
 
 
-def _guard_enable(agent: DuzhanAgent, session: Session) -> None:
+async def _guard_enable(agent: DuzhanAgent, session: Session) -> None:
     """坏配置可以存草稿，但不允许启用：到点推不出去比不推更糟。"""
     errors = service.validate_agent(agent)
     if errors:
@@ -161,6 +164,14 @@ def _guard_enable(agent: DuzhanAgent, session: Session) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"message": "配置有误，不能启用", "errors": errors},
         )
+    from app.duzhan_admin import group_tasks
+    if group_tasks.policy_of(agent) is not None:
+        from app.config import get_settings
+        if not get_settings().scheduler_enabled:
+            raise HTTPException(409, "自动调度尚未启动，请联系系统管理员")
+        connection_errors = await run_in_threadpool(group_tasks.connection_errors, agent)
+        if connection_errors:
+            raise HTTPException(400, {"message": "群接入未就绪，不能启用", "errors": connection_errors})
     from app.duzhan_admin.runtime import group_of
 
     group = group_of(agent)
@@ -176,6 +187,12 @@ def _name_taken(session: Session, name: str, *, exclude_id: Optional[int] = None
     if exclude_id is not None:
         statement = statement.where(DuzhanAgent.id != exclude_id)
     return session.exec(statement).first() is not None
+
+
+@router.get("/group-options", summary="通用群任务可接入的群与成员")
+async def group_options(_user: Annotated[User, Depends(require_admin)] = None) -> dict:
+    from app.duzhan_admin import group_tasks
+    return await run_in_threadpool(group_tasks.group_options)
 
 
 @router.get("/monthly-metrics", summary="按群、按月份读取业绩及 MTO 指标")
@@ -260,7 +277,7 @@ async def create_agent(
         note=payload.note,
     )
     if payload.enabled:
-        _guard_enable(row, session)
+        await _guard_enable(row, session)
         row.enabled = True
     session.add(row)
     session.commit()
@@ -285,7 +302,7 @@ async def update_agent(
     # 不传 enabled 时保持原状态，避免前端漏字段把在跑的配置悄悄停掉
     enable = row.enabled if payload.enabled is None else payload.enabled
     if enable:
-        _guard_enable(row, session)
+        await _guard_enable(row, session)
     row.enabled = enable
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
@@ -303,7 +320,7 @@ async def toggle_agent(
 ) -> dict:
     row = _get_agent(session, agent_id)
     if payload.enabled:
-        _guard_enable(row, session)
+        await _guard_enable(row, session)
     row.enabled = payload.enabled
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
