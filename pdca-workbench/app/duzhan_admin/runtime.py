@@ -172,6 +172,8 @@ def conditions_allow(agent: DuzhanAgent, day: str, ledger: dict | None) -> bool:
 def conditions_allow_channel(channel_id: str, day: str, ledger: dict | None) -> bool:
     """按启用的群配置检查发送条件。找不到配置时不发送。"""
     for agent in load_enabled_agents():
+        if _first(_blocks(agent), "task_policy") is not None:
+            continue
         group = group_of(agent)
         if group and group.channel_id == channel_id:
             return conditions_allow(agent, day, ledger)
@@ -189,6 +191,8 @@ def duzhan_agents() -> list[tuple[DuzhanAgent, DuzhanGroup]]:
     follow_channels = set(_follow_owners_by_channel())
     picked: list[tuple[DuzhanAgent, DuzhanGroup]] = []
     for agent in load_enabled_agents():
+        if _first(_blocks(agent), "task_policy") is not None:
+            continue
         group = group_of(agent)
         if group is None:
             logger.warning("子 Agent #{} {} 缺少可用的 group 块，跳过注册", agent.id, agent.name)
@@ -220,6 +224,8 @@ def follow_agents() -> list[tuple[DuzhanAgent, object]]:
     by_channel = _follow_owners_by_channel()
     picked: list[tuple[DuzhanAgent, object]] = []
     for agent in load_enabled_agents():
+        if _first(_blocks(agent), "task_policy") is not None:
+            continue
         group = group_of(agent)
         if group is None:
             continue

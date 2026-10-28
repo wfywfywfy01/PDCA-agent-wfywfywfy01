@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
+import { timeStage } from '@/api/duzhanBlocks'
+import { genericStarterBlocks, modeOf, cloneTemplate, stages, updateStageSlot, type GroupOptionsResponse } from '@/api/duzhanWorkspace'
+import DuzhanTaskPolicy from '@/components/DuzhanTaskPolicy.vue'
 import AppNav from '@/components/AppNav.vue'
 import { HttpError } from '@/api/client'
 import { fetchBotChannels, type BotChannel } from '@/api/agentAdmin'
@@ -7,7 +11,7 @@ import BlockCard from '@/components/BlockCard.vue'
 import DuzhanMonthlyMetrics from '@/components/DuzhanMonthlyMetrics.vue'
 import {
   addBlock as appendBlock, agentPayload, aiStatus as fetchAiStatus, blockSchema, configChanged,
-  createAgent, defaultBlock, deleteAgent, blockPositions, starterBlocks,
+  createAgent, defaultBlock, deleteAgent, blockPositions, starterBlocks, groupOptions as fetchGroupOptions,
   fromJson, listAgents, moveBlock, nameForSelectedGroup, previewAgent, removeBlock, runtimeStatus as fetchRuntimeStatus,
   seedFromCode, toJson, toggleAgent,
   updateAgent, updateBlockField,
@@ -54,11 +58,38 @@ const pendingTarget = ref<number | 'new' | null>(null)
 const search = ref('')
 const metricsEditor = ref<InstanceType<typeof DuzhanMonthlyMetrics> | null>(null)
 const metricsDirty = ref(false)
+const step = ref(1)
+const draftBaseline = ref('')
+const statusFilter = ref('all')
+const directory = ref<GroupOptionsResponse | null>(null)
+const directoryError = ref('')
+const directoryBusy = ref(false)
+const form = ref<HTMLFormElement | null>(null)
+const isTasks = computed(() => modeOf(blocks.value) === 'group_tasks')
+const taskPolicyIndex = computed(() => blocks.value.findIndex(block => block.type === 'task_policy'))
+const selectedDirectoryGroup = computed(() => directory.value?.items.find(item => item.channel_id === selectedChannelId.value))
+const selectedMembers = computed(() => selectedDirectoryGroup.value?.members || [])
+const selectedGroupName = computed(() => String(blocks.value.find(block => block.type === 'group')?.label || '尚未选择群聊'))
+const enabledCount = computed(() => agents.value.filter(item => item.enabled).length)
+const publisherNames = computed(() => {
+  const ids = blocks.value[taskPolicyIndex.value]?.publisher_user_ids
+  return Array.isArray(ids) ? ids.map(id => selectedMembers.value.find(member => member.user_id === id)?.name || '成员 ' + id) : []
+})
+const exclusionsCount = computed(() => {
+  const ids = blocks.value[taskPolicyIndex.value]?.excluded_user_ids
+  return Array.isArray(ids) ? ids.length : 0
+})
+const conditionSpec = computed(() => {
+  const spec = specs.value.find(item => item.type === 'condition') || { type: 'condition', label: '提醒条件', fields: [] }
+  return !isTasks.value ? spec : { ...spec, fields: spec.fields.map(field => field.key === 'key'
+    ? { ...field, options: (field.options || []).filter(key => ['workday', 'holiday'].includes(key)) } : field) }
+})
 
 const current = computed(() => agents.value.find((item) => item.id === selectedId.value) || null)
 const savedErrors = computed(() => current.value?.errors || [])
 const isDraft = computed(() => selectedId.value === null)
 const groupOptions = computed(() => {
+  if (isTasks.value) return (directory.value?.items || []).map(item => ({id:item.channel_id, label:item.label, disabled:item.available === false, reason:item.reason}))
   const botId = runtime.value?.bot_app_id
   if (!botId) return []
   const supported = new Set(runtime.value?.supported_channel_ids || [])
@@ -77,11 +108,11 @@ const groupOptions = computed(() => {
     .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
 })
 const selectedPlaneEnabled = computed(() =>
-  current.value?.renderer === 'ctob' ? runtime.value?.ctob_enabled : runtime.value?.enabled,
+  isTasks.value ? runtime.value?.group_tasks_enabled : current.value?.renderer.startsWith('ctob') ? runtime.value?.ctob_enabled : runtime.value?.enabled,
 )
-const liveConfig = computed(() => selectedPlaneEnabled.value && runtime.value?.source === 'db')
+const liveConfig = computed(() => selectedPlaneEnabled.value && (isTasks.value || runtime.value?.source === 'db'))
 const filteredAgents = computed(() => agents.value.filter((item) =>
-  (groupLabel(item) + ' ' + item.name).toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()),
+  (statusFilter.value === 'all' || item.enabled === (statusFilter.value === 'enabled')) && (groupLabel(item) + ' ' + item.name).toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()),
 ))
 const groupIndices = computed(() => blockPositions(blocks.value, 'group'))
 const timeIndices = computed(() => blockPositions(blocks.value, 'times'))
@@ -91,7 +122,7 @@ const selectedChannelId = computed(() => String(blocks.value.find((block) => blo
 const departmentMembers = computed(() => runtime.value?.department_rosters?.[selectedChannelId.value] || [])
 const departmentTaskOnlyMembers = computed(() => runtime.value?.department_task_only_rosters?.[selectedChannelId.value] || [])
 const extraIndices = computed(() => blocks.value.flatMap((block, index) =>
-  ['group', 'times', 'condition', 'rule'].includes(block.type)
+  ['group', 'times', 'condition', 'rule', 'task_policy'].includes(block.type)
     || (block.type === 'people' && departmentMembers.value.length) ? [] : [index],
 ))
 const previewSlots = computed(() => {
@@ -101,14 +132,14 @@ const previewSlots = computed(() => {
     : []
 })
 const jsonPending = computed(() => jsonText.value !== toJson(blocks.value))
-const unsaved = computed(() => metricsDirty.value || jsonPending.value || configChanged(
+const unsaved = computed(() => metricsDirty.value || jsonPending.value || (isDraft.value ? JSON.stringify({name: name.value, timezone: timezone.value, note: note.value, blocks: blocks.value}) !== draftBaseline.value : configChanged(
   current.value
     ? { name: current.value.name, timezone: current.value.timezone, note: current.value.note, blocks: current.value.blocks.blocks }
     : null,
   { name: name.value, timezone: timezone.value, note: note.value, blocks: blocks.value },
-))
+)))
 
-watch(blocks, () => { jsonText.value = toJson(blocks.value) }, { deep: true })
+watch(blocks, () => { jsonText.value = toJson(blocks.value); preview.value = null; rendered.value = null }, { deep: true })
 
 function describe(err: unknown): string {
   if (err instanceof HttpError) {
@@ -125,7 +156,7 @@ function fill(item: DuzhanAgentItem) {
   timezone.value = item.timezone
   note.value = item.note
   enabled.value = item.enabled
-  blocks.value = item.blocks.blocks.map((block) => ({ ...block }))
+  blocks.value = JSON.parse(JSON.stringify(item.blocks.blocks))
   jsonText.value = toJson(blocks.value)
   preview.value = null
   rendered.value = null
@@ -139,13 +170,14 @@ function fill(item: DuzhanAgentItem) {
 }
 
 function startDraft() {
+  step.value = 1
   metricsDirty.value = false
   selectedId.value = null
   name.value = ''
   timezone.value = 'Asia/Shanghai'
   note.value = ''
   enabled.value = false
-  blocks.value = starterBlocks(specs.value)
+  blocks.value = genericStarterBlocks()
   jsonText.value = toJson(blocks.value)
   preview.value = null
   rendered.value = null
@@ -155,6 +187,7 @@ function startDraft() {
   pendingTarget.value = null
   hour.value = ''
   day.value = todayInZone('Asia/Shanghai')
+  draftBaseline.value = JSON.stringify({name: name.value, timezone: timezone.value, note: note.value, blocks: blocks.value})
 }
 
 function selectAgent(item: DuzhanAgentItem) {
@@ -229,6 +262,7 @@ async function load() {
     if (selected) fill(selected)
     else startDraft()
     void loadAiStatus()
+    void loadDirectory()
     try {
       channels.value = (await fetchBotChannels()).items
     } catch (err) {
@@ -242,6 +276,7 @@ async function load() {
 }
 
 async function save() {
+  if (!name.value.trim() || !selectedChannelId.value) { step.value = 1; error.value = '请选择目标群并填写配置名称。'; return false }
   if (jsonPending.value) {
     error.value = '先按 JSON 覆盖卡片，再保存。'
     return
@@ -257,8 +292,9 @@ async function save() {
       : await updateAgent(selectedId.value, payload)
     await reload(saved.id)
     message.value = saved.errors.length
-      ? '已存草稿，但配置还有 ' + saved.errors.length + ' 处问题，暂时不能启用。'
-      : (liveConfig.value ? '已保存。指标、文案和条件在下一档生效；群和时段变更需重启服务。' : '已保存。当前生产仍使用代码配置。')
+      ? '已保存，另有 ' + saved.errors.length + ' 处配置待修正，暂时不能启用。'
+      : isTasks.value ? '已保存。启用后的配置会在一分钟内被调度器读取。' : (liveConfig.value ? '已保存。月度指标、文案和条件在下次检查生效；业务群与时段变更仍需重启服务。' : '已保存。当前业务督战未使用这份配置发送。')
+    return true
   } catch (err) {
     error.value = describe(err)
   } finally {
@@ -278,8 +314,8 @@ async function setEnabled(next: boolean) {
   try {
     const saved = await toggleAgent(selectedId.value, next)
     await reload(saved.id)
-    message.value = liveConfig.value
-      ? '已更新启停状态；调度变更需要重启服务才生效。'
+    message.value = isTasks.value ? (next ? '已启用，将按配置时间执行。' : '已暂停，后续时段不再执行。') : liveConfig.value
+      ? '已更新启停状态；业务群调度变更需要重启服务才生效。'
       : '已更新启停状态；当前生产仍使用代码配置。'
   } catch (err) {
     error.value = describe(err)
@@ -312,8 +348,8 @@ async function removeCurrent() {
 }
 
 async function runPreview() {
-  if (selectedId.value === null) {
-    error.value = '先保存，再试跑。'
+  if (selectedId.value === null || unsaved.value) {
+    error.value = '先保存当前改动，再预览。'
     return
   }
   busy.value = true
@@ -367,6 +403,9 @@ function onFieldChange(index: number, key: string, value: unknown) {
     return
   }
   const previousLabel = String(blocks.value[index]?.label || '')
+  if (isTasks.value && blocks.value[index]?.type === 'group' && key === 'channel_id' && value !== selectedChannelId.value) {
+    blocks.value = blocks.value.map(block => block.type === 'task_policy' ? { ...block, publisher_user_ids: [], excluded_user_ids: [] } : block)
+  }
   blocks.value = updateBlockField(blocks.value, index, key, value)
   if (blocks.value[index]?.type === 'group' && key === 'channel_id' && departmentMembers.value.length) {
     blocks.value = blocks.value.map((block) => block.type === 'people'
@@ -411,321 +450,143 @@ function applyJson() {
   }
 }
 
-onMounted(load)
+async function loadDirectory() {
+  directoryBusy.value = true
+  directoryError.value = ''
+  try { directory.value = await fetchGroupOptions(); directoryError.value = directory.value.error || '' }
+  catch (err) { directoryError.value = describe(err) }
+  finally { directoryBusy.value = false }
+}
+function chooseGroup(event: Event) {
+  const id = (event.target as HTMLSelectElement).value
+  if (!groupIndices.value.length) addType('group')
+  const index = groupIndices.value[0]
+  onFieldChange(index, 'channel_id', id)
+  onFieldChange(index, 'label', groupOptions.value.find(option => option.id === id)?.label || '')
+}
+function chooseTemplate(mode: 'group_tasks' | 'business') {
+  if (selectedChannelId.value || !isDraft.value) return
+  blocks.value = mode === 'group_tasks' ? genericStarterBlocks() : starterBlocks(specs.value)
+  draftBaseline.value = JSON.stringify({name: name.value, timezone: timezone.value, note: note.value, blocks: blocks.value})
+}
+function copyTemplate() {
+  if (unsaved.value) { error.value = '先保存当前改动，再复用规则。'; return }
+  const copied = cloneTemplate(blocks.value)
+  startDraft()
+  blocks.value = copied
+  message.value = '已复制规则。请选择新的群和成员；新卡片默认暂停。'
+}
+function stageSlot(key: string): string { return previewSlots.value.find(slot => timeStage(slot) === key) || '' }
+function setStage(key: string, value: string | null) {
+  try { blocks.value = updateStageSlot(blocks.value, key, value); error.value = '' }
+  catch (err) { error.value = describe(err) }
+}
+async function saveAndPreview() {
+  if (unsaved.value || isDraft.value) { if (!await save()) return }
+  step.value = 3
+  await runPreview()
+}
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (unsaved.value) { event.preventDefault(); event.returnValue = '' }
+}
+onBeforeRouteLeave(() => {
+  if (!unsaved.value) return true
+  error.value = '当前有未保存的改动，请先保存再离开。'
+  return false
+})
+onMounted(() => { window.addEventListener('beforeunload', beforeUnload); void load() })
+onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 </script>
 
 <template>
   <AppNav />
-  <main class="page">
+  <main class="page duzhan-page">
     <header class="page-head">
-      <div>
-        <p class="eyebrow">督战官 · 管理后台</p>
-        <h1>群聊与规则</h1>
-        <p class="sub">每个群一张卡片。系统按时收集业务数据和群内反馈，判断事项是否闭环，再发送检查结果。</p>
-      </div>
-      <div class="actions">
-        <button class="btn" type="button" :disabled="busy || unsaved" @click="load">刷新</button>
-        <button class="btn btn-primary" type="button" :disabled="busy" @click="requestDraft">＋ 新建群卡片</button>
-      </div>
+      <div><p class="eyebrow">VPS / 群协作</p><h1>督战工作台<span class="title-tag">按群配置</span></h1><p class="sub">把群里的任务，跟到有结果。规则配一次，按时自动检查。</p></div>
+      <div class="actions"><button class="btn" type="button" :disabled="busy || unsaved" @click="load">刷新</button><button class="btn btn-primary" type="button" :disabled="busy" @click="requestDraft">＋ 新建督战</button></div>
     </header>
 
-    <section v-if="runtime" class="mode-banner" :class="{ live: liveConfig }" role="status">
-      <span class="mode-dot" aria-hidden="true"></span>
-      <div>
-        <strong>{{ liveConfig ? '页面配置已接管督战调度' : '当前为预备配置' }}</strong>
-        <p v-if="!selectedPlaneEnabled">当前卡片所属功能的总开关未开启。卡片可保存和试跑，暂不发送。</p>
-        <p v-else-if="runtime.source === 'code'">线上仍按代码中的群清单发送。卡片可保存和试跑；切换配置来源并重启服务后才接管。</p>
-        <p v-else>文案和条件在下一档生效；改群、时间或启停后，需重启服务更新定时任务。</p>
-      </div>
-    </section>
-    <p v-if="message" class="toast" role="status">{{ message }}</p>
-    <p v-if="error" class="alert alert-sticky" role="alert">{{ error }}</p>
-    <div v-if="pendingTarget !== null" class="switch-warning" role="alert">
-      <span>当前卡片有未保存的改动。切换后会丢失这些改动。</span>
-      <div>
-        <button class="btn" type="button" @click="pendingTarget = null">继续编辑</button>
-        <button class="btn btn-danger" type="button" @click="discardAndSwitch">放弃改动并切换</button>
-      </div>
-    </div>
+    <p v-if="message" class="notice success" role="status">{{ message }}</p>
+    <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+    <div v-if="pendingTarget !== null" class="notice warning" role="alert"><span>当前配置有未保存的改动。</span><div class="actions"><button class="btn" type="button" @click="pendingTarget = null">继续编辑</button><button class="btn" type="button" @click="discardAndSwitch">放弃改动并切换</button></div></div>
 
-    <div class="layout">
-      <aside class="panel list">
-        <div class="panel-head">
-          <h2>督战群</h2>
-          <span>{{ filteredAgents.length }} / {{ agents.length }}</span>
+    <div class="workspace">
+      <aside class="group-list" aria-label="督战群列表">
+        <div class="list-heading"><h2>我的督战群</h2><span>{{ agents.length }}</span></div>
+        <label class="sr-only" for="group-search">搜索督战群</label><input id="group-search" v-model="search" class="control search" type="search" placeholder="搜索群名称…" />
+        <div class="list-filters" aria-label="按状态筛选"><button v-for="filter in [{ key: 'all', label: '全部' }, { key: 'enabled', label: '已启用' }, { key: 'paused', label: '已暂停' }]" :key="filter.key" type="button" :aria-pressed="statusFilter === filter.key" @click="statusFilter = filter.key">{{ filter.label }}</button></div>
+        <p v-if="busy && !agents.length" class="hint list-empty" role="status">正在读取群配置…</p>
+        <div class="group-scroll">
+          <button v-for="item in filteredAgents" :key="item.id" class="group-row" type="button" :class="{ selected: item.id === selectedId }" :aria-current="item.id === selectedId ? 'true' : undefined" :disabled="busy" @click="selectAgent(item)">
+            <span class="group-avatar" aria-hidden="true">{{ groupLabel(item).slice(0, 1) }}</span><span class="group-copy"><strong>{{ groupLabel(item) }}</strong><small>{{ modeOf(item.blocks.blocks) === 'group_tasks' ? '任务闭环' : '业务督战' }} · {{ item.enabled ? '已启用' : '已暂停' }}</small><small v-if="item.errors.length" class="error-text">{{ item.errors.length }} 项待完善</small></span><span class="state-dot" :class="{ on: item.enabled }" aria-hidden="true"></span>
+          </button>
+          <p v-if="!busy && !filteredAgents.length" class="hint list-empty">{{ agents.length ? '没有符合条件的群。' : '还没有督战群，点击“新建督战”开始。' }}</p>
         </div>
-        <label class="search-label" for="group-search">查找群聊</label>
-        <input id="group-search" v-model="search" class="search-input" type="search" placeholder="输入群名" />
-        <p v-if="busy && !agents.length" class="hint">正在加载群聊配置…</p>
-        <button
-          v-for="item in filteredAgents"
-          :key="item.id"
-          class="group-row"
-          type="button"
-          :class="{ active: item.id === selectedId }"
-          :aria-current="item.id === selectedId ? 'true' : undefined"
-          :aria-label="groupLabel(item) + '｜' + (item.enabled ? '已启用' : '已停用') + (item.errors.length ? '｜' + item.errors.length + ' 处问题' : '')"
-          @click="selectAgent(item)"
-        >
-          <span class="group-top">
-            <strong>{{ groupLabel(item) }}</strong>
-            <em :class="item.enabled ? 'on' : 'off'">{{ item.enabled ? '启用' : '停用' }}</em>
-          </span>
-          <span class="group-detail">{{ slotsLabel(item) }}</span>
-          <span class="group-foot">{{ ruleCount(item) }} 条文案规则 <span v-if="item.errors.length" class="bad">{{ item.errors.length }} 处待修正</span></span>
-        </button>
-        <p v-if="search && !filteredAgents.length" class="hint">没有找到匹配的群。</p>
-        <div v-if="!busy && !agents.length" class="empty">
-          <strong>还没有群聊卡片</strong>
-          <p>可新建，或把现有督战群导入为停用草稿。</p>
-        </div>
-        <details class="import-options"><summary>导入旧配置</summary><p class="hint">仅新增未导入的群，默认停用。</p><button class="btn btn-sm" type="button" :disabled="busy" @click="importFromCode">导入现有督战群</button></details>
+        <div class="list-foot"><span>{{ enabledCount }} 个已启用</span><span>{{ agents.length - enabledCount }} 个已暂停</span></div>
+        <details class="legacy-import"><summary>导入已有业务群</summary><p class="hint">只新增停用草稿，已有配置保持不变。</p><button class="btn btn-sm" type="button" :disabled="busy || unsaved" @click="importFromCode">导入业务群</button></details>
       </aside>
 
-      <div class="workspace-main">
-      <section class="editor" aria-labelledby="editor-title">
-        <div class="editor-head">
-          <div>
-            <p class="eyebrow">{{ isDraft ? '新建群配置' : enabled ? '已启用的群配置' : '已停用的群配置' }}</p>
-            <h2 id="editor-title">{{ isDraft ? '新建一个督战群' : groupLabel(current!) }}</h2>
+      <div class="workspace-content">
+        <section class="editor" aria-labelledby="editor-title" :aria-busy="busy">
+          <header class="editor-head"><div><p class="eyebrow">{{ isDraft ? '新建督战' : isTasks ? '通用群任务' : '部门业务督战' }}</p><h2 id="editor-title">{{ isDraft ? '让一个群开始有序跟进' : selectedGroupName }}</h2></div><span class="status-tag" :class="{ unsaved, on: enabled && !unsaved }">{{ isDraft ? '草稿' : unsaved ? '未保存' : enabled ? '已启用' : '已暂停' }}</span></header>
+          <nav class="steps" aria-label="配置步骤"><button v-for="item in [{ n: 1, title: '群与人员' }, { n: 2, title: '规则与时间' }, { n: 3, title: '预览与启用' }]" :key="item.n" type="button" :aria-current="step === item.n ? 'step' : undefined" @click="step = item.n"><span>{{ item.n }}</span>{{ item.title }}</button></nav>
+
+          <div v-show="step === 1" class="step-body">
+            <section v-if="isDraft" class="section"><div class="section-heading"><h3>这次督战什么？</h3><p>选择适合这个群的方式。</p></div><div class="template-grid">
+              <button class="template" :class="{ chosen: isTasks }" type="button" :disabled="busy || !!selectedChannelId" :aria-pressed="isTasks" @click="chooseTemplate('group_tasks')"><span class="template-symbol" aria-hidden="true">✓</span><strong>群任务闭环<span>通用</span></strong><p>跟进指定发布人的任务，核对成员提交，提醒未完成事项。</p><small>适合项目群、工作群、专项任务群</small></button>
+              <button class="template" :class="{ chosen: !isTasks }" type="button" :disabled="busy || !!selectedChannelId" :aria-pressed="!isTasks" @click="chooseTemplate('business')"><span class="template-symbol" aria-hidden="true">↗</span><strong>部门业绩督战</strong><p>按部门追业绩目标、待办和 MTO，沿用已接入的业务数据。</p><small>适合现有经销商业务群</small></button>
+            </div></section>
+
+            <section class="section"><div class="section-heading"><h3>连接群聊</h3><p>选择督战机器人已加入、能够读取消息的 VPS 群。</p></div>
+              <form ref="form" class="group-form" @submit.prevent="save">
+                <label class="field">目标群<select class="control" aria-label="目标群" :value="selectedChannelId" :disabled="busy || metricsDirty || (isTasks && directoryBusy)" required @change="chooseGroup"><option value="">{{ isTasks && directoryBusy ? '正在读取 VPS 群…' : '选择一个群聊' }}</option><option v-for="option in groupOptions" :key="option.id" :value="option.id" :disabled="'disabled' in option && !!option.disabled">{{ option.label }}{{ 'reason' in option && option.reason ? ' · ' + option.reason : '' }}</option><option v-if="selectedChannelId && !groupOptions.some(option => option.id === selectedChannelId)" :value="selectedChannelId">{{ selectedGroupName }}（需复核连接）</option></select></label>
+                <label class="field">配置名称<input v-model="name" class="control" type="text" maxlength="128" required :disabled="busy" placeholder="选群后自动填写，也可以改名" /></label>
+              </form>
+              <div v-if="isTasks" class="connection" :class="{ connected: selectedDirectoryGroup?.bot_joined && selectedDirectoryGroup?.available !== false }"><span class="connection-icon" aria-hidden="true">{{ selectedDirectoryGroup?.bot_joined && selectedDirectoryGroup?.available !== false ? '✓' : '○' }}</span><div><strong>{{ selectedDirectoryGroup?.bot_joined && selectedDirectoryGroup?.available !== false ? '群连接已就绪' : selectedChannelId ? '等待验证群连接' : '选择群聊后检查连接' }}</strong><p>{{ selectedDirectoryGroup?.reason || (selectedDirectoryGroup ? '已读取 ' + selectedMembers.length + ' 位群成员；启用前会再次检查权限。' : '群没有出现时，先由群管理员添加督战机器人，再刷新列表。') }}</p></div><button class="text-button" type="button" :disabled="directoryBusy" @click="loadDirectory">{{ directoryBusy ? '读取中…' : '刷新群列表' }}</button></div>
+              <p v-if="isTasks && directoryError" class="notice error" role="alert">群列表读取失败：{{ directoryError }}。输入的配置仍然保留。</p><p v-else-if="!isTasks && channelsError" class="notice warning" role="status">业务群列表读取失败：{{ channelsError }}</p>
+            </section>
+
+            <section v-if="isTasks && taskPolicyIndex >= 0 && selectedChannelId" class="section"><div class="section-heading"><h3>跟谁发布的任务，提醒哪些人？</h3><p>按任务中明确的负责人跟进；全员任务使用当前群成员。</p></div><DuzhanTaskPolicy :key="selectedChannelId" :block="blocks[taskPolicyIndex]" :members="selectedMembers" :disabled="busy || !selectedChannelId || directoryBusy" @change="(key, value) => onFieldChange(taskPolicyIndex, key, value)" /></section>
+            <section v-else-if="departmentMembers.length" class="section"><div class="section-heading"><h3>部门成员</h3><p>每个时段汇总为一条，业绩按整个部门统计。</p></div><div class="member-chips"><span v-for="member in departmentMembers" :key="member">{{ member }}<small v-if="departmentTaskOnlyMembers.includes(member)">仅追待办</small></span></div><p v-if="departmentTaskOnlyMembers.length" class="hint">“仅追待办”成员计入部门业绩，暂停 MTO 等专项催办。</p></section>
+            <div class="step-actions"><span class="hint">新配置保存后默认暂停。</span><button class="btn btn-primary" type="button" :disabled="!selectedChannelId" @click="step = 2">下一步：规则与时间 →</button></div>
           </div>
-          <span v-if="unsaved" class="draft-tag">未保存</span>
-        </div>
-        <section class="step" aria-labelledby="group-step">
-          <div class="step-head"><span class="step-number">1</span><div><h3 id="group-step">发到哪个群</h3><p>从督战官已加入的群里选择。新建时会自动填写配置名称。</p></div></div>
-          <BlockCard
-            v-for="index in groupIndices" :key="'group-' + index"
-            :block="blocks[index]" :spec="specs.find((item) => item.type === 'group') || { type: 'group', label: '目标群', fields: [] }"
-            :index="index" :total="blocks.length" :group-options="groupOptions" :disabled="busy || metricsDirty" locked plain
-            @change="(key, value) => onFieldChange(index, key, value)"
-          />
-          <button v-if="!groupIndices.length" class="btn" type="button" :disabled="busy" @click="addType('group')">＋ 选择目标群</button>
-          <p v-if="channelsError" class="hint">群聊列表暂不可用：{{ channelsError }}。可在目标群卡片中手动填写群 ID。</p>
-          <div v-if="departmentMembers.length" class="workflow-note">
-            <strong>按部门汇总，每个时段一条</strong>
-            <span>待办与闭环：{{ departmentMembers.join('、') }}。名单随目标群统一维护。</span>
-            <span v-if="departmentTaskOnlyMembers.length">仅追待办：{{ departmentTaskOnlyMembers.join('、') }}。业绩计入部门；MTO、日报和销售过程专项不催办。</span>
+
+          <div v-show="step === 2" class="step-body">
+            <section class="section"><div class="section-heading"><h3>一天怎么跟进</h3><p>{{ isTasks ? '早上提醒任务，晚上核对实际提交；中午提醒可选。' : '早上追目标和待办，中午简单提醒，晚上详细检查闭环。' }}</p></div>
+              <div class="schedule-grid"><article v-for="stage in stages" :key="stage.key" class="schedule" :class="{ active: !!stageSlot(stage.key) }"><label class="schedule-toggle"><input type="checkbox" :checked="!!stageSlot(stage.key)" :disabled="busy" @change="setStage(stage.key, ($event.target as HTMLInputElement).checked ? stage.defaultTime : null)" /><strong>{{ stage.label }}</strong><span>{{ stageSlot(stage.key) ? '开启' : '关闭' }}</span></label><p>{{ stage.key === '早追' ? (isTasks ? '列出待完成任务和截止时间。' : '目标、当天与本周待办、MTO。') : stage.key === '中追' ? '简短催办，提醒继续推进。' : '核对提交证据，追未闭环事项。' }}</p><label class="sr-only" :for="'stage-' + stage.key">{{ stage.label }}时间</label><input :id="'stage-' + stage.key" type="time" step="60" :min="stage.min" :max="stage.max" :value="stageSlot(stage.key)" :disabled="busy || !stageSlot(stage.key)" @change="setStage(stage.key, ($event.target as HTMLInputElement).value)" /><small>{{ stage.min }} – {{ stage.max }}</small></article></div>
+              <label class="timezone">时区 <select v-model="timezone" class="control" :disabled="busy || current?.renderer.startsWith('ctob')"><option>Asia/Shanghai</option><option>Europe/Paris</option><option>Asia/Dubai</option><option>America/New_York</option><option>UTC</option><option v-if="!['Asia/Shanghai', 'Europe/Paris', 'Asia/Dubai', 'America/New_York', 'UTC'].includes(timezone)">{{ timezone }}</option></select></label>
+            </section>
+
+            <DuzhanMonthlyMetrics v-if="departmentMembers.length && !isTasks" :key="String(selectedId) + selectedChannelId" ref="metricsEditor" :channel-id="selectedChannelId" :initial-month="todayInZone(timezone).slice(0, 7)" :disabled="busy" :active="runtime?.source === 'db'" :metric-members="departmentMembers.length - departmentTaskOnlyMembers.length" @dirty="metricsDirty = $event" @saved="rendered = null; preview = null" />
+
+            <section v-if="isTasks" class="section"><div class="section-heading"><h3>闭环判断</h3><p>保留原任务、负责人、截止时间与提交证据。</p></div><ol class="evidence-flow"><li><span>1</span><div><strong>读取指定发布人的任务</strong><p>从群消息识别任务和负责人。</p></div></li><li><span>2</span><div><strong>核对群里的实际提交</strong><p>“已交”不等于证据齐全，提交状态与最终验收分开。</p></div></li><li><span>3</span><div><strong>追未完成，保留待确认</strong><p>采集失败或消息不完整时标记待确认，不直接认定未提交。</p></div></li></ol></section>
+
+            <details class="option-section" :open="conditionIndices.length > 0"><summary>提醒条件<span>{{ conditionIndices.length ? conditionIndices.length + ' 条条件' : '使用默认规则' }}</span></summary><p class="hint">多条条件需要同时满足。{{ isTasks ? '可按工作日或节假日筛选。' : '默认按现有业务工作日规则执行。' }}</p><BlockCard v-for="index in conditionIndices" :key="'condition-' + index" :block="blocks[index]" :spec="conditionSpec" :index="index" :total="blocks.length" :disabled="busy" @change="(key, value) => onFieldChange(index, key, value)" @remove="onRemove(index)" /><button class="text-button" type="button" :disabled="busy" @click="addType('condition')">＋ 添加提醒条件</button></details>
+
+            <details v-if="!isTasks" class="option-section" :open="ruleIndices.length > 0"><summary>自定义提醒重点<span>{{ ruleIndices.length ? ruleIndices.length + ' 条规则' : '默认早简晚详' }}</span></summary><p class="hint">只修改提醒中的“本档动作”。业务数据和闭环结果仍由系统核对。</p><BlockCard v-for="index in ruleIndices" :key="'rule-' + index" :block="blocks[index]" :spec="specs.find(item => item.type === 'rule') || { type: 'rule', label: '提醒重点', fields: [] }" :index="index" :total="blocks.length" :disabled="busy" :can-move-up="canMove(index, -1)" :can-move-down="canMove(index, 1)" @change="(key, value) => onFieldChange(index, key, value)" @move="offset => onMove(index, offset)" @remove="onRemove(index)" /><button class="text-button" type="button" :disabled="busy" @click="addType('rule')">＋ 添加固定文案 / AI 重点</button></details>
+            <div class="step-actions"><button class="btn" type="button" @click="step = 1">← 群与人员</button><button class="btn btn-primary" type="button" :disabled="busy" @click="saveAndPreview">保存并预览 →</button></div>
           </div>
+
+          <div v-show="step === 3" class="step-body">
+            <section class="section"><div class="section-heading"><h3>先看看会发什么</h3><p>预览使用已采集的数据，不向群里发送消息。</p></div><div class="preview-controls"><label class="field">日期<input v-model="day" class="control" type="date" /></label><label class="field">时间<select v-model="hour" class="control"><option value="">最近时段</option><option v-for="slot in previewSlots" :key="slot" :value="slot">{{ slot }}</option></select></label><label class="field">预览内容<select v-model="previewMode" class="control"><option value="render">群消息</option><option value="structure">配置检查</option></select></label><button class="btn" type="button" :disabled="busy" @click="saveAndPreview">{{ unsaved || isDraft ? '保存并预览' : '刷新预览' }}</button></div>
+              <div v-if="!preview && !rendered" class="preview-empty"><span aria-hidden="true">▤</span><strong>提醒内容将在这里出现</strong><p>首次使用还没有任务台账时，预览会显示待确认。</p></div>
+              <template v-if="rendered"><p v-if="!rendered.ok" class="notice error" role="alert">{{ rendered.error }}</p><template v-else><p class="hint">{{ rendered.note }}</p><div class="message-preview"><header><span class="bot-avatar" aria-hidden="true">督</span><div><strong>督战官</strong><small>{{ rendered.group }} · {{ rendered.day }} {{ rendered.slot }}</small></div><span class="preview-label">预览</span></header><pre>{{ rendered.body || '暂无已采集的任务。首次执行后再查看证据。' }}</pre></div><p class="preview-reason" :class="{ allowed: rendered.send_allowed }">{{ rendered.send_reason }}{{ rendered.send_allowed ? '；实际发送还需启用且到达执行时间。' : '。' }}</p></template></template>
+              <template v-if="preview"><p class="hint">{{ preview.note }}</p><ul class="summary-lines"><li v-for="(line, index) in preview.summary" :key="index">{{ line }}</li></ul><ul v-if="preview.errors.length" class="validation-errors"><li v-for="(item, index) in preview.errors" :key="index">{{ item }}</li></ul></template>
+              <p v-if="blocks.some(block => block.type === 'rule' && block.mode === 'ai')" class="hint">AI 文案预览会调用模型并使用额度。{{ ai ? '今日 ' + ai.calls + ' / ' + ai.limit + ' 次' : '' }}</p>
+            </section>
+            <section class="activation"><div><h3>{{ enabled ? '督战已启用' : '确认后再启用' }}</h3><p>{{ isTasks ? '保存不会自动启用。启用后，配置会在一分钟内被调度器读取。' : '此为业务督战，改群、时间或启停后仍需重启服务更新定时任务。' }}</p></div><button class="btn" :class="enabled ? '' : 'btn-primary'" type="button" :disabled="busy || isDraft || unsaved || (!enabled && (savedErrors.length > 0 || !liveConfig))" @click="setEnabled(!enabled)">{{ enabled ? '暂停督战' : '启用督战' }}</button></section>
+            <p v-if="runtime && !liveConfig" class="notice warning">{{ !selectedPlaneEnabled ? '这类督战的调度总开关未开启，可保存和预览，暂不发送。' : '业务督战仍使用代码配置，需切换到后台配置后生效。' }}</p>
+          </div>
+
+          <footer class="editor-footer"><div><strong>{{ isDraft ? '尚未保存' : unsaved ? '有改动待保存' : '配置已保存' }}</strong><span>{{ isTasks ? '通用任务配置 · 按群独立生效' : '业务配置 · 保留部门数据口径' }}</span></div><div class="actions"><button v-if="step > 1" class="btn" type="button" :disabled="busy" @click="step--">上一步</button><button class="btn btn-primary" type="button" :disabled="busy || (!unsaved && !isDraft)" @click="save">{{ busy ? '处理中…' : isDraft ? '保存草稿' : '保存改动' }}</button></div></footer>
         </section>
 
-        <DuzhanMonthlyMetrics
-          v-if="departmentMembers.length" :key="String(selectedId) + selectedChannelId" ref="metricsEditor"
-          :channel-id="selectedChannelId" :initial-month="todayInZone(timezone).slice(0, 7)" :disabled="busy" :active="runtime?.source === 'db'"
-          :metric-members="departmentMembers.length - departmentTaskOnlyMembers.length"
-          @dirty="metricsDirty = $event" @saved="rendered = null; preview = null"
-        />
+        <aside class="config-summary" aria-label="当前规则摘要"><div class="summary-heading"><span class="summary-mark" aria-hidden="true">✓</span><h2>这张卡片会做什么</h2></div><dl><dt>目标群</dt><dd>{{ selectedGroupName }}</dd><dt>督战方式</dt><dd>{{ isTasks ? '任务闭环' : '部门业务督战' }}</dd><dt>{{ isTasks ? '任务发布人' : '部门成员' }}</dt><dd>{{ isTasks ? publisherNames.join('、') || '尚未选择' : departmentMembers.join('、') || '沿用群的业务名单' }}</dd><template v-if="isTasks"><dt>排除人员</dt><dd>{{ exclusionsCount ? exclusionsCount + ' 人不参与催办' : '未设置排除人员' }}</dd></template><dt>执行时间</dt><dd>{{ previewSlots.join(' / ') || '尚未设置' }}<small>{{ timezone }}</small></dd></dl><p class="summary-foot">{{ isTasks ? '早间提醒 · 晚间核证据' : '早间规划 · 午间轻催 · 晚间复盘' }}</p><p v-if="!isDraft" class="hint">{{ current?.updated_at ? '最近保存：' + new Date(current.updated_at).toLocaleString('zh-CN') : '' }}</p><button v-if="!isDraft" class="btn" type="button" :disabled="busy || unsaved" @click="copyTemplate">复用规则到新群</button></aside>
 
-        <section class="step" aria-labelledby="time-step">
-          <div class="step-head"><span class="step-number">2</span><div><h3 id="time-step">什么时间检查并发结果</h3><p>早追、中追、晚追各可自定义一个时间，精确到分钟；系统按最近的 10:00 / 15:00 / 20:00 匹配阶段。当前时区：{{ timezone }}。C 转 B 群固定使用 Asia/Shanghai。</p></div></div>
-          <BlockCard
-            v-for="index in timeIndices" :key="'times-' + index"
-            :block="blocks[index]" :spec="specs.find((item) => item.type === 'times') || { type: 'times', label: '推送档位', fields: [] }"
-            :index="index" :total="blocks.length" :disabled="busy" locked plain
-            @change="(key, value) => onFieldChange(index, key, value)"
-          />
-          <button v-if="!timeIndices.length" class="btn" type="button" :disabled="busy" @click="addType('times')">＋ 选择发送时间</button>
-        </section>
-
-        <section class="step" aria-labelledby="condition-step">
-          <div class="step-head"><span class="step-number">3</span><div><h3 id="condition-step">检查后，什么时候提醒</h3><p>默认每个时段都发送事项检查结果。只有需要筛选时才加条件；多条条件必须同时成立。</p></div></div>
-          <div class="workflow-note"><strong>默认闭环检查已开启</strong><span>收集业务数据 / 群内反馈 → 识别事项 → 标出已闭环 / 待确认 → 提醒负责人补充下一步和截止时间</span></div>
-          <p v-if="!conditionIndices.length" class="empty-inline">当前：每个时段都发送检查结果</p>
-          <BlockCard
-            v-for="index in conditionIndices" :key="'condition-' + index"
-            :block="blocks[index]" :spec="specs.find((item) => item.type === 'condition') || { type: 'condition', label: '提醒条件', fields: [] }"
-            :index="index" :total="blocks.length" :disabled="busy"
-            :can-move-up="canMove(index, -1)" :can-move-down="canMove(index, 1)"
-            @change="(key, value) => onFieldChange(index, key, value)"
-            @move="(offset) => onMove(index, offset)" @remove="() => onRemove(index)"
-          />
-          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('condition')">＋ 只在特定情况提醒</button>
-        </section>
-
-        <section class="step" aria-labelledby="rule-step">
-          <div class="step-head"><span class="step-number">4</span><div><h3 id="rule-step">提醒里重点说什么</h3><p>系统按现有数据标出已闭环或待确认。这里仅覆盖“本档动作”这一行；留空就使用早追、中追、晚追的默认重点。</p></div></div>
-          <p v-if="!ruleIndices.length" class="empty-inline">当前：使用默认重点，自动生成整条检查提醒</p>
-          <BlockCard
-            v-for="index in ruleIndices" :key="'rule-' + index"
-            :block="blocks[index]" :spec="specs.find((item) => item.type === 'rule') || { type: 'rule', label: '提醒重点', fields: [] }"
-            :index="index" :total="blocks.length" :disabled="busy"
-            :can-move-up="canMove(index, -1)" :can-move-down="canMove(index, 1)"
-            @change="(key, value) => onFieldChange(index, key, value)"
-            @move="(offset) => onMove(index, offset)" @remove="() => onRemove(index)"
-          />
-          <button class="btn btn-add" type="button" :disabled="busy" @click="addType('rule')">＋ 自定义提醒重点</button>
-        </section>
-
-        <details class="panel advanced-settings">
-          <summary>高级设置与旧版积木</summary>
-          <div class="meta">
-            <label class="field"><span>配置名称</span><input v-model="name" type="text" maxlength="128" placeholder="例如：海外一组督战" /></label>
-            <label class="field"><span>时区（C 转 B 固定 Asia/Shanghai）</span><input v-model="timezone" type="text" placeholder="Asia/Shanghai" /></label>
-            <label class="field"><span>备注</span><input v-model="note" type="text" maxlength="256" placeholder="可选" /></label>
-          </div>
-          <p v-if="extraIndices.length" class="hint">以下旧版积木已保留，部分字段只用于结构预览，不控制实际发送。</p>
-          <BlockCard
-            v-for="index in extraIndices" :key="'extra-' + index"
-            :block="blocks[index]"
-            :spec="specs.find((item) => item.type === blocks[index].type) || { type: blocks[index].type, label: blocks[index].type, fields: [] }"
-            :index="index"
-            :total="blocks.length"
-            :group-options="groupOptions"
-            :disabled="busy" locked
-            @change="(key, value) => onFieldChange(index, key, value)"
-          />
-        </details>
-
-        <div class="save-row">
-          <button class="btn btn-primary" type="button" :disabled="busy" @click="save">
-            {{ isDraft ? '保存为停用卡片' : '保存改动' }}
-          </button>
-          <button
-            v-if="!isDraft"
-            class="btn"
-            type="button"
-            :disabled="busy || unsaved || (!enabled && savedErrors.length > 0)"
-            @click="setEnabled(!enabled)"
-          >
-            {{ enabled ? '停用' : '启用' }}
-          </button>
-          <span class="save-hint">保存不会自动启用；启停和定时变更需重启服务。</span>
-          <button v-if="!isDraft" class="btn btn-danger" type="button" :disabled="busy || unsaved" @click="removeCurrent">
-            {{ pendingDelete ? '再点一次确认删除' : '删除' }}
-          </button>
-        </div>
-
-        <ul v-if="savedErrors.length" class="errors">
-          <li v-for="(item, index) in savedErrors" :key="index">{{ item }}</li>
-        </ul>
-      </section>
-
-      <aside class="side">
-        <div class="panel">
-          <div class="panel-head"><h2>发送预览</h2></div>
-          <p class="hint">只渲染，不向群里发消息。先保存当前卡片。</p>
-          <div class="preview-fields">
-            <label>预览方式
-              <select v-model="previewMode">
-                <option value="render">实际文案</option>
-                <option value="structure">配置结构</option>
-              </select>
-            </label>
-            <label>日期<input v-model="day" type="date" /></label>
-            <label>档位
-              <select v-model="hour">
-                <option value="">最近档位</option>
-                <option v-for="slot in previewSlots" :key="slot" :value="slot">{{ slot }}</option>
-              </select>
-            </label>
-          </div>
-          <button class="btn" type="button" :disabled="busy || isDraft || unsaved" @click="runPreview">试跑这张卡片</button>
-          <p v-if="blocks.some((block) => block.type === 'rule' && block.mode === 'ai')" class="hint">AI 试跑会调用模型并计入今日额度，不写入正式发送缓存。</p>
-          <p v-if="ai" class="hint">AI 今日 {{ ai.calls }} / {{ ai.limit }} 次，缓存 {{ ai.cached }} 条</p>
-          <template v-if="preview">
-            <p class="hint">{{ preview.note }}</p>
-            <ul class="summary"><li v-for="(line, index) in preview.summary" :key="index">{{ line }}</li></ul>
-            <ul v-if="preview.errors.length" class="errors"><li v-for="(item, index) in preview.errors" :key="index">{{ item }}</li></ul>
-          </template>
-          <template v-if="rendered">
-            <p v-if="!rendered.ok" class="alert">{{ rendered.error }}</p>
-            <template v-else>
-              <p class="hint">{{ rendered.note }}</p>
-              <p :class="rendered.send_allowed ? 'preview-allowed' : 'preview-blocked'">
-                {{ rendered.send_reason }}{{ rendered.send_allowed ? '；还需核对启用与调度状态' : '，本档不发送' }}
-              </p>
-              <p class="meta-line">{{ rendered.day }} {{ rendered.slot || (String(rendered.hour).padStart(2, '0') + ':00') }} · {{ rendered.group }}</p>
-              <p v-if="(rendered.message_count || 0) > 1" class="hint">本档共 {{ rendered.message_count }} 条，按人分开发送。</p>
-              <pre class="body">{{ rendered.body }}</pre>
-            </template>
-          </template>
-        </div>
-        <details class="panel advanced">
-          <summary>高级：查看或粘贴 JSON</summary>
-          <textarea v-model="jsonText" rows="10" spellcheck="false" aria-label="积木 JSON"></textarea>
-          <p v-if="jsonPending" class="hint">JSON 修改尚未应用到卡片。</p>
-          <p v-if="jsonError" class="alert">{{ jsonError }}</p>
-          <button class="btn" type="button" :disabled="busy" @click="applyJson">按 JSON 覆盖卡片</button>
-        </details>
-      </aside>
+        <div class="advanced-area"><ul v-if="savedErrors.length" class="validation-errors" role="alert"><li v-for="(item, index) in savedErrors" :key="index">{{ item }}</li></ul><details class="advanced"><summary>更多设置与兼容配置</summary><label class="field">备注<input v-model="note" class="control" type="text" maxlength="256" :disabled="busy" /></label><p v-if="extraIndices.length" class="hint">以下旧版配置保留原值。数据源、策略与额外收件人字段仅用于结构说明，不扩展实际采集或发送范围。</p><BlockCard v-for="index in extraIndices" :key="index" :block="blocks[index]" :spec="specs.find(item => item.type === blocks[index].type) || { type: blocks[index].type, label: blocks[index].type, fields: [] }" :index="index" :total="blocks.length" :disabled="busy" locked @change="(key, value) => onFieldChange(index, key, value)" /><details><summary>维护人员：配置 JSON</summary><textarea v-model="jsonText" class="control json" rows="8" spellcheck="false" aria-label="配置 JSON"></textarea><p v-if="jsonPending" class="hint">JSON 修改尚未应用。</p><p v-if="jsonError" class="error-text" role="alert">{{ jsonError }}</p><button class="btn" type="button" :disabled="busy" @click="applyJson">应用到卡片</button></details><div v-if="!isDraft" class="delete-row"><button class="text-button danger" type="button" :disabled="busy || unsaved" @click="removeCurrent">{{ pendingDelete ? '确认删除这张配置' : '删除配置' }}</button><button v-if="pendingDelete" class="text-button" type="button" @click="pendingDelete = false">取消</button></div></details></div>
       </div>
     </div>
   </main>
 </template>
 
-<style scoped>
-.page { max-width: 1360px; padding: 28px 24px 80px; }
-.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
-.page-head h1 { margin: 2px 0 5px; font-size: 25px; }
-.eyebrow { margin: 0; color: var(--blue); font-size: 11px; font-weight: 700; letter-spacing: .07em; }
-.sub, .hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.actions, .save-row, .switch-warning > div { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.mode-banner, .switch-warning { display: flex; align-items: flex-start; gap: 12px; padding: 13px 16px; margin-bottom: 16px; border: 1px solid rgba(245, 158, 11, .3); border-radius: var(--radius-md); background: rgba(245, 158, 11, .07); }
-.mode-banner.live { border-color: rgba(16, 185, 129, .3); background: rgba(16, 185, 129, .07); }
-.mode-banner strong { font-size: 13px; }
-.mode-banner p { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.mode-dot { width: 8px; height: 8px; flex: none; margin-top: 5px; border-radius: 50%; background: var(--amber); }
-.live .mode-dot { background: var(--green); }
-.switch-warning { justify-content: space-between; align-items: center; color: var(--amber); font-size: 13px; }
-.btn-danger { color: var(--red); }
-.layout { display: grid; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); gap: 18px; align-items: start; }
-.workspace-main { display: grid; align-content: start; gap: 14px; min-width: 0; }
-.panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 16px; }
-.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.panel-head h2 { margin: 0; font-size: 15px; }
-.panel-head > span { color: var(--muted); font-size: 12px; }
-.list { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
-.search-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
-.search-input { width: 100%; margin-bottom: 12px; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
-.group-row { display: grid; gap: 5px; width: 100%; margin-bottom: 6px; padding: 10px 11px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); color: var(--text); text-align: left; cursor: pointer; }
-.group-row:hover, .group-row.active { border-color: var(--blue); }
-.group-row.active { background: var(--blue-soft); }
-.group-top { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
-.group-top strong { min-width: 0; font-size: 13px; line-height: 1.4; }
-.group-top em { flex: none; font-size: 10px; font-style: normal; padding: 2px 6px; border-radius: 5px; }
-.group-top .on { color: var(--green); background: rgba(16, 185, 129, .12); }
-.group-top .off { color: var(--muted); background: rgba(255, 255, 255, .06); }
-.group-detail, .group-foot { color: var(--muted); font-size: 11px; line-height: 1.4; }
-.group-foot { display: flex; justify-content: space-between; gap: 6px; }
-.bad { color: var(--red); }
-.empty { padding: 20px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); text-align: center; }
-.empty strong { font-size: 13px; }
-.empty p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.import-options { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 12px; }
-.import-options summary { color: var(--muted); cursor: pointer; font-size: 12px; }
-.import-options .btn { margin-top: 8px; }
-.editor, .side { display: grid; gap: 14px; }
-.editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.editor-head h2 { margin: 3px 0 0; font-size: 18px; }
-.draft-tag { padding: 4px 8px; border-radius: 5px; color: var(--amber); background: rgba(245, 158, 11, .12); font-size: 11px; }
-.step { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
-.step-head { display: flex; align-items: flex-start; gap: 11px; }
-.step-number { display: grid; flex: none; place-items: center; width: 27px; height: 27px; border-radius: 8px; background: var(--blue-soft); color: var(--blue); font-weight: 700; font-size: 13px; }
-.step-head h3 { margin: 1px 0 3px; font-size: 15px; }
-.step-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
-.workflow-note { display: grid; gap: 3px; padding: 12px; border: 1px solid rgba(52, 211, 153, .25); border-radius: var(--radius-md); background: rgba(52, 211, 153, .06); font-size: 12px; }
-.workflow-note strong { color: var(--green); }
-.workflow-note span { color: var(--muted); line-height: 1.55; }
-.empty-inline { margin: 0; padding: 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius-md); color: var(--muted); font-size: 12px; }
-.btn-add { justify-self: start; }
-.advanced-settings summary { cursor: pointer; font-size: 13px; }
-.advanced-settings .hint { margin: 14px 0 8px; }
-.advanced-settings :deep(.block-card) { margin-top: 10px; }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; padding-top: 14px; }
-.field, .preview-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
-.field input, .preview-fields input, .preview-fields select, .advanced textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
-.save-row { position: sticky; bottom: 0; z-index: 2; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); }
-.save-hint { color: var(--muted); font-size: 11px; }
-.errors { margin: 0; padding: 12px 12px 12px 32px; border: 1px solid rgba(244, 63, 94, .28); border-radius: var(--radius-md); background: rgba(244, 63, 94, .08); color: var(--red); font-size: 12px; line-height: 1.7; }
-.preview-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
-.summary { padding-left: 20px; color: var(--text); font-size: 12px; line-height: 1.7; }
-.meta-line { margin: 12px 0 6px; color: var(--muted); font-size: 11px; }
-.preview-allowed, .preview-blocked { margin: 10px 0 0; font-size: 12px; line-height: 1.5; }
-.preview-allowed { color: var(--green); }
-.preview-blocked { color: var(--amber); }
-.body { max-height: 430px; overflow: auto; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 12px; line-height: 1.7; }
-.advanced summary { cursor: pointer; font-size: 13px; }
-.advanced textarea { margin: 14px 0 8px; font-family: ui-monospace, Consolas, monospace; }
-.alert-sticky { position: sticky; top: 8px; z-index: 5; }
-@media (max-width: 840px) { .page { padding: 20px 14px 48px; } .layout { grid-template-columns: minmax(0, 1fr); } .list { position: static; max-height: 310px; } }
-@media (max-width: 560px) { .preview-fields, .meta, .step :deep(.fields) { grid-template-columns: minmax(0, 1fr); } .step { min-width: 0; padding: 14px; } }
-</style>
+<style scoped src="../styles/duzhan-workspace.css"></style>

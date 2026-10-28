@@ -130,6 +130,9 @@ def validate_agent(
         owners=owners_for(blocks) if owners is None else owners,
         strategies=strategy_ids() if strategies is None else strategies,
     )
+    from app.duzhan_admin import group_tasks
+    if group_tasks.policy_of(agent) is not None:
+        return errors + group_tasks.validate_config(agent)
     members = _department_members(blocks)
     selected = _people_of(blocks)
     if members and selected and set(selected) != set(members):
@@ -171,7 +174,9 @@ def _style_of(blocks: list[Block]) -> dict:
 
 
 def renderer_for(blocks: list[Block]) -> str:
-    """这份配置会走哪个渲染器：群在 C转B 名单里走 ctob，否则走达标群。"""
+    """选择真实执行模式，通用群任务不进入销售数据采集。"""
+    if any(block.type == "task_policy" for block in blocks):
+        return "group_tasks"
     from app.ctob import OWNERS as CTOB_OWNERS
 
     ctob_channels = {owner.channel_id for owner in CTOB_OWNERS}
@@ -236,6 +241,7 @@ def resolve_spec(agent: DuzhanAgent) -> dict:
         "title": style["title"],
         "footer": style["footer"],
         "renderer": renderer,
+        "task_policy": next((block.data for block in blocks if block.type == "task_policy"), None),
     }
 
 
@@ -243,6 +249,19 @@ def _summary_lines(
     spec: dict, day: Optional[str], hour: Optional[int], slot: Optional[str] = None,
 ) -> list[str]:
     """把结构翻成给人看的一行行说明（配置页「试跑」直接展示这些）。"""
+    if spec["renderer"] == "group_tasks":
+        policy = spec["task_policy"]
+        publishers = policy.get("publisher_user_ids")
+        exclusions = policy.get("excluded_user_ids")
+        publisher_count = len(publishers) if isinstance(publishers, list) else 0
+        exclusion_count = len(exclusions) if isinstance(exclusions, list) else 0
+        return [
+            "目标群：" + "、".join(group["label"] or group["channel_id"] for group in spec["groups"]),
+            "检查时间：" + "、".join(spec["slots"]) + "（" + spec["timezone"] + "）",
+            f"只跟进指定的 {publisher_count} 位发布人的任务；排除 {exclusion_count} 人",
+            "早间／午间提醒待办，晚间核对群内实际提交证据；采集不完整时保持待确认",
+            "配置启用后自动读取；本次预览不采集、不发送",
+        ]
     lines: list[str] = []
     for group in spec["groups"]:
         label = group["label"] or "(未命名群)"
@@ -333,6 +352,9 @@ def render_preview(
     slot: Optional[str] = None,
 ) -> dict:
     """用已保存卡片和已有快照台账试跑；不取数、不发送。"""
+    from app.duzhan_admin import group_tasks
+    if group_tasks.policy_of(agent) is not None:
+        return group_tasks.render_preview(agent, day=day, hour=hour, slot=slot)
     from datetime import datetime
     from zoneinfo import ZoneInfo
 

@@ -1064,6 +1064,14 @@ def heiwu_poll_job() -> None:
         logger.info("小黑屋本轮已祝贺 {}", result["replied"])
 
 
+def group_task_poll_job() -> None:
+    from app.duzhan_admin.group_tasks import poll_due
+    try:
+        poll_due()
+    except Exception as exc:
+        logger.warning("通用群任务调度失败：{}", type(exc).__name__)
+
+
 def heiwu_task_job(round_name: str) -> None:
     """同步管理员派单；早提醒，晚按群内交付证据核对后催办。"""
     from app.heiwu_tasks import run_round
@@ -1724,6 +1732,10 @@ def start_scheduler() -> BackgroundScheduler | None:
             coalesce=True,
         )
 
+    _scheduler.add_job(
+        group_task_poll_job, trigger="interval", minutes=1, id="group_task_poll",
+        max_instances=1, coalesce=True, misfire_grace_time=60,
+    )
     _scheduler.start()
     logger.info(
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "

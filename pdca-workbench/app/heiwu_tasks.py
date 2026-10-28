@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -84,24 +85,31 @@ def _date_window(text: str, created: datetime, tz: ZoneInfo) -> tuple[date, date
     return start, due_local.astimezone(timezone.utc)
 
 
-def _owner_excluded(user_id: int | str | None, *names: str) -> bool:
-    """仅小黑屋任务使用；账号 ID 或完整姓名匹配，不做模糊/繁简匹配。"""
-    from app.config import get_settings
-
-    settings = get_settings()
-    excluded_ids = {str(value) for value in getattr(settings, "heiwu_task_excluded_user_ids", ())}
-    excluded_names = {
-        str(value).strip().lstrip("@").strip().casefold()
-        for value in getattr(settings, "heiwu_task_excluded_names", ())
-        if str(value).strip()
-    }
-    return bool(
-        str(user_id or "").strip() in excluded_ids
-        or any(str(name or "").strip().lstrip("@").strip().casefold() in excluded_names for name in names)
-    )
+@dataclass(frozen=True)
+class TaskPolicy:
+    """Explicit scope for generic groups; None retains legacy 小黑屋 policy."""
+    excluded_user_ids: tuple[int, ...] = ()
+    excluded_names: tuple[str, ...] = ()
+    exclude_admins: bool = True
+    exclude_support: bool = True
 
 
-def active_group_members(members: list[dict], publisher_user_id: int | str) -> list[dict]:
+def _owner_excluded(user_id: int | str | None, *names: str, policy: TaskPolicy | None = None) -> bool:
+    if policy is None:
+        from app.config import get_settings
+        settings = get_settings()
+        policy = TaskPolicy(
+            excluded_user_ids=tuple(getattr(settings, "heiwu_task_excluded_user_ids", ())),
+            excluded_names=tuple(getattr(settings, "heiwu_task_excluded_names", ())),
+        )
+    excluded_ids = {str(value) for value in policy.excluded_user_ids}
+    excluded_names = {str(value).strip().lstrip("@").strip().casefold()
+                      for value in policy.excluded_names if str(value).strip()}
+    return bool(str(user_id or "").strip() in excluded_ids or any(
+        str(name or "").strip().lstrip("@").strip().casefold() in excluded_names for name in names))
+
+
+def active_group_members(members: list[dict], publisher_user_id: int | str, *, policy: TaskPolicy | None = None) -> list[dict]:
     """把群成员规范成真实用户；排除机器人、退群用户、发布管理员和无名用户。"""
     publisher = str(publisher_user_id)
     result: list[dict] = []
@@ -109,9 +117,9 @@ def active_group_members(members: list[dict], publisher_user_id: int | str) -> l
     for raw in members or []:
         if not isinstance(raw, dict) or str(raw.get("member_type") or "") != "user":
             continue
-        if str(raw.get("role") or "").strip().casefold() in {"owner", "admin"}:
+        if (policy is None or policy.exclude_admins) and str(raw.get("role") or "").strip().casefold() in {"owner", "admin"}:
             continue
-        if _SUPPORT_JOB_RE.search(str(raw.get("job_title") or "")):
+        if (policy is None or policy.exclude_support) and _SUPPORT_JOB_RE.search(str(raw.get("job_title") or "")):
             continue
         user_id = str(raw.get("user_id") or "").strip()
         if not user_id or user_id == publisher or raw.get("removed_at") or user_id in seen_ids:
@@ -125,7 +133,7 @@ def active_group_members(members: list[dict], publisher_user_id: int | str) -> l
         ).strip()
         if not name:
             continue
-        if _owner_excluded(user_id, name):
+        if _owner_excluded(user_id, name, policy=policy):
             continue
         seen_ids.add(user_id)
         result.append({"user_id": user_id, "name": name, "raw": raw})
@@ -204,6 +212,7 @@ def parse_assignment_message(
     *,
     publisher_user_id: int | str,
     timezone_name: str = "Asia/Shanghai",
+    policy: TaskPolicy | None = None,
 ) -> list[dict]:
     """把管理员一条任务通知解析为逐人任务；不是可信派单则返回空列表。"""
     if not isinstance(message, dict):
@@ -223,7 +232,7 @@ def parse_assignment_message(
     created = _message_time(message, tz)
     if created is None:
         return []
-    roster = active_group_members(members, publisher_user_id)
+    roster = active_group_members(members, publisher_user_id, policy=policy)
     if _COLLECTIVE_RE.search(body):
         if not _ASSIGNMENT_RE.search(body):
             return []
@@ -274,6 +283,7 @@ def _assignment_evidence(task: dict) -> list[dict]:
     return [
         {
             "evidence_type": "assignment_notice",
+            **({"publisher_user_id": str(task["publisher_user_id"])} if task.get("publisher_user_id") else {}),
             "message_id": task["source_message_id"],
             "owner_user_id": task["owner_user_id"],
             "source_updated_at": task["source_updated_at"],
@@ -342,16 +352,16 @@ def _cancel_row(row, *, reason: str, evidence_type: str, now: datetime) -> bool:
     return True
 
 
-def _exclude_row(row, *, now: datetime) -> bool:
+def _exclude_row(row, *, now: datetime, policy: TaskPolicy | None = None) -> bool:
     """停止排除人员的未关闭任务，保留交付证据和催办历史。"""
     owner_id = _assignment_record(row.evidence_json).get("owner_user_id")
-    if not _owner_excluded(owner_id, row.owner) or row.status in {"done", "complete", "completed"}:
+    if not _owner_excluded(owner_id, row.owner, policy=policy) or row.status in {"done", "complete", "completed"}:
         return False
     evidence = _evidence_items(row)
     evidence.append({"evidence_type": "owner_exclusion", "recorded_at": now.isoformat()})
     row.status = "complete"
     row.verification_status = "excluded"
-    row.blocked_reason = "人员在排除名单内，不参与小黑屋任务跟进"
+    row.blocked_reason = "人员在排除名单内，不参与群任务跟进" if policy is not None else "人员在排除名单内，不参与小黑屋任务跟进"
     row.closed_at = now
     row.updated_at = now
     row.evidence_json = json.dumps(evidence, ensure_ascii=False)
@@ -365,6 +375,7 @@ def sync_assignment_messages(
     channel_id: str,
     publisher_user_id: int | str,
     timezone_name: str = "Asia/Shanghai",
+    policy: TaskPolicy | None = None,
 ) -> dict:
     """把管理员消息幂等同步到 PdcaTask；编辑、改派和撤回会收敛旧任务。"""
     from sqlmodel import Session, select
@@ -386,7 +397,7 @@ def sync_assignment_messages(
         by_ref = {row.source_ref: row for row in rows}
         by_message: dict[str, list] = {}
         for row in rows:
-            if _exclude_row(row, now=now):
+            if _exclude_row(row, now=now, policy=policy):
                 session.add(row)
                 result["cancelled"] += 1
             by_message.setdefault(_source_message_id(row), []).append(row)
@@ -407,6 +418,7 @@ def sync_assignment_messages(
                 members,
                 publisher_user_id=publisher_user_id,
                 timezone_name=timezone_name,
+                policy=policy,
             )
             current_rows = by_message.get(message_id, [])
             revoked = bool(message.get("revoked_at")) or str(message.get("message_type") or "") == "recall"
@@ -416,6 +428,8 @@ def sync_assignment_messages(
 
             desired_refs: set[str] = set()
             for task in desired:
+                if policy is not None:
+                    task["publisher_user_id"] = str(publisher_user_id)
                 ref = _source_ref(channel_id, task)
                 desired_refs.add(ref)
                 row = by_ref.get(ref)
@@ -425,7 +439,11 @@ def sync_assignment_messages(
                         (
                             existing for existing in rows
                             if existing.status not in {"done", "complete", "completed"}
-                            and existing.owner == task["owner"]
+                            and (
+                                existing.owner == task["owner"] if policy is None else
+                                str(_assignment_record(existing.evidence_json).get("owner_user_id") or "") == str(task["owner_user_id"])
+                                and str(_assignment_record(existing.evidence_json).get("publisher_user_id") or "") == str(task["publisher_user_id"])
+                            )
                             and existing.task_date == task["start_date"]
                             and _title_key(existing.title) == _title_key(task["title"])
                             and _same_instant(existing.due_at, task["due_at"])
@@ -461,6 +479,16 @@ def sync_assignment_messages(
                     or _assignment_record(row.evidence_json) != _assignment_evidence(task)[0]
                 )
                 was_cancelled = row.status in {"done", "complete", "completed"} and row.verification_status == "rejected"
+                was_excluded = policy is not None and row.verification_status == "excluded"
+                if was_excluded and not material_change:
+                    row.status = "pending"
+                    row.verification_status = "unverified"
+                    row.blocked_reason = ""
+                    row.closed_at = None
+                    row.updated_at = now
+                    session.add(row)
+                    result["updated"] += 1
+                    continue
                 if not material_change and not was_cancelled:
                     continue
                 row.task_date = task["start_date"]
@@ -481,7 +509,7 @@ def sync_assignment_messages(
             for row in current_rows:
                 if row.source_ref in desired_refs:
                     continue
-                if _owner_excluded(_assignment_record(row.evidence_json).get("owner_user_id"), row.owner):
+                if _owner_excluded(_assignment_record(row.evidence_json).get("owner_user_id"), row.owner, policy=policy):
                     continue
                 if _cancel_row(
                     row,
@@ -728,6 +756,7 @@ def _task_from_row(row) -> dict:
         "id": row.id,
         "owner": row.owner,
         "owner_user_id": str(assignment.get("owner_user_id") or ""),
+        "publisher_user_id": str(assignment.get("publisher_user_id") or ""),
         "title": row.title,
         "start_date": str(assignment.get("start_date") or row.task_date),
         "due_at": row.due_at,
@@ -763,6 +792,7 @@ def reconcile_task_evidence(
     history_start: datetime | str | None = None,
     now: datetime | None = None,
     timezone_name: str = "Asia/Shanghai",
+    policy: TaskPolicy | None = None,
 ) -> dict[str, list[dict]]:
     """核对本群未闭环任务并持久化证据状态；不负责发送。"""
     from sqlmodel import Session, select
@@ -786,7 +816,7 @@ def reconcile_task_evidence(
             ).all()
         )
         for row in rows:
-            if _exclude_row(row, now=current):
+            if _exclude_row(row, now=current, policy=policy):
                 session.add(row)
                 continue
             task = _task_from_row(row)
@@ -980,8 +1010,8 @@ def _started(task: dict, current: datetime, tz: ZoneInfo) -> bool:
     return start_day <= current.astimezone(tz).date()
 
 
-def _reminded_today(task: dict, round_name: str, current: datetime, tz: ZoneInfo) -> bool:
-    if str(task.get("last_reminded_round") or "") != f"heiwu-{round_name}":
+def _reminded_today(task: dict, round_name: str, current: datetime, tz: ZoneInfo, reminder_round: str | None = None) -> bool:
+    if str(task.get("last_reminded_round") or "") != (reminder_round or f"heiwu-{round_name}"):
         return False
     reminded = _aware_utc(task.get("last_reminded_at"))
     return bool(reminded and reminded.astimezone(tz).date() == current.astimezone(tz).date())
@@ -1019,7 +1049,7 @@ def _build_body(owner: str, tasks: list[tuple[dict, str]], current: datetime, tz
     return "\n".join(lines)
 
 
-def _mark_reminded(task_ids: list[int], *, round_name: str, current: datetime) -> None:
+def _mark_reminded(task_ids: list[int], *, round_name: str, current: datetime, reminder_round: str | None = None) -> None:
     from sqlmodel import Session
 
     from app.database import get_engine
@@ -1031,22 +1061,22 @@ def _mark_reminded(task_ids: list[int], *, round_name: str, current: datetime) -
             if row is None:
                 continue
             row.last_reminded_at = current
-            row.last_reminded_round = f"heiwu-{round_name}"
+            row.last_reminded_round = reminder_round or f"heiwu-{round_name}"
             row.remind_count = int(row.remind_count or 0) + 1
             row.updated_at = current
             session.add(row)
         session.commit()
 
 
-def _round_groups(decisions: dict[str, list[dict]], *, round_name: str, current: datetime, tz: ZoneInfo) -> list[dict]:
+def _round_groups(decisions: dict[str, list[dict]], *, round_name: str, current: datetime, tz: ZoneInfo, policy: TaskPolicy | None = None, reminder_round: str | None = None) -> list[dict]:
     grouped: dict[str, dict] = {}
     states = ("missing", "progress", "pending") if round_name == "morning" else ("missing", "progress")
     for state in states:
         for task in decisions[state]:
-            if not _started(task, current, tz) or _reminded_today(task, round_name, current, tz):
+            if not _started(task, current, tz) or _reminded_today(task, round_name, current, tz, reminder_round):
                 continue
             owner_id = str(task.get("owner_user_id") or "")
-            if not owner_id or _owner_excluded(owner_id, task.get("owner", "")):
+            if not owner_id or _owner_excluded(owner_id, task.get("owner", ""), policy=policy):
                 continue
             group = grouped.setdefault(owner_id, {"owner_user_id": owner_id, "owner": task["owner"], "tasks": []})
             group["tasks"].append((task, state))

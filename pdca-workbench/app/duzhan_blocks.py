@@ -15,6 +15,7 @@ from loguru import logger
 
 #: 支持的积木类型（顺序即前端面板展示顺序）
 BLOCK_TYPES: tuple[str, ...] = (
+    "task_policy",
     "group",
     "times",
     "people",
@@ -36,7 +37,7 @@ SOURCE_KEYS: dict[str, str] = {
 }
 
 #: 只能出现一次的块（运行时只读第一块，多出来的会被校验挡下）
-SINGLETON_BLOCKS: tuple[str, ...] = ("group", "times", "people", "style")
+SINGLETON_BLOCKS: tuple[str, ...] = ("group", "times", "people", "style", "task_policy")
 
 #: 可以出现多次的块（按顺序生效）
 REPEATABLE_BLOCKS: tuple[str, ...] = ("source", "rule", "strategy", "recipient", "condition")
@@ -213,6 +214,19 @@ def _check_one(
             if unknown:
                 errors.append(f"{where}：不在督战名单内 {'、'.join(unknown)}")
 
+    elif block.type == "task_policy":
+        for key, label in (("publisher_user_ids", "任务发布人"), ("excluded_user_ids", "排除人员")):
+            values = block.get(key, [])
+            if not isinstance(values, list) or any(type(value) is not int or value <= 0 for value in values):
+                errors.append(f"{where}：{label}必须使用群成员的正整数账号 ID")
+            elif len(values) != len(set(values)) or len(values) > 200:
+                errors.append(f"{where}：{label}不可重复，且最多 200 人")
+            elif key == "publisher_user_ids" and not values:
+                errors.append(f"{where}：至少选择一位任务发布人")
+        allowed = {"publisher_user_ids", "excluded_user_ids"}
+        if set(block.data) - allowed:
+            errors.append(f"{where}：不支持额外任务策略字段")
+
     elif block.type == "source":
         key = _text(block.get("key"))
         if key not in SOURCE_KEYS:
@@ -316,6 +330,14 @@ def validate_blocks(
 def block_schema() -> list[dict]:
     """给前端积木面板用的字段定义（面板与校验同源，避免两边漂移）。"""
     return [
+        {
+            "type": "task_policy", "label": "群任务规则", "multiple": False,
+            "hint": "只跟进指定发布人的任务，排除人员不参与催办；提交证据需匹配原任务",
+            "fields": [
+                {"key": "publisher_user_ids", "label": "任务发布人", "kind": "user_ids", "required": True},
+                {"key": "excluded_user_ids", "label": "不催办的成员", "kind": "user_ids"},
+            ],
+        },
         {
             "type": "group",
             "label": "目标群",
