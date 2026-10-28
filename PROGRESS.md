@@ -1,5 +1,10 @@
 # Progress
 
+## 2026-10-28: Recover login from the supervisor page
+
+- An isolated real-browser check against the deployed page received 401 from protected APIs but remained on the supervisor page: its uninitialized draft baseline falsely marked untouched fields as unsaved and blocked the login redirect. The empty form now starts with its actual baseline. If a session expires with real edits, the page retains them and offers an explicit discard-and-login action rather than silently losing them.
+- Browser regression first reproduced the stuck redirect; after the change four isolated API scenarios passed: unauthenticated redirect and return path, normal unsaved-navigation protection, preserving edits after an expired session, and explicit discard before login. The existing bootstrap administrator credentials were tested once against the real login endpoint and returned HTTP 401; no additional password attempts were made.
+
 ## 2026-10-28: VPS group-task supervisor and guided configuration
 
 - Added an administrator-only generic VPS group-task mode. A card selects a readable group joined by the fixed supervisor bot, trusted publisher account IDs, excluded member IDs and up to three daily phase times. New cards remain paused until explicitly enabled. A minute poll reads live configuration; the existing sales and dedicated 小黑屋 paths retain their own data, credentials and exclusion policies. No schema migration or dependency was added.
