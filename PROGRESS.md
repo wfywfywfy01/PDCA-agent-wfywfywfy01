@@ -1,5 +1,10 @@
 # Progress
 
+## 2026-10-28: Distinguish report release mismatch from transcript mutation
+
+- Production read-only diagnosis for session `3bc8f91a` found a successful 10-segment voice stream and an ended session at revision 12. The web container queued the report using release `d0a500f`, while the report worker ran release `b0c3799`; the saved transcript hash and revision matched, but `report_input_hash()` includes `PDCA_RELEASE_SHA`, so the worker rejected the job before model generation. The failed job had no report. This is a deployment version mismatch, not evidence of changed speech.
+- Keep the release/model/input hash guard. A worker now reports `报告输入或生成版本已变化，请重新发起复盘` when that guard fails, while a changed transcript or session revision retains `逐字稿已变化`. A new regression first failed on the old misleading error, then passed for both release mismatch and actual transcript mutation; neither case called the model or published a report. It also verified that a fresh request after version alignment queues a new job with a different input hash. `tests.test_omega_templates` passed 25 tests before that final retry assertion, and the focused regression passed again afterward. Deploying matching web/worker versions and requesting a fresh report remain necessary to recover that production session; this code change only makes the failure accurate.
+
 ## 2026-10-28: Omega pause waits for accepted speech before coaching
 
 - Two earlier fixed-synthetic Doubao pause probes recorded `saved_sales=0` and the order `pausing, coaching, resuming, segment`: the pause control entered coaching before the accepted speech's ASR final was saved. The coach job could therefore read an empty transcript. `OmegaSegment` already increments the session revision, and the coach worker checks it before saving a hint; that check cancels a hint only when the late segment lands before the hint commits.

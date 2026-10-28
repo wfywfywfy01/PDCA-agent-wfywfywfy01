@@ -514,6 +514,51 @@ class OmegaTemplateTests(unittest.TestCase):
                 'context_snapshot_json': canonical({**snapshot, 'report_hints_used': []})})
             self.assertNotEqual(report_input_hash(without_hints), job.input_hash)
 
+    def test_report_worker_names_release_mismatch_without_weakening_transcript_check(self):
+        from app.omega.jobs import run_once
+
+        for change, expected_error in (
+            ('transcript', '逐字稿已变化'),
+            ('release', '报告输入或生成版本已变化，请重新发起复盘'),
+        ):
+            with self.subTest(change=change):
+                template = self.template()
+                game_id = self.client.post('/api/omega/template-starts', json=self.start_body(
+                    template, request_key=f'report-input-{change}')).json()['session_id']
+                with Session(self.engine) as db:
+                    part = OmegaSegment(session_id=game_id, seq=1, speaker='sales', text='确认下一步。')
+                    db.add(part)
+                    db.commit()
+                    part_id = part.id
+                with patch.dict('os.environ', {'PDCA_RELEASE_SHA': 'web-release'}):
+                    self.client.post(f'/api/omega/sessions/{game_id}/finish',
+                                     json={'request_key': f'finish-{change}'}).raise_for_status()
+                if change == 'transcript':
+                    with Session(self.engine) as db:
+                        db.get(OmegaSegment, part_id).text = '逐字稿确实变了。'
+                        db.commit()
+                release = 'worker-release' if change == 'release' else 'web-release'
+                with patch.dict('os.environ', {'PDCA_RELEASE_SHA': release}):
+                    self.assertTrue(run_once(self.engine, generate=lambda *_: self.fail(
+                        'mismatched report must not call the model')))
+                with Session(self.engine) as db:
+                    job = db.exec(select(OmegaJob).where(
+                        OmegaJob.session_id == game_id, OmegaJob.kind == 'report')).one()
+                    self.assertEqual(job.status, 'failed')
+                    self.assertEqual(job.error, expected_error)
+                    failed_input_hash = job.input_hash
+                    self.assertFalse(db.exec(select(OmegaReport).where(
+                        OmegaReport.session_id == game_id)).all())
+                if change == 'release':
+                    with patch.dict('os.environ', {'PDCA_RELEASE_SHA': 'worker-release'}):
+                        retry = self.client.post(f'/api/omega/sessions/{game_id}/reports',
+                                                 json={'request_key': 'report-after-release-sync'})
+                    self.assertEqual(retry.status_code, 202, retry.text)
+                    self.assertEqual(retry.json()['status'], 'queued')
+                    with Session(self.engine) as db:
+                        self.assertNotEqual(db.get(OmegaJob, retry.json()['id']).input_hash,
+                                            failed_input_hash)
+
     def test_late_hints_do_not_change_finished_report_input_or_worker_metadata(self):
         from app.omega.jobs import run_once
 

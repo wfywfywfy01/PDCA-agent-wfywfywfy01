@@ -23,6 +23,8 @@ from app.omega.policy import require_case, require_session_source
 from app.omega.reports import WEIGHTS, report_summary, validate_next_practice, validate_report
 from app.omega.router import digest, report_input_hash, transcript_digest
 
+REPORT_INPUT_CHANGED = "报告输入或生成版本已变化，请重新发起复盘"
+
 
 def _default_generate(kind: str, messages: list[dict], max_tokens: int) -> str:
     provider = os.environ.get("PDCA_SUPERVISOR_PROVIDER", "").strip()
@@ -117,10 +119,12 @@ def run_once(engine, *, generate=_default_generate) -> bool:
             segments = _segments(db, game.id)
             if kind == "turn" and (game.status != "active" or game.revision != job.session_revision):
                 raise ValueError("对话版本已失效")
-            if kind == "report" and (game.status != "ended" or game.revision != job.session_revision
-                                     or transcript_digest(segments) != game.transcript_hash
-                                     or report_input_hash(game) != job.input_hash):
-                raise ValueError("逐字稿已变化")
+            if kind == "report":
+                if (game.status != "ended" or game.revision != job.session_revision
+                        or transcript_digest(segments) != game.transcript_hash):
+                    raise ValueError("逐字稿已变化")
+                if report_input_hash(game) != job.input_hash:
+                    raise ValueError(REPORT_INPUT_CHANGED)
             session_id = game.id
             input_hash = job.input_hash
             expected_revision = game.revision
@@ -153,9 +157,10 @@ def run_once(engine, *, generate=_default_generate) -> bool:
                             or _aware(current_job.lease_until) <= utcnow()):
                         return True
                     current_game = db.get(OmegaSession, session_id)
-                    if (current_game.status != "ended" or current_game.revision != expected_revision
-                            or report_input_hash(current_game) != input_hash):
+                    if current_game.status != "ended" or current_game.revision != expected_revision:
                         raise ValueError("逐字稿已变化")
+                    if report_input_hash(current_game) != input_hash:
+                        raise ValueError(REPORT_INPUT_CHANGED)
                     current_owner = db.get(User, current_game.owner_id)
                     if current_owner is None or not current_owner.is_active:
                         raise ValueError("创建者账号已失效")
