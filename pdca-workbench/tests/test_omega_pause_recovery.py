@@ -72,16 +72,19 @@ class PauseRecoveryTests(unittest.TestCase):
             try:
                 await provider.queue.put({"type": "conversation.item.input_audio_transcription.started", "item_id": "old"})
                 await asyncio.wait_for(browser.started.wait(), 1)
-                await self.control(control, browser, provider, "pause")
+                pausing = asyncio.create_task(self.control(control, browser, provider, "pause"))
+                await asyncio.sleep(.05)
+                self.assertEqual(control.state, "pausing")
+                await provider.queue.put({"type": "conversation.item.input_audio_transcription.completed",
+                                         "item_id": "old", "text": "Old public utterance"})
+                await asyncio.wait_for(browser.saved.wait(), 1)
+                await pausing
                 resuming = asyncio.create_task(self.control(control, browser, provider, "resume"))
                 await asyncio.sleep(.05)
                 # Match the browser: fresh PCM starts only once the server opens its gate.
                 sent_fresh = not control.paused
                 if sent_fresh:
                     control.sent_audio(b"\0\x30")
-                await provider.queue.put({"type": "conversation.item.input_audio_transcription.completed",
-                                         "item_id": "old", "text": "Old public utterance"})
-                await asyncio.wait_for(browser.saved.wait(), 1)
                 await asyncio.wait_for(resuming, 2)
                 if not sent_fresh:
                     control.sent_audio(b"\0\x30")
@@ -118,10 +121,9 @@ class PauseRecoveryTests(unittest.TestCase):
             receiving = self.receiver(control, browser, provider)
             resuming = None
             try:
-                await self.control(control, browser, provider, "pause")
-                resuming = asyncio.create_task(self.control(control, browser, provider, "resume"))
+                pausing = asyncio.create_task(self.control(control, browser, provider, "pause"))
                 await asyncio.sleep(.05)
-                # The accepted pre-pause PCM has not received an ASR identity until now.
+                # The accepted pre-pause PCM receives its ASR identity during pause drain.
                 for event in [
                     {"type": "conversation.item.input_audio_transcription.started", "item_id": "late-old"},
                     {"type": "conversation.item.input_audio_transcription.completed", "item_id": "late-old", "text": "Pre-pause public speech"},
@@ -132,6 +134,8 @@ class PauseRecoveryTests(unittest.TestCase):
                 ]:
                     await provider.queue.put(event)
                 await asyncio.wait_for(browser.saved.wait(), 1)
+                await pausing
+                resuming = asyncio.create_task(self.control(control, browser, provider, "resume"))
                 await asyncio.wait_for(resuming, 2)
                 # Even a further late output frame must stay blocked after the ACK.
                 await provider.queue.put({"type": "response.output_audio.delta", "response_id": "old-reply",
