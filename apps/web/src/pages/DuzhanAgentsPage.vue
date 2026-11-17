@@ -9,6 +9,7 @@ import { HttpError } from '@/api/client'
 import { fetchBotChannels, type BotChannel } from '@/api/agentAdmin'
 import BlockCard from '@/components/BlockCard.vue'
 import DuzhanMonthlyMetrics from '@/components/DuzhanMonthlyMetrics.vue'
+import DuzhanAcquisitionQueue from '@/components/DuzhanAcquisitionQueue.vue'
 import {
   addBlock as appendBlock, agentPayload, aiStatus as fetchAiStatus, blockSchema, configChanged,
   createAgent, defaultBlock, deleteAgent, blockPositions, starterBlocks, groupOptions as fetchGroupOptions,
@@ -520,6 +521,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
       <div><p class="eyebrow">VPS / 群协作</p><h1>督战工作台<span class="title-tag">按群配置</span></h1><p class="sub">把群里的任务，跟到有结果。规则配一次，按时自动检查。</p></div>
       <div class="actions"><button class="btn" type="button" :disabled="busy || unsaved" @click="load">刷新</button><button class="btn btn-primary" type="button" :disabled="busy" @click="requestDraft">＋ 新建督战</button></div>
     </header>
+    <DuzhanAcquisitionQueue />
 
     <p v-if="message" class="notice success" role="status">{{ message }}</p>
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>

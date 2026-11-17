@@ -572,6 +572,12 @@ class Settings:
             f"{parsed_acquisition.scheme}://{parsed_acquisition.netloc}"
             if valid_acquisition_url else ""
         )
+        self.acquisition_supervision_url = os.environ.get(
+            "PDCA_ACQUISITION_SUPERVISION_URL", ""
+        ).strip().rstrip("/")
+        self.acquisition_supervision_token = os.environ.get(
+            "PDCA_ACQUISITION_SUPERVISION_TOKEN", ""
+        ).strip()
         # 允许把本站嵌进 iframe 的来源。未设时默认 admin.vertu.cn；显式空字符串则只允许同源。
         raw_frame_ancestors = os.environ.get("PDCA_FRAME_ANCESTORS")
         if raw_frame_ancestors is None:

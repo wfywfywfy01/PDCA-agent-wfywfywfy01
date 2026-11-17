@@ -1,6 +1,8 @@
 # 督战官：群聊配置与 VPS 接入
 
 管理入口：部署地址下的 `/app/admin/duzhan-agents`。使用 PDCA 管理员账号登录。
+
+获客待办只读接口为 `GET /api/duzhan-agents/acquisition-queue`，仅 PDCA 管理员可调用。部署时在服务端设置 `PDCA_ACQUISITION_SUPERVISION_URL`（获客服务的 HTTPS 根地址）和 `PDCA_ACQUISITION_SUPERVISION_TOKEN`（与获客端匹配的专用令牌，至少 32 字符）。获客端用 `owner_ids` 限定可见负责人，并可用 `include_next_action` 开启下一步字段。接口只展示负责人、阶段、下一步和截止时间。配置缺失返回 503，上游异常返回 502。
 日常配置只需选群、选规则和填写指标；群 ID、JSON 与机器人凭据不需要由普通使用者填写。
 
 ## 先选适合这个群的督战方式

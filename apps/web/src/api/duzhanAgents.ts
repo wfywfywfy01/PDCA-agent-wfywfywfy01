@@ -161,3 +161,22 @@ export async function deleteAgent(id: number): Promise<{ deleted: number }> {
 export function groupOptions(): Promise<GroupOptionsResponse> {
   return apiGet('/api/duzhan-agents/group-options')
 }
+
+interface AcquisitionOwner { owner_user_id: number; owner_name: string | null }
+interface AcquisitionCounts { records: number; unaccepted: number; no_progress: number; overdue: number; missing_due: number }
+export interface AcquisitionQueue {
+  source_tasks?: {
+    as_of: string; total: number; has_more: boolean; totals: AcquisitionCounts
+    by_owner: (AcquisitionOwner & AcquisitionCounts)[]
+    items: (AcquisitionOwner & {
+      task_id: number; display_name: string | null; route: string; source_system: string; stage: string
+      customer_stage: string | null; customer_stage_status: string; accepted_at: string | null
+      last_progress_at: string | null; next_action?: string | null; next_due_at: string | null
+      overdue: boolean | null; pending_reply: boolean; reply_processing: boolean; stored_outreach_hold: boolean
+    })[]
+  }
+  owner_pending_replies?: { total: number; has_more: boolean; items: (AcquisitionOwner & { id: number; occurred_at: string | null; status: string })[] }
+}
+export function acquisitionQueue(sourceOffset = 0, replyOffset = 0): Promise<AcquisitionQueue> {
+  return apiGet('/api/duzhan-agents/acquisition-queue?' + new URLSearchParams({ source_offset: String(sourceOffset), reply_offset: String(replyOffset) }))
+}

@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from functools import lru_cache
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlmodel import Session, select
 
 from app.auth.deps import require_role
 from app.auth.models import User
+from app.config import get_settings
 from app.database import get_session
 from app.duzhan_admin import service
+from app.duzhan_admin.acquisition_models import AcquisitionQueue, AcquisitionQueueEnvelope
 from app.duzhan_blocks import block_schema, dump_blocks, is_valid_day, parse_blocks
 from app.models.duzhan_agent import DuzhanAgent
 from app.duzhan_monthly_metrics import MonthlyMetricsIn, monthly_response, save_metrics, validate_month
@@ -23,6 +27,52 @@ router = APIRouter(prefix="/api/duzhan-agents", tags=["duzhan-agents"])
 
 #: 独立命名，便于测试与前端按依赖覆盖
 require_admin = require_role("admin")
+
+
+@router.get("/acquisition-queue", summary="获客系统待督办线索", response_model_exclude_unset=True)
+async def acquisition_queue(
+    request: Request,
+    response: Response,
+    _user: Annotated[User, Depends(require_admin)],
+    source_limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    source_offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+    reply_limit: Annotated[int, Query(ge=1, le=100)] = 100,
+    reply_offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+) -> AcquisitionQueue:
+    pagination = dict(source_limit=source_limit, source_offset=source_offset,
+                      reply_limit=reply_limit, reply_offset=reply_offset)
+    if any(len(request.query_params.getlist(key)) > 1 for key in pagination):
+        raise HTTPException(400, "分页参数不能重复")
+    settings = get_settings()
+    try:
+        url = urlsplit(settings.acquisition_supervision_url)
+    except ValueError:
+        raise HTTPException(503, "获客督战接口未配置") from None
+    token = settings.acquisition_supervision_token
+    if (
+        url.scheme != "https"
+        or not url.hostname
+        or url.username is not None
+        or url.query
+        or url.fragment
+        or len(token) < 32
+    ):
+        raise HTTPException(503, "获客督战接口未配置")
+
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:
+            upstream = await client.get(
+                settings.acquisition_supervision_url + "/api/integrations/sales-supervision",
+                headers={"Authorization": f"Bearer {token}"},
+                params=pagination,
+            )
+        upstream.raise_for_status()
+        queue = AcquisitionQueueEnvelope.model_validate_json(upstream.content).data
+    except (httpx.HTTPError, httpx.InvalidURL, ValidationError):
+        raise HTTPException(502, "获客督战接口暂不可用") from None
+
+    response.headers["Cache-Control"] = "no-store"
+    return queue
 
 
 class AgentIn(BaseModel):
