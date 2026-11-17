@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from functools import lru_cache
 from typing import Annotated, Any, Literal, Optional
-from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -18,7 +17,7 @@ from app.auth.models import User
 from app.config import get_settings
 from app.database import get_session
 from app.duzhan_admin import service
-from app.duzhan_admin.acquisition_models import AcquisitionQueue, AcquisitionQueueEnvelope
+from app.duzhan_admin.acquisition_models import AcquisitionQueue, AcquisitionQueueEnvelope, supervision_connection
 from app.duzhan_blocks import block_schema, dump_blocks, is_valid_day, parse_blocks
 from app.models.duzhan_agent import DuzhanAgent
 from app.duzhan_monthly_metrics import MonthlyMetricsIn, monthly_response, save_metrics, validate_month
@@ -45,24 +44,14 @@ async def acquisition_queue(
         raise HTTPException(400, "分页参数不能重复")
     settings = get_settings()
     try:
-        url = urlsplit(settings.acquisition_supervision_url)
+        url, token = supervision_connection(settings)
     except ValueError:
         raise HTTPException(503, "获客督战接口未配置") from None
-    token = settings.acquisition_supervision_token
-    if (
-        url.scheme != "https"
-        or not url.hostname
-        or url.username is not None
-        or url.query
-        or url.fragment
-        or len(token) < 32
-    ):
-        raise HTTPException(503, "获客督战接口未配置")
 
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=False, trust_env=False) as client:
             upstream = await client.get(
-                settings.acquisition_supervision_url + "/api/integrations/sales-supervision",
+                url,
                 headers={"Authorization": f"Bearer {token}"},
                 params=pagination,
             )

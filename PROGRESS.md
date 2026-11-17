@@ -607,3 +607,18 @@ Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deplo
 - 正式页面截图发现新增表格误用白色回退背景，深色主题文字难读；改用现有 surface/text/muted 变量，并限制表格滚动高度，保留原督战配置可达性。移动端提示横向查看下一步与期限。
 - 后续标准发布显式保留已有 GTM 监督 URL / 令牌，继续使用原配置覆盖与密钥日志脱敏规则；不把令牌存入仓库。
 - 前端类型与生产构建通过；发布切换 9 项、环境一致性 5 项、GTM 配置保留 2 项通过。重新走精确提交 CI 与部署验收。
+
+## 2026-11-17 GTM real-source overdue reminder implementation
+
+- Added an opt-in server scheduler for source-task overdue reminders using the existing supervisor
+  bot, runtime ledger and VPS idempotency key. Real environment evidence, complete/fresh pagination,
+  current recipient/bot group membership and no pending replies are required. Held, completed and
+  not-yet-due tasks are excluded. One summary per owner/day during 09:00–19:00 Asia/Shanghai.
+- No task, customer stage or deadline mutations. Uncertain sends are not automatically repeated
+  that day. Supervisor/source access and chase configuration survive standard deployments.
+- Test-first: `tests.test_acquisition_chase` initially failed to import the absent module.
+  After implementation, 47 isolated unit tests passed across acquisition chase, acquisition queue,
+  generic group tasks, scheduler ledger and backup scheduling. Deployment simulations also passed 9 cutover, 5 process
+  environment and 2 GTM configuration-retention checks. No production sending or deployment performed.
+- Operational contract: `docs/DUZHAN_GTM_SOURCE_QUEUE.md`. Production acceptance still requires
+  real incoming owner replies and actual due tasks; zero sends before the real deadline is expected.

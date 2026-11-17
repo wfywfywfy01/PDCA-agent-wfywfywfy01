@@ -578,6 +578,8 @@ class Settings:
         self.acquisition_supervision_token = os.environ.get(
             "PDCA_ACQUISITION_SUPERVISION_TOKEN", ""
         ).strip()
+        self.acquisition_chase_enabled = _env_flag("PDCA_ACQUISITION_CHASE_ENABLED", "0")
+        self.acquisition_chase_targets = os.environ.get("PDCA_ACQUISITION_CHASE_TARGETS", "[]").strip()
         # 允许把本站嵌进 iframe 的来源。未设时默认 admin.vertu.cn；显式空字符串则只允许同源。
         raw_frame_ancestors = os.environ.get("PDCA_FRAME_ANCESTORS")
         if raw_frame_ancestors is None:

@@ -1072,6 +1072,13 @@ def group_task_poll_job() -> None:
         logger.warning("通用群任务调度失败：{}", type(exc).__name__)
 
 
+def acquisition_chase_job() -> None:
+    from app.duzhan_admin.acquisition_chase import poll_due
+    result = poll_due()
+    if result.get("sent") or result.get("failed"):
+        logger.info("获客线索督办：{}", result)
+
+
 def heiwu_task_job(round_name: str) -> None:
     """同步管理员派单；早提醒，晚按群内交付证据核对后催办。"""
     from app.heiwu_tasks import run_round
@@ -1734,6 +1741,10 @@ def start_scheduler() -> BackgroundScheduler | None:
 
     _scheduler.add_job(
         group_task_poll_job, trigger="interval", minutes=1, id="group_task_poll",
+        max_instances=1, coalesce=True, misfire_grace_time=60,
+    )
+    _scheduler.add_job(
+        acquisition_chase_job, trigger="interval", minutes=15, id="acquisition_chase",
         max_instances=1, coalesce=True, misfire_grace_time=60,
     )
     _scheduler.start()

@@ -156,16 +156,20 @@ function New-SecretEnvFile { return [System.IO.Path]::GetTempFileName() }
 function Invoke-Docker { param([string[]]$DockerArgs); $script:capturedArgs = $DockerArgs; return '' }
 $EnvFile = [System.IO.Path]::GetTempFileName()
 $currentObject = [pscustomobject]@{ Config = @{ Env = @(
-    'PDCA_ACQUISITION_SUPERVISION_URL=https://gtm.invalid', 'PDCA_ACQUISITION_SUPERVISION_TOKEN=unit-only-scoped-token'
+    'PDCA_ACQUISITION_SUPERVISION_URL=https://gtm.invalid', 'PDCA_ACQUISITION_SUPERVISION_TOKEN=unit-only-scoped-token',
+    'PDCA_ACQUISITION_CHASE_ENABLED=1', 'PDCA_ACQUISITION_CHASE_TARGETS=[]'
 ) } }
 $script:SensitiveValues = @()
 try {
     Start-PdcaContainer 'unit/image' '/unit/release' $rev @{} @{} 'http://unit.invalid'
     if ($script:capturedArgs -notcontains 'PDCA_ACQUISITION_SUPERVISION_URL=https://gtm.invalid' -or
         $script:capturedArgs -notcontains 'PDCA_ACQUISITION_SUPERVISION_TOKEN=unit-only-scoped-token' -or
+        $script:capturedArgs -notcontains 'PDCA_ACQUISITION_CHASE_ENABLED=1' -or
+        $script:capturedArgs -notcontains 'PDCA_ACQUISITION_CHASE_TARGETS=[]' -or
         $script:SensitiveValues -notcontains 'unit-only-scoped-token') { throw 'GTM scope was dropped or token not redacted' }
-    [System.IO.File]::WriteAllText($EnvFile, 'PDCA_ACQUISITION_SUPERVISION_URL=https://override.invalid')
+    [System.IO.File]::WriteAllText($EnvFile, "PDCA_ACQUISITION_SUPERVISION_URL=https://override.invalid`nPDCA_ACQUISITION_CHASE_ENABLED=0")
     Start-PdcaContainer 'unit/image' '/unit/release' $rev @{} @{} 'http://unit.invalid'
     if ($script:capturedArgs -notcontains 'PDCA_ACQUISITION_SUPERVISION_URL=https://override.invalid') { throw 'explicit GTM override lost' }
+    if ($script:capturedArgs -notcontains 'PDCA_ACQUISITION_CHASE_ENABLED=0') { throw 'explicit chase disable lost' }
 } finally { Remove-Item -LiteralPath $EnvFile -Force }
 Write-Output 'GTM deployment configuration retention: 2 passed'

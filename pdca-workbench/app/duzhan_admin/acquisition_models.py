@@ -1,6 +1,7 @@
 """Read-only GTM contract. Source tasks and messages never become company counts."""
 
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, BaseModel, Field
 
@@ -144,6 +145,7 @@ class ReplyPage(Page):
 
 
 class AcquisitionQueue(BaseModel):
+    environment: Literal["real", "demo"] | None = None
     items: list[CompanyItem] = Field(max_length=100)
     by_owner: list[CompanyOwner] = Field(max_length=100)
     truncated: bool
@@ -156,3 +158,14 @@ class AcquisitionQueue(BaseModel):
 class AcquisitionQueueEnvelope(BaseModel):
     ok: Literal[True]
     data: AcquisitionQueue
+
+
+def supervision_connection(settings) -> tuple[str, str]:
+    """The browser proxy and scheduled reader use the same server-only boundary."""
+    base = settings.acquisition_supervision_url
+    token = settings.acquisition_supervision_token
+    url = urlsplit(base)
+    if (url.scheme != "https" or not url.hostname or url.username is not None
+            or url.query or url.fragment or len(token) < 32):
+        raise ValueError("supervision_not_configured")
+    return base + "/api/integrations/sales-supervision", token
