@@ -144,3 +144,28 @@ foreach ($drift in @(
     } finally { $container.Config.Env[$drift.Index] = $before }
 }
 Write-Output 'Omega release environment acceptance: 5 passed'
+
+
+# Later deployments retain the scoped GTM connection without copying its token into a local env.
+foreach ($name in @('Start-PdcaContainer', 'Read-OptionalDotEnvValue')) {
+    $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq $name }, $true)
+    Invoke-Expression $definition.Extent.Text
+}
+function New-SecretEnvFile { return [System.IO.Path]::GetTempFileName() }
+function Invoke-Docker { param([string[]]$DockerArgs); $script:capturedArgs = $DockerArgs; return '' }
+$EnvFile = [System.IO.Path]::GetTempFileName()
+$currentObject = [pscustomobject]@{ Config = @{ Env = @(
+    'PDCA_ACQUISITION_SUPERVISION_URL=https://gtm.invalid', 'PDCA_ACQUISITION_SUPERVISION_TOKEN=unit-only-scoped-token'
+) } }
+$script:SensitiveValues = @()
+try {
+    Start-PdcaContainer 'unit/image' '/unit/release' $rev @{} @{} 'http://unit.invalid'
+    if ($script:capturedArgs -notcontains 'PDCA_ACQUISITION_SUPERVISION_URL=https://gtm.invalid' -or
+        $script:capturedArgs -notcontains 'PDCA_ACQUISITION_SUPERVISION_TOKEN=unit-only-scoped-token' -or
+        $script:SensitiveValues -notcontains 'unit-only-scoped-token') { throw 'GTM scope was dropped or token not redacted' }
+    [System.IO.File]::WriteAllText($EnvFile, 'PDCA_ACQUISITION_SUPERVISION_URL=https://override.invalid')
+    Start-PdcaContainer 'unit/image' '/unit/release' $rev @{} @{} 'http://unit.invalid'
+    if ($script:capturedArgs -notcontains 'PDCA_ACQUISITION_SUPERVISION_URL=https://override.invalid') { throw 'explicit GTM override lost' }
+} finally { Remove-Item -LiteralPath $EnvFile -Force }
+Write-Output 'GTM deployment configuration retention: 2 passed'

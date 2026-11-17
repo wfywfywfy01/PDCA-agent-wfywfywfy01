@@ -600,3 +600,10 @@ Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deplo
 - The old Windows/SSH deploy path updated the main service and worker but left independent Omega Web on its previous release. Report input hashes include the process release SHA and model settings, so a complete transcript could fail its report job when those processes differed.
 - The main release now defers when any Omega job is queued or running, stops old Web and main under the database admission gate, switches worker before starting new main, and then deploys independent Web at the same exact SHA. The old worker and Web remain available for rollback until all three containers and public health endpoints pass version, process environment, model and database checks. If the previous Web already differed from the previous main/worker or a previous worker cannot be restored, rollback keeps Web closed rather than exposing a mixed release. Disabling Omega while the independent Caddy route exists is explicitly rejected before stopping service.
 - Red tests first reproduced the missing cutover transaction, a gate hosted by old main being released before it stopped, public `/app/` checks occurring while Web was down, a stopped Web incorrectly taking the healthy early return, and missing main/worker configuration checks. Green verification: **9 PowerShell cutover scenarios plus 5 environment acceptance cases**, **13 Python independent Web deployment tests**, Python compilation, PowerShell parsing and `git diff --check` passed. CI now runs the PowerShell behavior tests. This change has not been deployed; exact-commit CI and production three-container checks remain required.
+
+
+## 2026-11-17：获客督战界面视觉验收修正
+
+- 正式页面截图发现新增表格误用白色回退背景，深色主题文字难读；改用现有 surface/text/muted 变量，并限制表格滚动高度，保留原督战配置可达性。移动端提示横向查看下一步与期限。
+- 后续标准发布显式保留已有 GTM 监督 URL / 令牌，继续使用原配置覆盖与密钥日志脱敏规则；不把令牌存入仓库。
+- 前端类型与生产构建通过；发布切换 9 项、环境一致性 5 项、GTM 配置保留 2 项通过。重新走精确提交 CI 与部署验收。

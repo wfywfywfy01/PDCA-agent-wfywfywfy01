@@ -36,6 +36,7 @@ onBeforeUnmount(() => { disposed = true; clearInterval(timer); document.removeEv
       <p class="queue-time">数据时间 {{ time(data.source_tasks.as_of) }}（北京时间）</p>
       <div class="queue-stats"><span>线索任务 <b>{{ data.source_tasks.total }}</b></span><span>未接收 <b>{{ data.source_tasks.totals.unaccepted }}</b></span><span>无进展记录 <b>{{ data.source_tasks.totals.no_progress }}</b></span><span>逾期 <b>{{ data.source_tasks.totals.overdue }}</b></span><span>缺截止时间 <b>{{ data.source_tasks.totals.missing_due }}</b></span></div>
       <p class="queue-owners"><span v-for="owner in data.source_tasks.by_owner" :key="owner.owner_user_id">{{ owner.owner_name || '负责人 ' + owner.owner_user_id }}：{{ owner.records }} 条，逾期 {{ owner.overdue }} 条</span></p>
+      <p class="queue-scroll-hint">可左右滑动查看下一步和截止时间。</p>
       <div class="queue-scroll" tabindex="0" aria-label="线索跟进表，可横向滚动"><table><thead><tr><th>线索 / 来源</th><th>负责人 / 接单</th><th>线索阶段 / 客户阶段</th><th>下一步 / 截止时间</th><th>跟进情况</th></tr></thead><tbody>
         <tr v-for="item in data.source_tasks.items" :key="item.task_id" :class="{ overdue: item.overdue }">
           <td><strong>#{{ item.task_id }} {{ item.display_name || '未命名线索' }}</strong><small>{{ routes[item.route] || item.route }} · {{ item.source_system }}</small><small v-if="item.stored_outreach_hold" class="queue-error">暂停触达，先核验</small></td>
@@ -54,5 +55,14 @@ onBeforeUnmount(() => { disposed = true; clearInterval(timer); document.removeEv
 </template>
 
 <style scoped>
-.acquisition{margin:1.25rem 0;padding:1.25rem;background:var(--surface,#fff);border:1px solid var(--border,#deded8);border-radius:16px}.acquisition header,.acquisition nav,.queue-stats,.queue-owners{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}.acquisition h2{margin:0}.acquisition p{color:var(--muted,#626660)}.queue-stats{justify-content:flex-start}.queue-stats span{padding:.7rem 1rem;background:#f3f5f1;border-radius:8px}.queue-stats b{margin-left:.4rem}.queue-owners{justify-content:flex-start}.queue-scroll{overflow-x:auto}.acquisition table{width:100%;border-collapse:collapse;text-align:left;min-width:780px}.acquisition th,.acquisition td{padding:.8rem;border-bottom:1px solid #e3e6df;vertical-align:top}.acquisition th{font-size:.85rem;color:#545c54}.acquisition small{display:block;margin-top:.35rem;color:#626660}.acquisition nav{justify-content:flex-end;margin-top:1rem}.queue-error{color:#a32929!important}.overdue{background:#fff6f2}.pending-replies{border-top:1px solid #deded8;margin-top:1rem}.queue-time{font-size:.85rem}
+.acquisition{margin:1.25rem 0;padding:1.25rem;color:var(--text);background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius-xl)}
+.acquisition header,.acquisition nav,.queue-stats,.queue-owners{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.acquisition h2{margin:0}.acquisition p,.acquisition small{color:var(--muted)}
+.queue-stats{justify-content:flex-start}.queue-stats span{padding:.7rem 1rem;background:var(--surface-2);border-radius:var(--radius-md)}.queue-stats b{margin-left:.4rem}
+.queue-owners{justify-content:flex-start}.queue-scroll{overflow:auto;max-height:480px}.queue-scroll-hint{display:none}
+.acquisition table{width:100%;border-collapse:collapse;text-align:left;min-width:780px}.acquisition th,.acquisition td{padding:.8rem;border-bottom:1px solid var(--border);vertical-align:top}
+.acquisition th{position:sticky;top:0;background:var(--surface-1);font-size:.85rem;color:var(--muted)}.acquisition small{display:block;margin-top:.35rem}
+.acquisition nav{justify-content:flex-end;margin-top:1rem}.queue-error{color:var(--danger)!important}.overdue{background:rgba(244,63,94,.08)}
+.pending-replies{border-top:1px solid var(--border);margin-top:1rem}.queue-time{font-size:.85rem}
+@media(max-width:640px){.acquisition{padding:1rem}.queue-scroll{max-height:420px}.queue-scroll-hint{display:block;font-size:.85rem}}
 </style>

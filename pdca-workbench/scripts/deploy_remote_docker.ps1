@@ -586,6 +586,8 @@ function Start-PdcaContainer {
     $envNames = @(Get-Content -LiteralPath $EnvFile -Encoding UTF8 |
         ForEach-Object { if ($_ -match '^\s*(PDCA_[A-Z0-9_]+)=') { $matches[1] } } |
         Sort-Object -Unique)
+    # Keep the existing server-side GTM scope when a later local env file omits it.
+    $envNames = @($envNames + @("PDCA_ACQUISITION_SUPERVISION_URL", "PDCA_ACQUISITION_SUPERVISION_TOKEN") | Sort-Object -Unique)
     $passedEnv = 0
     foreach ($envName in $envNames) {
         if ($envExcluded -contains $envName) { continue }
