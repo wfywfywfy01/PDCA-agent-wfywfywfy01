@@ -622,3 +622,17 @@ Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deplo
   environment and 2 GTM configuration-retention checks. No production sending or deployment performed.
 - Operational contract: `docs/DUZHAN_GTM_SOURCE_QUEUE.md`. Production acceptance still requires
   real incoming owner replies and actual due tasks; zero sends before the real deadline is expected.
+# 2026-11-19 经销商 WhatsApp 新品话术日报迁移（待发布）
+
+- 独立工作树：codex/dealer-whatsapp-daily，基线 3130dffd7981d104fcb31054ae26b857e4c8a783。
+- 已通过 ssh://pdca-docker-176 的既有 Docker 部署入口验证服务器连通。
+- 容器 vps-work auth status 确认为付汪阳正常工作身份；目标群已知日报历史读取成功。
+- 服务器既有 AINativeSales 客户端未传 vps_user_id 调用 business.catalog 成功，映射用户 38；只输出权限元数据，没有读取或导出凭据。
+- 新增日报模块与默认关闭的每日 Asia/Shanghai 09:00 调度入口；未更改既有督战任务。
+- Test-first：首次运行 tests.test_dealer_whatsapp_daily 因模块未创建失败；实现后 3 项测试通过，覆盖产品边界、AI/撤回/重复排除、评分原文引用。
+- 自动审批拒绝真实服务器预演，原因是 WhatsApp 原文会传输到既有外部 DeepSeek API 并保存审计，需要明确确认。未重试或绕过拒绝。
+- 当前为未上线草稿：真实预演、完整回归、发布门禁、生产启用、旧 Codex 任务切换均未完成。不得据此宣称定时已生效。
+
+后续验证：用户明确确认 DeepSeek 处理原文及服务器留存。真实预演通过：10账号、18次查询分页结束、5账号评分，正文728字，UTF-8有效；未发送消息。首次模型结构校验失败，补充明确JSON示例和一次纠错重试后通过，仍保持逐字引用校验。
+新增7项离线测试全部通过（2026-11-19），覆盖幂等历史跳过、任务默认关闭、分页结束检查、发送回执复读、产品边界、AI/撤回/重复排除及评分引用。沙箱临时目录权限异常，正常权限下同一离线测试通过。
+生产仍未启用；待完整CI、main精确提交发布及启用验证。审计导出到本机曾被自动审批拒绝，未执行或绕过；仅在服务器输出无客户原文的计数及校验元数据。

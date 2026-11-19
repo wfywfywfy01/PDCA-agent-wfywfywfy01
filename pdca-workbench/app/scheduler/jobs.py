@@ -1747,6 +1747,13 @@ def start_scheduler() -> BackgroundScheduler | None:
         acquisition_chase_job, trigger="interval", minutes=15, id="acquisition_chase",
         max_instances=1, coalesce=True, misfire_grace_time=60,
     )
+    # Independently gated; never changes existing department/group schedules.
+    from app.dealer_whatsapp_daily import scheduled_job as dealer_whatsapp_daily_job
+    _scheduler.add_job(
+        dealer_whatsapp_daily_job, trigger="cron", hour=9, minute=0,
+        timezone="Asia/Shanghai", id="dealer_whatsapp_script_daily",
+        max_instances=1, coalesce=True, misfire_grace_time=3600,
+    )
     _scheduler.start()
     logger.info(
         "调度器已启动 cron={} logistics_tracking=07:30 logibot=09:00/15:00 "
