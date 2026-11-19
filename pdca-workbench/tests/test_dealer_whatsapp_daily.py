@@ -43,6 +43,9 @@ class DailyTests(unittest.TestCase):
             self.assertIn(daily.CHANNEL, cli.call_args.args)
 
     def test_product_boundary(self):
+        dual = 'Agent Watch and Signature S Agent'
+        self.assertEqual(product_of(dual, 'Agent Watch'), 'Agent Watch')
+        self.assertEqual(product_of(dual, 'Signature Agent'), 'Signature Agent')
         self.assertIsNone(product_of('Signature is classic. Our agent will call.'))
         self.assertIsNone(product_of('Agent Q and mechanical watch'))
         self.assertEqual(product_of('new Signature S Agent'), 'Signature Agent')
