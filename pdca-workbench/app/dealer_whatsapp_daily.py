@@ -14,10 +14,10 @@ TITLE = '经销商 WhatsApp 新品话术日报'
 TZ = ZoneInfo('Asia/Shanghai')
 
 
-def product_of(text):
-    if re.search(r'\bsignature\s+(?:s\s+)?agent\b|\bsig\s+agent\b', text, re.I):
+def product_of(text, product=None):
+    if product in (None, 'Signature Agent') and re.search(r'\bsignature\s+(?:s\s+)?agent\b|\bsig\s+agent\b', text, re.I):
         return 'Signature Agent'
-    if re.search(r'\bagent\s+watch\b|third\s+(?:AI\s+)?generation\s+watch|第三代.*(?:腕表|手表)', text, re.I):
+    if product in (None, 'Agent Watch') and re.search(r'\bagent\s+watch\b|third\s+(?:AI\s+)?generation\s+watch|第三代.*(?:腕表|手表)', text, re.I):
         return 'Agent Watch'
     return None
 
@@ -240,7 +240,7 @@ def run(*, send=False, day=None):
         lines = [TITLE, '数据日期：' + data_day + '（北京时间全天）',
                  f'本期查询{len(accounts)}个经销商WhatsApp账号；以下仅代表已同步可读记录。']
         for product in ('Agent Watch', 'Signature Agent'):
-            count = sum(product_of(r.get('content', '')) == product for r in rows)
+            count = sum(product_of(r.get('content', ''), product) == product for r in rows)
             lines.append(product + ('：有明确外发文本。' if count else '：未取得明确外发文本，媒体与泛称待核。'))
         lines.append('账号话术样本主观参考排名，非绩效或成交排名。分项：产品清晰/渠道针对性/客户价值/下一步，各25分。')
         for i, score in enumerate(ranked, 1):

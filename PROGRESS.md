@@ -624,6 +624,8 @@ Cloud PostgreSQL pilot data is active. OSS credentials and bucket remain a deplo
   real incoming owner replies and actual due tasks; zero sends before the real deadline is expected.
 # 2026-11-19 经销商 WhatsApp 新品话术日报迁移（待发布）
 
+发布前补充双产品话术回归：一条文本同时包含 Agent Watch 与 Signature S Agent 时，两款产品的明确发送结论均计入。7项离线测试再次通过；原PR #212全量CI及容器检查通过，后续修正单独走发布门禁。
+
 - 独立工作树：codex/dealer-whatsapp-daily，基线 3130dffd7981d104fcb31054ae26b857e4c8a783。
 - 已通过 ssh://pdca-docker-176 的既有 Docker 部署入口验证服务器连通。
 - 容器 vps-work auth status 确认为付汪阳正常工作身份；目标群已知日报历史读取成功。
