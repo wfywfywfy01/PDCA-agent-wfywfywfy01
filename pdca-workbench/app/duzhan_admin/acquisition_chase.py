@@ -89,24 +89,61 @@ def read_tasks(settings, current: datetime):
     raise ValueError("queue_limit_exceeded")
 
 
-def eligible(row, current: datetime) -> bool:
+def open_overdue(row, current: datetime) -> bool:
     return bool(row.status == "pending" and row.overdue is True
                 and row.next_due_at is not None and row.next_due_at <= current
                 and not row.stored_outreach_hold and row.outreach_hold_status != "held"
-                and not row.pending_reply and not row.reply_processing
-                and not row.pending_reply_count and not row.processing_reply_count
-                and not row.pending_replies and not row.pending_replies_truncated)
+                and not row.reply_processing and not row.processing_reply_count
+                and not row.pending_replies_truncated)
 
 
-def body_for(rows, settings, current: datetime) -> str:
-    # ponytail: eight task references per owner; the workbench retains the full list.
+def eligible(row, current: datetime) -> bool:
+    return bool(open_overdue(row, current) and not row.pending_reply
+                and not row.pending_reply_count and not row.pending_replies)
+
+
+_FIELD_LABELS = {"unsupported_stage": "进度", "stage_missing": "进度",
+                 "missing_next_action": "下一步", "next_action_too_long": "下一步",
+                 "missing_deadline": "截止时间", "invalid_deadline": "截止时间",
+                 "deadline_invalid": "截止时间", "note_too_long": "沟通结果"}
+
+
+def supplement_lines(row, target, current):
+    if not (open_overdue(row, current) and row.owner_user_id == target.owner_user_id
+            and row.pending_reply and row.pending_reply_count == len(row.pending_replies)):
+        return []
+    lines = []
+    for reply in row.pending_replies:
+        if (reply.status != "pending" or not reply.message_id
+                or reply.group_id != str(target.channel_id)
+                or reply.dispatch_message_id != str(target.dispatch_message_id)
+                or not reply.reason_codes or not all(code in _FIELD_LABELS for code in reply.reason_codes)):
+            continue
+        fields = "、".join(dict.fromkeys(_FIELD_LABELS[code] for code in reply.reason_codes))
+        lines.append(f"线索编号：{row.task_id}；补充回写：{reply.id}｜需补正：{fields}")
+    return lines
+
+
+def body_for(rows, settings, current: datetime, *, supplements=(), owner_name=None) -> str:
     lines = [f"【线索逾期跟进提醒】{current.astimezone(TZ):%m月%d日}",
-             f"{rows[0].owner_name or '负责人'}，系统记录 {len(rows)} 条线索任务超过截止时间。"]
-    for row in rows[:8]:
+             (owner_name or (rows[0].owner_name if rows else None) or "负责人") + "："]
+    # Keep eight references total, reserving room for both kinds when necessary.
+    supplement_limit = min(len(supplements), 8 - min(len(rows), 4))
+    regular_limit = 8 - supplement_limit
+    if rows:
+        lines.append(f"系统记录 {len(rows)} 条线索任务超过截止时间。")
+    for row in rows[:regular_limit]:
         action = " ".join((row.next_action or "待补充下一步").split())[:80]
         lines.append(f"线索 #{row.task_id}｜截止 {row.next_due_at.astimezone(TZ):%m-%d %H:%M}｜下一步：{action}")
-    if len(rows) > 8:
-        lines.append(f"其余 {len(rows)-8} 条请在工作台查看。")
+    if len(rows) > regular_limit:
+        lines.append(f"其余 {len(rows)-regular_limit} 条请在工作台查看。")
+    if supplements:
+        lines.append(f"已回复，待补全进展（{len(supplements)} 条消息）：")
+        lines.extend(supplements[:supplement_limit])
+        if len(supplements) > supplement_limit:
+            lines.append("其余待补消息可在工作台查看。")
+        lines.append("请引用原派单，每条单独回复。保留对应的“线索编号”和“补充回写”，"
+                     "再按实际填写“进度、沟通结果、下一步、截止时间”。")
     lines.extend(["请引用线索分发机器人的原派单回复，每条注明线索编号、实际进度、下一步和截止时间。",
                   "如已处理，请回写事实；需暂停或调整期限，请注明原因。本提醒不代表客户已通过触达核验。",
                   settings.acquisition_supervision_url + "/#followup"])
@@ -133,21 +170,25 @@ def poll_due(*, now: datetime | None = None) -> dict:
         if not 1 <= len(targets) <= 30 or len({t.owner_user_id for t in targets}) != len(targets):
             raise ValueError("invalid_targets")
         rows, blocked = read_tasks(settings, current)
-        owners = {target.owner_user_id for target in targets}
-        candidates = [row for row in rows if row.owner_user_id in owners-blocked and eligible(row, current)]
-        result["eligible_tasks"] = len(candidates)
-        if not candidates:
+        groups = []
+        for target in targets:
+            if target.owner_user_id in blocked:
+                continue
+            owned = [row for row in rows if row.owner_user_id == target.owner_user_id]
+            selected = [row for row in owned if eligible(row, current)]
+            supplements = [line for row in owned for line in supplement_lines(row, target, current)]
+            if selected or supplements:
+                groups.append((target, selected, supplements, owned[0].owner_name))
+                result["eligible_tasks"] += len(selected)
+        if not groups:
             return result
         verified = verified_recipients(targets)
         day = current.astimezone(TZ).date().isoformat()
-        for target in targets:
-            selected = [row for row in candidates if row.owner_user_id == target.owner_user_id]
-            if not selected:
-                continue
+        for target, selected, supplements, owner_name in groups:
             if target.owner_user_id not in verified:
                 result["failed"] += 1
                 continue
-            body = body_for(selected, settings, current)
+            body = body_for(selected, settings, current, supplements=supplements, owner_name=owner_name)
             job = f"gtm_chase:{target.owner_user_id}"
             if not claim_run(job, day):
                 continue
@@ -156,7 +197,7 @@ def poll_due(*, now: datetime | None = None) -> dict:
                                     parent_message_id=str(target.dispatch_message_id), idempotency_key=key)
             # An uncertain HTTP result must not repeatedly chase the same person today.
             finish_run(job, day, "sent" if ok else "uncertain",
-                       f"group={target.channel_id};tasks={len(selected)};key={key};utf8=ok")
+                       f"group={target.channel_id};tasks={len(selected)};supplements={len(supplements)};key={key};utf8=ok")
             result["sent" if ok else "failed"] += 1
         return result
     except Exception as exc:
