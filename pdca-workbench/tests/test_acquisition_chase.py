@@ -129,6 +129,14 @@ class AcquisitionChaseTests(unittest.TestCase):
         self.assertIn("补充回写：71", text)
         self.assertEqual(self.send.call_args.kwargs["parent_message_id"], DISPATCH)
 
+    def test_deadline_only_reply_keeps_the_two_references_and_asks_only_for_time(self):
+        self.add_pending_reply(reason_codes=["source_deadline_required"])
+        self.assertEqual(chase.poll_due(now=NOW)["sent"], 1)
+        body = self.send.call_args.args[0]
+        self.assertIn("线索编号：1；补充回写：71；截止时间：", body)
+        self.assertIn("只补截止时间", body)
+        self.assertNotIn("再按实际填写", body)
+
     def test_unsafe_or_incomplete_supplement_context_does_not_send(self):
         for reply, task in [
             (dict(group_id="wrong"), {}), (dict(dispatch_message_id="wrong"), {}),

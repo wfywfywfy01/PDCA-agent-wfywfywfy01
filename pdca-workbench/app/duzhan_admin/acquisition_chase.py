@@ -116,11 +116,16 @@ def supplement_lines(row, target, current):
     for reply in row.pending_replies:
         if (reply.status != "pending" or not reply.message_id
                 or reply.group_id != str(target.channel_id)
-                or reply.dispatch_message_id != str(target.dispatch_message_id)
-                or not reply.reason_codes or not all(code in _FIELD_LABELS for code in reply.reason_codes)):
+                or reply.dispatch_message_id != str(target.dispatch_message_id)):
+            continue
+        prefix = f"线索编号：{row.task_id}；补充回写：{reply.id}"
+        if reply.reason_codes == ["source_deadline_required"]:
+            lines.append(f"只补截止时间（北京时间），请引用原派单回复：\n{prefix}；截止时间：<实际日期和时间>")
+            continue
+        if not reply.reason_codes or not all(code in _FIELD_LABELS for code in reply.reason_codes):
             continue
         fields = "、".join(dict.fromkeys(_FIELD_LABELS[code] for code in reply.reason_codes))
-        lines.append(f"线索编号：{row.task_id}；补充回写：{reply.id}｜需补正：{fields}")
+        lines.append(f"{prefix}｜需补正：{fields}，完整模板见工作台。")
     return lines
 
 
@@ -142,10 +147,10 @@ def body_for(rows, settings, current: datetime, *, supplements=(), owner_name=No
         lines.extend(supplements[:supplement_limit])
         if len(supplements) > supplement_limit:
             lines.append("其余待补消息可在工作台查看。")
-        lines.append("请引用原派单，每条单独回复。保留对应的“线索编号”和“补充回写”，"
-                     "再按实际填写“进度、沟通结果、下一步、截止时间”。")
-    lines.extend(["请引用线索分发机器人的原派单回复，每条注明线索编号、实际进度、下一步和截止时间。",
-                  "如已处理，请回写事实；需暂停或调整期限，请注明原因。本提醒不代表客户已通过触达核验。",
+        lines.append("每条待补消息单独引用原派单回复，保留对应的两个编号。")
+    if rows:
+        lines.append("普通逾期线索请引用线索分发机器人的原派单，回复线索编号、实际进度、下一步和截止时间。")
+    lines.extend(["如需暂停或调整期限，请注明原因。联系客户前请核对工作台的触达限制。",
                   settings.acquisition_supervision_url + "/#followup"])
     body = "\n".join(lines)
     if "?" in body or "\ufffd" in body or body.encode("utf-8").decode("utf-8") != body:
