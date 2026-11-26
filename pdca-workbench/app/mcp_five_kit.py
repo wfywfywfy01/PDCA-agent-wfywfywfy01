@@ -27,7 +27,7 @@ from sqlmodel import Session, select
 from app.auth.deps import ensure_portal_access
 from app.auth.models import User
 from app.auth.scope import resolve_data_scope
-from app.auth.security import decode_access_token, is_token_revoked, vps_binding_matches
+from app.auth.security import WORKBENCH_FIVE_KIT_PURPOSE, decode_token, is_token_revoked, vps_binding_matches
 from app.config import get_settings
 from app.database import get_engine
 from app.models.dealer_store import DealerStore
@@ -88,8 +88,10 @@ class FiveKitTokenVerifier:
                 scopes=[_READ_SCOPE],
                 subject=f"service:{service['role']}:{service['owner_key']}",
             )
-        payload = decode_access_token(token)
-        if not payload or is_token_revoked(payload):
+        payload = decode_token(token)
+        if not payload or ("purpose" in payload and (
+            payload["purpose"] != WORKBENCH_FIVE_KIT_PURPOSE or payload.get("auth_provider") != "vps"
+        )) or is_token_revoked(payload):
             return None
         username = str(payload.get("sub") or "")
         if not username:

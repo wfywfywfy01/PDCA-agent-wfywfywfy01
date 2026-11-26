@@ -141,6 +141,9 @@ def decode_token(token: str) -> dict[str, Any] | None:
         return None
 
 
+WORKBENCH_FIVE_KIT_PURPOSE = "workbench_five_kit"
+
+
 def decode_access_token(token: str) -> dict[str, Any] | None:
     """Step-up and other purpose-specific JWTs are never login credentials."""
     payload = decode_token(token)
