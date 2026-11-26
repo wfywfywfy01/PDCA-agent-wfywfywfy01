@@ -68,6 +68,18 @@ class WorkbenchFiveKitSessionTest(unittest.TestCase):
             assert result.headers["Cache-Control"] == "no-store"
             assert "Set-Cookie" not in result.headers
             get.assert_awaited_with(f"{url}/gtm/api/me", headers={"Cookie": f"salesbot_session={cookie}"})
+            source_headers = {**headers, "X-WorkBench-Source": "workbench-data"}
+            source_route = "/api/auth/workbench-data"
+            search = {"kind": "knowledge-search", "query": "经销商"}
+            with patch("app.auth.router.read_workbench_source", new_callable=AsyncMock) as read:
+                read.return_value = {"total": 0}
+                assert client.post(source_route, headers=headers, json=search).status_code == 403
+                assert client.post(source_route, headers=source_headers, json={**search, "vps_user_id": 24}).status_code == 422
+                read.assert_not_called()
+                reply = client.post(source_route, headers=source_headers, json=search)
+                assert reply.status_code == 200
+                assert reply.headers["Cache-Control"] == "no-store"
+                assert read.await_args.args[2].vps_user_id == 23
 
         token = result.json()["access_token"]
         claims = decode_token(token)

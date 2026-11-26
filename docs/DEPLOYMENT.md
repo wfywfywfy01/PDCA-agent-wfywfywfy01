@@ -20,8 +20,18 @@ handle /gtm/api/workbench-five-kit {
     rewrite * /api/auth/workbench-five-kit
     reverse_proxy 127.0.0.1:8771
 }
+handle /gtm/api/workbench-data {
+    rewrite * /api/auth/workbench-data
+    reverse_proxy 127.0.0.1:8768
+}
 ```
 
 Preserve the other production routes, back up the Caddyfile, and validate it
 before reload. An unauthenticated POST to this route with the same-origin
 `Origin` and `X-WorkBench-Source: pdca-five-kit` headers should return HTTP 401.
+
+The `workbench-data` route validates the same session and runs read-only search,
+sales queries and meeting todo queries. The main container owns upstream
+credentials. Vemory matches the verified VPS ID in `PDCA_VEMORY_TODO_USERS`.
+AINativeSales can use `PDCA_WORKBENCH_AISALES_VPS_TOKEN`. Its existing personal
+credential is usable only when the MCP principal matches the current VPS user.

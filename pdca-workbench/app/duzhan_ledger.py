@@ -3197,10 +3197,10 @@ def _mcp_unwrap(result: dict | None) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
-def mcp_call(name: str, arguments: dict) -> dict | None:
+def mcp_call(name: str, arguments: dict, *, vps_integration_token: str = "") -> dict | None:
     """调 AINativeSales MCP tools/call。个人令牌禁止传 vps_user_id。"""
     settings = get_settings()
-    token = settings.aisales_mcp_token
+    token = vps_integration_token or settings.aisales_mcp_token
     url = settings.aisales_mcp_url
     if not token or not url:
         logger.warning("AINativeSales MCP 未配置 token/url，本次取数按待确认处理: {}", name)
