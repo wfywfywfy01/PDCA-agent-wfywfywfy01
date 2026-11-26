@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
-from app.auth.security import decode_token, hash_password, verify_password
+from app.auth.security import create_access_token, decode_token, hash_password, verify_password
 from app.database import get_session
 from app.main import app
 from app.models.daily_report import DailyReport
@@ -330,6 +330,41 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         with patch("app.knowledge.router.verify_vps_password", new=AsyncMock(return_value=(14111, expiry)), create=True):
             denied = self.client.post("/api/knowledge/reauth", json={"password": "different-vps-password"})
         self.assertEqual(denied.status_code, 401)
+
+    def test_password_change_preserves_vps_provider_and_absolute_expiry(self):
+        self._bind_vps("sales", 14110)
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=45)
+        self.assertEqual(self._vps_login(expires_at=expiry.isoformat()).status_code, 200)
+        self.settings.auth_mode = "vps"
+        response = self.client.post("/api/auth/change-password", json={
+            "old_password": "Correct-password-123", "new_password": "Changed-password-456",
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        claims = decode_token(response.json()["access_token"])
+        self.assertLessEqual(claims["exp"], int(expiry.timestamp()))
+        self.assertEqual(claims["auth_provider"], "vps")
+
+    def test_vps_stepup_keeps_verified_absolute_deadline_despite_issuance_delay(self):
+        self._bind_vps("admin", 14110)
+        self.assertEqual(self._vps_login().status_code, 200)
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=45)
+
+        class DelayedDateTime(datetime):
+            @classmethod
+            def utcnow(cls):
+                return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=60)
+
+        def delayed_sign(claims, lifetime):
+            with patch("app.auth.security.datetime", DelayedDateTime):
+                return create_access_token(claims, lifetime)
+
+        with patch("app.knowledge.router.verify_vps_password", new=AsyncMock(return_value=(14110, expiry))), patch(
+            "app.knowledge.router.create_access_token", side_effect=delayed_sign,
+        ):
+            response = self.client.post("/api/knowledge/reauth", json={"password": "synthetic-vps-only-password"})
+        self.assertEqual(response.status_code, 200, response.text)
+        claims = decode_token(response.cookies["pdca_knowledge_reauth"])
+        self.assertLessEqual(claims["exp"], int(expiry.timestamp()))
 
     def test_vps_dealer_is_limited_to_bound_store_and_cannot_enter_workbench(self):
         self._bind_vps("dealer", 14110)

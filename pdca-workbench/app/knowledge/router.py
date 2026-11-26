@@ -5,7 +5,7 @@ import asyncio
 import hashlib
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -178,6 +178,7 @@ async def reauthenticate_original_export(
     _check_rate_limit(key)
     login_claims = decode_access_token(request_access_token(request) or "") or {}
     max_age = _REAUTH_SECONDS
+    vps_deadline = None
     if login_claims.get("auth_provider") == "vps":
         try:
             verified_id, expiry = await verify_vps_password(login_claims["vps_login"], body.password)
@@ -186,23 +187,23 @@ async def reauthenticate_original_export(
                 _record_fail(key)
             raise
         verified = verified_id == user.vps_user_id == login_claims.get("vps_user_id")
-        max_age = min(max_age, int(login_claims["vps_expires_at"] - time.time()),
-                      int((expiry - datetime.now(timezone.utc)).total_seconds()))
+        vps_deadline = min(login_claims["vps_expires_at"], int(expiry.timestamp()))
+        max_age = min(max_age, int(vps_deadline - time.time()))
     else:
         verified = verify_password(body.password, user.hashed_password)
     if not verified or max_age <= 0:
         _record_fail(key)
         raise HTTPException(status_code=401, detail="密码验证失败")
     _clear_fail(key)
-    token = create_access_token(
-        {
-            "sub": user.username,
-            "purpose": _REAUTH_PURPOSE,
-            "login_jti": login_jti,
-            "pwd_v": getattr(user, "pwd_version", 0) or 0,
-        },
-        timedelta(seconds=max_age),
-    )
+    claims = {
+        "sub": user.username,
+        "purpose": _REAUTH_PURPOSE,
+        "login_jti": login_jti,
+        "pwd_v": getattr(user, "pwd_version", 0) or 0,
+    }
+    if vps_deadline is not None:
+        claims["vps_expires_at"] = vps_deadline
+    token = create_access_token(claims, timedelta(seconds=max_age))
     settings = get_settings()
     response.set_cookie(
         key=_REAUTH_COOKIE,
