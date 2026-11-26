@@ -36,6 +36,7 @@ from app.auth.vps_password import verify_vps_password
 from app.audit import log_action
 from app.config import get_settings
 from app.database import get_session
+from app.workbench_sources import WorkbenchSourceQuery, read_workbench_source
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _SSO_STATE_COOKIE = "pdca_sso_state"
@@ -541,15 +542,9 @@ async def login(
     }
 
 
-@router.post("/workbench-five-kit")
-async def workbench_five_kit(
-    request: Request,
-    response: Response,
-    session: Annotated[Session, Depends(get_session)],
-):
-    """Exchange the current same-origin WorkBench session for a five-kit-only grant."""
+async def _verified_workbench_user(request: Request, session: Session, source: str) -> User:
     if (request.headers.get("Origin") != _WORKBENCH_ORIGIN
-            or request.headers.get("X-WorkBench-Source") != "pdca-five-kit"):
+            or request.headers.get("X-WorkBench-Source") != source):
         raise HTTPException(status_code=403, detail="请从 VERTU 工作台发起连接")
     cookie = request.cookies.get("salesbot_session", "")
     if not re.fullmatch(r"[A-Za-z0-9_-]{43}", cookie):
@@ -574,12 +569,36 @@ async def workbench_five_kit(
     if not bound or not bound.is_active or bound.must_change_password:
         raise HTTPException(status_code=403, detail="当前 VPS 账号没有可用的 PDCA 绑定")
     ensure_portal_access(bound)
+    return bound
+
+
+@router.post("/workbench-five-kit")
+async def workbench_five_kit(
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+):
+    """Exchange the current same-origin WorkBench session for a five-kit-only grant."""
+    bound = await _verified_workbench_user(request, session, "pdca-five-kit")
     access_token = create_access_token({
         "sub": bound.username, "pwd_v": bound.pwd_version or 0, "auth_provider": "vps",
         "vps_user_id": bound.vps_user_id, "purpose": WORKBENCH_FIVE_KIT_PURPOSE,
     }, timedelta(minutes=5))
     response.headers["Cache-Control"] = "no-store"
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/workbench-data")
+async def workbench_data(
+    body: WorkbenchSourceQuery,
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+):
+    bound = await _verified_workbench_user(request, session, "workbench-data")
+    result = await read_workbench_source(body, request, bound, session)
+    response.headers["Cache-Control"] = "no-store"
+    return result
 
 
 @router.post("/logout")
