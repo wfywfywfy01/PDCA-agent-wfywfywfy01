@@ -122,6 +122,9 @@ def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = 
         expires_delta
         or timedelta(minutes=settings.access_token_expire_minutes)
     )
+    vps_deadline = payload.get("vps_expires_at")
+    if type(vps_deadline) is int:
+        expire = min(expire, datetime.utcfromtimestamp(vps_deadline))
     now = datetime.utcnow()
     payload["iat"] = now
     payload["exp"] = expire

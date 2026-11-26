@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import sys
 from contextlib import ExitStack
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
-from app.auth.security import hash_password, verify_password
+from app.auth.security import decode_token, hash_password, verify_password
 from app.database import get_session
 from app.main import app
 from app.models.daily_report import DailyReport
@@ -200,7 +201,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             session.add(target)
             session.commit()
 
-    def _vps_login(self, *, vps_id=14110, active=True, upstream_status=200):
+    def _vps_login(self, *, vps_id=14110, active=True, upstream_status=200, expires_at="2099-01-01T00:00:00Z"):
         upstream_secret = "synthetic-vps-only-password"
 
         def handle(request):
@@ -210,7 +211,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
                 "ok": upstream_status == 200,
                 "user": {"userId": vps_id, "login": "admin", "employeeName": "Example", "active": active},
                 "token": "upstream-session-fixture", "refresh_token": "upstream-refresh-fixture",
-                "expires_at": "2099-01-01T00:00:00Z",
+                "expires_at": expires_at,
             })
 
         client = httpx.AsyncClient
@@ -229,6 +230,23 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         self.assertNotIn("upstream-session-fixture", response.text)
         self.assertNotIn("upstream-refresh-fixture", response.text)
         self.assertEqual([row["store_id"] for row in self.client.get("/api/my-stores").json()], ["store-a"])
+
+    def test_vps_session_reissuance_cannot_extend_initial_expiry(self):
+        self.settings.auth_mode = "hybrid"
+        self._bind_vps("sales", 14110)
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=120)
+        login = self._vps_login(expires_at=expiry.isoformat())
+        self.assertEqual(login.status_code, 200)
+        original = decode_token(login.json()["access_token"])
+        self.assertLessEqual(original["exp"], int(expiry.timestamp()))
+        renewed = self.client.post("/api/auth/vps-bootstrap")
+        self.assertEqual(renewed.status_code, 200, renewed.text)
+        self.assertLessEqual(decode_token(renewed.json()["access_token"])["exp"], original["exp"])
+        changed = self.client.post("/api/auth/change-password", json={
+            "old_password": "Correct-password-123", "new_password": "Different-local-pass-456",
+        })
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertLessEqual(decode_token(changed.json()["access_token"])["exp"], original["exp"])
 
     def test_vps_dealer_is_limited_to_bound_store_and_cannot_enter_workbench(self):
         self._bind_vps("dealer", 14110)

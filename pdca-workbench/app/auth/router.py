@@ -20,7 +20,7 @@ from app.auth.odoo_sso import identity_from_odoo_session, parse_odoo_ticket, res
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
 from app.auth.security import (
-    KNOWLEDGE_REAUTH_COOKIE, create_access_token, hash_password,
+    KNOWLEDGE_REAUTH_COOKIE, create_access_token, decode_access_token, hash_password,
     request_access_token, revoke_token, verify_password,
 )
 from app.auth.vps_identity import (
@@ -322,6 +322,21 @@ def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False, ma
     )
 
 
+def _session_reissue(request: Request, user: User) -> tuple[dict, int]:
+    max_age = get_settings().access_token_expire_minutes * 60
+    previous = decode_access_token(request_access_token(request) or "") or {}
+    if previous.get("auth_provider") != "vps":
+        return {}, max_age
+    deadline = previous.get("exp")
+    if (type(deadline) is not int or previous.get("sub") != user.username
+            or previous.get("vps_user_id") != user.vps_user_id):
+        raise HTTPException(status_code=401, detail="VPS 登录身份已变更，请重新登录")
+    max_age = min(max_age, int(deadline - time.time()))
+    if max_age <= 0:
+        raise HTTPException(status_code=401, detail="VPS 登录已到期，请重新登录")
+    return {"auth_provider": "vps", "vps_user_id": user.vps_user_id, "vps_expires_at": deadline}, max_age
+
+
 async def finish_odoo_sso_login(
     request: Request,
     session: Session,
@@ -407,6 +422,7 @@ async def odoo_sso(
 
 @router.post("/vps-bootstrap")
 async def vps_bootstrap(
+    request: Request,
     response: Response,
     user: Annotated[User, Depends(get_current_user)],
 ):
@@ -417,18 +433,12 @@ async def vps_bootstrap(
     if settings.auth_mode not in ("vps", "hybrid"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前非 VPS 认证模式")
     pwd_v = getattr(user, "pwd_version", 0) or 0
+    claims, max_age = _session_reissue(request, user)
     token = create_access_token(
-        {"sub": user.username, "role": user.role, "pwd_v": pwd_v},
-        timedelta(minutes=settings.access_token_expire_minutes),
+        {"sub": user.username, "role": user.role, "pwd_v": pwd_v, **claims},
+        timedelta(seconds=max_age),
     )
-    response.set_cookie(
-        key="pdca_token",
-        value=token,
-        httponly=True,
-        secure=settings.secure_cookies,
-        samesite="lax",
-        max_age=settings.access_token_expire_minutes * 60,
-    )
+    _set_pdca_cookie(response, token, max_age=max_age)
     return {
         "ok": True,
         "access_token": token,
@@ -493,8 +503,11 @@ async def login(
     ensure_portal_access(user)
     log_action(user.username, "login", ip=_client_ip(request), detail={"provider": "vps"} if body.provider == "vps" else "")
     pwd_v = getattr(user, "pwd_version", 0) or 0
+    claims = {"sub": user.username, "role": user.role, "pwd_v": pwd_v}
+    if body.provider == "vps":
+        claims.update(auth_provider="vps", vps_user_id=vps_user_id, vps_expires_at=int(expiry.timestamp()))
     token = create_access_token(
-        {"sub": user.username, "role": user.role, "pwd_v": pwd_v},
+        claims,
         timedelta(seconds=max_age),
     )
     _set_pdca_cookie(response, token, max_age=max_age)
@@ -572,6 +585,7 @@ async def change_password(
     if body.old_password == body.new_password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能与原密码相同")
 
+    claims, max_age = _session_reissue(request, user)
     user.hashed_password = hash_password(body.new_password)
     user.pwd_version = (getattr(user, "pwd_version", 0) or 0) + 1
     user.must_change_password = False
@@ -579,18 +593,10 @@ async def change_password(
     session.commit()
     session.refresh(user)
 
-    settings = get_settings()
     new_token = create_access_token(
-        {"sub": user.username, "role": user.role, "pwd_v": user.pwd_version},
-        timedelta(minutes=settings.access_token_expire_minutes),
+        {"sub": user.username, "role": user.role, "pwd_v": user.pwd_version, **claims},
+        timedelta(seconds=max_age),
     )
-    response.set_cookie(
-        key="pdca_token",
-        value=new_token,
-        httponly=True,
-        secure=settings.secure_cookies,
-        samesite="lax",
-        max_age=settings.access_token_expire_minutes * 60,
-    )
+    _set_pdca_cookie(response, new_token, max_age=max_age)
     log_action(user.username, "change_password", ip=_client_ip(request))
     return {"ok": True, "message": "密码已修改", "access_token": new_token}
