@@ -241,7 +241,7 @@
 
       _authMode = cfg.auth_mode || 'local';
       var provider = document.getElementById('provider');
-      if (_authMode === 'local') {
+      if (_authMode === 'local' && cfg.portal_mode !== 'walkin') {
         provider.querySelector('option[value="vps"]').remove();
       }
       if (_authMode === 'vps') {

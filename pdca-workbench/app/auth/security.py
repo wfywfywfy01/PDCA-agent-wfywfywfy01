@@ -2,7 +2,7 @@
 """密码哈希与 JWT 工具。"""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 import secrets
@@ -122,9 +122,9 @@ def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = 
         expires_delta
         or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    if "vps_expires_at" in payload:
-        deadline = datetime.fromtimestamp(payload["vps_expires_at"], timezone.utc).replace(tzinfo=None)
-        expire = min(expire, deadline)
+    vps_deadline = payload.get("vps_expires_at")
+    if type(vps_deadline) is int:
+        expire = min(expire, datetime.utcfromtimestamp(vps_deadline))
     now = datetime.utcnow()
     payload["iat"] = now
     payload["exp"] = expire
@@ -145,6 +145,13 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
     """Step-up and other purpose-specific JWTs are never login credentials."""
     payload = decode_token(token)
     return payload if payload and "purpose" not in payload else None
+
+
+def vps_binding_matches(payload: dict, user_id: int | None) -> bool:
+    """Require the verified VPS identity to remain linked to this account."""
+    return payload.get("auth_provider") != "vps" or (
+        user_id is not None and payload.get("vps_user_id") == user_id
+    )
 
 
 def revoke_token(token: str) -> bool:

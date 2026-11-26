@@ -176,18 +176,22 @@ async def reauthenticate_original_export(
     login_jti = _login_jti(request, user)
     key = _rate_limit_key(request, user.username)
     _check_rate_limit(key)
-    login_claims = decode_access_token(request_access_token(request) or "") or {}
+    login_claims = getattr(request.state, "verified_access_claims", {})
     max_age = _REAUTH_SECONDS
     vps_deadline = None
     if login_claims.get("auth_provider") == "vps":
+        deadline = login_claims.get("exp")
+        vps_login = login_claims.get("vps_login")
+        if type(deadline) is not int or deadline <= time.time() or not isinstance(vps_login, str) or not vps_login:
+            raise HTTPException(status_code=401, detail="VPS 登录已失效，请重新登录")
         try:
-            verified_id, expiry = await verify_vps_password(login_claims["vps_login"], body.password)
+            verified_id, expiry = await verify_vps_password(vps_login, body.password)
         except HTTPException as exc:
             if exc.status_code == 401:
                 _record_fail(key)
             raise
         verified = verified_id == user.vps_user_id == login_claims.get("vps_user_id")
-        vps_deadline = min(login_claims["vps_expires_at"], int(expiry.timestamp()))
+        vps_deadline = min(deadline, int(expiry.timestamp()))
         max_age = min(max_age, int(vps_deadline - time.time()))
     else:
         verified = verify_password(body.password, user.hashed_password)

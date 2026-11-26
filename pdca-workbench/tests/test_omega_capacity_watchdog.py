@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
+from starlette.datastructures import State
 
 from app.auth.models import User
 from app.omega.models import OmegaJob, OmegaSegment, OmegaSession
@@ -240,7 +241,7 @@ class RealtimeCapacityTests(unittest.TestCase):
 
         class Browser:
             def __init__(self):
-                self.cookies = {}
+                self.state = State()
                 self.incoming = asyncio.Queue()
                 self.events = []
 
@@ -395,7 +396,7 @@ class RealtimeCapacityTests(unittest.TestCase):
 
         class Browser:
             def __init__(self):
-                self.cookies = {}
+                self.state = State()
                 self.incoming = asyncio.Queue()
                 self.events = []
                 self.closed = False

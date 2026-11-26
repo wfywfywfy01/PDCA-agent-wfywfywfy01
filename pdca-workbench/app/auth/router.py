@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import secrets
 import time
 from collections import defaultdict
@@ -20,7 +21,7 @@ from app.auth.odoo_sso import identity_from_odoo_session, parse_odoo_ticket, res
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
 from app.auth.security import (
-    KNOWLEDGE_REAUTH_COOKIE, create_access_token, decode_access_token, hash_password,
+    KNOWLEDGE_REAUTH_COOKIE, create_access_token, hash_password,
     request_access_token, revoke_token, verify_password,
 )
 from app.auth.vps_identity import (
@@ -322,16 +323,22 @@ def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False, ma
     )
 
 
-def _preserved_vps_claims(request: Request, user: User) -> dict:
-    previous = decode_access_token(request_access_token(request) or "") or {}
+def _session_reissue(request: Request, user: User) -> tuple[dict, int]:
+    max_age = get_settings().access_token_expire_minutes * 60
+    previous = getattr(request.state, "verified_access_claims", {})
     if previous.get("auth_provider") != "vps":
-        return {}
-    deadline = previous.get("vps_expires_at")
-    if (type(deadline) is not int or deadline <= time.time()
+        return {}, max_age
+    deadline = previous.get("exp")
+    vps_login = previous.get("vps_login")
+    if (type(deadline) is not int or previous.get("sub") != user.username
             or previous.get("vps_user_id") != user.vps_user_id
-            or not isinstance(previous.get("vps_login"), str) or not previous["vps_login"]):
-        raise HTTPException(status_code=401, detail="VPS 登录已失效，请重新登录")
-    return {name: previous[name] for name in ("auth_provider", "vps_user_id", "vps_login", "vps_expires_at")}
+            or not isinstance(vps_login, str) or not vps_login):
+        raise HTTPException(status_code=401, detail="VPS 登录身份已变更，请重新登录")
+    max_age = min(max_age, int(deadline - time.time()))
+    if max_age <= 0:
+        raise HTTPException(status_code=401, detail="VPS 登录已到期，请重新登录")
+    return {"auth_provider": "vps", "vps_user_id": user.vps_user_id,
+            "vps_login": vps_login, "vps_expires_at": deadline}, max_age
 
 
 async def finish_odoo_sso_login(
@@ -430,25 +437,12 @@ async def vps_bootstrap(
     if settings.auth_mode not in ("vps", "hybrid"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前非 VPS 认证模式")
     pwd_v = getattr(user, "pwd_version", 0) or 0
-    claims = {"sub": user.username, "role": user.role, "pwd_v": pwd_v}
-    max_age = settings.access_token_expire_minutes * 60
-    vps_claims = _preserved_vps_claims(request, user)
-    if vps_claims:
-        max_age = min(max_age, int(vps_claims["vps_expires_at"] - time.time()))
-        if max_age <= 0:
-            raise HTTPException(status_code=401, detail="VPS 登录已到期，请重新登录")
-        claims.update(vps_claims)
+    claims, max_age = _session_reissue(request, user)
     token = create_access_token(
-        claims, timedelta(seconds=max_age),
+        {"sub": user.username, "role": user.role, "pwd_v": pwd_v, **claims},
+        timedelta(seconds=max_age),
     )
-    response.set_cookie(
-        key="pdca_token",
-        value=token,
-        httponly=True,
-        secure=settings.secure_cookies,
-        samesite="lax",
-        max_age=max_age,
-    )
+    _set_pdca_cookie(response, token, max_age=max_age)
     return {
         "ok": True,
         "access_token": token,
@@ -474,7 +468,7 @@ async def login(
 ):
     """登录并设置 httpOnly Cookie。"""
     settings = get_settings()
-    if body.provider == "vps" and settings.auth_mode not in ("vps", "hybrid"):
+    if body.provider == "vps" and settings.auth_mode == "local" and settings.portal_mode != "walkin":
         raise HTTPException(status_code=403, detail="当前未启用 VPS 账号登录")
     if settings.auth_mode == "vps" and body.provider == "local":
         raise HTTPException(
@@ -485,6 +479,8 @@ async def login(
     if body.provider == "vps" and (not username or len(username) > 256 or not body.password or len(body.password) > 1024):
         raise HTTPException(status_code=422, detail="请输入有效的 VPS 账号和密码")
     key = _rate_limit_key(request, username.casefold() if body.provider == "vps" else username)
+    if body.provider == "vps":
+        key = "vps:" + hashlib.sha256(key.encode("utf-8")).hexdigest()
     _check_rate_limit(key)
 
     max_age = settings.access_token_expire_minutes * 60
@@ -495,11 +491,11 @@ async def login(
             if exc.status_code == 401:
                 _record_fail(key)
             raise
-        user = session.exec(
-            select(User).where(User.vps_user_id == vps_user_id).with_for_update()
-        ).one_or_none()
+        user = session.exec(select(User).where(User.vps_user_id == vps_user_id)).one_or_none()
         if user is None:
             raise HTTPException(status_code=403, detail="VPS 账号尚未绑定，请联系管理员")
+        if user.must_change_password:
+            raise HTTPException(status_code=403, detail="请先用本地账号完成首次改密，再使用 VPS 登录")
         max_age = min(max_age, int((expiry - datetime.now(timezone.utc)).total_seconds()))
         if max_age <= 0:
             raise HTTPException(status_code=503, detail="VPS 会话已到期，请重新登录")
@@ -513,16 +509,8 @@ async def login(
 
     _clear_fail(key)
     ensure_portal_access(user)
-    pwd_v = getattr(user, "pwd_version", 0) or 0
-    if body.provider == "vps" and user.must_change_password:
-        # Verified VPS identity replaces the initial local password, never activates it.
-        user.hashed_password = hash_password(secrets.token_urlsafe(32))
-        user.must_change_password = False
-        user.pwd_version = (user.pwd_version or 0) + 1
-        pwd_v = user.pwd_version
-        session.add(user)
-        session.commit()
     log_action(user.username, "login", ip=_client_ip(request), detail={"provider": "vps"} if body.provider == "vps" else "")
+    pwd_v = getattr(user, "pwd_version", 0) or 0
     claims = {"sub": user.username, "role": user.role, "pwd_v": pwd_v}
     if body.provider == "vps":
         claims.update(auth_provider="vps", vps_user_id=vps_user_id,
@@ -606,21 +594,16 @@ async def change_password(
     if body.old_password == body.new_password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="新密码不能与原密码相同")
 
-    vps_claims = _preserved_vps_claims(request, user)
+    claims, max_age = _session_reissue(request, user)
     user.hashed_password = hash_password(body.new_password)
-    pwd_v = (getattr(user, "pwd_version", 0) or 0) + 1
-    user.pwd_version = pwd_v
+    user.pwd_version = (getattr(user, "pwd_version", 0) or 0) + 1
     user.must_change_password = False
     session.add(user)
     session.commit()
     session.refresh(user)
 
-    settings = get_settings()
-    max_age = settings.access_token_expire_minutes * 60
-    if vps_claims:
-        max_age = min(max_age, max(0, int(vps_claims["vps_expires_at"] - time.time())))
     new_token = create_access_token(
-        {"sub": user.username, "role": user.role, "pwd_v": pwd_v, **vps_claims},
+        {"sub": user.username, "role": user.role, "pwd_v": user.pwd_version, **claims},
         timedelta(seconds=max_age),
     )
     _set_pdca_cookie(response, new_token, max_age=max_age)

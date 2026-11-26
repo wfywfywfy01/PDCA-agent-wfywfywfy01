@@ -315,8 +315,11 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     from fastapi.encoders import jsonable_encoder
+    errors = exc.errors()
+    if request.url.path in ("/api/auth/login", "/api/knowledge/reauth"):
+        errors = [{key: error[key] for key in ("loc", "msg", "type")} for error in errors]
     return JSONResponse({"detail": "请求参数有误",
-                         "errors": jsonable_encoder(exc.errors(), custom_encoder={ValueError: str})},
+                         "errors": jsonable_encoder(errors, custom_encoder={ValueError: str})},
                         status_code=422)
 
 

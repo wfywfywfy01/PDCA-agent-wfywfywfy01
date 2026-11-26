@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from sqlmodel import Session, select
+from starlette.datastructures import State
 
 import tests.test_omega_coaching as coaching_fixture
 from app.auth.models import User
@@ -14,7 +15,7 @@ from app.omega.realtime import VoiceControl, _receive_doubao_audio, _release, re
 
 class Browser:
     def __init__(self):
-        self.cookies = {}
+        self.state = State()
         self.events, self.audio = [], []
         self.started, self.saved = asyncio.Event(), asyncio.Event()
 

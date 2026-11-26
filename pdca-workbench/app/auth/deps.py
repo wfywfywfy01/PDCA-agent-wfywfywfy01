@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from app.auth.models import ROLE_LEVELS, User
-from app.auth.security import decode_access_token, is_token_revoked
+from app.auth.security import decode_access_token, is_token_revoked, vps_binding_matches
 from app.auth.vps_identity import (
     ensure_vps_user,
     fetch_vps_me_payload,
@@ -29,6 +29,7 @@ def _role_level(role: str) -> int:
 async def _user_from_jwt(
     session: Session,
     token: str | None,
+    request: Request,
 ) -> User | None:
     if not token:
         return None
@@ -41,8 +42,9 @@ async def _user_from_jwt(
         return None
     token_pwd_v = payload.get("pwd_v", 0)
     user_pwd_v = getattr(user, "pwd_version", 0) or 0
-    if token_pwd_v != user_pwd_v:
+    if token_pwd_v != user_pwd_v or not vps_binding_matches(payload, user.vps_user_id):
         return None
+    request.state.verified_access_claims = payload
     return user
 
 
@@ -154,7 +156,7 @@ async def get_current_user(
 
     # 2) JWT
     if mode in ("hybrid", "local", "vps"):
-        user = await _user_from_jwt(session, token)
+        user = await _user_from_jwt(session, token, request)
         if user:
             _check_must_change_password(user, request)
             ensure_portal_access(user)

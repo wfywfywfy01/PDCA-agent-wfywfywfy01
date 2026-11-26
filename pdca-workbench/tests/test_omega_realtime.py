@@ -18,7 +18,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
 from app.auth.deps import get_current_user
-from app.auth.security import create_access_token, hash_password
+from app.auth.security import create_access_token, decode_access_token, hash_password
 from app.config import get_settings
 from app.database import get_session
 from app.main import app
@@ -93,7 +93,7 @@ class RealtimeSessionTests(unittest.TestCase):
     def test_logout_revokes_connected_realtime_lease_on_next_renewal(self):
         login_token = create_access_token({"sub": self.user.username, "pwd_v": 0})
         job_id, lease_token, _ = _acquire(
-            self.engine, self.user, self.session_id, auth_token=login_token)
+            self.engine, self.user, self.session_id, decode_access_token(login_token))
         _renew(self.engine, self.session_id, job_id, lease_token)
         with Session(self.engine) as db:
             self.assertNotIn(login_token, db.get(OmegaJob, job_id).payload_json)
@@ -112,7 +112,7 @@ class RealtimeSessionTests(unittest.TestCase):
             db.commit()
         login_token = create_access_token({"sub": self.user.username, "pwd_v": 0})
         job_id, lease_token, _ = _acquire(
-            self.engine, self.user, self.session_id, auth_token=login_token)
+            self.engine, self.user, self.session_id, decode_access_token(login_token))
         _renew(self.engine, self.session_id, job_id, lease_token)
 
         self.client.cookies.set("pdca_token", login_token)
@@ -131,8 +131,9 @@ class RealtimeSessionTests(unittest.TestCase):
                         is_active=True, must_change_password=False))
             db.commit()
         login_token = create_access_token({"sub": manager.username, "pwd_v": 0})
+        claims = decode_access_token(login_token)
         with self.assertRaises(HTTPException) as rejected:
-            _acquire(self.engine, manager, self.session_id, auth_token=login_token)
+            _acquire(self.engine, manager, self.session_id, claims)
         self.assertEqual(rejected.exception.status_code, 403)
         with Session(self.engine) as db:
             source = db.get(OmegaSession, self.session_id)
@@ -141,7 +142,7 @@ class RealtimeSessionTests(unittest.TestCase):
             db.add(own)
             db.commit()
             own_id = own.id
-        own_job, own_token, _ = _acquire(self.engine, manager, own_id, auth_token=login_token)
+        own_job, own_token, _ = _acquire(self.engine, manager, own_id, claims)
         _release(self.engine, own_job, own_token, failed=False)
         job_id, lease_token, _ = _acquire(self.engine, self.user, self.session_id)
         _renew(self.engine, self.session_id, job_id, lease_token)
@@ -317,7 +318,16 @@ class RealtimeSessionTests(unittest.TestCase):
                 headers={"Origin": "http://testserver"},
             ) as socket:
                 self.assertEqual(socket.receive_json()["message"], "login changed")
-        self.assertEqual(acquire.call_args.args[3], login_token)
+        self.assertEqual(acquire.call_args.args[3], decode_access_token(login_token))
+
+    def test_expired_verified_login_cannot_start_realtime_lease(self):
+        claims = decode_access_token(create_access_token({"sub": self.user.username}))
+        claims["exp"] = int(time.time()) - 1
+        with self.assertRaises(HTTPException) as rejected:
+            _acquire(self.engine, self.user, self.session_id, claims)
+        self.assertEqual(rejected.exception.status_code, 401)
+        with Session(self.engine) as db:
+            self.assertEqual(db.exec(select(OmegaJob)).all(), [])
 
     def test_mock_provider_streams_audio_and_persists_final_words(self):
         class Provider:
