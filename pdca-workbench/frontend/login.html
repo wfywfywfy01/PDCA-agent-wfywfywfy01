@@ -16,7 +16,7 @@
     h1{margin:0;font-size:20px;color:#e2e8f0;font-weight:700}
     .sub{color:#475569;font-size:13px;margin:2px 0 0}
     label{display:block;font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:6px}
-    input[type=text],input[type=password]{
+    input[type=text],input[type=password],select{
       width:100%;padding:10px 12px;border:1.5px solid rgba(255,255,255,.1);
       border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:16px;outline:none;
       transition:border-color .2s;font-family:inherit;
@@ -68,7 +68,12 @@
     </div>
     <div class="msg-box" id="msgBox"></div>
     <div id="vpsBox" class="vps-box"></div>
-    <form id="loginForm">
+    <form id="loginForm" method="post">
+      <label for="provider">登录方式</label>
+      <select id="provider" name="provider">
+        <option value="local">工作台账号</option>
+        <option value="vps">VPS 账号</option>
+      </select>
       <label for="username">用户名</label>
       <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入用户名" required />
       <label for="password">密码</label>
@@ -137,7 +142,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ username: username, password: password })
+          body: JSON.stringify({ username: username, password: password, provider: document.getElementById('provider').value })
         });
         var data = {};
         try { data = await res.json(); } catch (_) {}
@@ -235,6 +240,11 @@
       } catch (_) { return; }
 
       _authMode = cfg.auth_mode || 'local';
+      if (_authMode === 'vps') {
+        var provider = document.getElementById('provider');
+        provider.value = 'vps';
+        provider.options[0].disabled = true;
+      }
       if (_authMode !== 'vps' && _authMode !== 'hybrid') return;
 
       var sub = document.getElementById('subText');
@@ -284,13 +294,12 @@
 
       // vps 模式
       if (sub) sub.textContent = '正在验证 VPS 登录…';
-      if (form) form.style.display = 'none';
       if (check && check.ok) {
         sessionStorage.setItem('pdca_login_loop_ts', String(Date.now()));
         await enterWorkbench();
         return;
       }
-      msgBox.textContent = '未检测到 VPS 登录，请先在 VPS / Odoo 完成登录后再打开本页';
+      msgBox.textContent = '请使用下方表单输入你的 VPS 账号和密码';
       msgBox.className = 'msg-box warn';
       if (hint && cfg.vps_login_url) {
         var loginUrl = safeHttpUrl(cfg.vps_login_url);
@@ -304,10 +313,6 @@
           hint.appendChild(externalLink);
           hint.appendChild(document.createTextNode(' · '));
         }
-        var manualLink = document.createElement('a');
-        manualLink.href = '/login?manual=1';
-        manualLink.textContent = '强制显示本地表单';
-        hint.appendChild(manualLink);
       }
     })();
   </script>

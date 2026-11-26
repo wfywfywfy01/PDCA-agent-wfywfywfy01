@@ -13,12 +13,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.audit import log_action
 from app.auth.deps import require_role
 from app.auth.models import ROLE_LEVELS, User
 from app.auth.security import request_access_token
+from app.auth.vps_password import MAX_VPS_USER_ID
 from app.config import get_settings
 from app.database import check_db_connection, get_db_mode, get_session
 from app.legacy import bridge
@@ -221,6 +223,7 @@ class UserUpdateBody(BaseModel):
     team_key: str | None = None
     data_scope: str | None = None
     knowledge_read_all: bool | None = None
+    vps_user_id: int | None = Field(default=None, strict=True, ge=1, le=MAX_VPS_USER_ID)
 
 
 class ResetPasswordBody(BaseModel):
@@ -271,6 +274,7 @@ async def list_users(
         {
             "id": u.id,
             "username": u.username,
+            "vps_user_id": u.vps_user_id,
             "role": u.role,
             "display_name": u.display_name,
             "sales_name": u.sales_name,
@@ -407,7 +411,11 @@ async def update_user(
     current_user: Annotated[User, Depends(require_role("admin"))],
     session: Annotated[Session, Depends(get_session)],
 ):
-    target = session.exec(select(User).where(User.username == username)).first()
+    query = select(User).where(User.username == username)
+    if "vps_user_id" in body.model_fields_set:
+        # Serialize changes to the same binding and its session version on PostgreSQL.
+        query = query.with_for_update().execution_options(populate_existing=True)
+    target = session.exec(query).first()
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
     if target.username == current_user.username:
@@ -473,13 +481,29 @@ async def update_user(
         target.data_scope = value
     if body.knowledge_read_all is not None:
         target.knowledge_read_all = body.knowledge_read_all
+    binding_changed = "vps_user_id" in body.model_fields_set and target.vps_user_id != body.vps_user_id
+    if binding_changed:
+        if body.vps_user_id is not None and session.exec(
+            select(User.id).where(User.vps_user_id == body.vps_user_id, User.id != target.id)
+        ).first() is not None:
+            raise HTTPException(status_code=409, detail="此 VPS 用户 ID 已绑定其他账号")
+        target.vps_user_id = body.vps_user_id
+        target.pwd_version = (target.pwd_version or 0) + 1
     session.add(target)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if binding_changed and body.vps_user_id is not None and session.exec(
+            select(User.id).where(User.vps_user_id == body.vps_user_id, User.id != target.id)
+        ).first() is not None:
+            raise HTTPException(status_code=409, detail="此 VPS 用户 ID 已绑定其他账号") from None
+        raise
     if target.role == "sales":
         from app.auth.scope import sync_user_dealer_assignments
         sync_user_dealer_assignments(target, session)
         session.commit()
-    log_action(current_user.username, "update_user", resource=username, detail=body.model_dump(exclude_none=True))
+    log_action(current_user.username, "update_user", resource=username, detail=body.model_dump(exclude_unset=True))
     return {"ok": True}
 
 

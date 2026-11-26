@@ -14,6 +14,7 @@ const router = useRouter()
 const config = ref<AuthConfig | null>(null)
 const username = ref('')
 const password = ref('')
+const provider = ref<'local' | 'vps'>('local')
 const busy = ref(false)
 const error = ref('')
 const mustChange = ref(false)
@@ -27,6 +28,7 @@ const nextPath = requestedNext.startsWith('/') && !requestedNext.startsWith('//'
 onMounted(async () => {
   try {
     config.value = await apiGet<AuthConfig>('/api/auth/config')
+    if (config.value.auth_mode === 'vps') provider.value = 'vps'
     if (route.query.change_password === '1') mustChange.value = true
     if (route.query.sso_error === '1') error.value = 'VPS 登录未完成，请重试或使用账号密码登录。'
   } catch {
@@ -41,7 +43,7 @@ async function doLogin() {
     const result = await apiPost<{
       must_change_password?: boolean
       user?: { display_name?: string }
-    }>('/api/auth/login', { username: username.value.trim(), password: password.value })
+    }>('/api/auth/login', { username: username.value.trim(), password: password.value, provider: provider.value })
     if (result.must_change_password) {
       mustChange.value = true
       oldPassword.value = password.value
@@ -87,9 +89,16 @@ function goVps() {
 
       <div v-if="error" class="alert">{{ error }}</div>
 
-      <form v-if="!mustChange && config && config.auth_mode !== 'vps'" @submit.prevent="doLogin">
+      <form v-if="!mustChange && config" @submit.prevent="doLogin">
+        <label v-if="config.auth_mode !== 'vps'" class="field">
+          <span>登录方式</span>
+          <select v-model="provider" class="input" :disabled="busy">
+            <option value="local">工作台账号</option>
+            <option value="vps">VPS 账号</option>
+          </select>
+        </label>
         <label class="field">
-          <span>用户名</span>
+          <span>{{ provider === 'vps' ? 'VPS 账号' : '用户名' }}</span>
           <input
             v-model="username"
             class="input"
@@ -149,9 +158,7 @@ function goVps() {
       </form>
 
       <div v-if="config && config.auth_mode !== 'local' && !mustChange" class="vps-row">
-        <span v-if="config.auth_mode === 'hybrid'" class="divider">或</span>
-        <button v-if="config.vps_sso_ready" class="btn btn-block" type="button" @click="goVps">使用 VPS 账号登录</button>
-        <p v-else class="hint">{{ config.auth_mode === 'vps' ? 'VPS 单点登录尚未开通，请联系管理员。' : 'VPS 单点登录尚未开通，请先使用工作台账号登录。' }}</p>
+        <button v-if="config.vps_sso_ready" class="btn btn-block" type="button" @click="goVps">使用 VPS 单点登录</button>
       </div>
 
       <p v-if="!config && !error" class="hint">正在读取认证配置…</p>

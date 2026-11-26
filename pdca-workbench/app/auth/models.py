@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import BigInteger
 from sqlmodel import Field, SQLModel
 
 
@@ -15,6 +16,7 @@ class User(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True, max_length=64)
+    vps_user_id: int | None = Field(default=None, sa_type=BigInteger, index=True, unique=True)
     hashed_password: str = Field(max_length=256)
     role: str = Field(default="viewer", max_length=32)
     display_name: str = Field(default="", max_length=128)

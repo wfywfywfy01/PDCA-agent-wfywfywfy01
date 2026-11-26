@@ -5,7 +5,7 @@ import { permissionPayload, type PermissionForm, type UserRole } from '@/api/per
 import AppNav from '@/components/AppNav.vue'
 import PermissionPreview from '@/components/admin/PermissionPreview.vue'
 
-interface UserRow extends PermissionForm { username: string; data_scope: string; must_change_password: boolean }
+interface UserRow extends PermissionForm { username: string; data_scope: string; must_change_password: boolean; vps_user_id: number | null }
 interface Store { store_id: string; name: string; sales_owner: string; team_key: string }
 interface Preview { username: string; role: string; is_active: boolean; scope: { mode: string; team_key: string; store_ids: string[]; dealer_names: string[]; owner_keys: string[] }; modules: Record<string, string>; warnings: string[] }
 
@@ -14,6 +14,7 @@ const selected = ref<UserRow | null>(null), preview = ref<Preview | null>(null)
 const me = ref(''), search = ref(''), error = ref(''), notice = ref('')
 const loading = ref(true), previewLoading = ref(false), saving = ref(false)
 const form = ref<PermissionForm>({ display_name: '', role: 'viewer', is_active: true, dealer_id: '', owner_key: '', team_key: '', sales_name: '' })
+const vpsUserId = ref('')
 const ROLE_LABELS: Record<UserRole, string> = { viewer: '只读访客', dealer: '经销商门店', sales: '内部销售', manager: '团队主管', admin: '系统管理员' }
 const SCOPE_LABELS: Record<string, string> = { none: '无业务数据', self: '本人绑定范围', team: '所属团队', all: '全公司' }
 const roleFilter = ref<'all' | UserRole>('all')
@@ -34,6 +35,7 @@ async function choose(user: UserRow, resetMessage = true) {
   selected.value = user
   if (resetMessage) { notice.value = ''; error.value = '' }
   form.value = { display_name: user.display_name, role: user.role, is_active: user.is_active, dealer_id: user.dealer_id, owner_key: user.owner_key, team_key: user.team_key, sales_name: user.sales_name }
+  vpsUserId.value = user.vps_user_id == null ? '' : String(user.vps_user_id)
   previewLoading.value = true
   try {
     const result = await apiGet<Preview>(`/api/admin/users/${encodeURIComponent(user.username)}/effective-permissions`)
@@ -58,11 +60,19 @@ async function load() {
 async function save() {
   if (!selected.value || saving.value) return
   const username = selected.value.username
+  const enteredId = vpsUserId.value.trim()
+  const binding = enteredId ? Number(enteredId) : null
+  if (binding !== null && (!/^\d+$/.test(enteredId) || !Number.isSafeInteger(binding) || binding < 1)) {
+    error.value = '请输入有效的 VPS 数字用户 ID'
+    return
+  }
   const risky = form.value.role === 'admin' || !form.value.is_active
   if (risky && !window.confirm(`确认变更 ${selected.value.username} 的高权限或账号状态？`)) return
   saving.value = true; error.value = ''; notice.value = ''
   try {
-    await apiPatch(`/api/admin/users/${encodeURIComponent(username)}`, permissionPayload(form.value))
+    const payload = permissionPayload(form.value)
+    await apiPatch(`/api/admin/users/${encodeURIComponent(username)}`,
+      binding === (selected.value.vps_user_id ?? null) ? payload : { ...payload, vps_user_id: binding })
   } catch (err) {
     error.value = err instanceof HttpError ? err.detail : '保存失败'; saving.value = false; return
   }
@@ -136,6 +146,7 @@ onMounted(load)
             <label v-if="form.role === 'sales' || form.role === 'manager'">团队<select v-model="form.team_key" class="input" :required="form.role === 'manager'"><option value="">请选择</option><option v-for="team in teams" :key="team">{{ team }}</option></select></label>
             <label v-if="form.role === 'sales'">来源数据名称<input v-model="form.sales_name" class="input" placeholder="物流/客户数据中的销售名称" /></label>
             <label v-if="form.role === 'dealer'">绑定门店<select v-model="form.dealer_id" class="input" required><option value="">请选择</option><option v-for="store in stores" :key="store.store_id" :value="store.store_id">{{ store.name }}（{{ store.store_id }}）</option></select></label>
+            <label>VPS 用户 ID<input v-model="vpsUserId" class="input" inputmode="numeric" maxlength="16" autocomplete="off" placeholder="留空则解除绑定" /></label>
           </div>
           <label class="switch"><input v-model="form.is_active" type="checkbox" :disabled="selected.username === me" /> 允许登录</label>
           <p v-if="selected.username === me" class="muted">为防止锁死后台，当前登录账号不能在此修改自身角色或停用。</p>

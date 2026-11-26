@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 import sys
@@ -8,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -190,6 +192,82 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         me = self.client.get("/api/auth/me")
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.json()["role"], "viewer")
+
+    def _bind_vps(self, username, user_id):
+        with Session(self.engine) as session:
+            target = session.exec(select(User).where(User.username == username)).one()
+            target.vps_user_id = user_id
+            session.add(target)
+            session.commit()
+
+    def _vps_login(self, *, vps_id=14110, active=True, upstream_status=200):
+        upstream_secret = "synthetic-vps-only-password"
+
+        def handle(request):
+            self.assertEqual(str(request.url), "https://vps-service.vertu.cn/v1/auth/login")
+            self.assertEqual(json.loads(request.content), {"login": "staff@example.invalid", "password": upstream_secret})
+            return httpx.Response(upstream_status, json={
+                "ok": upstream_status == 200,
+                "user": {"userId": vps_id, "login": "admin", "employeeName": "Example", "active": active},
+                "token": "upstream-session-fixture", "refresh_token": "upstream-refresh-fixture",
+                "expires_at": "2099-01-01T00:00:00Z",
+            })
+
+        client = httpx.AsyncClient
+        with patch("httpx.AsyncClient", side_effect=lambda **kwargs: client(transport=httpx.MockTransport(handle), **kwargs)):
+            return self.client.post("/api/auth/login", json={
+                "username": "staff@example.invalid", "password": upstream_secret, "provider": "vps",
+            })
+
+    def test_vps_password_preserves_workbench_sales_scope(self):
+        self.settings.portal_mode = "workbench"
+        self._bind_vps("sales", 14110)
+        response = self._vps_login()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["user"]["role"], "sales")
+        self.assertEqual(response.json()["user"]["username"], "sales")
+        self.assertNotIn("upstream-session-fixture", response.text)
+        self.assertNotIn("upstream-refresh-fixture", response.text)
+        self.assertEqual([row["store_id"] for row in self.client.get("/api/my-stores").json()], ["store-a"])
+
+    def test_vps_dealer_is_limited_to_bound_store_and_cannot_enter_workbench(self):
+        self._bind_vps("dealer", 14110)
+        response = self._vps_login()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([row["store_id"] for row in self.client.get("/api/my-stores").json()], ["store-a"])
+        report = {"report_date": "2024-01-02", "walkin_visits": 3}
+        denied_write = self.client.post("/api/walkin-metrics", json={**report, "dealer_id": "store-b", "dealer_name": "Dealer B"})
+        self.assertEqual(denied_write.status_code, 403)
+        own_write = self.client.post("/api/walkin-metrics", json={**report, "dealer_id": "store-a", "dealer_name": "Dealer A"})
+        self.assertEqual(own_write.status_code, 200, own_write.text)
+        with Session(self.engine) as session:
+            row = session.exec(select(WalkinDailyReport)).one()
+            self.assertEqual((row.dealer_id, row.submitted_by, row.walkin_visits), ("store-a", "dealer", 3))
+        self.settings.portal_mode = "workbench"
+        denied = self._vps_login()
+        self.assertEqual(denied.status_code, 403)
+        self.assertNotIn("pdca_token", denied.cookies)
+
+    def test_vps_rejects_unbound_or_inactive_identity_and_reports_outage(self):
+        # The upstream login name matches local admin but the VPS ID is unbound.
+        self.assertEqual(self._vps_login().status_code, 403)
+        self._bind_vps("sales", 14110)
+        self.assertEqual(self._vps_login(active=False).status_code, 401)
+        self.assertEqual(self._vps_login(upstream_status=503).status_code, 503)
+        with Session(self.engine) as session:
+            self.assertEqual(len(session.exec(select(User)).all()), 6)
+
+    def test_admin_can_bind_and_unbind_vps_identity_but_cannot_duplicate_it(self):
+        self.assertEqual(self._login("admin").status_code, 200)
+        target = "/api/admin/users/sales"
+        self.assertEqual(self.client.patch(target, json={"vps_user_id": 14110}).status_code, 200)
+        self.assertEqual(self.client.patch("/api/admin/users/sales-bob", json={"vps_user_id": 14110}).status_code, 409)
+        token = self._vps_login().json()["access_token"]
+        self.assertEqual(self._login("admin").status_code, 200)
+        self.assertEqual(self.client.patch(target, json={"vps_user_id": None}).status_code, 200)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code, 401)
+        self.assertEqual(self._vps_login().status_code, 403)
 
     def test_logout_revokes_current_access_token(self):
         success = self._login("viewer")

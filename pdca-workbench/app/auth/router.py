@@ -6,8 +6,8 @@ import asyncio
 import secrets
 import time
 from collections import defaultdict
-from datetime import timedelta
-from typing import Annotated
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, Literal
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
@@ -29,6 +29,7 @@ from app.auth.vps_identity import (
     identity_from_headers,
     vps_display_name,
 )
+from app.auth.vps_password import verify_vps_password
 from app.audit import log_action
 from app.config import get_settings
 from app.database import get_session
@@ -172,6 +173,7 @@ def _clear_fail(key: str) -> None:
 class LoginRequest(BaseModel):
     username: str
     password: str
+    provider: Literal["local", "vps"] = "local"
 
 
 class UserOut(BaseModel):
@@ -306,7 +308,7 @@ def _sso_failure(next_path: str, settings) -> RedirectResponse:
     return redirect
 
 
-def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False) -> None:
+def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False, max_age: int | None = None) -> None:
     settings = get_settings()
     samesite = "none" if framed else "lax"
     secure = bool(settings.secure_cookies or samesite == "none")
@@ -316,7 +318,7 @@ def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False) ->
         httponly=True,
         secure=secure,
         samesite=samesite,
-        max_age=settings.access_token_expire_minutes * 60,
+        max_age=settings.access_token_expire_minutes * 60 if max_age is None else max_age,
     )
 
 
@@ -452,37 +454,50 @@ async def login(
 ):
     """登录并设置 httpOnly Cookie。"""
     settings = get_settings()
-    if settings.auth_mode == "vps":
+    if settings.auth_mode == "vps" and body.provider == "local":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="当前为 VPS 单点登录模式，请使用 VPS/Odoo 账号登录，无需本地账号",
         )
-    key = _rate_limit_key(request, body.username)
+    username = body.username.strip() if body.provider == "vps" else body.username
+    if body.provider == "vps" and (not username or len(username) > 256 or not body.password or len(body.password) > 1024):
+        raise HTTPException(status_code=422, detail="请输入有效的 VPS 账号和密码")
+    key = _rate_limit_key(request, username.casefold() if body.provider == "vps" else username)
     _check_rate_limit(key)
 
-    user = session.exec(select(User).where(User.username == body.username)).first()
-    if not user or not verify_password(body.password, user.hashed_password):
-        _record_fail(key)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+    max_age = settings.access_token_expire_minutes * 60
+    if body.provider == "vps":
+        try:
+            vps_user_id, expiry = await verify_vps_password(username, body.password)
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                _record_fail(key)
+            raise
+        user = session.exec(select(User).where(User.vps_user_id == vps_user_id)).one_or_none()
+        if user is None:
+            raise HTTPException(status_code=403, detail="VPS 账号尚未绑定，请联系管理员")
+        if user.must_change_password:
+            raise HTTPException(status_code=403, detail="请先用本地账号完成首次改密，再使用 VPS 登录")
+        max_age = min(max_age, int((expiry - datetime.now(timezone.utc)).total_seconds()))
+        if max_age <= 0:
+            raise HTTPException(status_code=503, detail="VPS 会话已到期，请重新登录")
+    else:
+        user = session.exec(select(User).where(User.username == username)).first()
+        if not user or not verify_password(body.password, user.hashed_password):
+            _record_fail(key)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号已停用")
 
     _clear_fail(key)
     ensure_portal_access(user)
-    log_action(user.username, "login", ip=_client_ip(request))
+    log_action(user.username, "login", ip=_client_ip(request), detail={"provider": "vps"} if body.provider == "vps" else "")
     pwd_v = getattr(user, "pwd_version", 0) or 0
     token = create_access_token(
         {"sub": user.username, "role": user.role, "pwd_v": pwd_v},
-        timedelta(minutes=settings.access_token_expire_minutes),
+        timedelta(seconds=max_age),
     )
-    response.set_cookie(
-        key="pdca_token",
-        value=token,
-        httponly=True,
-        secure=settings.secure_cookies,
-        samesite="lax",
-        max_age=settings.access_token_expire_minutes * 60,
-    )
+    _set_pdca_cookie(response, token, max_age=max_age)
     must_change = getattr(user, "must_change_password", False)
     return {
         "access_token": token,
