@@ -2,7 +2,7 @@
 """密码哈希与 JWT 工具。"""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import secrets
@@ -122,6 +122,9 @@ def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = 
         expires_delta
         or timedelta(minutes=settings.access_token_expire_minutes)
     )
+    if "vps_expires_at" in payload:
+        deadline = datetime.fromtimestamp(payload["vps_expires_at"], timezone.utc).replace(tzinfo=None)
+        expire = min(expire, deadline)
     now = datetime.utcnow()
     payload["iat"] = now
     payload["exp"] = expire

@@ -100,6 +100,59 @@ class AcquisitionChaseTests(unittest.TestCase):
                 chase.poll_due(now=NOW)
                 self.send.assert_not_called()
 
+    def add_pending_reply(self, **changes):
+        reply = dict(id=71, status="pending", group_id=GROUP, dispatch_message_id=DISPATCH,
+                     message_id="reply-id", reason_codes=["unsupported_stage", "missing_deadline"])
+        reply.update(changes)
+        self.task().update(pending_reply=True, pending_reply_count=1, pending_replies=[reply])
+
+    def test_pending_only_requests_one_complete_supplement_in_same_daily_slot(self):
+        self.add_pending_reply()
+        self.assertEqual(chase.poll_due(now=NOW)["sent"], 1)
+        text = self.send.call_args.args[0]
+        self.assertIn("已回复", text)
+        self.assertIn("线索编号：1；补充回写：71", text)
+        self.assertIn("进度", text)
+        self.assertIn("截止时间", text)
+        self.assertNotIn("私有客户", text)
+        self.assertNotIn("下一步：核实联系人", text)
+        self.data = payload()
+        self.assertEqual(chase.poll_due(now=NOW)["sent"], 0)
+        self.send.assert_called_once()
+
+    def test_pending_and_regular_share_a_single_message(self):
+        self.data = payload(2)
+        self.add_pending_reply()
+        self.assertEqual(chase.poll_due(now=NOW)["sent"], 1)
+        text = self.send.call_args.args[0]
+        self.assertIn("线索 #2", text)
+        self.assertIn("补充回写：71", text)
+        self.assertEqual(self.send.call_args.kwargs["parent_message_id"], DISPATCH)
+
+    def test_deadline_only_reply_keeps_the_two_references_and_asks_only_for_time(self):
+        self.add_pending_reply(reason_codes=["source_deadline_required"])
+        self.assertEqual(chase.poll_due(now=NOW)["sent"], 1)
+        body = self.send.call_args.args[0]
+        self.assertIn("线索编号：1；补充回写：71；截止时间：", body)
+        self.assertIn("只补截止时间", body)
+        self.assertNotIn("再按实际填写", body)
+
+    def test_unsafe_or_incomplete_supplement_context_does_not_send(self):
+        for reply, task in [
+            (dict(group_id="wrong"), {}), (dict(dispatch_message_id="wrong"), {}),
+            (dict(message_id=None), {}), (dict(status="received"), {}),
+            (dict(reason_codes=["source_restricted", "missing_deadline"]), {}),
+            ({}, dict(pending_replies_truncated=True)), ({}, dict(reply_processing=True)),
+            ({}, dict(stored_outreach_hold=True)), ({}, dict(overdue=False)),
+            ({}, dict(status="completed")), ({}, dict(pending_reply_count=2)),
+        ]:
+            with self.subTest(reply=reply, task=task):
+                self.data = payload()
+                self.add_pending_reply(**reply)
+                self.task().update(task)
+                chase.poll_due(now=NOW)
+                self.send.assert_not_called()
+
     def test_environment_disable_hours_and_bad_config_fail_closed(self):
         for attr, value in [("acquisition_chase_enabled", False), ("scheduler_enabled", False),
                             ("environment", "development"), ("remote_db_from_host", True),

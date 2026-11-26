@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
+import time
 from datetime import timedelta
 from typing import Annotated, Literal
 from uuid import UUID
@@ -32,6 +33,7 @@ from app.auth.security import (
     is_token_revoked, request_access_token, verify_password,
 )
 from app.auth.scope import resolve_data_scope
+from app.auth.vps_password import verify_vps_password
 from app.audit import log_action
 from app.config import get_settings
 from app.database import get_session
@@ -81,7 +83,7 @@ class UploadCompleteBody(UploadPresignBody):
 
 
 class ReauthBody(BaseModel):
-    password: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class ReviewDecisionBody(BaseModel):
@@ -174,30 +176,45 @@ async def reauthenticate_original_export(
     login_jti = _login_jti(request, user)
     key = _rate_limit_key(request, user.username)
     _check_rate_limit(key)
-    if not verify_password(body.password, user.hashed_password):
+    login_claims = decode_access_token(request_access_token(request) or "") or {}
+    max_age = _REAUTH_SECONDS
+    vps_deadline = None
+    if login_claims.get("auth_provider") == "vps":
+        try:
+            verified_id, expiry = await verify_vps_password(login_claims["vps_login"], body.password)
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                _record_fail(key)
+            raise
+        verified = verified_id == user.vps_user_id == login_claims.get("vps_user_id")
+        vps_deadline = min(login_claims["vps_expires_at"], int(expiry.timestamp()))
+        max_age = min(max_age, int(vps_deadline - time.time()))
+    else:
+        verified = verify_password(body.password, user.hashed_password)
+    if not verified or max_age <= 0:
         _record_fail(key)
         raise HTTPException(status_code=401, detail="密码验证失败")
     _clear_fail(key)
-    token = create_access_token(
-        {
-            "sub": user.username,
-            "purpose": _REAUTH_PURPOSE,
-            "login_jti": login_jti,
-            "pwd_v": getattr(user, "pwd_version", 0) or 0,
-        },
-        timedelta(seconds=_REAUTH_SECONDS),
-    )
+    claims = {
+        "sub": user.username,
+        "purpose": _REAUTH_PURPOSE,
+        "login_jti": login_jti,
+        "pwd_v": getattr(user, "pwd_version", 0) or 0,
+    }
+    if vps_deadline is not None:
+        claims["vps_expires_at"] = vps_deadline
+    token = create_access_token(claims, timedelta(seconds=max_age))
     settings = get_settings()
     response.set_cookie(
         key=_REAUTH_COOKIE,
         value=token,
-        max_age=_REAUTH_SECONDS,
+        max_age=max_age,
         httponly=True,
         secure=settings.secure_cookies,
         samesite="strict",
     )
     log_action(user.username, "reauth_knowledge_export", resource="knowledge")
-    return {"ok": True, "expires_in": _REAUTH_SECONDS}
+    return {"ok": True, "expires_in": max_age}
 
 
 @router.post("/search")

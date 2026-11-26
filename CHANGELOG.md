@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added VPS password login with explicit administrator-managed identity bindings, retained local data permissions, initial-password revocation and audited binding changes.
 - Added revocable full-library read-only MCP accounts without expanding PDCA business-data scope or enabling uploads, writes, reviews, or original downloads; 1,364 backend tests plus frontend build and browser regression passed.
 - Added the scoped dealer knowledge library page and PDCA-to-data-hub private API integration.
 - Added human evidence search, cited AI answer mode, managed previews, and admin-only audited original export.

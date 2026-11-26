@@ -282,7 +282,7 @@ onMounted(loadScope)
       <form @submit.prevent="downloadOriginal">
         <h2 id="export-title">下载原件</h2>
         <p class="export-file">{{ exportRow?.citation.original_name }}</p>
-        <label>管理员密码<input v-model="exportPassword" class="input" type="password" autocomplete="current-password" required :disabled="exportBusy" /></label>
+        <label>管理员登录密码<input v-model="exportPassword" class="input" type="password" autocomplete="current-password" required :disabled="exportBusy" /></label>
         <label>下载原因<textarea v-model="exportReason" class="input" minlength="10" maxlength="500" required :disabled="exportBusy"></textarea></label>
         <p v-if="exportError" role="alert">{{ exportError }}</p>
         <div class="export-actions">
