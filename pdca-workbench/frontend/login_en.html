@@ -16,7 +16,7 @@
     h1{margin:0;font-size:20px;color:#e2e8f0;font-weight:700}
     .sub{color:#475569;font-size:13px;margin:2px 0 0}
     label{display:block;font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:6px}
-    input[type=text],input[type=password]{
+    input[type=text],input[type=password],select{
       width:100%;padding:10px 12px;border:1.5px solid rgba(255,255,255,.1);
       border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:16px;outline:none;
       transition:border-color .2s;font-family:inherit;
@@ -68,7 +68,12 @@
     </div>
     <div class="msg-box" id="msgBox"></div>
     <div id="vpsBox" class="vps-box"></div>
-    <form id="loginForm">
+    <form id="loginForm" method="post">
+      <label for="provider">Sign-in method</label>
+      <select id="provider" name="provider">
+        <option value="local">Distributor Portal account</option>
+        <option value="vps">VPS account</option>
+      </select>
       <label for="username">Username</label>
       <input id="username" name="username" type="text" autocomplete="username" placeholder="Enter username" required />
       <label for="password">Password</label>
@@ -137,7 +142,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ username: username, password: password })
+          body: JSON.stringify({ username: username, password: password, provider: document.getElementById('provider').value })
         });
         var data = {};
         try { data = await res.json(); } catch (_) {}
@@ -229,6 +234,14 @@
       } catch (_) { return; }
 
       _authMode = cfg.auth_mode || 'local';
+      var provider = document.getElementById('provider');
+      if (_authMode === 'local') {
+        provider.querySelector('option[value="vps"]').remove();
+      }
+      if (_authMode === 'vps') {
+        provider.value = 'vps';
+        provider.options[0].disabled = true;
+      }
       if (_authMode !== 'vps' && _authMode !== 'hybrid') return;
 
       var sub = document.getElementById('subText');
@@ -278,13 +291,12 @@
 
       // vps mode
       if (sub) sub.textContent = 'Verifying VPS login…';
-      if (form) form.style.display = 'none';
       if (check && check.ok) {
         sessionStorage.setItem('pdca_login_loop_ts', String(Date.now()));
         await enterWorkbench();
         return;
       }
-      msgBox.textContent = 'No VPS login detected — please sign in on VPS / Odoo first, then reopen this page';
+      msgBox.textContent = 'Enter your VPS account and password below';
       msgBox.className = 'msg-box warn';
       if (hint && cfg.vps_login_url) {
         var loginUrl = safeHttpUrl(cfg.vps_login_url);
@@ -298,10 +310,6 @@
           hint.appendChild(externalLink);
           hint.appendChild(document.createTextNode(' · '));
         }
-        var manualLink = document.createElement('a');
-        manualLink.href = '/login?manual=1';
-        manualLink.textContent = 'Force local form';
-        hint.appendChild(manualLink);
       }
     })();
   </script>
