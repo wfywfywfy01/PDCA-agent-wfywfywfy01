@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import secrets
 import time
 from collections import defaultdict
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 from urllib.parse import urlencode, urlsplit
 
+import httpx
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -21,7 +23,7 @@ from app.auth.odoo_sso import identity_from_odoo_session, parse_odoo_ticket, res
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
 from app.auth.security import (
-    KNOWLEDGE_REAUTH_COOKIE, create_access_token, hash_password,
+    KNOWLEDGE_REAUTH_COOKIE, WORKBENCH_FIVE_KIT_PURPOSE, create_access_token, hash_password,
     request_access_token, revoke_token, verify_password,
 )
 from app.auth.vps_identity import (
@@ -39,6 +41,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 _SSO_STATE_COOKIE = "pdca_sso_state"
 _SSO_STATE_COOKIE_SECURE = "__Host-pdca_sso_state"
 _SSO_STATE_TTL_SECONDS = 600
+_WORKBENCH_ORIGIN = "https://pdca-workbench-teams.vertu.cn"
 
 # ── 登录限速（内存热路径 + 数据库共享，5 次失败锁 15 分钟）─────────────────
 # 内存 dict 保证单进程内零延迟；login_fail_records 表保证多 worker / 重启后
@@ -536,6 +539,47 @@ async def login(
             must_change_password=must_change,
         ),
     }
+
+
+@router.post("/workbench-five-kit")
+async def workbench_five_kit(
+    request: Request,
+    response: Response,
+    session: Annotated[Session, Depends(get_session)],
+):
+    """Exchange the current same-origin WorkBench session for a five-kit-only grant."""
+    if (request.headers.get("Origin") != _WORKBENCH_ORIGIN
+            or request.headers.get("X-WorkBench-Source") != "pdca-five-kit"):
+        raise HTTPException(status_code=403, detail="请从 VERTU 工作台发起连接")
+    cookie = request.cookies.get("salesbot_session", "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", cookie):
+        raise HTTPException(status_code=401, detail="请先用 VPS 登录 VERTU 工作台")
+    try:
+        async with httpx.AsyncClient(timeout=8, follow_redirects=False, trust_env=False) as client:
+            verified = await client.get(
+                f"{_WORKBENCH_ORIGIN}/gtm/api/me", headers={"Cookie": f"salesbot_session={cookie}"},
+            )
+        if verified.status_code in (401, 403):
+            raise HTTPException(status_code=401, detail="工作台登录已失效，请重新登录")
+        verified.raise_for_status()
+        result = verified.json()
+        user = result["data"]["user"] if result.get("ok") is True else {}
+        directory_id = user.get("vps_directory_user_id")
+    except (httpx.HTTPError, KeyError, ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=503, detail="暂时无法核验工作台登录") from None
+    if (user.get("must_change_password") is not False or not isinstance(directory_id, str)
+            or not re.fullmatch(r"[1-9][0-9]{0,15}", directory_id) or int(directory_id) > (1 << 53) - 1):
+        raise HTTPException(status_code=403, detail="请使用已验证的 VPS 工作台会话")
+    bound = session.exec(select(User).where(User.vps_user_id == int(directory_id))).one_or_none()
+    if not bound or not bound.is_active or bound.must_change_password:
+        raise HTTPException(status_code=403, detail="当前 VPS 账号没有可用的 PDCA 绑定")
+    ensure_portal_access(bound)
+    access_token = create_access_token({
+        "sub": bound.username, "pwd_v": bound.pwd_version or 0, "auth_provider": "vps",
+        "vps_user_id": bound.vps_user_id, "purpose": WORKBENCH_FIVE_KIT_PURPOSE,
+    }, timedelta(minutes=5))
+    response.headers["Cache-Control"] = "no-store"
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.post("/logout")
