@@ -22,7 +22,7 @@ from websockets.exceptions import InvalidStatus
 from app.auth.csrf import _origin
 from app.auth.deps import get_current_user
 from app.auth.models import User
-from app.auth.security import decode_access_token, is_token_revoked, vps_binding_matches
+from app.auth.security import is_token_revoked, vps_binding_matches
 from app.config import get_settings
 from app.database import get_session
 from app.omega.context import actor_messages, select_next_speaker
@@ -556,7 +556,7 @@ def _session_voice_role(db, game):
 
 
 def _acquire(engine, user: User, session_id: str,
-             auth_token: str | None = None) -> tuple[str, str, str]:
+             auth: dict | None = None) -> tuple[str, str, str]:
     with Session(engine) as db:
         # Admission must serialize across users and server processes.
         if engine.dialect.name == "postgresql":
@@ -629,12 +629,12 @@ def _acquire(engine, user: User, session_id: str,
                 raise HTTPException(409, "人物音色尚未通过协议验证，请使用默认音色")
         # ponytail: replay recent text on reconnect; use native conversation items if longer history matters.
         role = _session_voice_role(db, game)
-        auth = decode_access_token(auth_token) if auth_token else None
         bound_auth = None
-        if auth and auth.get("sub") == user.username:
-            if (auth["sub"] != actor.username
+        if auth is not None:
+            if (auth.get("sub") != actor.username
                     or auth.get("pwd_v", 0) != (actor.pwd_version or 0)
                     or not vps_binding_matches(auth, actor.vps_user_id)
+                    or (auth.get("exp") is not None and float(auth["exp"]) <= time.time())
                     or is_token_revoked(auth)):
                 raise HTTPException(401, "登录已失效，请重新登录")
             bound_auth = {key: auth[key] for key in ("sub", "pwd_v", "jti", "exp", "auth_provider", "vps_user_id")
@@ -1405,7 +1405,7 @@ async def realtime_session(ws: WebSocket, session_id: str,
             db.expunge(user)
         db.rollback()
         acquired_at = asyncio.get_running_loop().time()
-        job_id, token, role = _acquire(engine, user, session_id, ws.cookies.get("pdca_token"))
+        job_id, token, role = _acquire(engine, user, session_id, getattr(ws.state, "verified_access_claims", None))
         control = VoiceControl(engine, session_id, job_id, token, confirmed=True)
         control.role = role
         control.deadline = acquired_at + _max_connection_seconds
