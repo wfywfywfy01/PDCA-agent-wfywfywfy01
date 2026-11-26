@@ -16,14 +16,16 @@ def _metric_value(text: str, name: str) -> str:
 
 class MetricsTests(unittest.TestCase):
     def test_record_request_accumulates(self):
-        before = int(_metric_value(metrics.export_prometheus(), "pdca_requests_total"))
+        initial = metrics.export_prometheus()
+        before = int(_metric_value(initial, "pdca_requests_total"))
+        errors_before = int(_metric_value(initial, "pdca_errors_total"))
         metrics.record_request("GET", "/api/dashboard/overview", 200)
         metrics.record_request("POST", "/api/walkin-metrics", 500)
         text = metrics.export_prometheus()
         self.assertEqual(_metric_value(text, "pdca_requests_total"), str(before + 2))
         self.assertIn('pdca_http_status_total{status="200"}', text)
         self.assertIn('pdca_http_status_total{status="500"}', text)
-        self.assertEqual(_metric_value(text, "pdca_errors_total"), "1")
+        self.assertEqual(_metric_value(text, "pdca_errors_total"), str(errors_before + 1))
         self.assertIn('pdca_requests_by_path_total{path="GET /api/dashboard/overview"}', text)
 
     def test_metrics_self_path_excluded(self):
