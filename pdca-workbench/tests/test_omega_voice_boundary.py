@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from sqlmodel import Session, select
+from starlette.datastructures import State
 
 import tests.test_omega_coaching as fixture
 from app.auth.models import User
@@ -100,7 +101,7 @@ class VoiceBoundaryTests(unittest.TestCase):
 
         class Browser:
             def __init__(self):
-                self.cookies = {}
+                self.state = State()
                 self.incoming = asyncio.Queue()
                 self.events, self.audio = [], []
                 self.boundary_triggered = False
