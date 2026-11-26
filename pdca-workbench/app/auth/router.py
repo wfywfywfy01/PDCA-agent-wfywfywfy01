@@ -329,13 +329,16 @@ def _session_reissue(request: Request, user: User) -> tuple[dict, int]:
     if previous.get("auth_provider") != "vps":
         return {}, max_age
     deadline = previous.get("exp")
+    vps_login = previous.get("vps_login")
     if (type(deadline) is not int or previous.get("sub") != user.username
-            or previous.get("vps_user_id") != user.vps_user_id):
+            or previous.get("vps_user_id") != user.vps_user_id
+            or not isinstance(vps_login, str) or not vps_login):
         raise HTTPException(status_code=401, detail="VPS 登录身份已变更，请重新登录")
     max_age = min(max_age, int(deadline - time.time()))
     if max_age <= 0:
         raise HTTPException(status_code=401, detail="VPS 登录已到期，请重新登录")
-    return {"auth_provider": "vps", "vps_user_id": user.vps_user_id, "vps_expires_at": deadline}, max_age
+    return {"auth_provider": "vps", "vps_user_id": user.vps_user_id,
+            "vps_login": vps_login, "vps_expires_at": deadline}, max_age
 
 
 async def finish_odoo_sso_login(
@@ -465,6 +468,8 @@ async def login(
 ):
     """登录并设置 httpOnly Cookie。"""
     settings = get_settings()
+    if body.provider == "vps" and settings.auth_mode == "local" and settings.portal_mode != "walkin":
+        raise HTTPException(status_code=403, detail="当前未启用 VPS 账号登录")
     if settings.auth_mode == "vps" and body.provider == "local":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -508,7 +513,8 @@ async def login(
     pwd_v = getattr(user, "pwd_version", 0) or 0
     claims = {"sub": user.username, "role": user.role, "pwd_v": pwd_v}
     if body.provider == "vps":
-        claims.update(auth_provider="vps", vps_user_id=vps_user_id, vps_expires_at=int(expiry.timestamp()))
+        claims.update(auth_provider="vps", vps_user_id=vps_user_id,
+                      vps_login=username, vps_expires_at=int(expiry.timestamp()))
     token = create_access_token(
         claims,
         timedelta(seconds=max_age),

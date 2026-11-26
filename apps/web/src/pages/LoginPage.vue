@@ -5,6 +5,7 @@ import { apiGet, apiPost, HttpError } from '@/api/client'
 
 interface AuthConfig {
   auth_mode: 'local' | 'vps' | 'hybrid'
+  portal_mode?: string
   vps_sso_ready?: boolean
 }
 
@@ -90,7 +91,7 @@ function goVps() {
       <div v-if="error" class="alert">{{ error }}</div>
 
       <form v-if="!mustChange && config" @submit.prevent="doLogin">
-        <label v-if="config.auth_mode !== 'vps'" class="field">
+        <label v-if="config.auth_mode === 'hybrid' || (config.auth_mode === 'local' && config.portal_mode === 'walkin')" class="field">
           <span>登录方式</span>
           <select v-model="provider" class="input" :disabled="busy">
             <option value="local">工作台账号</option>

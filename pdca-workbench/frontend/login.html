@@ -240,8 +240,11 @@
       } catch (_) { return; }
 
       _authMode = cfg.auth_mode || 'local';
+      var provider = document.getElementById('provider');
+      if (_authMode === 'local' && cfg.portal_mode !== 'walkin') {
+        provider.querySelector('option[value="vps"]').remove();
+      }
       if (_authMode === 'vps') {
-        var provider = document.getElementById('provider');
         provider.value = 'vps';
         provider.options[0].disabled = true;
       }

@@ -8,7 +8,7 @@ from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 from fastapi.testclient import TestClient
@@ -203,18 +203,22 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             session.commit()
 
     def _vps_login(self, *, vps_id=14110, active=True, upstream_status=200,
-                   expires_at="2099-01-01T00:00:00Z", username="staff@example.invalid"):
+                   expires_at="2099-01-01T00:00:00Z", username="staff@example.invalid", userinfo_only=False):
         upstream_secret = "synthetic-vps-only-password"
 
         def handle(request):
             self.assertEqual(str(request.url), "https://vps-service.vertu.cn/v1/auth/login")
             self.assertEqual(json.loads(request.content), {"login": username, "password": upstream_secret})
-            return httpx.Response(upstream_status, json={
+            payload = {
                 "ok": upstream_status == 200,
                 "user": {"userId": vps_id, "login": "admin", "employeeName": "Example", "active": active},
                 "token": "upstream-session-fixture", "refresh_token": "upstream-refresh-fixture",
                 "expires_at": expires_at,
-            })
+            }
+            if userinfo_only:
+                payload.pop("user")
+                payload["userinfo"] = {"user_id": vps_id, "login": "admin", "active": active}
+            return httpx.Response(upstream_status, json=payload)
 
         client = httpx.AsyncClient
         with patch("httpx.AsyncClient", side_effect=lambda **kwargs: client(transport=httpx.MockTransport(handle), **kwargs)):
@@ -224,6 +228,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
 
     def test_vps_password_preserves_workbench_sales_scope(self):
         self.settings.portal_mode = "workbench"
+        self.settings.auth_mode = "hybrid"
         self._bind_vps("sales", 14110)
         response = self._vps_login()
         self.assertEqual(response.status_code, 200, response.text)
@@ -232,6 +237,53 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         self.assertNotIn("upstream-session-fixture", response.text)
         self.assertNotIn("upstream-refresh-fixture", response.text)
         self.assertEqual([row["store_id"] for row in self.client.get("/api/my-stores").json()], ["store-a"])
+
+    def test_vps_does_not_change_a_pending_initial_local_password(self):
+        self._bind_vps("forced-admin", 14110)
+        self.assertEqual(self._vps_login().status_code, 403)
+        login = self._login("forced-admin")
+        self.assertEqual(login.status_code, 200)
+        self.assertTrue(login.json()["must_change_password"])
+        with Session(self.engine) as session:
+            user = session.exec(select(User).where(User.username == "forced-admin")).one()
+            self.assertTrue(verify_password("Correct-password-123", user.hashed_password))
+
+    def test_vps_password_is_disabled_in_local_only_workbench(self):
+        self.settings.portal_mode = "workbench"
+        self._bind_vps("sales", 14110)
+        with patch("app.auth.router.verify_vps_password", new=AsyncMock()) as verify:
+            self.assertEqual(self._vps_login().status_code, 403)
+        verify.assert_not_awaited()
+        self.assertEqual(self._login("sales").status_code, 200)
+
+    def test_vps_accepts_snake_case_identity_without_changing_reader_permissions(self):
+        self._bind_vps("viewer", 14110)
+        with Session(self.engine) as session:
+            user = session.exec(select(User).where(User.username == "viewer")).one()
+            user.data_scope = "none"
+            user.knowledge_read_all = True
+            session.commit()
+        response = self._vps_login(userinfo_only=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["role"], "viewer")
+        self.assertEqual(response.json()["user"]["data_scope"], "none")
+        self.assertEqual(self.client.get("/api/admin/users").status_code, 403)
+        self.assertEqual(self.client.post("/api/knowledge/reauth", json={"password": "synthetic-vps-only-password"}).status_code, 403)
+
+    def test_vps_admin_can_reauthenticate_for_knowledge_after_reissue(self):
+        self.settings.auth_mode = "hybrid"
+        self._bind_vps("admin", 14110)
+        self.assertEqual(self._vps_login().status_code, 200)
+        self.assertEqual(self.client.post("/api/auth/vps-bootstrap").status_code, 200)
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=45)
+        with patch("app.knowledge.router.verify_vps_password", new=AsyncMock(return_value=(14110, expiry))) as verify:
+            result = self.client.post("/api/knowledge/reauth", json={"password": "synthetic-vps-only-password"})
+        self.assertEqual(result.status_code, 200, result.text)
+        verify.assert_awaited_once_with("staff@example.invalid", "synthetic-vps-only-password")
+        claims = decode_token(result.cookies["pdca_knowledge_reauth"])
+        self.assertLessEqual(claims["exp"], int(expiry.timestamp()))
+        with patch("app.knowledge.router.verify_vps_password", new=AsyncMock(return_value=(14111, expiry))):
+            self.assertEqual(self.client.post("/api/knowledge/reauth", json={"password": "synthetic-vps-only-password"}).status_code, 401)
 
     def test_vps_session_reissuance_cannot_extend_initial_expiry(self):
         self.settings.auth_mode = "hybrid"
@@ -302,6 +354,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             row = session.exec(select(WalkinDailyReport)).one()
             self.assertEqual((row.dealer_id, row.submitted_by, row.walkin_visits), ("store-a", "dealer", 3))
         self.settings.portal_mode = "workbench"
+        self.settings.auth_mode = "hybrid"
         denied = self._vps_login()
         self.assertEqual(denied.status_code, 403)
         self.assertNotIn("pdca_token", denied.cookies)
