@@ -22,7 +22,7 @@ from websockets.exceptions import InvalidStatus
 from app.auth.csrf import _origin
 from app.auth.deps import get_current_user
 from app.auth.models import User
-from app.auth.security import decode_access_token, is_token_revoked
+from app.auth.security import decode_access_token, is_token_revoked, vps_binding_matches
 from app.config import get_settings
 from app.database import get_session
 from app.omega.context import actor_messages, select_next_speaker
@@ -527,6 +527,7 @@ def _valid_lease(db: Session, game: OmegaSession, job_id: str, token: str) -> Om
     auth = payload.get("auth")
     if auth and (auth.get("sub") != actor.username
                  or auth.get("pwd_v", 0) != (actor.pwd_version or 0)
+                 or not vps_binding_matches(auth, actor.vps_user_id)
                  or (auth.get("exp") is not None and float(auth["exp"]) <= time.time())
                  or is_token_revoked(auth)):
         raise ValueError("登录已失效，请重新登录")
@@ -633,9 +634,10 @@ def _acquire(engine, user: User, session_id: str,
         if auth and auth.get("sub") == user.username:
             if (auth["sub"] != actor.username
                     or auth.get("pwd_v", 0) != (actor.pwd_version or 0)
+                    or not vps_binding_matches(auth, actor.vps_user_id)
                     or is_token_revoked(auth)):
                 raise HTTPException(401, "登录已失效，请重新登录")
-            bound_auth = {key: auth[key] for key in ("sub", "pwd_v", "jti", "exp")
+            bound_auth = {key: auth[key] for key in ("sub", "pwd_v", "jti", "exp", "auth_provider", "vps_user_id")
                           if key in auth}
         token = new_id()
         job = OmegaJob(session_id=session_id, kind="realtime", request_key=new_id(),

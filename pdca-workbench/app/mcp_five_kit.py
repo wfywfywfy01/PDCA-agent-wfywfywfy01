@@ -27,7 +27,7 @@ from sqlmodel import Session, select
 from app.auth.deps import ensure_portal_access
 from app.auth.models import User
 from app.auth.scope import resolve_data_scope
-from app.auth.security import decode_access_token, is_token_revoked
+from app.auth.security import decode_access_token, is_token_revoked, vps_binding_matches
 from app.config import get_settings
 from app.database import get_engine
 from app.models.dealer_store import DealerStore
@@ -101,6 +101,7 @@ class FiveKitTokenVerifier:
                 or not user.is_active
                 or getattr(user, "must_change_password", False)
                 or int(payload.get("pwd_v", 0)) != int(getattr(user, "pwd_version", 0) or 0)
+                or not vps_binding_matches(payload, user.vps_user_id)
             ):
                 return None
             try:

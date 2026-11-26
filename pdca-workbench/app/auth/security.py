@@ -147,6 +147,13 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
     return payload if payload and "purpose" not in payload else None
 
 
+def vps_binding_matches(payload: dict, user_id: int | None) -> bool:
+    """Require the verified VPS identity to remain linked to this account."""
+    return payload.get("auth_provider") != "vps" or (
+        user_id is not None and payload.get("vps_user_id") == user_id
+    )
+
+
 def revoke_token(token: str) -> bool:
     """将 token 的 jti 加入吊销集合（内存 + 共享数据库）。"""
     payload = decode_token(token)

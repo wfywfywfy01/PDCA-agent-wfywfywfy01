@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import secrets
 import time
 from collections import defaultdict
@@ -20,7 +21,7 @@ from app.auth.odoo_sso import identity_from_odoo_session, parse_odoo_ticket, res
 from app.auth.deps import ensure_portal_access, get_current_user
 from app.auth.models import User
 from app.auth.security import (
-    KNOWLEDGE_REAUTH_COOKIE, create_access_token, decode_access_token, hash_password,
+    KNOWLEDGE_REAUTH_COOKIE, create_access_token, hash_password,
     request_access_token, revoke_token, verify_password,
 )
 from app.auth.vps_identity import (
@@ -324,7 +325,7 @@ def _set_pdca_cookie(response: Response, token: str, *, framed: bool = False, ma
 
 def _session_reissue(request: Request, user: User) -> tuple[dict, int]:
     max_age = get_settings().access_token_expire_minutes * 60
-    previous = decode_access_token(request_access_token(request) or "") or {}
+    previous = getattr(request.state, "verified_access_claims", {})
     if previous.get("auth_provider") != "vps":
         return {}, max_age
     deadline = previous.get("exp")
@@ -473,6 +474,8 @@ async def login(
     if body.provider == "vps" and (not username or len(username) > 256 or not body.password or len(body.password) > 1024):
         raise HTTPException(status_code=422, detail="请输入有效的 VPS 账号和密码")
     key = _rate_limit_key(request, username.casefold() if body.provider == "vps" else username)
+    if body.provider == "vps":
+        key = "vps:" + hashlib.sha256(key.encode("utf-8")).hexdigest()
     _check_rate_limit(key)
 
     max_age = settings.access_token_expire_minutes * 60

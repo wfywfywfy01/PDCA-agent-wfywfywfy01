@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import httpx
 from fastapi.testclient import TestClient
+from jose import JWTError
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.auth.models import User
@@ -201,12 +202,13 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             session.add(target)
             session.commit()
 
-    def _vps_login(self, *, vps_id=14110, active=True, upstream_status=200, expires_at="2099-01-01T00:00:00Z"):
+    def _vps_login(self, *, vps_id=14110, active=True, upstream_status=200,
+                   expires_at="2099-01-01T00:00:00Z", username="staff@example.invalid"):
         upstream_secret = "synthetic-vps-only-password"
 
         def handle(request):
             self.assertEqual(str(request.url), "https://vps-service.vertu.cn/v1/auth/login")
-            self.assertEqual(json.loads(request.content), {"login": "staff@example.invalid", "password": upstream_secret})
+            self.assertEqual(json.loads(request.content), {"login": username, "password": upstream_secret})
             return httpx.Response(upstream_status, json={
                 "ok": upstream_status == 200,
                 "user": {"userId": vps_id, "login": "admin", "employeeName": "Example", "active": active},
@@ -217,7 +219,7 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         client = httpx.AsyncClient
         with patch("httpx.AsyncClient", side_effect=lambda **kwargs: client(transport=httpx.MockTransport(handle), **kwargs)):
             return self.client.post("/api/auth/login", json={
-                "username": "staff@example.invalid", "password": upstream_secret, "provider": "vps",
+                "username": username, "password": upstream_secret, "provider": "vps",
             })
 
     def test_vps_password_preserves_workbench_sales_scope(self):
@@ -247,6 +249,44 @@ class AuthAndWriteFlowTests(unittest.TestCase):
         })
         self.assertEqual(changed.status_code, 200, changed.text)
         self.assertLessEqual(decode_token(changed.json()["access_token"])["exp"], original["exp"])
+
+    def test_vps_reissue_uses_the_successfully_verified_session(self):
+        self.settings.auth_mode = "hybrid"
+        self._bind_vps("sales", 14110)
+        login = self._vps_login(expires_at=(datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat())
+        self.assertEqual(login.status_code, 200)
+        original = decode_token(login.json()["access_token"])
+        with patch("app.auth.security.jwt.decode", side_effect=[original, JWTError("token became unavailable")]):
+            response = self.client.post("/api/auth/vps-bootstrap")
+        self.assertEqual(response.status_code, 200)
+        renewed = decode_token(response.json()["access_token"])
+        self.assertEqual(renewed.get("auth_provider"), "vps")
+        self.assertLessEqual(renewed["exp"], original["exp"])
+
+    def test_vps_session_requires_the_current_binding_even_when_version_did_not_change(self):
+        self._bind_vps("sales", 14110)
+        self.assertEqual(self._vps_login().status_code, 200)
+        self._bind_vps("sales", None)
+        self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
+
+    def test_invalid_login_request_does_not_echo_credentials(self):
+        response = self.client.post("/api/auth/login", json={
+            "provider": "vps", "password": "fixture-password-never-echo",
+        })
+        self.assertEqual(response.status_code, 422)
+        self.assertNotIn("fixture-password-never-echo", response.text)
+
+    def test_vps_wrong_password_does_not_lock_same_named_local_login(self):
+        with (
+            patch("app.auth.router._MAX_FAILS", 1),
+            patch.dict("app.auth.router._fail_log", clear=True),
+            patch("app.auth.router._db_fail_times", return_value=None),
+            patch("app.auth.router._db_record_fail"),
+            patch("app.auth.router._db_clear_fail"),
+        ):
+            self.assertEqual(self._vps_login(username="sales", upstream_status=401).status_code, 401)
+            self.assertEqual(self._login("sales").status_code, 200)
+            self.assertEqual(self._vps_login(username="sales", upstream_status=401).status_code, 429)
 
     def test_vps_dealer_is_limited_to_bound_store_and_cannot_enter_workbench(self):
         self._bind_vps("dealer", 14110)
