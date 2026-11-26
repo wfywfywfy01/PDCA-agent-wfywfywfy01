@@ -286,30 +286,39 @@ class AuthAndWriteFlowTests(unittest.TestCase):
             with self.subTest(expiry=expiry):
                 self.assertEqual(self._vps_login(expires_at=expiry).status_code, 503)
 
-    def test_initial_vps_login_cannot_survive_concurrent_unbinding(self):
-        self._bind_vps("forced-admin", 14110)
+    def test_vps_token_issuance_cannot_survive_concurrent_unbinding(self):
         original_commit = Session.commit
-        unbound = False
+        for username in ("forced-admin", "sales"):
+            with self.subTest(username=username):
+                self._bind_vps(username, 14110)
+                if username == "sales":
+                    self.assertEqual(self._vps_login().status_code, 200)
+                unbound = False
 
-        def commit_then_unbind(session):
-            nonlocal unbound
-            initial_login = any(isinstance(row, User) and row.username == "forced-admin" for row in session.dirty)
-            original_commit(session)
-            if initial_login and not unbound:
-                unbound = True
-                with Session(self.engine) as admin_session:
-                    target = admin_session.exec(select(User).where(User.username == "forced-admin")).one()
-                    target.vps_user_id = None
-                    target.pwd_version += 1
-                    admin_session.add(target)
-                    original_commit(admin_session)
+                def commit_then_unbind(session):
+                    nonlocal unbound
+                    issuing = any(isinstance(row, User) and row.username == username for row in session.dirty)
+                    original_commit(session)
+                    if issuing and not unbound:
+                        unbound = True
+                        with Session(self.engine) as admin_session:
+                            target = admin_session.exec(select(User).where(User.username == username)).one()
+                            target.vps_user_id = None
+                            target.pwd_version += 1
+                            admin_session.add(target)
+                            original_commit(admin_session)
 
-        with patch.object(Session, "commit", commit_then_unbind):
-            response = self._vps_login()
-        self.assertTrue(unbound)
-        token = response.json()["access_token"]
-        self.client.cookies.clear()
-        self.assertEqual(self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code, 401)
+                with patch.object(Session, "commit", commit_then_unbind):
+                    if username == "forced-admin":
+                        response = self._vps_login()
+                    else:
+                        response = self.client.post("/api/auth/change-password", json={
+                            "old_password": "Correct-password-123", "new_password": "Changed-password-456",
+                        })
+                self.assertTrue(unbound)
+                token = response.json()["access_token"]
+                self.client.cookies.clear()
+                self.assertEqual(self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code, 401)
 
     def test_vps_bootstrap_does_not_extend_upstream_session(self):
         self._bind_vps("sales", 14110)

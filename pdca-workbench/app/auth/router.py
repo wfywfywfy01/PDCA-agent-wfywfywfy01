@@ -608,7 +608,8 @@ async def change_password(
 
     vps_claims = _preserved_vps_claims(request, user)
     user.hashed_password = hash_password(body.new_password)
-    user.pwd_version = (getattr(user, "pwd_version", 0) or 0) + 1
+    pwd_v = (getattr(user, "pwd_version", 0) or 0) + 1
+    user.pwd_version = pwd_v
     user.must_change_password = False
     session.add(user)
     session.commit()
@@ -619,7 +620,7 @@ async def change_password(
     if vps_claims:
         max_age = min(max_age, max(0, int(vps_claims["vps_expires_at"] - time.time())))
     new_token = create_access_token(
-        {"sub": user.username, "role": user.role, "pwd_v": user.pwd_version, **vps_claims},
+        {"sub": user.username, "role": user.role, "pwd_v": pwd_v, **vps_claims},
         timedelta(seconds=max_age),
     )
     _set_pdca_cookie(response, new_token, max_age=max_age)
