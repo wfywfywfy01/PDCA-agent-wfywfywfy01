@@ -5,10 +5,37 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app.workbench_sources import SalesQuery, VemoryQuery, _sales, _vemory
+from app.workbench_sources import SalesQuery, VemoryQuery, WhatsAppQuery, _sales, _vemory
 
 
 class VerifiedWorkbenchSourcesTest(unittest.TestCase):
+    def test_whatsapp_messages_use_verified_subject_and_only_return_scoped_chat_fields(self):
+        query = WhatsAppQuery(kind="ainative-whatsapp", start="2026-11-20", end="2026-11-26",
+                              customerRef="ref-one", page=2)
+        employee = {"rows": [{"subject_type": "employee", "exact_match": True, "employee_id": 23}]}
+        message = {"row_type": "detail", "platform": "WhatsApp", "customer_ref": "ref-one", "id": "message-1",
+                   "content": "fixture reply", "direction": "inbound", "time": "2026-11-25 12:01:00",
+                   "multimodal": {"media_url": "https://example.invalid"}, "customer_id": "fixture-private-id"}
+        payload = {"rows": [{"row_type": "summary"}, message, {**message, "customer_ref": "ref-other"},
+                            {**message, "platform": "微信"}],
+                   "source_sync_at": "2026-11-26 12:00:00", "is_complete": True,
+                   "pagination": {"has_more": True}}
+        with (
+            patch.dict(os.environ, {"PDCA_WORKBENCH_AISALES_VPS_TOKEN": "fixture"}),
+            patch("app.duzhan_ledger.mcp_call", side_effect=[employee, payload]) as call,
+        ):
+            result = _sales(query, 123)
+        name, args = call.call_args.args
+        self.assertEqual(name, "business.get_evidence")
+        self.assertEqual(args["vps_user_id"], 123)
+        self.assertEqual(args["subject"], {"employee_id": 23})
+        self.assertEqual(args["filters"], {"platform": "WhatsApp", "page": 2, "page_size": 40, "customer_ref": "ref-one"})
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["rows"][0]["消息"], "fixture reply")
+        self.assertNotIn("multimodal", result["rows"][0])
+        self.assertNotIn("customer_id", result["rows"][0])
+        self.assertEqual(result["hasMore"], True)
+
     def test_personal_sales_token_must_belong_to_verified_vps_user(self):
         query = SalesQuery(kind="ainative-sales", report="reach", start="2026-11-20", end="2026-11-26")
         target = {"rows": [{"subject_type": "employee", "exact_match": True, "employee_id": 23}]}
