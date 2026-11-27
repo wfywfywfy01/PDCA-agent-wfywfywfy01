@@ -161,7 +161,8 @@ def _sales(query: SalesQuery | WhatsAppQuery, directory_id: int) -> dict:
             context = payload.get("query_context")
             returned = context.get("filters") if isinstance(context, dict) else None
             subject = context.get("subject") if isinstance(context, dict) else None
-            if (not isinstance(returned, dict) or returned.get("customer_ref") != query.customerRef
+            if (not isinstance(returned, dict) or not isinstance(returned.get("customer_ref"), str)
+                    or not returned["customer_ref"]
                     or returned.get("platform") != "WhatsApp" or not isinstance(subject, dict)
                     or str(subject.get("employee_id")) != str(employee_id)):
                 raise HTTPException(502, "AINativeSales 未确认当前 WhatsApp 会话的查询范围")

@@ -20,7 +20,7 @@ class VerifiedWorkbenchSourcesTest(unittest.TestCase):
                             {**message, "platform": "微信"}],
                    "source_sync_at": "2026-11-26 12:00:00", "is_complete": True,
                    "query_context": {"subject": {"employee_id": 23}, "filters": {
-                       "platform": "WhatsApp", "customer_ref": "ref-one"}},
+                       "platform": "WhatsApp", "customer_ref": "ref-redacted-by-service"}},
                    "pagination": {"has_more": True}}
         with (
             patch.dict(os.environ, {"PDCA_WORKBENCH_AISALES_VPS_TOKEN": "fixture"}),
