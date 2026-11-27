@@ -57,7 +57,19 @@ class SalesQuery(DateQuery):
         return self
 
 
-WorkbenchSourceQuery = Annotated[KnowledgeQuery | VemoryQuery | SalesQuery, Field(discriminator="kind")]
+class WhatsAppQuery(DateQuery):
+    kind: Literal["ainative-whatsapp"]
+    customerRef: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)] | None = None
+    page: Annotated[int, Field(ge=1, le=1000)] = 1
+
+    @model_validator(mode="after")
+    def check_chat_window(self):
+        if (self.end - self.start).days > 30:
+            raise ValueError("聊天记录一次最多查询三十一天")
+        return self
+
+
+WorkbenchSourceQuery = Annotated[KnowledgeQuery | VemoryQuery | SalesQuery | WhatsAppQuery, Field(discriminator="kind")]
 
 
 def _result(source: str, columns: list[str], rows: list[dict], detail: str) -> dict:
@@ -110,7 +122,7 @@ def _vemory(query: VemoryQuery, directory_id: int) -> dict:
                    f"{query.start} 至 {query.end}，北京时间，当前账号的会议待办")
 
 
-def _sales(query: SalesQuery, directory_id: int) -> dict:
+def _sales(query: SalesQuery | WhatsAppQuery, directory_id: int) -> dict:
     from app.duzhan_ledger import mcp_call
 
     integration = os.environ.get("PDCA_WORKBENCH_AISALES_VPS_TOKEN", "").strip()
@@ -138,6 +150,30 @@ def _sales(query: SalesQuery, directory_id: int) -> dict:
         principal = (catalog.get("permission_scope") or {}).get("mapped_local_user_id")
         if principal is None or str(principal) != str(employee_id):
             raise HTTPException(403, "当前 VPS 账号需要单独配置 AINativeSales 授权")
+
+    if isinstance(query, WhatsAppQuery):
+        filters = {"platform": "WhatsApp", "page": query.page, "page_size": 40}
+        if query.customerRef is not None:
+            filters["customer_ref"] = query.customerRef
+        payload = call("business.get_evidence", {"evidence_type": "messages", "subject": {"employee_id": employee_id},
+                      "period": {"start_date": str(query.start), "end_date": str(query.end)}, "filters": filters})
+        rows = []
+        fields = {"客户引用": "customer_ref", "客户": "customer_display", "时间": "time", "方向": "direction",
+                  "类型": "message_type", "消息": "content", "回复来源": "reply_source", "消息编号": "id"}
+        for row in payload["rows"]:
+            if not isinstance(row, dict) or row.get("row_type") != "detail" or row.get("platform") != "WhatsApp":
+                continue
+            ref = row.get("customer_ref")
+            if not isinstance(ref, str) or not 1 <= len(ref) <= 512 or (query.customerRef is not None and ref != query.customerRef):
+                continue
+            rows.append({label: row.get(field) if isinstance(row.get(field), str) else None for label, field in fields.items()})
+        paging = payload.get("pagination") or {}
+        output = _result("AINativeSales · WhatsApp", list(fields), rows[:40],
+                         "当前账号可见的已同步一对一消息。")
+        synced_at = payload.get("source_sync_at")
+        return {**output, "sourceSyncAt": synced_at if isinstance(synced_at, str) else None,
+                "coverageComplete": payload.get("is_complete") is True,
+                "hasMore": isinstance(paging, dict) and paging.get("has_more") is True}
 
     domain, mode = {"performance": ("stats", "summary"), "customers": ("conversations", "customers"),
                     "reach": ("conversations", "reach_summary")}[query.report]
