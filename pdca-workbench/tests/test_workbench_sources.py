@@ -16,9 +16,11 @@ class VerifiedWorkbenchSourcesTest(unittest.TestCase):
         message = {"row_type": "detail", "platform": "WhatsApp", "customer_ref": "ref-one", "id": "message-1",
                    "content": "fixture reply", "direction": "inbound", "time": "2026-11-25 12:01:00",
                    "multimodal": {"media_url": "https://example.invalid"}, "customer_id": "fixture-private-id"}
-        payload = {"rows": [{"row_type": "summary"}, message, {**message, "customer_ref": "ref-other"},
+        payload = {"rows": [{"row_type": "summary"}, {**message, "customer_ref": "ref-newly-signed"},
                             {**message, "platform": "微信"}],
                    "source_sync_at": "2026-11-26 12:00:00", "is_complete": True,
+                   "query_context": {"subject": {"employee_id": 23}, "filters": {
+                       "platform": "WhatsApp", "customer_ref": "ref-redacted-by-service"}},
                    "pagination": {"has_more": True}}
         with (
             patch.dict(os.environ, {"PDCA_WORKBENCH_AISALES_VPS_TOKEN": "fixture"}),
@@ -32,9 +34,17 @@ class VerifiedWorkbenchSourcesTest(unittest.TestCase):
         self.assertEqual(args["filters"], {"platform": "WhatsApp", "page": 2, "page_size": 40, "customer_ref": "ref-one"})
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["rows"][0]["消息"], "fixture reply")
+        self.assertEqual(result["rows"][0]["客户引用"], "ref-one")
         self.assertNotIn("multimodal", result["rows"][0])
         self.assertNotIn("customer_id", result["rows"][0])
         self.assertEqual(result["hasMore"], True)
+        with (
+            patch.dict(os.environ, {"PDCA_WORKBENCH_AISALES_VPS_TOKEN": "fixture"}),
+            patch("app.duzhan_ledger.mcp_call", side_effect=[employee, {**payload, "query_context": {}}]),
+        ):
+            with self.assertRaises(HTTPException) as denied:
+                _sales(query, 123)
+        self.assertEqual(denied.exception.status_code, 502)
 
     def test_personal_sales_token_must_belong_to_verified_vps_user(self):
         query = SalesQuery(kind="ainative-sales", report="reach", start="2026-11-20", end="2026-11-26")

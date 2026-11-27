@@ -157,6 +157,15 @@ def _sales(query: SalesQuery | WhatsAppQuery, directory_id: int) -> dict:
             filters["customer_ref"] = query.customerRef
         payload = call("business.get_evidence", {"evidence_type": "messages", "subject": {"employee_id": employee_id},
                       "period": {"start_date": str(query.start), "end_date": str(query.end)}, "filters": filters})
+        if query.customerRef is not None:
+            context = payload.get("query_context")
+            returned = context.get("filters") if isinstance(context, dict) else None
+            subject = context.get("subject") if isinstance(context, dict) else None
+            if (not isinstance(returned, dict) or not isinstance(returned.get("customer_ref"), str)
+                    or not returned["customer_ref"]
+                    or returned.get("platform") != "WhatsApp" or not isinstance(subject, dict)
+                    or str(subject.get("employee_id")) != str(employee_id)):
+                raise HTTPException(502, "AINativeSales 未确认当前 WhatsApp 会话的查询范围")
         rows = []
         fields = {"客户引用": "customer_ref", "客户": "customer_display", "时间": "time", "方向": "direction",
                   "类型": "message_type", "消息": "content", "回复来源": "reply_source", "消息编号": "id"}
@@ -164,9 +173,13 @@ def _sales(query: SalesQuery | WhatsAppQuery, directory_id: int) -> dict:
             if not isinstance(row, dict) or row.get("row_type") != "detail" or row.get("platform") != "WhatsApp":
                 continue
             ref = row.get("customer_ref")
-            if not isinstance(ref, str) or not 1 <= len(ref) <= 512 or (query.customerRef is not None and ref != query.customerRef):
+            if not isinstance(ref, str) or not 1 <= len(ref) <= 512:
                 continue
-            rows.append({label: row.get(field) if isinstance(row.get(field), str) else None for label, field in fields.items()})
+            display = {label: row.get(field) if isinstance(row.get(field), str) else None for label, field in fields.items()}
+            # The evidence service binds the query, then issues a fresh reference in its rows.
+            if query.customerRef is not None:
+                display["客户引用"] = query.customerRef
+            rows.append(display)
         paging = payload.get("pagination") or {}
         output = _result("AINativeSales · WhatsApp", list(fields), rows[:40],
                          "当前账号可见的已同步一对一消息。")
