@@ -3197,7 +3197,7 @@ def _mcp_unwrap(result: dict | None) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
-def mcp_call(name: str, arguments: dict, *, vps_integration_token: str = "") -> dict | None:
+def mcp_call(name: str, arguments: dict, *, vps_integration_token: str = "", read_timeout: float | None = None) -> dict | None:
     """调 AINativeSales MCP tools/call。个人令牌禁止传 vps_user_id。"""
     settings = get_settings()
     token = vps_integration_token or settings.aisales_mcp_token
@@ -3220,9 +3220,11 @@ def mcp_call(name: str, arguments: dict, *, vps_integration_token: str = "") -> 
                 "Content-Type": "application/json",
                 "MCP-Protocol-Version": "2025-03-26",
             },
-            timeout=20.0,
+            timeout=20.0 if read_timeout is None else httpx.Timeout(read_timeout, connect=min(5.0, read_timeout)),
         )
     except Exception as exc:  # noqa: BLE001
+        if read_timeout is not None and isinstance(exc, httpx.TimeoutException):
+            raise
         logger.warning("AINativeSales 请求失败 {}: {}", name, exc)
         return None
     if resp.status_code != 200:

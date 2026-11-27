@@ -1,5 +1,6 @@
 """Read-only sales workspace queries under a verified VPS identity."""
 import os
+import time
 from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -136,10 +137,22 @@ def _sales(query: SalesQuery | WhatsAppQuery | WhatsAppAccounts, directory_id: i
     if not integration and not get_settings().aisales_mcp_token:
         raise HTTPException(503, "AINativeSales 尚未配置工作台授权")
 
+    # The desktop stops waiting after 85 seconds. Share the budget across identity and data reads.
+    deadline = time.monotonic() + 80 if isinstance(query, (WhatsAppQuery, WhatsAppAccounts)) else None
+
     def call(name: str, args: dict) -> dict:
         if integration:
             args = {**args, "vps_user_id": directory_id}
-        reply = mcp_call(name, args, vps_integration_token=integration)
+        if deadline is None:
+            reply = mcp_call(name, args, vps_integration_token=integration)
+        else:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise HTTPException(504, "AI 销售读取超时，请稍后刷新。")
+            try:
+                reply = mcp_call(name, args, vps_integration_token=integration, read_timeout=min(65, remaining))
+            except httpx.TimeoutException as exc:
+                raise HTTPException(504, "AI 销售读取超时，请稍后刷新。") from exc
         if isinstance(reply, dict) and "权限不足" in str(reply.get("error") or ""):
             raise HTTPException(403, "当前账号没有这个 AINativeSales 查询权限")
         if not isinstance(reply, dict) or not isinstance(reply.get("rows"), list):
@@ -153,8 +166,10 @@ def _sales(query: SalesQuery | WhatsAppQuery | WhatsAppAccounts, directory_id: i
         raise HTTPException(403, "当前 VPS 账号没有唯一的 AINativeSales 绑定")
     employee_id = matches[0]
     if not integration:
-        catalog = call("business.catalog", {"domain": "directory"})
-        principal = (catalog.get("permission_scope") or {}).get("mapped_local_user_id")
+        principal = (directory.get("permission_scope") or {}).get("mapped_local_user_id")
+        if principal is None:
+            catalog = call("business.catalog", {"domain": "directory"})
+            principal = (catalog.get("permission_scope") or {}).get("mapped_local_user_id")
         if principal is None or str(principal) != str(employee_id):
             raise HTTPException(403, "当前 VPS 账号需要单独配置 AINativeSales 授权")
 

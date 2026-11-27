@@ -1,5 +1,6 @@
 import os
 import unittest
+import httpx
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,6 +10,28 @@ from app.workbench_sources import SalesQuery, VemoryQuery, WhatsAppAccounts, Wha
 
 
 class VerifiedWorkbenchSourcesTest(unittest.TestCase):
+    def test_whatsapp_uses_live_resolver_principal_and_waits_for_slow_reads(self):
+        query = WhatsAppAccounts(kind="ainative-whatsapp-accounts", page=1)
+        identity = {"rows": [{"subject_type": "employee", "exact_match": True, "employee_id": 23}],
+                    "permission_scope": {"mapped_local_user_id": 23}}
+        payload = {"rows": [], "pagination": {"has_more": False}, "query_context": {
+            "subject": {"employee_id": 23}, "filters": {"platform": "WhatsApp"}}}
+        with (
+            patch.dict(os.environ, {"PDCA_WORKBENCH_AISALES_VPS_TOKEN": ""}),
+            patch("app.workbench_sources.get_settings", return_value=SimpleNamespace(aisales_mcp_token="fixture")),
+            patch("app.duzhan_ledger.mcp_call", side_effect=[identity, payload, identity, httpx.ReadTimeout("timeout")]) as call,
+        ):
+            self.assertEqual(_sales(query, 123)["rows"], [])
+            self.assertEqual([c.args[0] for c in call.call_args_list], ["business.resolve_subject", "business.query"])
+            self.assertGreater(call.call_args.kwargs["read_timeout"], 40)
+            identity["permission_scope"]["mapped_local_user_id"] = 24
+            with self.assertRaises(HTTPException) as forbidden:
+                _sales(query, 123)
+            self.assertEqual(forbidden.exception.status_code, 403)
+            with self.assertRaises(HTTPException) as slow:
+                _sales(query, 123)
+            self.assertEqual(slow.exception.status_code, 504)
+
     def test_bound_accounts_use_employee_mapping_and_refuse_another_owner(self):
         query = WhatsAppAccounts(kind="ainative-whatsapp-accounts", page=1)
         identity = {"rows": [{"subject_type": "employee", "exact_match": True, "employee_id": 23}]}
