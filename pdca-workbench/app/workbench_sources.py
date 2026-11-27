@@ -57,8 +57,14 @@ class SalesQuery(DateQuery):
         return self
 
 
+class WhatsAppAccounts(SourceQuery):
+    kind: Literal["ainative-whatsapp-accounts"]
+    page: Annotated[int, Field(ge=1, le=1000)] = 1
+
+
 class WhatsAppQuery(DateQuery):
     kind: Literal["ainative-whatsapp"]
+    accountId: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)] | None = None
     customerRef: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)] | None = None
     page: Annotated[int, Field(ge=1, le=1000)] = 1
 
@@ -69,7 +75,8 @@ class WhatsAppQuery(DateQuery):
         return self
 
 
-WorkbenchSourceQuery = Annotated[KnowledgeQuery | VemoryQuery | SalesQuery | WhatsAppQuery, Field(discriminator="kind")]
+WorkbenchSourceQuery = Annotated[KnowledgeQuery | VemoryQuery | SalesQuery | WhatsAppQuery | WhatsAppAccounts,
+                                 Field(discriminator="kind")]
 
 
 def _result(source: str, columns: list[str], rows: list[dict], detail: str) -> dict:
@@ -122,7 +129,7 @@ def _vemory(query: VemoryQuery, directory_id: int) -> dict:
                    f"{query.start} 至 {query.end}，北京时间，当前账号的会议待办")
 
 
-def _sales(query: SalesQuery | WhatsAppQuery, directory_id: int) -> dict:
+def _sales(query: SalesQuery | WhatsAppQuery | WhatsAppAccounts, directory_id: int) -> dict:
     from app.duzhan_ledger import mcp_call
 
     integration = os.environ.get("PDCA_WORKBENCH_AISALES_VPS_TOKEN", "").strip()
@@ -151,18 +158,45 @@ def _sales(query: SalesQuery | WhatsAppQuery, directory_id: int) -> dict:
         if principal is None or str(principal) != str(employee_id):
             raise HTTPException(403, "当前 VPS 账号需要单独配置 AINativeSales 授权")
 
+    if isinstance(query, WhatsAppAccounts):
+        payload = call("business.query", {"domain": "directory", "query_mode": "accounts",
+                       "subject": {"employee_id": employee_id},
+                       "filters": {"platform": "WhatsApp", "page": query.page, "page_size": 50}})
+        ctx = payload.get("query_context") or {}
+        if (str((ctx.get("subject") or {}).get("employee_id")) != str(employee_id)
+                or (ctx.get("filters") or {}).get("platform") != "WhatsApp"):
+            raise HTTPException(502, "上游未确认当前员工的 WhatsApp 账号范围")
+        rows = []
+        for row in payload["rows"]:
+            if isinstance(row, dict) and row.get("row_type") == "summary":
+                continue
+            if (not isinstance(row, dict) or row.get("row_type") != "detail" or row.get("platform") != "WhatsApp"
+                    or str(row.get("employee_id")) != str(employee_id) or not row.get("account_id")):
+                raise HTTPException(502, "WhatsApp 账号归属无法核实")
+            rows.append({"账号编号": str(row["account_id"]), "账号": row.get("account_name") or row.get("account_display"),
+                         "状态": row.get("status")})
+        paging = payload.get("pagination") or {}
+        if not isinstance(paging.get("has_more"), bool):
+            raise HTTPException(502, "WhatsApp 账号分页信息不完整")
+        return {**_result("AINativeSales · WhatsApp 绑定账号", ["账号编号", "账号", "状态"], rows, "当前 VPS 员工绑定的账号"),
+                "hasMore": paging["has_more"],
+                "coverageComplete": payload.get("is_complete") is True and payload.get("total_is_exact") is True}
+
     if isinstance(query, WhatsAppQuery):
         filters = {"platform": "WhatsApp", "page": query.page, "page_size": 40}
+        if query.accountId is not None:
+            filters["account_id"] = query.accountId
         if query.customerRef is not None:
             filters["customer_ref"] = query.customerRef
         payload = call("business.get_evidence", {"evidence_type": "messages", "subject": {"employee_id": employee_id},
                       "period": {"start_date": str(query.start), "end_date": str(query.end)}, "filters": filters})
-        if query.customerRef is not None:
+        if query.customerRef is not None or query.accountId is not None:
             context = payload.get("query_context")
             returned = context.get("filters") if isinstance(context, dict) else None
             subject = context.get("subject") if isinstance(context, dict) else None
-            if (not isinstance(returned, dict) or not isinstance(returned.get("customer_ref"), str)
-                    or not returned["customer_ref"]
+            if (not isinstance(returned, dict)
+                    or (query.customerRef is not None and not returned.get("customer_ref"))
+                    or (query.accountId is not None and str(returned.get("account_id")) != query.accountId)
                     or returned.get("platform") != "WhatsApp" or not isinstance(subject, dict)
                     or str(subject.get("employee_id")) != str(employee_id)):
                 raise HTTPException(502, "AINativeSales 未确认当前 WhatsApp 会话的查询范围")

@@ -5,13 +5,31 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from app.workbench_sources import SalesQuery, VemoryQuery, WhatsAppQuery, _sales, _vemory
+from app.workbench_sources import SalesQuery, VemoryQuery, WhatsAppAccounts, WhatsAppQuery, _sales, _vemory
 
 
 class VerifiedWorkbenchSourcesTest(unittest.TestCase):
+    def test_bound_accounts_use_employee_mapping_and_refuse_another_owner(self):
+        query = WhatsAppAccounts(kind="ainative-whatsapp-accounts", page=1)
+        identity = {"rows": [{"subject_type": "employee", "exact_match": True, "employee_id": 23}]}
+        account = {"row_type": "detail", "platform": "WhatsApp", "employee_id": 23, "account_id": "wa-1",
+                   "account_name": "Office", "status": "启用", "remark": "private"}
+        payload = {"rows": [{"row_type": "summary"}, account], "is_complete": True, "total_is_exact": True,
+                   "pagination": {"has_more": False}, "query_context": {
+                       "subject": {"employee_id": 23}, "filters": {"platform": "WhatsApp"}}}
+        with patch.dict(os.environ, {"PDCA_WORKBENCH_AISALES_VPS_TOKEN": "fixture"}), patch(
+                "app.duzhan_ledger.mcp_call", side_effect=[identity, payload, identity, payload]) as call:
+            result = _sales(query, 123)
+            self.assertEqual(result["rows"], [{"账号编号": "wa-1", "账号": "Office", "状态": "启用"}])
+            self.assertEqual(call.call_args.args[1]["subject"], {"employee_id": 23})
+            self.assertEqual(call.call_args.args[1]["vps_user_id"], 123)
+            account["employee_id"] = 24
+            with self.assertRaises(HTTPException):
+                _sales(query, 123)
+
     def test_whatsapp_messages_use_verified_subject_and_only_return_scoped_chat_fields(self):
         query = WhatsAppQuery(kind="ainative-whatsapp", start="2026-11-20", end="2026-11-26",
-                              customerRef="ref-one", page=2)
+                              customerRef="ref-one", accountId="wa-1", page=2)
         employee = {"rows": [{"subject_type": "employee", "exact_match": True, "employee_id": 23}]}
         message = {"row_type": "detail", "platform": "WhatsApp", "customer_ref": "ref-one", "id": "message-1",
                    "content": "fixture reply", "direction": "inbound", "time": "2026-11-25 12:01:00",
@@ -20,7 +38,7 @@ class VerifiedWorkbenchSourcesTest(unittest.TestCase):
                             {**message, "platform": "微信"}],
                    "source_sync_at": "2026-11-26 12:00:00", "is_complete": True,
                    "query_context": {"subject": {"employee_id": 23}, "filters": {
-                       "platform": "WhatsApp", "customer_ref": "ref-redacted-by-service"}},
+                       "platform": "WhatsApp", "account_id": "wa-1", "customer_ref": "ref-redacted-by-service"}},
                    "pagination": {"has_more": True}}
         with (
             patch.dict(os.environ, {"PDCA_WORKBENCH_AISALES_VPS_TOKEN": "fixture"}),
@@ -31,7 +49,8 @@ class VerifiedWorkbenchSourcesTest(unittest.TestCase):
         self.assertEqual(name, "business.get_evidence")
         self.assertEqual(args["vps_user_id"], 123)
         self.assertEqual(args["subject"], {"employee_id": 23})
-        self.assertEqual(args["filters"], {"platform": "WhatsApp", "page": 2, "page_size": 40, "customer_ref": "ref-one"})
+        self.assertEqual(args["filters"], {"platform": "WhatsApp", "page": 2, "page_size": 40, "account_id": "wa-1",
+                                           "customer_ref": "ref-one"})
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["rows"][0]["消息"], "fixture reply")
         self.assertEqual(result["rows"][0]["客户引用"], "ref-one")
